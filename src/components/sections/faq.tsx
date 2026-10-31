@@ -13,11 +13,11 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Is it open source?",
-    answer: "Yes. The core application, integrations included, will be open source and self-hostable. The license is being finalized before the first release.",
+    answer: "Yes. The core application, integrations included, will be open source and self-hostable. The license will be chosen before the code is made public.",
   },
   {
     question: `Does ${site.name} need write access to my accounts?`,
-    answer: `No. It asks for read-only access wherever a provider offers it. Some providers only expose usage data to keys that can also write. In that case the integration is labeled Elevated access required before you connect, and ${site.name} still only performs read operations.`,
+    answer: `No. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect, and ${site.name} still only performs read operations.`,
   },
   {
     question: "Will any of my data be public?",
@@ -33,7 +33,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Which services come first?",
-    answer: "Resend, Vercel, ElevenLabs, and GitHub Actions are the first candidates, followed by the OpenAI API, the Anthropic API, and Supabase. The order depends on what each official API exposes, so it may change.",
+    answer: "Vercel, GitHub, Resend, Stripe, and Supabase, all connected with OAuth. GitLab, Railway, Polar, PostHog, DigitalOcean, Sentry, and ElevenLabs are planned next. The OpenAI and Anthropic APIs only share usage with admin API keys, so they wait until an OAuth route exists.",
   },
   {
     question: "Will there be an API or MCP server?",

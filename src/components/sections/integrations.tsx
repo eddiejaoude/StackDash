@@ -8,25 +8,26 @@ interface IntegrationGroup {
   providers: readonly string[];
 }
 
-// Provisional order from the planning doc. The order depends on what each official API exposes.
+// Order from the OAuth research on issue #11. The first two groups connect through OAuth; the
+// last group has no OAuth route to the data yet, and says why.
 const groups: readonly IntegrationGroup[] = [
   {
     stage: "First",
     dotClass: "bg-success",
-    note: "Candidates for the first release",
-    providers: ["Resend", "Vercel", "ElevenLabs", "GitHub and GitHub Actions"],
+    note: "In the first release",
+    providers: ["Vercel", "GitHub and GitHub Actions", "Resend", "Stripe", "Supabase"],
   },
   {
     stage: "Next",
     dotClass: "bg-warning",
     note: "Planned straight after",
-    providers: ["OpenAI API", "Anthropic API", "Supabase"],
+    providers: ["GitLab", "Railway", "Polar", "PostHog", "DigitalOcean", "Sentry", "ElevenLabs"],
   },
   {
-    stage: "Exploring",
+    stage: "Waiting",
     dotClass: "bg-muted",
-    note: "Researching what official APIs allow",
-    providers: ["Devin", "Brave Search API", "Stripe", "PayPal", "Cloudflare"],
+    note: "No OAuth route to the data yet",
+    providers: ["OpenAI API: admin keys only", "Anthropic API: admin keys only", "PayPal: approved partners only"],
   },
 ];
 
@@ -36,7 +37,7 @@ export function Integrations() {
       id="integrations"
       eyebrow="Integrations"
       title="A few reliable integrations beat a long list of shaky ones"
-      intro="Each integration will document exactly what it reads, which permissions it needs, how often it syncs, and what the provider does not expose. The order below is provisional and follows what each official API allows."
+      intro="Every integration connects with OAuth and documents exactly what it reads, which permissions it needs, how often it syncs, and what the provider does not expose. The order follows what each official API allows."
     >
       <div className="grid gap-6 md:grid-cols-3">
         {groups.map((group) => (

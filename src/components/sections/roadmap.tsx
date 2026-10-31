@@ -11,20 +11,23 @@ const phases: readonly Phase[] = [
     name: "First release",
     summary: "Prove that one view of usage and spend is worth connecting accounts for.",
     items: [
+      "One-click connections with OAuth",
       "Usage and spending dashboard",
       "Allowances, remaining quota, and reset dates",
       "Percentage and dollar thresholds",
       "Daily usage summaries",
-      "Activity timeline with filters",
+      "Timeline of signups, payments, deploys, and stars",
       "Usage history",
-      "Self-hosting with Docker",
     ],
   },
   {
     name: "Straight after",
-    summary: "Share it with a team and query it from your own tools.",
+    summary: "Open the code, share it with a team, and query it from your own tools.",
     items: [
+      "Open source release with self-hosting on Docker",
       "Team workspaces with owner, admin, and viewer roles",
+      "Hide the event types you do not care about",
+      "More integrations, starting with GitLab, Railway, and Polar",
       "Public REST API with scoped keys",
       "Read-only MCP server for AI assistants",
     ],
@@ -48,7 +51,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release stays focused. Teams, an API, and MCP follow once the core is solid."
+      intro="The first release stays focused. Self-hosting, teams, an API, and MCP follow once the core is solid."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

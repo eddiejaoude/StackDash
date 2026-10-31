@@ -15,7 +15,7 @@ export function Problem() {
       id="problem"
       eyebrow="The problem"
       title="Every service has its own dashboard, pricing, and reset date"
-      intro="GitHub, Vercel, Supabase, Resend, OpenAI, Anthropic, ElevenLabs. Each one answers a slice of the question, in its own units and on its own billing cycle. None of them answers it for your whole stack, so simple questions turn into a tour of browser tabs."
+      intro="GitHub, Vercel, Supabase, Resend, Stripe, OpenAI, Anthropic. Each one answers a slice of the question, in its own units and on its own billing cycle. None of them answers it for your whole stack, so simple questions turn into a tour of browser tabs."
     >
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {questions.map((question) => (

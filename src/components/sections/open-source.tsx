@@ -26,7 +26,7 @@ export function OpenSource() {
       id="open-source"
       eyebrow="Open source"
       title="Open source first, hosted if you want it"
-      intro="The code, the roadmap, and the decisions happen in public on GitHub. The license is being finalized before the first release."
+      intro="The code, the roadmap, and the decisions happen in public on GitHub. The license will be chosen before the code is made public."
     >
       <ul className="grid gap-6 md:grid-cols-3">
         {pillars.map((pillar) => (
