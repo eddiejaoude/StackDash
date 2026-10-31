@@ -8,8 +8,9 @@ interface IntegrationGroup {
   providers: readonly string[];
 }
 
-// Order from the OAuth research on issue #11. The first two groups connect through OAuth; the
-// last group has no OAuth route to the data yet, and says why.
+// Order from the OAuth research on issue #11. The first group connects through OAuth. The next
+// group does too, except ElevenLabs, which returns with a restricted API key (#49). The last group
+// has no OAuth route to the data yet, and says why.
 const groups: readonly IntegrationGroup[] = [
   {
     stage: "First",
@@ -37,7 +38,7 @@ export function Integrations() {
       id="integrations"
       eyebrow="Integrations"
       title="A few reliable integrations beat a long list of shaky ones"
-      intro="Every integration connects with OAuth and documents exactly what it reads, which permissions it needs, how often it syncs, and what the provider does not expose. The order follows what each official API allows."
+      intro="Integrations connect with OAuth wherever the provider offers it, and each one documents exactly what it reads, which permissions it needs, how often it syncs, and what the provider does not expose. The order follows what each official API allows."
     >
       <div className="grid gap-6 md:grid-cols-3">
         {groups.map((group) => (

@@ -11,7 +11,7 @@ const phases: readonly Phase[] = [
     name: "First release",
     summary: "Prove that one view of usage and spend is worth connecting accounts for.",
     items: [
-      "One-click connections with OAuth",
+      "Connections through OAuth, no API keys",
       "Usage and spending dashboard",
       "Allowances, remaining quota, and reset dates",
       "Percentage and dollar thresholds",

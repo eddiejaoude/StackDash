@@ -37,7 +37,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Will there be an API or MCP server?",
-    answer: `Yes, soon after the first release: a public REST API with scoped keys, and a read-only MCP server so AI assistants can answer questions like "which provider is closest to its limit?" without ever seeing your provider keys.`,
+    answer: `Yes, soon after the first release: a public REST API with scoped keys, and a read-only MCP server so AI assistants can answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials.`,
   },
 ];
 

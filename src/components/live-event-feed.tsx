@@ -35,7 +35,7 @@ const feedEvents: readonly FeedEvent[] = [
   { platform: "Stripe", severity: "Event", text: "New customer subscribed to the Team plan" },
   { platform: "Vercel", severity: "Failed", text: "Preview deployment failed for acme-docs" },
   { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 75%" },
-  { platform: "Supabase", severity: "Event", text: "New signup with GitHub sign-in on acme-app" },
+  { platform: "Supabase", severity: "Event", text: "New signup on acme-docs" },
   { platform: "GitHub", severity: "Event", text: "Pull request #128 merged in acme/api" },
   { platform: "Stripe", severity: "Failed", text: "Renewal payment failed for an annual plan" },
   { platform: "Vercel", severity: "Alert", text: "Spending passed 90% of your $25 budget" },

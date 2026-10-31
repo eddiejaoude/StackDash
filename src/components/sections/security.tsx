@@ -7,12 +7,12 @@ const principles: readonly IconCardItem[] = [
   {
     icon: ShieldIcon,
     title: "Read-only wherever the provider allows it",
-    body: "Every connection uses OAuth with the narrowest read-only scopes the provider offers. There are no API keys to paste, and write permissions are never requested for a dashboard that only reads.",
+    body: "OAuth first, with the narrowest read-only scopes the provider offers, so most connections need no API key at all. Where a provider has no OAuth route, a restricted read-only key is the fallback. Write permissions are never requested for a dashboard that only reads.",
   },
   {
     icon: EyeIcon,
     title: "Permissions shown before you connect",
-    body: `Every integration is labeled Read-only or Elevated access required. If a provider only shares usage data with broader access, as Resend's OAuth does, ${site.name} tells you before you connect and never calls it read-only.`,
+    body: `Every integration is labeled Read-only, Restricted API key, or Elevated access required. If a provider only shares usage data with broader access, as Resend's OAuth does, ${site.name} tells you before you connect and never calls it read-only.`,
   },
   {
     icon: LockIcon,
