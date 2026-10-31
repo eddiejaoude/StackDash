@@ -15,7 +15,7 @@ const heroFeatures: readonly HeroFeature[] = [
   { icon: ReportIcon, title: "Verified and estimated spend", body: "Every figure says where it came from." },
   { icon: GaugeIcon, title: "Allowances and reset dates", body: "See what is left before it runs out." },
   { icon: BellIcon, title: "Budget alerts", body: "Once per billing period, not every hour." },
-  { icon: TimelineIcon, title: "Live events", body: "Deploys, builds, releases, and usage alerts in one feed." },
+  { icon: TimelineIcon, title: "Live events", body: "Signups, payments, deploys, stars, and usage alerts in one feed." },
 ];
 
 // The feature strip follows the preview's own entrance (see hero-preview.tsx).

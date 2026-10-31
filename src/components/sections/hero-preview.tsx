@@ -9,24 +9,26 @@ interface PreviewRow {
   measure: { kind: "share"; percentUsed: number } | { kind: "amount"; amountMinor: number };
 }
 
-// Illustrative values only, labeled as such in the UI. Not real provider data.
+// Illustrative values only, labeled as such in the UI. Not real provider data. Every row is a
+// first-release integration (issue #11). The GitHub cost rows come from the organization billing
+// usage endpoints the GitHub App in issue #51 reads with "Administration" set to read.
 const previewRows: readonly PreviewRow[] = [
-  { provider: "Anthropic API", detail: "$22.80 of a $25 budget", source: "Budget", measure: { kind: "share", percentUsed: 91 } },
+  { provider: "Vercel", detail: "$22.80 of a $25 budget", source: "Budget", measure: { kind: "share", percentUsed: 91 } },
   { provider: "Resend", detail: "Monthly emails · resets in 9 days", source: "Allowance", measure: { kind: "share", percentUsed: 75 } },
-  { provider: "ElevenLabs", detail: "Included credits · resets in 14 days", source: "Allowance", measure: { kind: "share", percentUsed: 68 } },
   { provider: "GitHub Actions", detail: "Included minutes · resets in 21 days", source: "Allowance", measure: { kind: "share", percentUsed: 42 } },
-  { provider: "OpenAI API", detail: "Spent this month", source: "Verified cost", measure: { kind: "amount", amountMinor: 1450 } },
-  { provider: "Vercel", detail: "Usage charges this month", source: "Verified cost", measure: { kind: "amount", amountMinor: 1230 } },
-  { provider: "Supabase", detail: "Projected from usage and pricing", source: "Estimated cost", measure: { kind: "amount", amountMinor: 420 } },
+  { provider: "Stripe", detail: "Processing fees this month", source: "Verified cost", measure: { kind: "amount", amountMinor: 1450 } },
+  { provider: "GitHub Copilot", detail: "Premium requests beyond the plan", source: "Verified cost", measure: { kind: "amount", amountMinor: 400 } },
+  { provider: "GitHub Actions", detail: "Larger runner minutes, not in the allowance", source: "Verified cost", measure: { kind: "amount", amountMinor: 240 } },
+  { provider: "Supabase", detail: "Pro plan price, from published pricing", source: "Estimated cost", measure: { kind: "amount", amountMinor: 2500 } },
 ];
 
-// Verified spend per day so far this month, in cents. Sums to the $49.60 verified total:
-// Anthropic API $22.80 + OpenAI API $14.50 + Vercel $12.30.
+// Verified spend per day so far this month, in cents. Sums to the $43.70 verified total:
+// Vercel $22.80 + Stripe fees $14.50 + GitHub Copilot $4.00 + GitHub Actions $2.40.
 const dailyVerifiedMinor: readonly number[] = [
-  150, 160, 140, 175, 190, 170, 165, 200, 210, 185, 220, 240, 215, 230, 260, 250, 275, 290, 265, 300, 320, 350,
+  135, 140, 125, 150, 170, 150, 145, 175, 185, 165, 195, 210, 185, 205, 230, 225, 240, 260, 235, 265, 280, 300,
 ];
-const VERIFIED_MINOR = 4960;
-const ESTIMATED_MINOR = 420;
+const VERIFIED_MINOR = 4370;
+const ESTIMATED_MINOR = 2500;
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const percent = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 0 });
@@ -45,8 +47,8 @@ interface StatTile {
 // Verified and estimated stay in separate tiles: different kinds of number are never summed.
 const statTiles: readonly StatTile[] = [
   { term: "Verified", value: VERIFIED_MINOR, format: "usd", note: "From billing APIs" },
-  { term: "Estimated", value: ESTIMATED_MINOR, format: "usd", note: "From usage and pricing" },
-  { term: "Near a limit", value: 2, format: "integer", note: "Of 4 allowances and budgets" },
+  { term: "Estimated", value: ESTIMATED_MINOR, format: "usd", note: "From published pricing" },
+  { term: "Near a limit", value: 2, format: "integer", note: "Of 3 allowances and budgets" },
   { term: "Next reset", value: 9, format: "integer", unit: "days", note: "Resend monthly emails" },
 ];
 
@@ -126,7 +128,7 @@ function MonthSummary() {
     <div className="border-b border-line p-5 sm:px-6">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium">This month</p>
-        <p className="font-mono text-xs text-muted">7 providers · synced 4 min ago</p>
+        <p className="font-mono text-xs text-muted">5 providers · synced 4 min ago</p>
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -181,7 +183,7 @@ function MonthDetail() {
 
       <p className="alert-in mt-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning">
         <span aria-hidden="true">▲</span>
-        Anthropic API passed 90% of your $25 monthly budget.
+        Vercel passed 90% of your $25 monthly budget.
       </p>
 
       <ul className="mt-1 divide-y divide-line">
@@ -189,7 +191,7 @@ function MonthDetail() {
           const rowDelayMs = ROW_START_MS + index * ROW_STAGGER_MS;
           const valueDelayMs = rowDelayMs + BAR_AFTER_ROW_MS;
           return (
-            <li key={row.provider} className="rise-in py-2" style={{ animationDelay: `${rowDelayMs}ms` }}>
+            <li key={`${row.provider} ${row.source}`} className="rise-in py-2" style={{ animationDelay: `${rowDelayMs}ms` }}>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-sm">{row.provider}</span>
                 <span className="font-mono text-sm">
