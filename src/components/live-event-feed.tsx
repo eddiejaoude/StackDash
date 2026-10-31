@@ -1,20 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { PlatformLogo, type Platform } from "@/components/platform-logo";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
-
-type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "Resend" | "Stripe" | "Supabase";
-
-// Short text marks stand in for logos: no third-party artwork, and the full name is always
-// printed beside the mark.
-const PLATFORM_MARKS: Record<Platform, string> = {
-  Vercel: "V",
-  GitHub: "GH",
-  "GitHub Actions": "GA",
-  Resend: "R",
-  Stripe: "S",
-  Supabase: "SB",
-};
 
 interface FeedEvent {
   platform: Platform;
@@ -171,11 +159,8 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <span
-                    aria-hidden="true"
-                    className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel font-mono text-[10px] font-semibold text-foreground"
-                  >
-                    {PLATFORM_MARKS[event.platform]}
+                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-foreground">
+                    <PlatformLogo platform={event.platform} className="size-3.5" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
