@@ -7,7 +7,7 @@ const steps: readonly IconCardItem[] = [
   {
     icon: PlugIcon,
     title: "Connect",
-    body: "Pick a provider, click Connect, and approve read-only access on the provider's own screen. Choose the organizations, teams, and projects that matter. No API keys to copy, and no code changes in your apps.",
+    body: "Pick a provider, click Connect, and approve read-only access on the provider's own screen. Choose the organizations, teams, and projects that matter. No API keys to copy for most providers, and no code changes in your apps.",
   },
   {
     icon: RadarIcon,

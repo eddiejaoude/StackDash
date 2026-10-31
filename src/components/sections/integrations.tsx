@@ -10,7 +10,7 @@ interface IntegrationGroup {
 
 // Order from the OAuth research on issue #11. The first group connects through OAuth. The next
 // group does too, except ElevenLabs, which returns with a restricted API key (#49). The last group
-// has no OAuth route to the data yet, and says why.
+// waits because its usage data needs an admin key or partner approval, and says which.
 const groups: readonly IntegrationGroup[] = [
   {
     stage: "First",
@@ -27,7 +27,7 @@ const groups: readonly IntegrationGroup[] = [
   {
     stage: "Waiting",
     dotClass: "bg-muted",
-    note: "No OAuth route to the data yet",
+    note: "Usage needs an admin key or partner approval",
     providers: ["OpenAI API: admin keys only", "Anthropic API: admin keys only", "PayPal: approved partners only"],
   },
 ];
