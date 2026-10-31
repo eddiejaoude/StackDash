@@ -47,8 +47,8 @@ const timeline: readonly TimelineEvent[] = [
   { time: "09:00", severity: "Summary", text: "Yesterday: $7.15 across 4 providers, $0.65 of it estimated" },
   { time: "08:42", severity: "Failed", text: "Vercel deployment failed for acme-web in production" },
   { time: "08:10", severity: "Alert", text: "Resend reached 75% of its monthly email allowance" },
-  { time: "07:55", severity: "Event", text: "Pull request #42 merged in acme/api" },
-  { time: "07:31", severity: "Event", text: "Supabase: 12 new signups on acme-app since midnight" },
+  { time: "07:55", severity: "Success", text: "Pull request #42 merged in acme/api" },
+  { time: "07:31", severity: "Success", text: "Supabase: 12 new signups on acme-app since midnight" },
 ];
 
 interface CostLabel {

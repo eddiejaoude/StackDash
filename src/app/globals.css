@@ -329,6 +329,10 @@ summary {
   --flash: var(--danger);
 }
 
+.feed-arrival[data-severity="Success"] {
+  --flash: var(--success);
+}
+
 @keyframes live-pulse {
   from {
     transform: scale(1);

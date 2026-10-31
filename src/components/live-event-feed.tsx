@@ -26,20 +26,20 @@ interface FeedEvent {
 // can collect (issues #11, #46, #47, #51, #62, #111, #118). Ordered so neighbors come from
 // different platforms, because the point of the feed is many sources in one place.
 const feedEvents: readonly FeedEvent[] = [
-  { platform: "Vercel", severity: "Event", text: "Production deployment of acme-web is ready" },
-  { platform: "Supabase", severity: "Event", text: "New signup on acme-app" },
-  { platform: "Stripe", severity: "Event", text: "Payment of $49.00 received for the Pro plan" },
-  { platform: "GitHub", severity: "Event", text: "acme/cli reached 1,000 stars" },
+  { platform: "Vercel", severity: "Success", text: "Production deployment of acme-web is ready" },
+  { platform: "Supabase", severity: "Success", text: "New signup on acme-app" },
+  { platform: "Stripe", severity: "Success", text: "Payment of $49.00 received for the Pro plan" },
+  { platform: "GitHub", severity: "Success", text: "acme/cli reached 1,000 stars" },
   { platform: "Resend", severity: "Alert", text: "Monthly email allowance passed 80%" },
   { platform: "Supabase", severity: "Summary", text: "Yesterday: 312 logins from 148 active users" },
-  { platform: "Stripe", severity: "Event", text: "New customer subscribed to the Team plan" },
+  { platform: "Stripe", severity: "Success", text: "New customer subscribed to the Team plan" },
   { platform: "Vercel", severity: "Failed", text: "Preview deployment failed for acme-docs" },
   { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 75%" },
-  { platform: "Supabase", severity: "Event", text: "New signup on acme-docs" },
-  { platform: "GitHub", severity: "Event", text: "Pull request #128 merged in acme/api" },
+  { platform: "Supabase", severity: "Success", text: "New signup on acme-docs" },
+  { platform: "GitHub", severity: "Success", text: "Pull request #128 merged in acme/api" },
   { platform: "Stripe", severity: "Failed", text: "Renewal payment failed for an annual plan" },
   { platform: "Vercel", severity: "Alert", text: "Spending passed 90% of your $25 budget" },
-  { platform: "GitHub", severity: "Event", text: "New fork of acme/api" },
+  { platform: "GitHub", severity: "Success", text: "New fork of acme/api" },
   { platform: "Resend", severity: "Event", text: "Monthly email allowance reset for the new period" },
 ];
 
