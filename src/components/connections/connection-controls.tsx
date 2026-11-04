@@ -136,7 +136,10 @@ export function AccountIncludedForm({
       >
         {included ? "Exclude" : "Include"}
       </button>
-      <ActionStatus state={state} pending={pending} />
+      {/* Pinned: with the button placed in row 2, auto-placement would put this in row 1. */}
+      <div className="sm:row-start-3">
+        <ActionStatus state={state} pending={pending} />
+      </div>
     </form>
   );
 }
