@@ -119,7 +119,7 @@ ownerTest("the app and a workspace root open on the timeline", async ({ page }) 
   const switcher = page.getByRole("button", { name: /^Workspace: / });
   await switcher.click();
   await expect(switcher).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator('a[aria-current="true"]')).toHaveAttribute("href", `/w/${slug}/timeline`);
+  await expect(page.getByRole("link", { name: /Current$/ })).toHaveAttribute("href", `/w/${slug}/timeline`);
 });
 
 signOutTest("signing out ends the session", async ({ page }) => {
