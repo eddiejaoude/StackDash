@@ -18,6 +18,8 @@ The schema lives in `supabase/migrations/`, forward-only:
 
 ## Entity relationships
 
+What each of these is for, and how workspaces, connections, external accounts, and projects fit together: [Workspaces, connections, accounts, and projects](concepts.md).
+
 ```mermaid
 erDiagram
   auth_users ||--|| profiles : "has"

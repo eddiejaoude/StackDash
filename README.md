@@ -345,6 +345,7 @@ supabase/
 scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
+  architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
   operations/                  deploy, OAuth apps, jobs
   providers/                   one page per provider: app setup, permissions, data read
