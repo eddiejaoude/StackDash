@@ -113,8 +113,11 @@ async function syncConnection(
   let credential = await deps.store.loadCredential(key);
   if (credential === null) throw new SyncSetupError("credential_missing", "Connection has no stored credential");
   // A credential the simulator minted (#131) is made up: it is never handed to a real adapter,
-  // which would send it to the provider. Checked before the client is loaded, so a refusal never
-  // depends on whether the real provider's OAuth app is configured here.
+  // which would send it to the provider. The credential is loaded and checked before the client,
+  // so a refusal never depends on whether the real provider's OAuth app is configured here. It also
+  // means a missing credential outranks an unconfigured provider: such a connection reports
+  // `credential_missing` and needs attention at once, rather than `provider_not_configured`, which
+  // is retried and ends in `failed`.
   if (isSimulatedCredential(credential) && !isSimulatedAdapter(adapter)) {
     throw new SyncSetupError(
       "simulated_credential",

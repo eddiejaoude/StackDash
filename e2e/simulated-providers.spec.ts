@@ -15,7 +15,9 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
- * finished (playwright.config.ts). Any spec that runs the tick must live in that project too.
+ * finished (playwright.config.ts). Any spec that runs the tick must live in that project too, and
+ * only those: a test here that never ticks belongs in `chromium` (see
+ * real-connection-while-simulating.spec.ts).
  */
 
 const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
@@ -131,45 +133,6 @@ ownerTest.describe("simulated providers", () => {
       for (let index = 0; index < (await trends.count()); index += 1) {
         await expect(trends.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
       }
-    } finally {
-      await deleteTestWorkspace(workspace);
-    }
-  });
-
-  ownerTest("never labels a real connection as simulated, and refuses to reconnect it through the simulator", async ({ page }) => {
-    const workspace = await createTestWorkspace("Real connection while simulating");
-    try {
-      // Made before the flag went on: its granted scopes are a real app's, not simulated:read.
-      const { data: connection, error } = await adminClient()
-        .from("connections")
-        .insert({
-          workspace_id: workspace.id,
-          provider: "vercel",
-          status: "active",
-          display_name: "Vercel (Real team)",
-          poll_interval_seconds: 3600,
-        })
-        .select("id")
-        .single();
-      if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
-
-      await page.goto(`/w/${workspace.slug}/connections`);
-      const row = page
-        .getByRole("list", { name: "Connections" })
-        .getByRole("listitem")
-        .filter({ has: page.getByRole("link", { name: "Vercel (Real team)", exact: true }) });
-      await expect(row).toBeVisible();
-      await expect(row.getByText("Simulated", { exact: true })).toHaveCount(0);
-
-      await page.goto(`/w/${workspace.slug}/connections/${connection.id}`);
-      await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toHaveCount(0);
-
-      await page.goto(`/w/${workspace.slug}/connections/new/vercel?connection=${connection.id}`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reconnect Vercel");
-      await expect(
-        page.getByText("This connection was made with the real Vercel app. Connect a new simulated one instead."),
-      ).toBeVisible();
-      await expect(page.getByRole("button", { name: "Continue to Vercel" })).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
     }

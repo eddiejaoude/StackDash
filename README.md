@@ -209,7 +209,9 @@ connection cannot be reconnected with a real provider, nor a real one with the s
 Note for local use: a real connection you made before turning the flag on is never synced early
 by `--watch`, but while the flag is on its scheduled syncs are refused by the simulator. It is
 marked failed with one timeline event, and syncs again on its hourly retry once the flag is
-removed.
+removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_PROVIDERS` is
+removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
+recovers on its own after the flag is gone.
 
 ## Checks
 
@@ -256,7 +258,9 @@ them in, and saves the sessions in `e2e/.auth/` (git ignored). The connection an
 the fake provider, so `.env.local` must contain `DEVMACRO_ENCRYPTION_KEY`, `CRON_SECRET`, and the
 three fake provider values from step 8, as CI writes them. The Playwright config also turns on
 the simulated providers from step 10 for its dev server, which `e2e/simulated-providers.spec.ts`
-connects and syncs through `POST /api/jobs/tick`.
+connects and syncs through `POST /api/jobs/tick`. `e2e/real-connection-while-simulating.spec.ts`
+checks, without a tick, that a real connection stays unlabeled and cannot be reconnected through
+the simulator.
 
 That tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs live
@@ -271,9 +275,9 @@ npx playwright test --project=instance-wide --no-deps  # only the tick spec, wit
 npx playwright test --project=chromium              # every spec except the tick spec
 ```
 
-A file filter does not narrow the `chromium` dependency: it still runs in full. The guarded agent
-runner `safe-e2e.sh` runs `--project chromium` unless `PW_PROJECT=instance-wide` is set, which
-runs `chromium` first as above.
+A file filter does not narrow the `chromium` dependency: it still runs in full. A wrapper that
+always passes `--project chromium` skips the tick spec; it needs `--project instance-wide` to
+include it.
 
 ## Environment variables
 
