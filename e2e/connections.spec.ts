@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
@@ -197,6 +198,63 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await expect(attention).toContainText("Missing: usage:read");
       await attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Reconnect ${PROVIDER_NAME}`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("saves an account's project and keeps it selected, in line with the account's other controls", async ({ page }) => {
+    const workspace = await createTestWorkspace("Account project");
+    try {
+      const { data: project, error } = await adminClient()
+        .from("projects")
+        .insert({ workspace_id: workspace.id, name: "Checkout" })
+        .select("id")
+        .single();
+      if (error !== null) throw new Error(`Seeding the project failed (code ${error.code}).`);
+      await connectThroughUi(page, workspace.slug);
+
+      const row = page.getByRole("list", { name: "Accounts" }).getByRole("listitem").filter({ hasText: "Example team" });
+      const select = row.getByLabel("Project for Example team");
+      const save = row.getByRole("button", { name: "Save project" });
+      const exclude = row.getByRole("button", { name: "Exclude Example team" });
+
+      // One row of controls: the dropdown, its save button, and Exclude share a top and a height.
+      const selectBox = await select.boundingBox();
+      if (selectBox === null) throw new Error("The project dropdown is not rendered.");
+      for (const button of [save, exclude]) {
+        const box = await button.boundingBox();
+        if (box === null) throw new Error("An account button is not rendered.");
+        expect(Math.abs(box.y - selectBox.y)).toBeLessThanOrEqual(1);
+        expect(Math.abs(box.height - selectBox.height)).toBeLessThanOrEqual(1);
+      }
+
+      // The form resets after a save: the dropdown must show what was saved, not what it mounted with.
+      await select.selectOption({ label: "Checkout" });
+      await save.click();
+      await expect(row.getByRole("status").filter({ hasText: "Project saved." })).toBeVisible();
+      await expect(select).toHaveValue(project.id);
+      const { data: account } = await adminClient()
+        .from("external_accounts")
+        .select("project_id")
+        .eq("workspace_id", workspace.id)
+        .eq("display_name", "Example team")
+        .single();
+      expect(account?.project_id).toBe(project.id);
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      // Back to no project, saved from the keyboard: the empty value survives the reset too.
+      await select.selectOption({ label: "No project" });
+      await select.focus();
+      await page.keyboard.press("Tab");
+      await expect(save).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(row.getByRole("status").filter({ hasText: "Project removed." })).toBeVisible();
+      await expect(select).toHaveValue("");
+      await save.focus();
+      await page.keyboard.press("Tab");
+      await expect(exclude).toBeFocused();
     } finally {
       await deleteTestWorkspace(workspace);
     }
