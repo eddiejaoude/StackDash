@@ -58,7 +58,8 @@ const FIRST_SYNC_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const scopes = ["billing:read", "deployment:read", "project:read", "team:read"] as const;
 
-const eventTypes = [
+// Exported, like the spend vocabulary and `deploymentEvent` below, for the local simulator (#131).
+export const eventTypes = [
   {
     id: "vercel.deployment.succeeded",
     label: "Deployment succeeded",
@@ -78,13 +79,13 @@ const eventTypes = [
  * rows can be negative, which a `verified_spend` metric cannot hold, so they only count toward
  * the net total.
  */
-const spendCategories = [
+export const spendCategories = [
   { category: "Usage", metricKey: "vercel.spend.usage", label: "Vercel usage charges, month to date" },
   { category: "Purchase", metricKey: "vercel.spend.purchase", label: "Vercel purchases, month to date" },
   { category: "Tax", metricKey: "vercel.spend.tax", label: "Vercel tax, month to date" },
 ] as const satisfies readonly { category: BillingCharge["ChargeCategory"]; metricKey: string; label: string }[];
 
-const TOTAL_METRIC_KEY = "vercel.spend.total";
+export const TOTAL_METRIC_KEY = "vercel.spend.total";
 const BILLING_CURRENCY = "USD";
 
 const HttpsUrlSchema = z.url({ protocol: /^https$/ });
@@ -258,7 +259,7 @@ function environmentLabel(target: string | null | undefined): string {
 }
 
 /** Only finished deployments become events; personal creator fields never reach here. */
-function deploymentEvent(deployment: Deployment, externalAccountId: string): ActivityEvent | undefined {
+export function deploymentEvent(deployment: Deployment, externalAccountId: string): ActivityEvent | undefined {
   const { readyState } = deployment;
   if (readyState !== "READY" && readyState !== "ERROR") return undefined;
   const succeeded = readyState === "READY";

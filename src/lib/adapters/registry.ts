@@ -5,6 +5,7 @@ import { log } from "@/lib/log/logger";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { resendAdapter } from "./resend";
+import { isProviderSimulationEnabled, simulatedAdapters } from "./simulated";
 import { stripeAdapter } from "./stripe";
 import { supabaseAdapter } from "./supabase";
 import {
@@ -39,7 +40,10 @@ export function isFakeProviderEnabled(): boolean {
   return process.env[FAKE_PROVIDER_ENABLE_ENV] === "1";
 }
 
-/** The adapter for `id`. The fake provider exists only when DEVMACRO_ENABLE_FAKE_PROVIDER is "1". */
+/**
+ * The adapter for `id`. The fake provider exists only when DEVMACRO_ENABLE_FAKE_PROVIDER is "1";
+ * the live providers are replaced by their simulated twins while DEVMACRO_SIMULATE_PROVIDERS is.
+ */
 export function getAdapter(id: ProviderId): ProviderAdapter {
   if (id === "fake") {
     if (!isFakeProviderEnabled()) {
@@ -47,12 +51,25 @@ export function getAdapter(id: ProviderId): ProviderAdapter {
     }
     return fakeAdapter;
   }
-  return liveAdapters[id];
+  return isProviderSimulationEnabled() ? simulatedAdapters[id] : liveAdapters[id];
+}
+
+/**
+ * True when `provider` is simulated in this process: simulation is on and the provider is live.
+ * Pages derive the "Simulated" label from this, never from anything the client sends.
+ */
+export function isProviderSimulated(provider: ProviderId): boolean {
+  return provider !== "fake" && isProviderSimulationEnabled();
+}
+
+/** The providers simulated in this process, for pages that label many rows; empty when off. */
+export function simulatedProviderIds(): LiveProviderId[] {
+  return liveProviderIds.filter((id) => isProviderSimulated(id));
 }
 
 /** Every provider a person can pick on this instance, in catalog order; the fake one last. */
 export function availableProviders(): ProviderAdapter[] {
-  const adapters = liveProviderIds.map((id) => liveAdapters[id]);
+  const adapters = liveProviderIds.map((id) => getAdapter(id));
   return isFakeProviderEnabled() ? [...adapters, fakeAdapter] : adapters;
 }
 
@@ -61,12 +78,24 @@ function readEnv(name: string): string | undefined {
   return value === undefined || value.trim() === "" ? undefined : value;
 }
 
+// Simulated adapters never send their client anywhere; this only satisfies the OAuth contract.
+const SIMULATED_CLIENT: OAuthClient = {
+  clientId: "simulated",
+  clientSecret: new Secret("simulated"),
+  extra: {},
+};
+
 /**
  * The OAuth app settings this instance registered for `adapter`, or null when any required
  * variable is empty: the catalog then says the provider is not set up here. Extra keys listed in
  * `optionalExtraKeys` are passed through only when set and never make the provider unavailable.
  */
 export function loadOAuthClient(adapter: ProviderAdapter): OAuthClient | null {
+  // Identity, not id: only the registry's own simulated adapters get the local client, and only
+  // while simulation is on, so a simulated adapter can never sync once the flag is gone.
+  if (adapter.id !== "fake" && simulatedAdapters[adapter.id] === adapter) {
+    return isProviderSimulationEnabled() ? SIMULATED_CLIENT : null;
+  }
   const { clientIdEnv, clientSecretEnv, extraEnv, optionalExtraKeys } = adapter.oauth;
   const clientId = readEnv(clientIdEnv);
   const clientSecret = readEnv(clientSecretEnv);

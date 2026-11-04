@@ -70,7 +70,8 @@ export const RESEND_TEAM_EXTERNAL_ID = "team";
 // `full_access` could do far more, and this type keeps the code promise checkable.
 type ApiPath = "/usage" | "/emails/metrics" | "/domains";
 
-const eventTypes = [
+// Exported, like `usageMetrics` and `deliveryMetrics` below, for the local simulator (#131).
+export const eventTypes = [
   {
     id: "resend.domain.verified",
     label: "Domain verified",
@@ -278,7 +279,7 @@ async function listDomains(
   return { domains, complete: false };
 }
 
-function usageMetrics(
+export function usageMetrics(
   usage: z.infer<typeof UsageResponseSchema>,
   externalAccountId: string,
   retrievedAt: Date,
@@ -331,7 +332,7 @@ function usageMetrics(
   return metrics;
 }
 
-function deliveryMetrics(
+export function deliveryMetrics(
   response: z.infer<typeof EmailMetricsResponseSchema>,
   externalAccountId: string,
   retrievedAt: Date,

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 
 import {
   FAKE_CALLBACK_PATH,
@@ -8,43 +9,47 @@ import {
   fakeScopes,
   parseFakeScopes,
 } from "@/lib/adapters/fake";
+import { isProviderSimulationEnabled, SIMULATED_CODE_PREFIX, SIMULATED_SCOPE } from "@/lib/adapters/simulated";
+import { liveProviderIds, type LiveProviderId } from "@/lib/adapters/types";
+
+const LiveProviderIdSchema = z.enum(liveProviderIds);
 
 function plainText(message: string, status: number): NextResponse {
   return new NextResponse(message, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
 
 /**
- * Consent screen of the fake provider (#40), for tests and e2e only. It approves at once and
- * redirects to DevMacro's own fake callback, so the connect flow runs end to end without a real
- * OAuth app. Test switches in the query:
- * - `decline=usage:read` (space-separated scopes): the user unticked those scopes.
- * - `error=access_denied`: the user pressed Cancel.
- * - `mode=rate_limited|revoked|unavailable`: forwarded so later calls on the connection fail.
- *
- * Read on every request, not at module load, so the flag cannot be baked into a build.
+ * The redirect target must be DevMacro's own callback for this provider: anything else is an
+ * open redirect. Returns the callback carrying the state, or an error response.
  */
-export function GET(request: Request): NextResponse {
-  if (process.env[FAKE_PROVIDER_ENABLE_ENV] !== "1") return plainText("Not found", 404);
-
-  const requestUrl = new URL(request.url);
+function callbackFor(requestUrl: URL, path: string): URL | NextResponse {
   const query = requestUrl.searchParams;
-
   const state = query.get("state");
   if (state === null || state.length === 0) return plainText("Missing state.", 400);
-
-  // The redirect target must be DevMacro's own fake callback: anything else is an open redirect.
-  const callback = new URL(FAKE_CALLBACK_PATH, requestUrl.origin);
+  const callback = new URL(path, requestUrl.origin);
   if (query.get("redirect_uri") !== callback.href) {
     return plainText(`redirect_uri must be ${callback.href}.`, 400);
   }
   callback.searchParams.set("state", state);
+  return callback;
+}
 
+/** `error=access_denied` (the user pressed Cancel), an unsupported error, or null to approve. */
+function cancelled(query: URLSearchParams, callback: URL): NextResponse | null {
   const error = query.get("error");
-  if (error !== null) {
-    if (error !== "access_denied") return plainText("Only error=access_denied is supported.", 400);
-    callback.searchParams.set("error", "access_denied");
-    return NextResponse.redirect(callback, 302);
-  }
+  if (error === null) return null;
+  if (error !== "access_denied") return plainText("Only error=access_denied is supported.", 400);
+  callback.searchParams.set("error", "access_denied");
+  return NextResponse.redirect(callback, 302);
+}
+
+function fakeConsent(requestUrl: URL): NextResponse {
+  if (process.env[FAKE_PROVIDER_ENABLE_ENV] !== "1") return plainText("Not found", 404);
+  const query = requestUrl.searchParams;
+  const callback = callbackFor(requestUrl, FAKE_CALLBACK_PATH);
+  if (callback instanceof NextResponse) return callback;
+  const denied = cancelled(query, callback);
+  if (denied !== null) return denied;
 
   const requestedText = query.get("scope") ?? "";
   const requested = parseFakeScopes(requestedText);
@@ -68,4 +73,45 @@ export function GET(request: Request): NextResponse {
   callback.searchParams.set("code", `${FAKE_CODE_PREFIX}${crypto.randomUUID()}`);
   callback.searchParams.set("granted_scope", requested.filter((scope) => !declined.includes(scope)).join(" "));
   return NextResponse.redirect(callback, 302);
+}
+
+/** A simulated live provider (#131): one read scope, approved at once, no test switches. */
+function simulatedConsent(requestUrl: URL, providerParam: string): NextResponse {
+  if (!isProviderSimulationEnabled()) return plainText("Not found", 404);
+  const parsed = LiveProviderIdSchema.safeParse(providerParam);
+  if (!parsed.success) return plainText(`provider must be one of: ${liveProviderIds.join(", ")}.`, 400);
+  const provider: LiveProviderId = parsed.data;
+  const query = requestUrl.searchParams;
+  const callback = callbackFor(requestUrl, `/api/connections/${provider}/callback`);
+  if (callback instanceof NextResponse) return callback;
+  if (query.has("decline") || query.has("mode")) {
+    return plainText("decline and mode are only for the example provider.", 400);
+  }
+  const denied = cancelled(query, callback);
+  if (denied !== null) return denied;
+  if (query.get("scope") !== SIMULATED_SCOPE) return plainText(`scope must be ${SIMULATED_SCOPE}.`, 400);
+
+  callback.searchParams.set("code", `${SIMULATED_CODE_PREFIX}${crypto.randomUUID()}`);
+  callback.searchParams.set("granted_scope", SIMULATED_SCOPE);
+  return NextResponse.redirect(callback, 302);
+}
+
+/**
+ * Dev-only consent screen (#40, #131), for tests, e2e, and local demos. It approves at once and
+ * redirects to DevMacro's own callback, so the connect flow runs end to end without a real OAuth
+ * app. Without `provider` it is the fake provider's screen, served only when
+ * DEVMACRO_ENABLE_FAKE_PROVIDER is "1", with these test switches in the query:
+ * - `decline=usage:read` (space-separated scopes): the user unticked those scopes.
+ * - `error=access_denied`: the user pressed Cancel.
+ * - `mode=rate_limited|revoked|unavailable`: forwarded so later calls on the connection fail.
+ *
+ * With `provider=<live provider id>` it is that provider's simulated screen, served only while
+ * provider simulation is enabled; `error=access_denied` is its only switch.
+ *
+ * Flags are read on every request, not at module load, so they cannot be baked into a build.
+ */
+export function GET(request: Request): NextResponse {
+  const requestUrl = new URL(request.url);
+  const provider = requestUrl.searchParams.get("provider");
+  return provider === null ? fakeConsent(requestUrl) : simulatedConsent(requestUrl, provider);
 }

@@ -1,15 +1,20 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fakeAdapter } from "./fake";
+import { githubAdapter } from "./github";
 import {
   availableProviders,
   createAdapterContext,
   createOAuthContext,
   getAdapter,
   isProviderConfigured,
+  isProviderSimulated,
   loadOAuthClient,
+  simulatedProviderIds,
 } from "./registry";
+import { simulatedAdapters } from "./simulated";
 import { liveProviderIds, Secret, type ProviderAdapter } from "./types";
+import { vercelAdapter } from "./vercel";
 
 function withOAuth(oauth: Partial<ProviderAdapter["oauth"]>): ProviderAdapter {
   return { ...fakeAdapter, oauth: { ...fakeAdapter.oauth, ...oauth } };
@@ -29,8 +34,70 @@ function setRequired(): void {
   vi.stubEnv("TEST_REGISTRY_TEST_KEY", "");
 }
 
+// Real adapters by default, whatever the developer's shell exports; simulation tests opt in.
+beforeEach(() => {
+  vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "");
+  vi.stubEnv("VERCEL_ENV", "");
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe("provider simulation", () => {
+  it("hands out the real adapters and simulates nothing when the flag is off", () => {
+    expect(getAdapter("vercel")).toBe(vercelAdapter);
+    expect(availableProviders().some((adapter) => Object.values(simulatedAdapters).includes(adapter))).toBe(false);
+    expect(isProviderSimulated("vercel")).toBe(false);
+    expect(simulatedProviderIds()).toEqual([]);
+  });
+
+  it("leaves a real provider not set up when the flag is off, as before", () => {
+    vi.stubEnv("GITHUB_APP_CLIENT_ID", "");
+    expect(isProviderConfigured(getAdapter("github"))).toBe(false);
+    expect(getAdapter("github")).toBe(githubAdapter);
+  });
+
+  it("replaces every live provider with its simulated twin, set up without an OAuth app, when the flag is 1", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    for (const id of liveProviderIds) {
+      const adapter = getAdapter(id);
+      expect(adapter).toBe(simulatedAdapters[id]);
+      expect(isProviderConfigured(adapter)).toBe(true);
+      expect(isProviderSimulated(id)).toBe(true);
+    }
+    expect(availableProviders().map((adapter) => adapter.id)).toEqual([...liveProviderIds]);
+    expect(simulatedProviderIds()).toEqual([...liveProviderIds]);
+  });
+
+  it("never simulates the fake provider", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    expect(getAdapter("fake")).toBe(fakeAdapter);
+    expect(isProviderSimulated("fake")).toBe(false);
+  });
+
+  it("refuses simulation on a Vercel production deployment even with the flag set", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("VERCEL_ENV", "production");
+    expect(getAdapter("stripe").id).toBe("stripe");
+    expect(getAdapter("stripe")).not.toBe(simulatedAdapters.stripe);
+    expect(isProviderSimulated("stripe")).toBe(false);
+    expect(simulatedProviderIds()).toEqual([]);
+  });
+
+  it("gives a simulated adapter no client once the flag is off, so it can never sync", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    expect(loadOAuthClient(simulatedAdapters.resend)).not.toBeNull();
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "0");
+    expect(loadOAuthClient(simulatedAdapters.resend)).toBeNull();
+  });
+
+  it("never hands the simulated client to a real adapter", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("VERCEL_CLIENT_ID", "");
+    expect(loadOAuthClient(vercelAdapter)).toBeNull();
+  });
 });
 
 describe("getAdapter", () => {
