@@ -74,7 +74,12 @@ export function AccountProjectForm({
         Project for {accountName}
       </label>
       <div className="flex flex-wrap items-center gap-2">
+        {/*
+         * React resets a form after its action and only reads a select's defaultValue on mount, so
+         * without the key the reset restores the project this select mounted with, not the one saved.
+         */}
         <select
+          key={projectId ?? ""}
           id={selectId}
           name="projectId"
           defaultValue={projectId ?? ""}
