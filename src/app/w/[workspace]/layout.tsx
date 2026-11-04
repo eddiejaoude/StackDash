@@ -78,7 +78,9 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
       {/* Only for a member: the channel is scoped to a workspace the user can read. */}
       {membership ? <LiveRefresh workspaceId={membership.workspace.id} /> : null}
       <WorkspaceSwitcher
-        workspaces={workspaces.map(({ slug: workspaceSlug, name }) => ({ slug: workspaceSlug, name, href: workspaceHome(workspaceSlug) }))}
+        workspaces={workspaces
+          .filter(({ slug: workspaceSlug }) => isWorkspaceSlug(workspaceSlug))
+          .map(({ slug: workspaceSlug, name }) => ({ slug: workspaceSlug, name, href: workspaceHome(workspaceSlug) }))}
         currentSlug={membership ? membership.workspace.slug : null}
       />
       <div className="ml-auto flex shrink-0 items-center gap-3">

@@ -182,7 +182,7 @@ The cron job is environment configuration, not a migration, because it carries t
 
 Run every check against the production URL and write down the deployment URL you checked.
 
-- [ ] **Invited tester signs in.** Invite a tester (step 4), open `https://<production-host>/sign-in` in a private window, choose GitHub, and land on the dashboard of their personal workspace. Then try a GitHub account that is not invited: sign-in must be refused with the "not been invited" message.
+- [ ] **Invited tester signs in.** Invite a tester (step 4), open `https://<production-host>/sign-in` in a private window, choose GitHub, and land on the timeline of their personal workspace. Then try a GitHub account that is not invited: sign-in must be refused with the "not been invited" message.
 - [ ] **No secret in the client bundle.** Download every script the sign-in page loads and search it:
 
   ```bash
