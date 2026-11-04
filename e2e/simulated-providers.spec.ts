@@ -88,14 +88,14 @@ ownerTest.describe("simulated providers", () => {
 
       // Each provider is checked on its own filtered timeline (the shared scope filter's
       // `provider` parameter), so Stripe's volume never pushes Vercel off the first page.
-      const events = page.getByRole("list", { name: "Events" }).getByRole("listitem");
+      const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
 
       // Stripe's 30 minute backfill always holds events (about one every two slots).
       await page.goto(`/w/${workspace.slug}/timeline?provider=stripe`);
       await expect(status).toHaveText(/^Showing \d+ events? for provider Stripe$/);
       await expect(events.first()).toBeVisible();
-      await expect(events.first()).toContainText(/^Stripe/);
+      await expect(events.first().getByText("Stripe", { exact: true })).toBeVisible();
       await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
 
       // A Vercel deployment is not guaranteed in the backfill, so the filtered page may be empty;
@@ -104,7 +104,7 @@ ownerTest.describe("simulated providers", () => {
       await expect(status).toHaveText(/^Showing (no events|\d+ events?) for provider Vercel$/);
       const vercelRows = await events.count();
       for (let index = 0; index < vercelRows; index += 1) {
-        await expect(events.nth(index)).toContainText(/^Vercel/);
+        await expect(events.nth(index).getByText("Vercel", { exact: true })).toBeVisible();
         await expect(events.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
       }
 
