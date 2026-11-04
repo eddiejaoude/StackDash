@@ -1,6 +1,8 @@
 /**
- * Marks a provider the local simulator stands in for (#131), so made-up data is never mistaken for
- * real data. Words, not color alone. Callers decide with `isProviderSimulated` on the server.
+ * Marks a connection the provider simulator made, and data from it (#131), so made-up data is never
+ * mistaken for real data. Words, not color alone. Callers decide on the server: an existing
+ * connection from its own marker (`isSimulatedConnection`), the catalog and connect screen from
+ * the adapter this instance uses.
  */
 export function SimulatedBadge() {
   return (

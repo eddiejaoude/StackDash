@@ -16,6 +16,7 @@ import { PROVIDER_NAMES } from "@/lib/providers";
 
 import { githubProfile } from "./github";
 import { resendProfile } from "./resend";
+import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
 import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedProfile } from "./simulation";
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
@@ -41,7 +42,6 @@ export function isProviderSimulationEnabled(): boolean {
   return process.env[SIMULATE_PROVIDERS_ENV] === "1" && process.env.VERCEL_ENV !== "production";
 }
 
-export const SIMULATED_SCOPE = "simulated:read";
 export const SIMULATED_CODE_PREFIX = "simulated-";
 // Polled as often as the contract allows, so `npm run jobs:tick -- --watch` sees fresh data.
 export const SIMULATED_POLL_INTERVAL_SECONDS = 60;
@@ -49,15 +49,14 @@ export const SIMULATED_POLL_INTERVAL_SECONDS = 60;
 export const SIMULATED_BACKFILL_MS = 30 * 60_000;
 const BACKFILL_SLOTS = SIMULATED_BACKFILL_MS / SLOT_MS;
 
-// Marks a credential the simulator minted. A real credential is never synced with made-up data.
-const SIMULATED_METADATA = "simulated";
 const CursorSchema = z.iso.datetime();
 
 function seedOf(credential: OAuthCredential, provider: LiveProviderId): string {
   const seed = credential.metadata?.seed;
-  if (credential.metadata?.[SIMULATED_METADATA] !== "1" || seed === undefined || !/^[0-9a-f]{8}$/.test(seed)) {
-    // Retried rather than marked for reconnecting: with the simulator turned off again the real
-    // adapter syncs this connection as before.
+  if (!isSimulatedCredential(credential) || seed === undefined || !/^[0-9a-f]{8}$/.test(seed)) {
+    // A real credential is never synced with made-up data. Treated as the provider not answering:
+    // retried, then the connection is marked failed and retried hourly, so once the simulator is
+    // off again the real adapter syncs it as before.
     throw new ProviderUnavailableError(
       `Simulated ${provider} refuses a credential it did not mint; unset ${SIMULATE_PROVIDERS_ENV} to sync this connection`,
       { endpoint: simulatedEndpoint(provider, "/sync") },
@@ -126,7 +125,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
         accessToken: new Secret(`simulated-at-${crypto.randomUUID()}`),
         scopes: [SIMULATED_SCOPE],
         tokenType: "bearer",
-        metadata: { [SIMULATED_METADATA]: "1", seed: crypto.randomUUID().slice(0, 8) },
+        metadata: simulatedCredentialMetadata(crypto.randomUUID().slice(0, 8)),
       };
     },
 
@@ -175,3 +174,8 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   stripe: createSimulatedAdapter(stripeProfile, "stripe"),
   supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
 };
+
+/** True only for the registry's own simulated adapters, compared by identity rather than id. */
+export function isSimulatedAdapter(adapter: ProviderAdapter): boolean {
+  return adapter.id !== "fake" && simulatedAdapters[adapter.id] === adapter;
+}

@@ -9,7 +9,6 @@ import { PageHeader } from "@/components/app/page-header";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
-import { simulatedProviderIds } from "@/lib/adapters/registry";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
@@ -114,7 +113,6 @@ async function DashboardContent({
       scope={scope}
       scopeOptions={scopeOptions}
       scopeDescription={describeScope(scope, scopeOptions)}
-      simulatedProviders={simulatedProviderIds()}
       trends={{
         granularity: trend,
         series: buildTrends(trendData.snapshots, trendData.connections, trend, now),

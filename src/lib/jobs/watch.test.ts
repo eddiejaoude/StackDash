@@ -1,14 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { simulatedAdapters } from "@/lib/adapters/simulated";
+import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import { Secret } from "@/lib/adapters/types";
+
 import { MemoryJobStore } from "./memory-store";
-import type { TickResult } from "./runner";
+import { TICK_CLAIM_LIMIT, type TickResult } from "./runner";
 import type { EventRow } from "./store";
+import type { SyncDeps } from "./sync-connection";
 import {
   abortableSleep,
   countingEventWrites,
   formatTickLine,
   parseTickArgs,
   runWatch,
+  runWatchTick,
+  WATCH_CLAIM_LIMIT,
   WATCH_DEFAULT_INTERVAL_SECONDS,
   type WatchDeps,
   type WatchTick,
@@ -174,20 +181,69 @@ describe("countingEventWrites", () => {
   });
 });
 
-describe("markSyncsDue (memory store, mirroring the Postgres one)", () => {
-  it("pulls forward only active connections of the listed providers", async () => {
+describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () => {
+  it("pulls forward only active connections the simulator made, never a real one of the same provider", async () => {
     const store = new MemoryJobStore(() => NOW);
     const later = "2026-11-04T21:31:00.000Z";
-    const stripe = store.addConnection({ workspace_id: "w1", provider: "stripe", next_sync_at: later });
-    const failed = store.addConnection({ workspace_id: "w1", provider: "stripe", status: "failed", next_sync_at: later });
-    const fake = store.addConnection({ workspace_id: "w1", provider: "fake", next_sync_at: later });
-    const neverScheduled = store.addConnection({ workspace_id: "w1", provider: "vercel" });
-    expect(await store.markSyncsDue(["stripe", "vercel"], NOW)).toBe(1);
+    const simulated = { granted_scopes: [SIMULATED_SCOPE], next_sync_at: later };
+    const stripe = store.addConnection({ workspace_id: "w1", provider: "stripe", ...simulated });
+    const failed = store.addConnection({ workspace_id: "w1", provider: "stripe", status: "failed", ...simulated });
+    const realVercel = store.addConnection({
+      workspace_id: "w1",
+      provider: "vercel",
+      granted_scopes: ["read:project"],
+      next_sync_at: later,
+    });
+    const neverScheduled = store.addConnection({ workspace_id: "w1", provider: "vercel", granted_scopes: [SIMULATED_SCOPE] });
+    expect(await store.markSimulatedSyncsDue(NOW)).toBe(1);
     expect(stripe.next_sync_at).toBe(NOW.toISOString());
     expect(failed.next_sync_at).toBe(later);
-    expect(fake.next_sync_at).toBe(later);
+    expect(realVercel.next_sync_at).toBe(later);
     expect(neverScheduled.next_sync_at).toBeNull();
-    expect(await store.markSyncsDue([], NOW)).toBe(0);
+    // Every watch iteration asks again; the real connection is still never made due.
+    expect(await store.markSimulatedSyncsDue(new Date(NOW.getTime() + 1000))).toBe(0);
+    expect(realVercel.next_sync_at).toBe(later);
+  });
+});
+
+describe("runWatchTick", () => {
+  it("syncs more simulated connections in one tick than the route's claim limit", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    const count = TICK_CLAIM_LIMIT + 5;
+    for (let index = 0; index < count; index += 1) {
+      const connection = store.addConnection({ workspace_id: "w1", provider: "stripe", granted_scopes: [SIMULATED_SCOPE] });
+      store.credentials.set(connection.id, {
+        accessToken: new Secret("simulated-at-test"),
+        scopes: [SIMULATED_SCOPE],
+        tokenType: "bearer",
+        metadata: simulatedCredentialMetadata("5eed0a11"),
+      });
+    }
+    const deps: SyncDeps = {
+      store,
+      getAdapter: () => simulatedAdapters.stripe,
+      loadOAuthClient: () => ({ clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} }),
+      createOAuthContext: (client) => ({
+        client,
+        fetch: () => Promise.reject(new Error("no network in tests")),
+        now: () => NOW,
+        timeoutMs: 1000,
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      }),
+      now: () => NOW,
+      random: () => 0.5,
+      logError: () => "REF-TEST",
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      evaluateAlerts: async () => undefined,
+    };
+
+    const { result } = await runWatchTick(deps);
+
+    expect(WATCH_CLAIM_LIMIT).toBeGreaterThan(count);
+    expect(result.failed).toBe(0);
+    const syncs = store.jobs.filter((job) => job.kind === "sync");
+    expect(syncs).toHaveLength(count);
+    expect(syncs.every((job) => job.status === "succeeded")).toBe(true);
   });
 });
 

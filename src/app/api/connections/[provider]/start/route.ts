@@ -2,6 +2,7 @@ import { notFound, unstable_rethrow } from "next/navigation";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapters/registry";
+import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import { ProviderIdSchema } from "@/lib/adapters/types";
 import { safeNextPath } from "@/lib/auth/redirect";
 import { isSameOrigin } from "@/lib/auth/same-origin";
@@ -14,6 +15,7 @@ import {
   createOAuthState,
   createPkcePair,
   newStateToken,
+  reconnectMismatch,
   type ConnectFeedback,
 } from "@/lib/connections/oauth-state";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
@@ -119,6 +121,9 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       if (existing === null || existing.provider !== provider) {
         return back(connectionsPath, { error: "invalid", provider });
       }
+      // A real connection is never reconnected through the simulator, nor the reverse (#131).
+      const mismatch = reconnectMismatch(existing, isSimulatedAdapter(adapter));
+      if (mismatch !== null) return back(connectionsPath, { error: mismatch, provider });
       reconnectId = existing.id;
     }
 

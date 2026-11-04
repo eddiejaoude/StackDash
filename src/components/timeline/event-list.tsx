@@ -1,7 +1,6 @@
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { PlatformLogo } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
-import type { ProviderId } from "@/lib/adapters/types";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName, providerPlatform } from "@/lib/providers";
 import { severityBadge } from "@/lib/timeline/query";
@@ -10,35 +9,19 @@ import { EventTime } from "./event-time";
 
 /**
  * One page of events, newest first. Every row prints its provider and severity as words, and
- * "Simulated" when its provider, or the connection a DevMacro event is about, is simulated here.
+ * "Simulated" when its connection was made by the provider simulator.
  */
-export function EventList({
-  events,
-  now,
-  simulatedProviders,
-}: {
-  events: readonly TimelineEvent[];
-  now: Date;
-  simulatedProviders: readonly ProviderId[];
-}) {
+export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
   return (
     <ol aria-label="Events" className="mt-4 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-      {events.map((event) => {
-        const provider = event.provider ?? event.connectionProvider;
-        return (
-          <EventItem
-            key={event.id}
-            event={event}
-            now={now}
-            simulated={provider !== null && simulatedProviders.includes(provider)}
-          />
-        );
-      })}
+      {events.map((event) => (
+        <EventItem key={event.id} event={event} now={now} />
+      ))}
     </ol>
   );
 }
 
-function EventItem({ event, now, simulated }: { event: TimelineEvent; now: Date; simulated: boolean }) {
+function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
   const platform = providerPlatform(event.provider);
   // The account says which team or repository; the connection name is the fallback.
   const source = event.accountName ?? event.connectionName;
@@ -64,7 +47,7 @@ function EventItem({ event, now, simulated }: { event: TimelineEvent; now: Date;
         <div className="mt-1 flex items-start justify-between gap-3">
           <h2 className="min-w-0 break-words text-sm font-medium leading-6">{event.title}</h2>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {simulated ? <SimulatedBadge /> : null}
+            {event.simulated ? <SimulatedBadge /> : null}
             <SeverityBadge severity={severityBadge(event.severity)} />
           </div>
         </div>

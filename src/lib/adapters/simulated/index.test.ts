@@ -20,11 +20,12 @@ import { spendCategories, TOTAL_METRIC_KEY, vercelAdapter } from "@/lib/adapters
 
 import {
   isProviderSimulationEnabled,
+  isSimulatedAdapter,
   SIMULATED_BACKFILL_MS,
   SIMULATED_CODE_PREFIX,
-  SIMULATED_SCOPE,
   simulatedAdapters,
 } from "./index";
+import { isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -185,7 +186,7 @@ describe("simulated connect", () => {
       );
     const first = await mint();
     const second = await mint();
-    expect(first.metadata?.simulated).toBe("1");
+    expect(isSimulatedCredential(first)).toBe(true);
     expect(first.metadata?.seed).toMatch(/^[0-9a-f]{8}$/);
     expect(first.metadata?.seed).not.toBe(second.metadata?.seed);
     expect(JSON.stringify(first)).not.toContain("simulated-at-");
@@ -205,6 +206,30 @@ describe("simulated connect", () => {
 
   it("names the simulated scope as missing when the grant lacks it", () => {
     expect(simulatedAdapters.github.detectMissingPermissions({ scopes: [] })).toEqual([SIMULATED_SCOPE]);
+  });
+});
+
+describe("simulated markers", () => {
+  it("marks a connection by its granted scopes, whatever the flag says", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", undefined);
+    expect(isSimulatedConnection({ granted_scopes: [SIMULATED_SCOPE] })).toBe(true);
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    expect(isSimulatedConnection({ granted_scopes: ["read:project"] })).toBe(false);
+    expect(isSimulatedConnection({ granted_scopes: [] })).toBe(false);
+  });
+
+  it("never marks a real credential", () => {
+    expect(isSimulatedCredential({})).toBe(false);
+    expect(isSimulatedCredential({ metadata: { teamId: "team_1" } })).toBe(false);
+    expect(isSimulatedCredential({ metadata: { simulated: "0" } })).toBe(false);
+  });
+
+  it("knows the registry's simulated adapters by identity, not id", () => {
+    for (const id of liveProviderIds) {
+      expect(isSimulatedAdapter(simulatedAdapters[id])).toBe(true);
+      expect(isSimulatedAdapter(REAL[id])).toBe(false);
+      expect(isSimulatedAdapter({ ...simulatedAdapters[id] })).toBe(false);
+    }
   });
 });
 

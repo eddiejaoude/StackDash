@@ -18,8 +18,9 @@ type ConnectionRow = Database["public"]["Tables"]["connections"]["Row"];
 type ExternalAccountRow = Database["public"]["Tables"]["external_accounts"]["Row"];
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 
+// granted_scopes says whether the provider simulator made the connection (#131).
 const CONNECTION_COLUMNS =
-  "id, provider, status, display_name, authorized_account_label, missing_scopes, last_synced_at, last_sync_requested_at, created_at" as const;
+  "id, provider, status, display_name, authorized_account_label, granted_scopes, missing_scopes, last_synced_at, last_sync_requested_at, created_at" as const;
 
 export type ConnectionSummary = Pick<
   ConnectionRow,
@@ -28,6 +29,7 @@ export type ConnectionSummary = Pick<
   | "status"
   | "display_name"
   | "authorized_account_label"
+  | "granted_scopes"
   | "missing_scopes"
   | "last_synced_at"
   | "last_sync_requested_at"

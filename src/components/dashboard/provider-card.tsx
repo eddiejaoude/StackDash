@@ -90,7 +90,7 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
 }
 
 /** One connection: its spend, revenue, credit balance, billing period, and allowances. */
-export function ProviderCard({ summary, now, simulated }: { summary: ProviderSummary; now: Date; simulated: boolean }) {
+export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: Date }) {
   const titleId = useId();
   const name = providerName(summary.provider);
   return (
@@ -103,7 +103,7 @@ export function ProviderCard({ summary, now, simulated }: { summary: ProviderSum
               <h3 id={titleId} className="font-semibold">
                 {summary.name}
               </h3>
-              {simulated ? <SimulatedBadge /> : null}
+              {summary.simulated ? <SimulatedBadge /> : null}
             </div>
             <p className="text-xs text-muted">
               {name}. Status: {connectionStatusLabel(summary.status)}

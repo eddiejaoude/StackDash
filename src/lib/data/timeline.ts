@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { projectSelection, timelineScope, type ScopeFilters } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -20,8 +21,9 @@ export type TimelineEvent = Pick<
 > & {
   accountName: string | null;
   connectionName: string | null;
-  // DevMacro's own events (provider null) about a connection, such as a sync failure, carry it here.
-  connectionProvider: ActivityEventRow["provider"];
+  // True when the event's connection was made by the provider simulator (#131), so the event is
+  // made up. DevMacro's own events about such a connection, such as a sync failure, count too.
+  simulated: boolean;
 };
 
 export type TimelineFilters = {
@@ -92,7 +94,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   let query = supabase
     .from("activity_events")
     .select(
-      "id, type_id, severity, title, body, url, occurred_at, provider, external_accounts(display_name), connections(display_name, provider)",
+      "id, type_id, severity, title, body, url, occurred_at, provider, external_accounts(display_name), connections(display_name, granted_scopes)",
     )
     .eq("workspace_id", workspaceId);
 
@@ -120,7 +122,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
       ...event,
       accountName: external_accounts?.display_name ?? null,
       connectionName: connections?.display_name ?? null,
-      connectionProvider: connections?.provider ?? null,
+      simulated: connections !== null && isSimulatedConnection(connections),
     })),
     nextCursor:
       data.length > TIMELINE_PAGE_SIZE && last !== undefined ? { occurredAt: last.occurred_at, id: last.id } : null,

@@ -173,9 +173,11 @@ minute instead, see [Jobs](docs/operations/jobs.md).
 Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, and Supabase
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
-alerts, and live updates. Nothing is sent to or read from any provider, and every simulated
-connection is labeled **Simulated** in the catalog, the connection pages, the dashboard, and the
-timeline. It is for local use only: the app refuses it on a Vercel production deployment.
+alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
+is marked as simulated when it is made, so it and its data are labeled **Simulated** on the
+connection pages, the dashboard, and the timeline whether the flag is on or off, and a real
+connection never is. While the flag is on the catalog labels every provider **Simulated** too.
+It is for local use only: the app refuses it on a Vercel production deployment.
 
 1. Add the flag to `.env.local` and restart `npm run dev`:
 
@@ -192,14 +194,22 @@ timeline. It is for local use only: the app refuses it on a Vercel production de
    ```
 
    It runs a tick every 10 seconds (`--interval 30` for every 30 seconds, at least 5), syncs every
-   simulated connection on each tick, and prints one line per tick with the time and the number
-   of jobs synced, events written, and failures. Press Ctrl+C to stop it after the current tick.
+   simulated connection on each tick (up to 100 jobs per tick), and prints one line per tick with
+   the time and the number of jobs synced, events written, and failures. Press Ctrl+C to stop it
+   after the current tick.
 4. Open the dashboard and the timeline: deployments, payments, signups, and forks trickle in,
    spend and usage grow through the billing period, and the Resend daily quota crosses 75 and
    90 percent each evening, which triggers allowance alerts if you add them.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
-sync rather than mix made-up data with real data; delete them from their connection page.
+sync rather than mix made-up data with real data: their next sync sends nothing to the provider
+and marks them as needing attention. Delete them from their connection page. A simulated
+connection cannot be reconnected with a real provider, nor a real one with the simulator.
+
+Note for local use: a real connection you made before turning the flag on is never synced early
+by `--watch`, but while the flag is on its scheduled syncs are refused by the simulator. It is
+marked failed with one timeline event, and syncs again on its hourly retry once the flag is
+removed.
 
 ## Checks
 
@@ -247,6 +257,23 @@ the fake provider, so `.env.local` must contain `DEVMACRO_ENCRYPTION_KEY`, `CRON
 three fake provider values from step 8, as CI writes them. The Playwright config also turns on
 the simulated providers from step 10 for its dev server, which `e2e/simulated-providers.spec.ts`
 connects and syncs through `POST /api/jobs/tick`.
+
+That tick is instance-wide: it syncs the due connections of every workspace, including the ones
+other specs seed, so a spec that runs it would break them if it ran beside them. Such specs live
+in a second Playwright project, `instance-wide`, which depends on the `chromium` project and so
+starts only after every other spec has finished. `npm run test:e2e` (and CI) runs both projects in
+that order; if a `chromium` test fails, the `instance-wide` specs are skipped. To run the tick
+spec locally:
+
+```bash
+npx playwright test --project=instance-wide        # runs every chromium spec first, then the tick spec
+npx playwright test --project=instance-wide --no-deps  # only the tick spec, with nothing else running
+npx playwright test --project=chromium              # every spec except the tick spec
+```
+
+A file filter does not narrow the `chromium` dependency: it still runs in full. The guarded agent
+runner `safe-e2e.sh` runs `--project chromium` unless `PW_PROJECT=instance-wide` is set, which
+runs `chromium` first as above.
 
 ## Environment variables
 

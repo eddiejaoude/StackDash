@@ -9,6 +9,7 @@
  * - A value that is missing is `null` and shown as "Unavailable", never as 0.
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatRelative } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -40,7 +41,7 @@ export type SnapshotInput = Pick<
 
 export type ConnectionInput = Pick<
   Tables["connections"]["Row"],
-  "id" | "provider" | "display_name" | "status" | "last_synced_at" | "poll_interval_seconds"
+  "id" | "provider" | "display_name" | "status" | "last_synced_at" | "poll_interval_seconds" | "granted_scopes"
 >;
 
 export type AccountInput = Pick<Tables["external_accounts"]["Row"], "id" | "connection_id" | "display_name" | "project_id">;
@@ -61,7 +62,8 @@ export type Provenance =
   | Readonly<{ status: "verified" }>
   | Readonly<{ status: "estimated"; pricingSources: readonly string[] }>;
 
-export type ValueSource = Readonly<{ connectionId: string; provider: ProviderId; connectionName: string }>;
+/** One connection behind a value. `simulated` when the provider simulator made it (#131). */
+export type ValueSource = Readonly<{ connectionId: string; provider: ProviderId; connectionName: string; simulated: boolean }>;
 
 type Freshness = {
   /** The oldest retrieval among the rows behind the value, so "Updated" never overstates. */
@@ -94,6 +96,11 @@ export type CurrencyAmounts = Readonly<{
   estimated: MoneyValue | null;
 }>;
 
+/** True when any connection behind these amounts was made by the provider simulator (#131). */
+export function hasSimulatedSource(amounts: CurrencyAmounts): boolean {
+  return [amounts.verified, amounts.estimated].some((value) => value?.sources.some((source) => source.simulated) === true);
+}
+
 export type Period = Readonly<{ start: string; end: string }>;
 
 export type Allowance = Readonly<{
@@ -114,6 +121,8 @@ export type ProviderSummary = Readonly<{
   connectionId: string;
   provider: ProviderId;
   name: string;
+  /** True when the provider simulator made this connection, so its data is made up (#131). */
+  simulated: boolean;
   status: ConnectionStatus;
   lastSyncedAt: string | null;
   /** True when the connection has synced before but not within two poll intervals. */
@@ -209,7 +218,12 @@ export function isEstimated(row: Pick<SnapshotInput, "kind" | "provenance_source
 type Entry = Readonly<{ row: SnapshotInput; connection: ConnectionInput }>;
 
 function sourceOf(connection: ConnectionInput): ValueSource {
-  return { connectionId: connection.id, provider: connection.provider, connectionName: connection.display_name };
+  return {
+    connectionId: connection.id,
+    provider: connection.provider,
+    connectionName: connection.display_name,
+    simulated: isSimulatedConnection(connection),
+  };
 }
 
 function moneyValue(entries: readonly Entry[], estimated: boolean, now: Date): MoneyValue | null {
@@ -374,6 +388,7 @@ function providerSummary(
     connectionId: connection.id,
     provider: connection.provider,
     name: connection.display_name,
+    simulated: isSimulatedConnection(connection),
     status: connection.status,
     lastSyncedAt: connection.last_synced_at,
     stale: connection.last_synced_at !== null && isStale(connection.last_synced_at, connection.poll_interval_seconds, now),

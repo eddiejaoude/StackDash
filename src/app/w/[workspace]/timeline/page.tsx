@@ -8,7 +8,6 @@ import { PageHeader } from "@/components/app/page-header";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
 import { TimelineFilters } from "@/components/timeline/timeline-filters";
-import { simulatedProviderIds } from "@/lib/adapters/registry";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
@@ -99,7 +98,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           />
         )
       ) : (
-        <EventList events={page.events} now={now} simulatedProviders={simulatedProviderIds()} />
+        <EventList events={page.events} now={now} />
       )}
 
       {page.nextCursor === null && !showNewestLink ? null : (

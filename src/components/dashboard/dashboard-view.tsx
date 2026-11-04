@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
-import type { ProviderId } from "@/lib/adapters/types";
-import type { CurrencyAmounts, DashboardView as View } from "@/lib/dashboard/aggregate";
+import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
 
@@ -35,14 +35,18 @@ function CurrencyCards({ amounts, noun, now }: { amounts: readonly CurrencyAmoun
   );
 }
 
+/** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
 function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: string; now: Date }) {
   const titleId = useId();
   return (
     <li>
       <section aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
-        <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
-          {`${noun} in ${amounts.currency}`}
-        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
+            {`${noun} in ${amounts.currency}`}
+          </h3>
+          {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+        </div>
         <div className="mt-3">
           <CurrencyAmountsList
             amounts={amounts}
@@ -116,7 +120,6 @@ export function DashboardView({
   scopeOptions,
   scopeDescription,
   trends,
-  simulatedProviders,
 }: {
   view: View;
   now: Date;
@@ -126,8 +129,6 @@ export function DashboardView({
   /** The active filter in words, or null when nothing is filtered. */
   scopeDescription: string | null;
   trends: DashboardTrends;
-  /** Providers this instance simulates, decided on the server (#131). */
-  simulatedProviders: readonly ProviderId[];
 }) {
   const count = view.byProvider.length;
   const shown = count === 0 ? "Showing no connections" : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
@@ -169,12 +170,7 @@ export function DashboardView({
         ) : (
           <ul className="space-y-4">
             {view.byProvider.map((summary) => (
-              <ProviderCard
-                key={summary.connectionId}
-                summary={summary}
-                now={now}
-                simulated={simulatedProviders.includes(summary.provider)}
-              />
+              <ProviderCard key={summary.connectionId} summary={summary} now={now} />
             ))}
           </ul>
         )}
@@ -211,7 +207,10 @@ function ProjectCard({ name, spend, now }: { name: string; spend: readonly Curre
         <ul className="mt-3 space-y-4">
           {spend.map((amounts) => (
             <li key={amounts.currency}>
-              <p className="mb-1 font-mono text-xs font-medium text-muted">{amounts.currency}</p>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <p className="font-mono text-xs font-medium text-muted">{amounts.currency}</p>
+                {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+              </div>
               <CurrencyAmountsList
                 amounts={amounts}
                 now={now}

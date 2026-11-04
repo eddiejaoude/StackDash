@@ -11,7 +11,7 @@ import {
 } from "@/lib/adapters/registry";
 import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
 import { getCurrentUser } from "@/lib/auth/session";
-import { completeConnection, ReconnectTargetMissingError } from "@/lib/connections/connect";
+import { completeConnection, ReconnectMismatchError, ReconnectTargetMissingError } from "@/lib/connections/connect";
 import { githubCallbackStep, type CallbackStep } from "@/lib/connections/github-steps";
 import {
   callbackRedirectUri,
@@ -135,6 +135,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
     if (error instanceof ForbiddenError) return withFeedback(connectionsPath, { error: "forbidden", provider });
     if (error instanceof ReconnectTargetMissingError) {
       return withFeedback(connectionsPath, { error: "invalid", provider });
+    }
+    if (error instanceof ReconnectMismatchError) {
+      return withFeedback(connectionsPath, { error: error.code, provider });
     }
     if (error instanceof AdapterError) {
       // The provider refused or answered badly; the log keeps the detail, the user gets a reference.

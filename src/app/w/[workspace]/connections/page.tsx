@@ -11,6 +11,7 @@ import { ProviderMark } from "@/components/connections/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, LockIcon, PlugIcon } from "@/components/icons";
 import { availableProviders, isProviderConfigured, isProviderSimulated } from "@/lib/adapters/registry";
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { ProviderIdSchema, type ProviderAdapter } from "@/lib/adapters/types";
 import { connectErrorMessage, ConnectFeedbackSchema } from "@/lib/connections/oauth-state";
 import { listConnections, type ConnectionSummary } from "@/lib/data/connections";
@@ -116,7 +117,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
                   providerName={PROVIDER_NAMES[connection.provider]}
                   href={`${connectionsPath}/${connection.id}`}
                   now={now}
-                  simulated={isProviderSimulated(connection.provider)}
+                  simulated={isSimulatedConnection(connection)}
                 />
               ))}
             </ul>

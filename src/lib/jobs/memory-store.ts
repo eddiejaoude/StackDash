@@ -1,4 +1,5 @@
-import type { OAuthCredential, ProviderId } from "@/lib/adapters/types";
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import type { OAuthCredential } from "@/lib/adapters/types";
 import type { Tables } from "@/lib/supabase/database.types";
 
 import { dailySummaryJobKey } from "./daily-summary";
@@ -141,10 +142,10 @@ export class MemoryJobStore implements JobStore {
     return queued;
   }
 
-  async markSyncsDue(providers: readonly ProviderId[], at: Date): Promise<number> {
+  async markSimulatedSyncsDue(at: Date): Promise<number> {
     let moved = 0;
     for (const row of this.connections) {
-      if (row.status !== "active" || !providers.includes(row.provider)) continue;
+      if (row.status !== "active" || !isSimulatedConnection(row)) continue;
       if (row.next_sync_at === null || new Date(row.next_sync_at).getTime() <= at.getTime()) continue;
       row.next_sync_at = at.toISOString();
       moved += 1;

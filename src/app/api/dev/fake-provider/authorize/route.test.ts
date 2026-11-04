@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fakeAdapter } from "@/lib/adapters/fake";
-import { SIMULATED_SCOPE, simulatedAdapters } from "@/lib/adapters/simulated";
+import { simulatedAdapters } from "@/lib/adapters/simulated";
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret } from "@/lib/adapters/types";
 
 import { GET } from "./route";

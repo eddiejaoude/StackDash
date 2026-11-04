@@ -12,6 +12,10 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
  * (playwright.config.ts), so Vercel and Stripe connect from the catalog through the dev consent
  * screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up data, and
  * every screen labels it "Simulated". Nothing leaves the machine.
+ *
+ * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
+ * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
+ * finished (playwright.config.ts). Any spec that runs the tick must live in that project too.
  */
 
 const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
@@ -107,8 +111,65 @@ ownerTest.describe("simulated providers", () => {
       for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION]) {
         await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
       }
+      // Every total the simulated connections contribute to says so, not only their own cards.
+      const spendCards = page
+        .getByRole("region", { name: "Spending this billing period" })
+        .getByRole("region", { name: /^Spend in [A-Z]{3}$/ });
+      for (let index = 0; index < (await spendCards.count()); index += 1) {
+        await expect(spendCards.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+      }
       // Stripe's made-up payments arrive as revenue, kept apart per currency.
-      await expect(page.getByRole("region", { name: "Revenue this billing period" })).toBeVisible();
+      const revenueCards = page
+        .getByRole("region", { name: "Revenue this billing period" })
+        .getByRole("region", { name: /^Revenue in [A-Z]{3}$/ });
+      await expect(revenueCards.first()).toBeVisible();
+      for (let index = 0; index < (await revenueCards.count()); index += 1) {
+        await expect(revenueCards.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+      }
+      const trends = page.getByRole("region", { name: "Trends" }).getByRole("figure");
+      await expect(trends.first()).toBeVisible();
+      for (let index = 0; index < (await trends.count()); index += 1) {
+        await expect(trends.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+      }
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("never labels a real connection as simulated, and refuses to reconnect it through the simulator", async ({ page }) => {
+    const workspace = await createTestWorkspace("Real connection while simulating");
+    try {
+      // Made before the flag went on: its granted scopes are a real app's, not simulated:read.
+      const { data: connection, error } = await adminClient()
+        .from("connections")
+        .insert({
+          workspace_id: workspace.id,
+          provider: "vercel",
+          status: "active",
+          display_name: "Vercel (Real team)",
+          poll_interval_seconds: 3600,
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/connections`);
+      const row = page
+        .getByRole("list", { name: "Connections" })
+        .getByRole("listitem")
+        .filter({ has: page.getByRole("link", { name: "Vercel (Real team)", exact: true }) });
+      await expect(row).toBeVisible();
+      await expect(row.getByText("Simulated", { exact: true })).toHaveCount(0);
+
+      await page.goto(`/w/${workspace.slug}/connections/${connection.id}`);
+      await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toHaveCount(0);
+
+      await page.goto(`/w/${workspace.slug}/connections/new/vercel?connection=${connection.id}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reconnect Vercel");
+      await expect(
+        page.getByText("This connection was made with the real Vercel app. Connect a new simulated one instead."),
+      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Continue to Vercel" })).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
     }

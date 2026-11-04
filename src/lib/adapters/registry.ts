@@ -5,7 +5,7 @@ import { log } from "@/lib/log/logger";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { resendAdapter } from "./resend";
-import { isProviderSimulationEnabled, simulatedAdapters } from "./simulated";
+import { isProviderSimulationEnabled, isSimulatedAdapter, simulatedAdapters } from "./simulated";
 import { stripeAdapter } from "./stripe";
 import { supabaseAdapter } from "./supabase";
 import {
@@ -56,15 +56,11 @@ export function getAdapter(id: ProviderId): ProviderAdapter {
 
 /**
  * True when `provider` is simulated in this process: simulation is on and the provider is live.
- * Pages derive the "Simulated" label from this, never from anything the client sends.
+ * Only for screens with no connection yet (the catalog, the connect screen, the OAuth callback);
+ * an existing connection is labeled from its own marker, `isSimulatedConnection`.
  */
 export function isProviderSimulated(provider: ProviderId): boolean {
   return provider !== "fake" && isProviderSimulationEnabled();
-}
-
-/** The providers simulated in this process, for pages that label many rows; empty when off. */
-export function simulatedProviderIds(): LiveProviderId[] {
-  return liveProviderIds.filter((id) => isProviderSimulated(id));
 }
 
 /** Every provider a person can pick on this instance, in catalog order; the fake one last. */
@@ -93,7 +89,7 @@ const SIMULATED_CLIENT: OAuthClient = {
 export function loadOAuthClient(adapter: ProviderAdapter): OAuthClient | null {
   // Identity, not id: only the registry's own simulated adapters get the local client, and only
   // while simulation is on, so a simulated adapter can never sync once the flag is gone.
-  if (adapter.id !== "fake" && simulatedAdapters[adapter.id] === adapter) {
+  if (isSimulatedAdapter(adapter)) {
     return isProviderSimulationEnabled() ? SIMULATED_CLIENT : null;
   }
   const { clientIdEnv, clientSecretEnv, extraEnv, optionalExtraKeys } = adapter.oauth;

@@ -9,7 +9,8 @@ import {
   fakeScopes,
   parseFakeScopes,
 } from "@/lib/adapters/fake";
-import { isProviderSimulationEnabled, SIMULATED_CODE_PREFIX, SIMULATED_SCOPE } from "@/lib/adapters/simulated";
+import { isProviderSimulationEnabled, SIMULATED_CODE_PREFIX } from "@/lib/adapters/simulated";
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { liveProviderIds, type LiveProviderId } from "@/lib/adapters/types";
 
 const LiveProviderIdSchema = z.enum(liveProviderIds);

@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { OAuthCredential, ProviderId } from "@/lib/adapters/types";
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import type { OAuthCredential } from "@/lib/adapters/types";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -65,10 +66,11 @@ export interface JobStore {
   /** Queues a sync for every due connection (see enqueue_due_syncs). Returns how many were queued. */
   enqueueDueSyncs(limit: number): Promise<number>;
   /**
-   * Makes every active connection of `providers` due at `at`, so the next schedule queues it.
-   * Only `npm run jobs:tick -- --watch` calls it, for simulated providers (#131). Returns how many moved.
+   * Makes every active connection the simulator made (`granted_scopes` holds SIMULATED_SCOPE) due
+   * at `at`, so the next schedule queues it. Real connections are never touched, whatever their
+   * provider. Only `npm run jobs:tick -- --watch` calls it (#131). Returns how many moved.
    */
-  markSyncsDue(providers: readonly ProviderId[], at: Date): Promise<number>;
+  markSimulatedSyncsDue(at: Date): Promise<number>;
   /** Queues one sync unless one is already open. False also when the connection is not in the workspace. */
   enqueueSync(key: ConnectionKey): Promise<boolean>;
   /** "Sync now": cooldown check, cooldown stamp, and enqueue in one atomic step. */
@@ -131,18 +133,17 @@ export function createSupabaseJobStore(): JobStore {
       return data;
     },
 
-    async markSyncsDue(providers, at) {
-      if (providers.length === 0) return 0;
+    async markSimulatedSyncsDue(at) {
       const due = at.toISOString();
       // Never-scheduled connections (next_sync_at null) are already due and stay untouched.
       const { data, error } = await db
         .from("connections")
         .update({ next_sync_at: due })
-        .in("provider", [...providers])
+        .contains("granted_scopes", [SIMULATED_SCOPE])
         .eq("status", "active")
         .gt("next_sync_at", due)
         .select("id");
-      if (error) throw failure("mark syncs due", error);
+      if (error) throw failure("mark simulated syncs due", error);
       return data.length;
     },
 

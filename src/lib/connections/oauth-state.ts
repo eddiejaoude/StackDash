@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { z } from "zod";
 
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
 import { decryptSecret, encryptSecret } from "@/lib/crypto/credentials";
 import { fromBytea, toBytea } from "@/lib/data/credentials";
@@ -183,6 +184,8 @@ export const connectErrorCodes = [
   "approval_pending",
   "provider_error",
   "failed",
+  "reconnect_real_connection",
+  "reconnect_simulated_connection",
 ] as const;
 
 export const ConnectErrorCodeSchema = z.enum(connectErrorCodes);
@@ -195,6 +198,23 @@ export const ConnectFeedbackSchema = z.object({
 });
 
 export type ConnectFeedback = z.infer<typeof ConnectFeedbackSchema>;
+
+export type ReconnectMismatchCode = Extract<ConnectErrorCode, "reconnect_real_connection" | "reconnect_simulated_connection">;
+
+/**
+ * Why reconnecting `connection` through the provider simulator (`throughSimulator`), or through a
+ * real provider app, is refused, or null when the two match (#131). A reconnect overwrites the
+ * credential, scopes, and accounts of the connection, so a real connection would end up holding
+ * made-up data next to its real history, or the reverse, with no way to tell them apart afterwards.
+ */
+export function reconnectMismatch(
+  connection: Readonly<{ granted_scopes: readonly string[] }>,
+  throughSimulator: boolean,
+): ReconnectMismatchCode | null {
+  const simulatedConnection = isSimulatedConnection(connection);
+  if (simulatedConnection === throughSimulator) return null;
+  return simulatedConnection ? "reconnect_simulated_connection" : "reconnect_real_connection";
+}
 
 /** Query string for a connect outcome, for the routes to append to a page URL. */
 export function connectFeedbackQuery(feedback: ConnectFeedback): string {
@@ -225,5 +245,9 @@ export function connectErrorMessage(code: ConnectErrorCode, providerName: string
       return `${providerName} did not finish connecting, so nothing was saved. Try again, and if it keeps failing, check the app registration.`;
     case "failed":
       return `Connecting ${providerName} failed on our side, so nothing was saved. Try again in a moment.`;
+    case "reconnect_real_connection":
+      return `This connection was made with the real ${providerName} app. Connect a new simulated one instead.`;
+    case "reconnect_simulated_connection":
+      return `This connection was made with the simulated ${providerName}. Connect a new real one instead.`;
   }
 }

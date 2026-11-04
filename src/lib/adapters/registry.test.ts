@@ -10,7 +10,6 @@ import {
   isProviderConfigured,
   isProviderSimulated,
   loadOAuthClient,
-  simulatedProviderIds,
 } from "./registry";
 import { simulatedAdapters } from "./simulated";
 import { liveProviderIds, Secret, type ProviderAdapter } from "./types";
@@ -49,7 +48,6 @@ describe("provider simulation", () => {
     expect(getAdapter("vercel")).toBe(vercelAdapter);
     expect(availableProviders().some((adapter) => Object.values(simulatedAdapters).includes(adapter))).toBe(false);
     expect(isProviderSimulated("vercel")).toBe(false);
-    expect(simulatedProviderIds()).toEqual([]);
   });
 
   it("leaves a real provider not set up when the flag is off, as before", () => {
@@ -67,7 +65,6 @@ describe("provider simulation", () => {
       expect(isProviderSimulated(id)).toBe(true);
     }
     expect(availableProviders().map((adapter) => adapter.id)).toEqual([...liveProviderIds]);
-    expect(simulatedProviderIds()).toEqual([...liveProviderIds]);
   });
 
   it("never simulates the fake provider", () => {
@@ -83,7 +80,6 @@ describe("provider simulation", () => {
     expect(getAdapter("stripe").id).toBe("stripe");
     expect(getAdapter("stripe")).not.toBe(simulatedAdapters.stripe);
     expect(isProviderSimulated("stripe")).toBe(false);
-    expect(simulatedProviderIds()).toEqual([]);
   });
 
   it("gives a simulated adapter no client once the flag is off, so it can never sync", () => {

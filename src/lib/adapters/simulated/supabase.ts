@@ -58,7 +58,10 @@ function signupsInSlot(accountId: string, slot: number): number {
   return countOf(project(accountId).signupChances, accountId, "signups", slot);
 }
 
-/** An unhealthy spell of 3 to 9 minutes in the hour starting at `hourMs`, or null when the hour is calm. */
+/**
+ * An unhealthy spell of 3 to 9 minutes in the hour starting at `hourMs`, or null when the hour is
+ * calm. It starts at least 10 minutes before the hour ends, so it always ends within the same hour.
+ */
 function incident(accountId: string, hourMs: number): { startSlot: number; endSlot: number; service: string } | null {
   if (between(0, 99, accountId, "incident", hourMs) >= 6) return null;
   const startSlot = hourMs / SLOT_MS + between(0, SLOTS_PER_HOUR - 61, accountId, "incident-start", hourMs);
@@ -118,10 +121,8 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   if (startMs % DAY_MS === 0) events.push(dailySummary(accountId, startMs - DAY_MS));
 
-  // An incident can start late in one hour and end in the next, so both hours are checked.
-  const hourMs = Math.floor(startMs / HOUR_MS) * HOUR_MS;
-  for (const candidate of [incident(accountId, hourMs - HOUR_MS), incident(accountId, hourMs)]) {
-    if (candidate === null) continue;
+  const candidate = incident(accountId, Math.floor(startMs / HOUR_MS) * HOUR_MS);
+  if (candidate !== null) {
     if (candidate.startSlot === slot) events.push(healthEvent(accountId, "supabase.project.unhealthy", slot, candidate.service));
     if (candidate.endSlot === slot) events.push(healthEvent(accountId, "supabase.project.healthy", slot, candidate.service));
   }

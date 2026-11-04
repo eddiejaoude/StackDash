@@ -6,9 +6,9 @@
  *   npm run jobs:tick -- --watch [--interval <seconds>]
  *
  * `--watch` repeats the tick every 10 seconds (at least 5) until Ctrl+C or SIGTERM, which stop it
- * after the tick in progress. With DEVMACRO_SIMULATE_PROVIDERS=1 each iteration first makes the
- * simulated connections due, so they sync on every tick (#131). It prints one line of counts per
- * tick.
+ * after the tick in progress, and claims up to 100 jobs per tick instead of 10. With
+ * DEVMACRO_SIMULATE_PROVIDERS=1 each iteration first makes the connections the simulator made due,
+ * so they sync on every tick (#131). It prints one line of counts per tick.
  *
  * Calls the runner directly, so no dev server or CRON_SECRET is needed. Reads `.env.local` when
  * present (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEVMACRO_ENCRYPTION_KEY, provider
@@ -16,11 +16,10 @@
  */
 import { existsSync } from "node:fs";
 
-import { simulatedProviderIds } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { createJobDeps } from "@/lib/jobs/queue";
 import { runTick } from "@/lib/jobs/runner";
-import { abortableSleep, countingEventWrites, parseTickArgs, runWatch } from "@/lib/jobs/watch";
+import { abortableSleep, parseTickArgs, runWatch, runWatchTick } from "@/lib/jobs/watch";
 
 async function main(): Promise<void> {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
@@ -43,14 +42,11 @@ async function main(): Promise<void> {
   process.once("SIGTERM", stop);
   await runWatch(
     {
-      tick: async () => {
-        const counter = { written: 0 };
-        const result = await runTick({ ...deps, store: countingEventWrites(deps.store, counter) });
-        return { result, eventsWritten: counter.written };
-      },
+      tick: () => runWatchTick(deps),
       simulationEnabled: isProviderSimulationEnabled,
-      // Only providers simulated in this process, so a real connection is never pulled forward.
-      markSimulatedDue: () => deps.store.markSyncsDue(simulatedProviderIds(), new Date()),
+      // Only connections the simulator made (by their granted scope), never a real connection,
+      // whatever its provider: the simulated adapters refuse real credentials.
+      markSimulatedDue: () => deps.store.markSimulatedSyncsDue(new Date()),
       now: () => new Date(),
       sleep: abortableSleep,
       print: (line) => console.log(line),
