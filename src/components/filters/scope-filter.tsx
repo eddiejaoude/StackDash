@@ -53,9 +53,10 @@ function OptionGroup({
  * JavaScript loads. Native checkboxes keep it keyboard operable.
  *
  * The form sits inside a native `details` element that starts closed, so the data leads the page
- * and the controls stay one click (or Enter) away; it opens as a panel under the whole bar. The
- * bar itself carries the page's `status` sentence (the "Showing ..." result, announced as a live
- * region) and how many filters are active, so nothing is lost while the form is closed.
+ * and the controls stay one click (or Enter) away; it opens as a full-width row under the bar and
+ * pushes the data down. The bar itself carries the page's `status` sentence (the "Showing ..."
+ * result, announced as a live region) and how many filters are active, so nothing is lost while
+ * the form is closed.
  */
 export function ScopeFilter({
   action,
@@ -84,21 +85,29 @@ export function ScopeFilter({
   const activeCount = scope.providers.length + scope.projects.length + scope.accounts.length + extraActiveCount;
   // Inputs are uncontrolled, so the disclosure and its form remount when the filters in the URL
   // change; otherwise a client navigation (Apply filters, Clear filters, a severity link) would
-  // leave the old boxes ticked and the panel open over the new result.
+  // leave the old boxes ticked and the form open over the new result.
   const formKey = JSON.stringify([scope.providers, scope.projects, scope.accounts, resetKey ?? ""]);
   return (
-    <section
-      aria-labelledby={titleId}
-      className="relative mt-4 flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-line bg-panel px-4"
-    >
+    <section aria-labelledby={titleId} className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-line bg-panel">
       {/* The status sits outside the disclosure so it is announced as a live region and does not
-          become part of the toggle's accessible name (a summary's children are presentational). */}
-      <p role="status" aria-live="polite" className="min-w-0 break-words text-sm text-muted">
+          become part of the toggle's accessible name (a summary's children are presentational).
+          The status and the details both sit in row 1 on purpose: the details spans both columns
+          (a subgrid) so its form opens full width below, and its summary sits in column 2 beside
+          the status. `self-start` keeps the status on the summary's line while the form is open.
+          Browsers that grid a `details` wrap its content in `::details-content`, so the span goes
+          on that box too; without it the open form lands in column 1 beside the summary. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className="col-start-1 row-start-1 flex min-h-12 items-center self-start break-words px-4 py-2 text-sm text-muted"
+      >
         {status}
       </p>
-      {/* `details` stays static, so the absolutely positioned panel spans the whole bar. */}
-      <details key={formKey} className="group">
-        <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-md text-sm [&::-webkit-details-marker]:hidden">
+      <details
+        key={formKey}
+        className="group col-span-2 col-start-1 row-start-1 grid grid-cols-subgrid details-content:col-span-2"
+      >
+        <summary className="col-start-2 flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-sm [&::-webkit-details-marker]:hidden">
           <FilterIcon className="size-4 text-muted" />
           <span id={titleId} className="font-semibold">
             Filters
@@ -110,10 +119,7 @@ export function ScopeFilter({
           )}
           <ChevronDownIcon className="size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none group-open:rotate-180" />
         </summary>
-        <Form
-          action={action}
-          className="absolute inset-x-0 top-full z-20 mt-2 grid gap-6 rounded-xl border border-line bg-panel px-4 py-4 shadow-lg"
-        >
+        <Form action={action} className="col-span-2 grid gap-6 border-t border-line px-4 py-4">
           {Object.entries(hidden ?? {}).map(([name, value]) => (
             <input key={name} type="hidden" name={name} value={value} />
           ))}

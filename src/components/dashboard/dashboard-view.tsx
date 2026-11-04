@@ -171,7 +171,7 @@ export function DashboardView({
 
       {alerts}
 
-      <Section title="By provider" description="Spend, credit balance, and allowances for each connected account.">
+      <Section title="By provider">
         {view.byProvider.length === 0 ? (
           <p className="text-sm text-muted">No connections match these filters. Choose other filters or clear them.</p>
         ) : (
