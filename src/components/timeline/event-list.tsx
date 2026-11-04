@@ -57,7 +57,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
       <article className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="line-clamp-2 break-words text-sm font-medium leading-5">{event.title}</h3>
+            <h3 className="break-words text-sm font-medium leading-5">{event.title}</h3>
             <p className="mt-0.5 break-words font-mono text-xs text-muted">
               <span className="text-foreground">{providerName(event.provider)}</span>
               {source === null ? null : (
@@ -75,7 +75,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
           <SeverityBadge severity={severityBadge(event.severity)} />
         </div>
         {event.body === null ? null : (
-          <p className="mt-1 line-clamp-2 whitespace-pre-line break-words text-sm leading-5 text-muted">{event.body}</p>
+          <p className="mt-1 whitespace-pre-line break-words text-sm leading-5 text-muted">{event.body}</p>
         )}
         {event.url === null || !event.url.startsWith("https://") ? null : (
           <a

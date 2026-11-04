@@ -13,7 +13,7 @@ import { TrendChart } from "./trend-chart";
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="mt-8 min-w-0">
+    <section aria-labelledby={titleId} className="mt-6 min-w-0">
       <h2 id={titleId} className="text-lg font-semibold tracking-tight">
         {title}
       </h2>
@@ -148,7 +148,7 @@ export function DashboardView({
 
       {/* The headline: totals first, with revenue sharing the row on wide screens. */}
       <div className={hasRevenue ? "grid gap-x-6 xl:grid-cols-[2fr_1fr]" : undefined}>
-        <Section title="Spending this billing period" description="Currencies are never added together.">
+        <Section title="Spending this billing period">
           {view.totals.length === 0 ? (
             <p className="text-sm text-muted">
               No spend has been reported for the current billing period yet. Values appear after the next sync.

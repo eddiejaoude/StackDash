@@ -53,9 +53,9 @@ function OptionGroup({
  * JavaScript loads. Native checkboxes keep it keyboard operable.
  *
  * The form sits inside a native `details` element that starts closed, so the data leads the page
- * and the controls stay one click (or Enter) away. The bar itself carries the page's `status`
- * sentence (the "Showing ..." result, announced as a live region) and how many filters are active,
- * so nothing is lost while the form is closed.
+ * and the controls stay one click (or Enter) away; it opens as a panel under the whole bar. The
+ * bar itself carries the page's `status` sentence (the "Showing ..." result, announced as a live
+ * region) and how many filters are active, so nothing is lost while the form is closed.
  */
 export function ScopeFilter({
   action,
@@ -82,32 +82,38 @@ export function ScopeFilter({
 }) {
   const titleId = useId();
   const activeCount = scope.providers.length + scope.projects.length + scope.accounts.length + extraActiveCount;
-  // Inputs are uncontrolled, so the form remounts when the filters in the URL change; otherwise
-  // a client navigation (such as Clear filters) would leave the old boxes ticked.
+  // Inputs are uncontrolled, so the disclosure and its form remount when the filters in the URL
+  // change; otherwise a client navigation (Apply filters, Clear filters, a severity link) would
+  // leave the old boxes ticked and the panel open over the new result.
   const formKey = JSON.stringify([scope.providers, scope.projects, scope.accounts, resetKey ?? ""]);
   return (
-    <section aria-labelledby={titleId} className="mt-6 rounded-xl border border-line bg-panel">
-      <details className="group">
-        <summary className="flex min-h-12 cursor-pointer list-none flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-xl px-4 py-2 text-sm [&::-webkit-details-marker]:hidden">
-          <span className="flex items-center gap-2">
-            <FilterIcon className="size-4 text-muted" />
-            <span id={titleId} className="font-semibold">
-              Filters
-            </span>
-            {activeCount === 0 ? null : (
-              <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs font-medium text-foreground">
-                {activeCount} active
-              </span>
-            )}
+    <section
+      aria-labelledby={titleId}
+      className="relative mt-4 flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-line bg-panel px-4"
+    >
+      {/* The status sits outside the disclosure so it is announced as a live region and does not
+          become part of the toggle's accessible name (a summary's children are presentational). */}
+      <p role="status" aria-live="polite" className="min-w-0 break-words text-sm text-muted">
+        {status}
+      </p>
+      {/* `details` stays static, so the absolutely positioned panel spans the whole bar. */}
+      <details key={formKey} className="group">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 rounded-md text-sm [&::-webkit-details-marker]:hidden">
+          <FilterIcon className="size-4 text-muted" />
+          <span id={titleId} className="font-semibold">
+            Filters
           </span>
-          <span className="flex min-w-0 items-center gap-2 text-muted">
-            <span role="status" aria-live="polite" className="min-w-0 break-words">
-              {status}
+          {activeCount === 0 ? null : (
+            <span className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs font-medium text-foreground">
+              {activeCount} active
             </span>
-            <ChevronDownIcon className="size-4 shrink-0 transition-transform motion-reduce:transition-none group-open:rotate-180" />
-          </span>
+          )}
+          <ChevronDownIcon className="size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none group-open:rotate-180" />
         </summary>
-        <Form key={formKey} action={action} className="grid gap-6 border-t border-line px-4 py-4">
+        <Form
+          action={action}
+          className="absolute inset-x-0 top-full z-20 mt-2 grid gap-6 rounded-xl border border-line bg-panel px-4 py-4 shadow-lg"
+        >
           {Object.entries(hidden ?? {}).map(([name, value]) => (
             <input key={name} type="hidden" name={name} value={value} />
           ))}

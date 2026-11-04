@@ -138,9 +138,8 @@ function DashboardSkeleton() {
     <div role="status" aria-live="polite">
       <span className="sr-only">Loading the dashboard</span>
       <div aria-hidden="true">
-        <div className="mt-6 h-12.5 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
-        <div className="mt-8 h-6 w-56 rounded bg-panel-raised motion-safe:animate-pulse" />
-        <div className="mt-2 h-4 w-full max-w-xs rounded bg-panel-raised motion-safe:animate-pulse" />
+        <div className="mt-4 h-12.5 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
+        <div className="mt-6 h-6 w-56 rounded bg-panel-raised motion-safe:animate-pulse" />
         <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <div className="h-36 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
           <div className="h-36 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />

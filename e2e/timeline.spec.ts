@@ -5,6 +5,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { openFilters } from "./fixtures/filters";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 
@@ -78,24 +79,6 @@ async function seedTimeline(label: string): Promise<TestWorkspace> {
 /** Every event on the page, across all of its day groups. */
 function eventItems(page: Page) {
   return page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
-}
-
-/**
- * Opens the collapsed filter form, which is hidden from the accessibility tree until then. A
- * navigation renders it closed again, so tests open it before every interaction with it.
- */
-async function openFilters(page: Page, input: "pointer" | "keyboard" = "pointer") {
-  const filters = page.getByRole("region", { name: "Filters", exact: true });
-  const summary = filters.locator("summary");
-  if ((await filters.locator("details").getAttribute("open")) === null) {
-    if (input === "keyboard") {
-      await summary.focus();
-      await page.keyboard.press("Enter");
-    } else {
-      await summary.click();
-    }
-  }
-  await expect(filters.getByRole("button", { name: "Apply filters" })).toBeVisible();
 }
 
 function eventHeading(page: Page, index: number) {
@@ -323,6 +306,8 @@ ownerTest.describe("timeline scope filters", () => {
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
       await expect(status).toHaveText("Showing 50 events");
       const filters = page.getByRole("region", { name: "Filters", exact: true });
+      // The bar starts closed, so the events lead the page.
+      await expect(filters.getByRole("button", { name: "Apply filters" })).toBeHidden();
 
       await openFilters(page);
       await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "GitHub" }).check();
