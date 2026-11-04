@@ -13,9 +13,9 @@ Issues: #139. A workspace holds everything. A connection is one OAuth grant to a
 
 The workspace is the tenant and the security boundary. Every other row carries a `workspace_id`, and row level security answers every read and write through `has_workspace_role`, using the caller's role in `workspace_members`.
 
-- Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, and alert rules. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
+- Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, and alert rules, acknowledge alerts, and rename the workspace. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
 - Sign-up creates one personal workspace with the new user as its owner. `is_personal` only changes how the workspace is shown, never what anyone may do in it.
-- A user can belong to more than one workspace and switches between them in the app. Creating further workspaces and inviting members comes with teams (#105); until then a shared workspace exists only in local seed data (Acme in `supabase/seed.sql`).
+- A user can belong to more than one workspace and switches between them in the app. Creating further workspaces (#106) and inviting members by email (#107) come with teams (#105); until then a shared workspace exists only in local seed data (Acme in `supabase/seed.sql`).
 - Workspace URLs are `/w/<slug>/...`. The slug is random and never changes, so renaming a workspace never breaks a link.
 
 ## Connection
@@ -28,14 +28,14 @@ A connection is one OAuth grant from one provider account to one workspace. DevM
 
 ## External account
 
-An external account is the thing a provider actually bills or measures. In the app it is called an account, and it appears under its connection on the connection's page. You never create one: when a connection is made, the provider adapter lists the accounts the grant reaches and DevMacro stores them. Reconnecting lists them again, adds any new ones, and keeps each existing account's project and included choice. Syncing never adds accounts.
+An external account is the thing a provider actually bills or measures. In the app it is called an account, and it appears under its connection on the connection's page. You never create one: when a connection is made, the provider adapter lists the accounts the grant reaches and DevMacro stores them. Reconnecting lists them again, adds any new ones, and keeps each existing account's project and included choice. Syncing never adds accounts, and nothing removes one except deleting its connection: an account the provider stops listing stays, with its history, until then.
 
 | Provider | Kind | What one external account is |
 |---|---|---|
 | GitHub | `organization` or `user` | The account the GitHub App is installed on |
 | Vercel | `team` or `user` | A team, or a Hobby personal account |
 | Stripe | `account` | One Stripe account in one mode, live or test |
-| Supabase | `project` | One Supabase project in the organization (branches are skipped) |
+| Supabase | `project` | One Supabase project in any organization the grant can see (branches are skipped) |
 | Resend | `team` | The Resend team the grant covers |
 
 Usage belongs to the external account: `usage_snapshots` holds one row per external account, metric, and UTC day. Activity events can name the external account they are about.
@@ -49,9 +49,10 @@ An admin changes two things on an external account, and nothing else:
 
 A project is a name you choose, unique in the workspace, that groups external accounts from any provider. It stores no data of its own. The usual use is one project per product: the Vercel team, the Supabase project, and the Resend team behind one app all go into one project, so the product can be watched as a whole instead of one provider at a time.
 
-A project is used in three places:
+A project is used in four places:
 
-- **Dashboard.** The "By project" section shows spend for the current billing period per project. Accounts with no project are listed last, as Unassigned.
+- **Dashboard.** The "By project" section shows spend for the current billing period per project. A project appears there once one of its included accounts has spend in the current period, and accounts with no project are listed last, as Unassigned.
+- **Filter.** The dashboard and the timeline can be narrowed to one or more projects, or to Unassigned.
 - **Budgets.** A budget can apply to a project.
 - **Alert rules.** A rule can apply to a project. It matches a reading when the reading's external account belongs to that project.
 
