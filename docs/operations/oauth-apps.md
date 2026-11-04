@@ -12,7 +12,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 
 - **Hosted DevMacro**: Eddie registers each app once, owned by the DevMacro account or organization, with callbacks on the production origin. Hosted users connect through these apps and never create their own.
 - **Self-hosted DevMacro**: every install registers its own apps with the same permissions, because the callback URLs, client secrets, and private keys belong to one deployment. Never reuse the hosted apps' credentials.
-- **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`DEVMACRO_ENABLE_FAKE_PROVIDER=1`, never in production).
+- **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`DEVMACRO_ENABLE_FAKE_PROVIDER=1`, never in production). To try every provider locally without registering any app, simulate them (`DEVMACRO_SIMULATE_PROVIDERS=1`, local only and refused on a Vercel production deployment): each connection is labeled "Simulated" and its data is made up on your machine.
 - **Webhooks** are Post-MVP (#28). Leave every webhook setting empty or inactive.
 
 ## Summary

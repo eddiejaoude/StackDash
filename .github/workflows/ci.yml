@@ -193,6 +193,8 @@ jobs:
             echo "DEVMACRO_ENABLE_FAKE_PROVIDER=1"
             echo "FAKE_PROVIDER_CLIENT_ID=fake-client"
             echo "FAKE_PROVIDER_CLIENT_SECRET=fake-secret"
+            # The live providers are simulated (#131), so their connect and sync flows run too.
+            echo "DEVMACRO_SIMULATE_PROVIDERS=1"
           } > .env.local
 
       - name: End-to-end tests

@@ -29,11 +29,15 @@ export default defineConfig({
     url: baseURL,
     reuseExistingServer: false,
     timeout: process.env.CI ? 300_000 : 120_000,
-    // Pass this process's environment through unchanged (CI sets the Supabase variables here).
-    // Locally the dev server loads .env.local itself, and variables already set here take
-    // precedence over it, so nothing is copied or overridden in this file.
-    env: Object.fromEntries(
-      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-    ),
+    // Pass this process's environment through (CI sets the Supabase variables here). Locally the
+    // dev server loads .env.local itself, and variables already set here take precedence over it.
+    // The one override: the live providers are simulated (#131), so their connect flow runs
+    // without OAuth apps; specs that seed rows for them see them labeled "Simulated".
+    env: {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+      ),
+      DEVMACRO_SIMULATE_PROVIDERS: "1",
+    },
   },
 });

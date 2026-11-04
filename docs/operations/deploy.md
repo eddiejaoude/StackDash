@@ -145,6 +145,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `RESEND_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
 | `FAKE_PROVIDER_CLIENT_ID`, `FAKE_PROVIDER_CLIENT_SECRET` | Test only | Unset | Unset | Fake provider used by tests |
+| `DEVMACRO_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Local CLI only | Not in Vercel | Not in Vercel | Hosted: entered in the Supabase dashboard (step 3) |
 
 "Server only" values are not secret on their own (a client ID appears in authorize URLs anyway), but they are still set without a `NEXT_PUBLIC_` prefix because only the server uses them. Mark every "Secret" row as **Sensitive** in Vercel so its value cannot be read back from the dashboard. A provider whose variables are missing is shown as not configured; the rest of the app still works.
@@ -203,7 +204,7 @@ Run every check against the production URL and write down the deployment URL you
   Both must print `401`.
 - [ ] **The scheduler runs.** In the Supabase SQL editor, recent `pg_cron` runs succeed and ticks get `200` responses; [Jobs](jobs.md) lists the queries.
 - [ ] **A sync runs.** Connect one provider in a test workspace (needs that provider's app from [OAuth apps](oauth-apps.md)), then select **Sync now** or wait for the schedule. The connection shows a recent "last synced" time and `public.sync_jobs` has a `succeeded` row for it.
-- [ ] **Fake provider is off.** The provider catalog shows no fake provider, and `https://<production-host>/api/dev/fake-provider/authorize` answers `404`.
+- [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
 
 ## What stays Eddie's
