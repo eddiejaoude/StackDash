@@ -161,7 +161,9 @@ async function ConnectionContent({
                   </p>
                 </div>
                 {canManage ? (
-                  <div className="flex flex-wrap items-start gap-4">
+                  // Three shared rows (label, controls, status) that both forms join as a subgrid, so
+                  // Exclude lines up with the project dropdown whatever the label or messages hold.
+                  <div className="flex flex-col items-start gap-4 sm:grid sm:grid-cols-[auto_auto] sm:grid-rows-[auto_auto_auto] sm:gap-x-4 sm:gap-y-2">
                     <AccountProjectForm
                       workspaceSlug={workspace.slug}
                       accountId={account.id}
