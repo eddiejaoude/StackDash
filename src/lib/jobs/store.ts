@@ -1,5 +1,6 @@
 import "server-only";
 
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
@@ -64,6 +65,12 @@ export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string
 export interface JobStore {
   /** Queues a sync for every due connection (see enqueue_due_syncs). Returns how many were queued. */
   enqueueDueSyncs(limit: number): Promise<number>;
+  /**
+   * Makes every active connection the simulator made (`granted_scopes` holds SIMULATED_SCOPE) due
+   * at `at`, so the next schedule queues it. Real connections are never touched, whatever their
+   * provider. Only `npm run jobs:tick -- --watch` calls it (#131). Returns how many moved.
+   */
+  markSimulatedSyncsDue(at: Date): Promise<number>;
   /** Queues one sync unless one is already open. False also when the connection is not in the workspace. */
   enqueueSync(key: ConnectionKey): Promise<boolean>;
   /** "Sync now": cooldown check, cooldown stamp, and enqueue in one atomic step. */
@@ -88,8 +95,8 @@ export interface JobStore {
   latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>>;
   /** Upserts on (external_account_id, metric_key, snapshot_date). */
   upsertSnapshots(rows: readonly SnapshotRow[]): Promise<void>;
-  /** Inserts, skipping rows whose (workspace_id, dedupe_key) already exists. */
-  insertEvents(rows: readonly EventRow[]): Promise<void>;
+  /** Inserts, skipping rows whose (workspace_id, dedupe_key) already exists. Returns how many were new. */
+  insertEvents(rows: readonly EventRow[]): Promise<number>;
   setCursor(workspaceId: string, externalAccountId: string, cursor: string | null): Promise<void>;
 
   purgeSnapshots(beforeDate: string, limit: number): Promise<number>;
@@ -124,6 +131,20 @@ export function createSupabaseJobStore(): JobStore {
       const { data, error } = await db.rpc("enqueue_due_syncs", { p_limit: limit });
       if (error) throw failure("enqueue_due_syncs", error);
       return data;
+    },
+
+    async markSimulatedSyncsDue(at) {
+      const due = at.toISOString();
+      // Never-scheduled connections (next_sync_at null) are already due and stay untouched.
+      const { data, error } = await db
+        .from("connections")
+        .update({ next_sync_at: due })
+        .contains("granted_scopes", [SIMULATED_SCOPE])
+        .eq("status", "active")
+        .gt("next_sync_at", due)
+        .select("id");
+      if (error) throw failure("mark simulated syncs due", error);
+      return data.length;
     },
 
     async enqueueSync({ workspaceId, connectionId }) {
@@ -290,11 +311,14 @@ export function createSupabaseJobStore(): JobStore {
     },
 
     async insertEvents(rows) {
-      if (rows.length === 0) return;
-      const { error } = await db
+      if (rows.length === 0) return 0;
+      // With ignoreDuplicates only the rows actually inserted come back.
+      const { data, error } = await db
         .from("activity_events")
-        .upsert([...rows], { onConflict: "workspace_id,dedupe_key", ignoreDuplicates: true });
+        .upsert([...rows], { onConflict: "workspace_id,dedupe_key", ignoreDuplicates: true })
+        .select("id");
       if (error) throw failure("event insert", error);
+      return data.length;
     },
 
     async setCursor(workspaceId, externalAccountId, cursor) {

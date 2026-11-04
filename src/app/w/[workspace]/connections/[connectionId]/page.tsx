@@ -16,8 +16,10 @@ import { ConnectionStatusBadge } from "@/components/connections/connection-statu
 import { cooldownRemainingSeconds } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ProviderMark } from "@/components/connections/provider-mark";
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
 import { availableProviders } from "@/lib/adapters/registry";
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
@@ -57,6 +59,7 @@ async function ConnectionContent({
   // The fake provider is absent from the registry when its flag is off; its rows still render.
   const adapter = availableProviders().find((candidate) => candidate.id === connection.provider);
   const providerName = PROVIDER_NAMES[connection.provider];
+  const simulated = isSimulatedConnection(connection);
   const connectionsPath = workspacePath(workspace.slug, "connections");
   const reconnectHref = `${connectionsPath}/new/${connection.provider}?${new URLSearchParams({ connection: connection.id }).toString()}`;
   const lastSynced = connection.last_synced_at === null ? null : new Date(connection.last_synced_at);
@@ -77,7 +80,14 @@ async function ConnectionContent({
           All connections
         </Link>
       </p>
-      <PageHeader title={connection.display_name} description={`${providerName} connection for this workspace.`} />
+      <PageHeader
+        title={connection.display_name}
+        description={
+          simulated
+            ? `Simulated ${providerName} connection for this workspace. Its data is made up on this computer; no ${providerName} account is connected.`
+            : `${providerName} connection for this workspace.`
+        }
+      />
 
       {query.connected === "1" ? (
         connection.status === "needs_attention" ? null : (
@@ -114,6 +124,7 @@ async function ConnectionContent({
             Status
           </h2>
           <ConnectionStatusBadge status={connection.status} />
+          {simulated ? <SimulatedBadge /> : null}
         </div>
         <dl className="grid gap-x-6 gap-y-2 px-6 py-4 text-sm sm:grid-cols-[auto_1fr]">
           <dt className="text-muted">Authorized by</dt>

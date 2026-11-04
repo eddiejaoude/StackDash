@@ -1,10 +1,13 @@
 import "server-only";
 
+import { isSimulatedCredential } from "@/lib/adapters/simulated/marker";
 import type { ExternalAccount, OAuthContext, OAuthCredential, ProviderAdapter } from "@/lib/adapters/types";
 import { deleteCredential, saveCredential } from "@/lib/data/credentials";
 import { enqueueSync } from "@/lib/jobs/queue";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
+
+import { reconnectMismatch, type ReconnectMismatchCode } from "./oauth-state";
 
 /*
  * Turns a fresh grant into a connection (#40). Runs from the OAuth callback after the state was
@@ -24,6 +27,15 @@ const MAX_LABEL_NAMES = 2;
 
 export class ReconnectTargetMissingError extends Error {
   override readonly name = "ReconnectTargetMissingError";
+}
+
+/** A real connection reconnected with a simulated grant, or the reverse (#131); nothing was changed. */
+export class ReconnectMismatchError extends Error {
+  override readonly name = "ReconnectMismatchError";
+
+  constructor(readonly code: ReconnectMismatchCode) {
+    super("The connection to reconnect was made with the other kind of provider.");
+  }
 }
 
 export type CompleteConnectionInput = Readonly<{
@@ -85,13 +97,16 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
     // Re-read inside this workspace and provider: an id from another tenant finds nothing.
     const { data, error } = await admin
       .from("connections")
-      .select("id")
+      .select("id, granted_scopes")
       .eq("id", reconnectId)
       .eq("workspace_id", workspaceId)
       .eq("provider", adapter.id)
       .maybeSingle();
     if (error) throw new Error(`Reconnect lookup failed (code ${error.code}).`);
     if (data === null) throw new ReconnectTargetMissingError("The connection to reconnect no longer exists.");
+    // The start route already refused a mismatch; this covers the flag changing mid-flow.
+    const mismatch = reconnectMismatch(data, isSimulatedCredential(credential));
+    if (mismatch !== null) throw new ReconnectMismatchError(mismatch);
     connectionId = data.id;
   } else {
     // Pending until the credential and accounts are stored, so the scheduler never picks up a

@@ -82,7 +82,8 @@ const requestedScopes = permissions.map((permission) => permission.scope);
 
 // Payment events use `charge.*` (covered by `charge_read`) instead of `payment_intent.*`, which
 // may need `payment_intent_read` (Unverified #1).
-const timelineEvents = [
+// Exported, like `moneyMetrics` and `toActivityEvent` below, for the local simulator (#131).
+export const timelineEvents = [
   {
     stripeType: "charge.succeeded",
     label: "Payment succeeded",
@@ -305,7 +306,7 @@ function toSafeMinor(amountMinor: bigint): number {
   return Number(amountMinor);
 }
 
-function moneyMetrics(
+export function moneyMetrics(
   transactions: readonly BalanceTransaction[],
   now: Date,
   externalAccountId: string,
@@ -428,7 +429,7 @@ function timelineEntry(event: StripeEvent): TimelineEntry | undefined {
   }
 }
 
-function toActivityEvent(event: StripeEvent, externalAccountId: string): ActivityEvent | undefined {
+export function toActivityEvent(event: StripeEvent, externalAccountId: string): ActivityEvent | undefined {
   const entry = timelineEntry(event);
   if (entry === undefined) return undefined;
   return {

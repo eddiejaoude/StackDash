@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 
 const SECTIONS = [
-  { segment: "dashboard", label: "Dashboard" },
   { segment: "timeline", label: "Timeline" },
+  { segment: "dashboard", label: "Dashboard" },
   { segment: "connections", label: "Connections" },
   { segment: "alerts", label: "Alerts" },
   { segment: "projects", label: "Projects" },

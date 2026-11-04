@@ -29,7 +29,8 @@ const CONNECTIONS_LIMIT = 100;
 const ACCOUNTS_LIMIT = 1000;
 const PROJECTS_LIMIT = 500;
 
-const CONNECTION_COLUMNS = "id, provider, display_name, status, last_synced_at, poll_interval_seconds";
+// granted_scopes says whether the provider simulator made the connection (#131).
+const CONNECTION_COLUMNS = "id, provider, display_name, status, last_synced_at, poll_interval_seconds, granted_scopes";
 const ACCOUNT_COLUMNS = "id, connection_id, display_name, project_id";
 const PROJECT_COLUMNS = "id, name";
 const SNAPSHOT_COLUMNS =

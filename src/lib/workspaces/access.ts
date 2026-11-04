@@ -22,8 +22,8 @@ export type WorkspaceAccess = {
 };
 
 export const WORKSPACE_SECTIONS = [
-  "dashboard",
   "timeline",
+  "dashboard",
   "connections",
   "alerts",
   "projects",
@@ -46,6 +46,15 @@ export function workspacePath(slug: string, section: WorkspaceSection): string {
 }
 
 /**
+ * Where a workspace opens: `/app`, `/w/<slug>`, the switcher, and the return after sign-in all
+ * land here. The timeline, because it is the live pulse of the project (deploys, payments,
+ * alerts as they happen); the dashboard's totals are one click away (#135).
+ */
+export function workspaceHome(slug: string): string {
+  return workspacePath(slug, "timeline");
+}
+
+/**
  * Signs the user in if needed, then confirms they belong to the workspace with `slug` and hold at
  * least `minRole`. A missing workspace and a workspace the user is not a member of both end in
  * `notFound()`, so the response never reveals which slugs exist. A member below `minRole` gets a
@@ -59,7 +68,7 @@ export const requireWorkspace = cache(
     await connection();
     const validSlug = isWorkspaceSlug(slug);
     // Send the user back to this workspace after sign-in, but only through a known-safe path.
-    const user = await requireUser(validSlug ? workspacePath(slug, "dashboard") : "/app");
+    const user = await requireUser(validSlug ? workspaceHome(slug) : "/app");
     if (!validSlug) notFound();
 
     const membership = await getWorkspaceMembership(user.id, slug);

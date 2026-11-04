@@ -101,6 +101,35 @@ function displayName(value: string): string {
   return trimmed.length > MAX_NAME_LENGTH ? `${trimmed.slice(0, MAX_NAME_LENGTH - 1)}…` : trimmed;
 }
 
+type MetricName = Readonly<{ metricKey: string; label: string }>;
+
+/**
+ * The billing metric vocabulary: one key and label per product, SKU, unit, and day. Exported for
+ * the local simulator (#131), so its keys cannot drift from the ones synced here.
+ */
+export const billingMetricNames = {
+  spend: (product: string): MetricName => ({
+    metricKey: `github.spend.${slug(product)}`,
+    label: `GitHub ${displayName(product)} spend`,
+  }),
+  skuSpend: (product: string, sku: string): MetricName => ({
+    metricKey: `github.spend.${slug(product)}.${slug(sku)}`,
+    label: `GitHub ${displayName(product)} spend (${displayName(sku)})`,
+  }),
+  usage: (product: string, unitType: string): MetricName & Readonly<{ unit: string }> => {
+    const unit = metricUnit(unitType);
+    return {
+      metricKey: `github.usage.${slug(product)}.${slug(unit)}`,
+      label: `GitHub ${displayName(product)} usage (${unit})`,
+      unit,
+    };
+  },
+  dailySpend: (product: string): MetricName => ({
+    metricKey: `github.daily_spend.${slug(product)}`,
+    label: `GitHub ${displayName(product)} daily spend`,
+  }),
+};
+
 type Group = { label: string; values: Decimal[] };
 
 function addTo(groups: Map<string, Group>, key: string, label: string, value: Decimal): void {
@@ -189,22 +218,12 @@ function collectSummary(collector: MetricCollector, items: readonly AggregatedUs
     // Copilot is reported from the AI credit endpoints, so its summary rows are skipped to avoid
     // counting it twice. Product strings are in the page's Unverified list.
     if (/^copilot/i.test(item.product.trim())) continue;
-    const product = slug(item.product);
-    const unit = metricUnit(item.unitType);
-    addTo(spend, `github.spend.${product}`, `GitHub ${displayName(item.product)} spend`, item.netAmount);
-    addTo(
-      spend,
-      `github.spend.${product}.${slug(item.sku)}`,
-      `GitHub ${displayName(item.product)} spend (${displayName(item.sku)})`,
-      item.netAmount,
-    );
-    addUsageTo(
-      usage,
-      `github.usage.${product}.${slug(unit)}`,
-      `GitHub ${displayName(item.product)} usage (${unit})`,
-      unit,
-      item.grossQuantity,
-    );
+    const spendName = billingMetricNames.spend(item.product);
+    const skuName = billingMetricNames.skuSpend(item.product, item.sku);
+    const usageName = billingMetricNames.usage(item.product, item.unitType);
+    addTo(spend, spendName.metricKey, spendName.label, item.netAmount);
+    addTo(spend, skuName.metricKey, skuName.label, item.netAmount);
+    addUsageTo(usage, usageName.metricKey, usageName.label, usageName.unit, item.grossQuantity);
   }
   collector.spend(spend, endpoint, monthTimeframe(month));
   collector.usage(usage, endpoint, monthTimeframe(month));
@@ -215,7 +234,8 @@ function collectDaily(collector: MetricCollector, items: readonly BillingUsageIt
   for (const item of items) {
     const day = byDay.get(item.date) ?? new Map<string, Group>();
     byDay.set(item.date, day);
-    addTo(day, `github.daily_spend.${slug(item.product)}`, `GitHub ${displayName(item.product)} daily spend`, item.netAmount);
+    const name = billingMetricNames.dailySpend(item.product);
+    addTo(day, name.metricKey, name.label, item.netAmount);
   }
   for (const [date, groups] of byDay) {
     const start = new Date(`${date}T00:00:00Z`);
@@ -227,9 +247,10 @@ function collectCopilot(collector: MetricCollector, items: readonly AggregatedUs
   const spend = new Map<string, Group>();
   const usage = new Map<string, Group & { unit: string }>();
   for (const item of items) {
-    const unit = metricUnit(item.unitType);
-    addTo(spend, "github.spend.copilot", "GitHub Copilot spend", item.netAmount);
-    addUsageTo(usage, `github.usage.copilot.${slug(unit)}`, `GitHub Copilot usage (${unit})`, unit, item.grossQuantity);
+    const spendName = billingMetricNames.spend("Copilot");
+    const usageName = billingMetricNames.usage("Copilot", item.unitType);
+    addTo(spend, spendName.metricKey, spendName.label, item.netAmount);
+    addUsageTo(usage, usageName.metricKey, usageName.label, usageName.unit, item.grossQuantity);
   }
   collector.spend(spend, endpoint, monthTimeframe(month));
   collector.usage(usage, endpoint, monthTimeframe(month));

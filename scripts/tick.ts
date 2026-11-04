@@ -3,6 +3,12 @@
  * claimed jobs, exactly as POST /api/jobs/tick does.
  *
  *   npm run jobs:tick
+ *   npm run jobs:tick -- --watch [--interval <seconds>]
+ *
+ * `--watch` repeats the tick every 10 seconds (at least 5) until Ctrl+C or SIGTERM, which stop it
+ * after the tick in progress, and claims up to 100 jobs per tick instead of 10. With
+ * DEVMACRO_SIMULATE_PROVIDERS=1 each iteration first makes the connections the simulator made due,
+ * so they sync on every tick (#131). It prints one line of counts per tick.
  *
  * Calls the runner directly, so no dev server or CRON_SECRET is needed. Reads `.env.local` when
  * present (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEVMACRO_ENCRYPTION_KEY, provider
@@ -10,13 +16,44 @@
  */
 import { existsSync } from "node:fs";
 
+import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { createJobDeps } from "@/lib/jobs/queue";
 import { runTick } from "@/lib/jobs/runner";
+import { abortableSleep, parseTickArgs, runWatch, runWatchTick } from "@/lib/jobs/watch";
 
 async function main(): Promise<void> {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  const result = await runTick(createJobDeps());
-  console.log(JSON.stringify(result));
+  const args = parseTickArgs(process.argv.slice(2));
+  if (args.kind === "invalid") {
+    console.error(args.message);
+    process.exitCode = 2;
+    return;
+  }
+  if (args.kind === "once") {
+    const result = await runTick(createJobDeps());
+    console.log(JSON.stringify(result));
+    return;
+  }
+
+  const deps = createJobDeps();
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  await runWatch(
+    {
+      tick: () => runWatchTick(deps),
+      simulationEnabled: isProviderSimulationEnabled,
+      // Only connections the simulator made (by their granted scope), never a real connection,
+      // whatever its provider: the simulated adapters refuse real credentials.
+      markSimulatedDue: () => deps.store.markSimulatedSyncsDue(new Date()),
+      now: () => new Date(),
+      sleep: abortableSleep,
+      print: (line) => console.log(line),
+      signal: controller.signal,
+    },
+    args.intervalSeconds,
+  );
 }
 
 main().catch((error: unknown) => {

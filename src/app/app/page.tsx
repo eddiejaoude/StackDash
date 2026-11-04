@@ -7,7 +7,7 @@ import { SignOutButton } from "@/components/app/sign-out-button";
 import { Wordmark } from "@/components/wordmark";
 import { requireUser } from "@/lib/auth/session";
 import { getLastWorkspaceSlug, listMyWorkspaces } from "@/lib/data/workspaces";
-import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/access";
 
 export const metadata: Metadata = { title: "Your workspace" };
 
@@ -32,11 +32,11 @@ async function OpenWorkspace() {
   await requireUser("/app");
 
   const lastSlug = await getLastWorkspaceSlug();
-  if (lastSlug !== null && isWorkspaceSlug(lastSlug)) redirect(workspacePath(lastSlug, "dashboard"));
+  if (lastSlug !== null && isWorkspaceSlug(lastSlug)) redirect(workspaceHome(lastSlug));
 
   const workspaces = await listMyWorkspaces();
   const target = workspaces.find((workspace) => workspace.is_personal) ?? workspaces[0];
-  if (target !== undefined && isWorkspaceSlug(target.slug)) redirect(workspacePath(target.slug, "dashboard"));
+  if (target !== undefined && isWorkspaceSlug(target.slug)) redirect(workspaceHome(target.slug));
 
   return <NoWorkspace />;
 }

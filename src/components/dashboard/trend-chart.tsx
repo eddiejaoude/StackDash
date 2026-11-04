@@ -1,5 +1,6 @@
 import { useId } from "react";
 
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import {
   bucketLabel,
   comparisonText,
@@ -44,9 +45,12 @@ export function TrendChart({ series }: { series: TrendSeries }) {
 
   return (
     <figure aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
-      <h3 id={titleId} className="font-semibold">
-        {seriesTitle(series)}
-      </h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 id={titleId} className="font-semibold">
+          {seriesTitle(series)}
+        </h3>
+        {series.simulated ? <SimulatedBadge /> : null}
+      </div>
       <p className="mt-1 text-sm text-muted">{comparisonText(series.comparison, measure, granularity)}</p>
 
       <svg

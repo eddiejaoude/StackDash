@@ -30,6 +30,15 @@ export const eventTypeIds = {
   forksNew: "github.forks.new",
 } as const;
 
+/** Star metric keys and labels. Exported for the local simulator (#131), so its keys cannot drift. */
+export const starMetricNames = {
+  repo: (repo: Pick<Repository, "id" | "full_name">) => ({
+    metricKey: `github.stars.repo_${repo.id}`,
+    label: `Stars on ${repo.full_name}`.slice(0, 120),
+  }),
+  total: { metricKey: "github.stars.total", label: "Stars across connected repositories" },
+} as const;
+
 export const eventTypes: readonly EventType[] = [
   {
     id: eventTypeIds.starsDaily,
@@ -238,8 +247,7 @@ export async function collectRepositories(
 
     metrics.push({
       kind: "usage",
-      metricKey: `github.stars.repo_${repo.id}`,
-      label: `Stars on ${repo.full_name}`.slice(0, 120),
+      ...starMetricNames.repo(repo),
       value: count,
       unit: "stars",
       timeframe: { type: "point", at: now },
@@ -251,8 +259,7 @@ export async function collectRepositories(
 
   metrics.push({
     kind: "usage",
-    metricKey: "github.stars.total",
-    label: "Stars across connected repositories",
+    ...starMetricNames.total,
     value: totalStars,
     unit: "stars",
     timeframe: { type: "point", at: now },

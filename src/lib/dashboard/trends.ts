@@ -9,10 +9,12 @@
  * - Each account contributes its latest row in a bucket (day or month). A bucket's value is the
  *   sum over the series' accounts. If any account that had started reporting by the end of the
  *   bucket has no row in it, the bucket is unavailable (null), never zero and never a partial sum.
- * - A point is estimated when any row behind it is estimated.
+ * - A point is estimated when any row behind it is estimated. A series is simulated when any
+ *   connection behind a point in the window was made by the provider simulator (#131).
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
  *   means no comparison; a previous value of zero gives a direction but no percent.
  */
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatMoney, formatQuantity, formatUtcMonth } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
@@ -41,7 +43,7 @@ export type TrendRow = Pick<
   | "provenance_source"
 >;
 
-export type TrendConnection = Readonly<{ id: string; provider: ProviderId }>;
+export type TrendConnection = Readonly<{ id: string; provider: ProviderId; granted_scopes: readonly string[] }>;
 
 export type TrendMeasure = Readonly<{ type: "money"; currency: string }> | Readonly<{ type: "quantity"; unit: string }>;
 
@@ -71,6 +73,8 @@ export type TrendSeries = Readonly<{
   measure: TrendMeasure;
   granularity: TrendGranularity;
   points: readonly TrendPoint[];
+  /** True when any connection behind a point was made by the provider simulator (#131). */
+  simulated: boolean;
   comparison: TrendComparison;
 }>;
 
@@ -113,6 +117,7 @@ type SeriesBuilder = {
   firstDates: Map<string, string>;
   /** Bucket, then account, then that account's latest row in the bucket. */
   cells: Map<string, Map<string, TrendRow>>;
+  simulated: boolean;
 };
 
 /** Last bucket against the one before it. */
@@ -137,20 +142,21 @@ export function buildTrends(
   granularity: TrendGranularity,
   now: Date,
 ): TrendSeries[] {
-  const providers = new Map(connections.map((connection) => [connection.id, connection.provider]));
+  const byId = new Map(connections.map((connection) => [connection.id, connection]));
   const buckets = trendBuckets(granularity, now);
   const inWindow = new Set(buckets);
   const builders = new Map<string, SeriesBuilder>();
 
   for (const row of rows) {
-    const provider = providers.get(row.connection_id);
+    const connection = byId.get(row.connection_id);
     const measure = measureOf(row);
-    if (provider === undefined || measure === null) continue;
+    if (connection === undefined || measure === null) continue;
+    const { provider } = connection;
     const measureKey = measure.type === "money" ? `money:${measure.currency}` : `quantity:${measure.unit}`;
     const key = `${provider} ${row.metric_key} ${measureKey}`;
     let builder = builders.get(key);
     if (builder === undefined) {
-      builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), cells: new Map() };
+      builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), cells: new Map(), simulated: false };
       builders.set(key, builder);
     }
     if (newer(row, builder.latest)) builder.latest = row;
@@ -159,6 +165,7 @@ export function buildTrends(
 
     const bucket = granularity === "daily" ? row.snapshot_date : row.snapshot_date.slice(0, 7);
     if (!inWindow.has(bucket)) continue;
+    builder.simulated ||= isSimulatedConnection(connection);
     let cell = builder.cells.get(bucket);
     if (cell === undefined) {
       cell = new Map();
@@ -194,6 +201,7 @@ export function buildTrends(
       measure: builder.measure,
       granularity,
       points,
+      simulated: builder.simulated,
       comparison: compareToPrevious(points),
     });
   }

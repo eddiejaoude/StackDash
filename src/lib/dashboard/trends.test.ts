@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+
 import {
   buildTrends,
   comparisonText,
@@ -16,7 +18,7 @@ import {
 
 // Mid January, so the 13 month window and the 30 day window both cross a year boundary.
 const NOW = new Date("2026-01-15T12:00:00.000Z");
-const connections: TrendConnection[] = [{ id: "c1", provider: "fake" }];
+const connections: TrendConnection[] = [{ id: "c1", provider: "fake", granted_scopes: ["usage:read"] }];
 
 function spend(overrides: Partial<TrendRow> & Pick<TrendRow, "snapshot_date" | "amount_minor">): TrendRow {
   return {
@@ -79,6 +81,27 @@ describe("buildTrends month bucketing", () => {
   it("takes each account's latest value in the month", () => {
     const rows = [spend({ snapshot_date: "2025-12-31", amount_minor: 900 }), spend({ snapshot_date: "2025-12-10", amount_minor: 500 })];
     expect(valueOn(rows, "2025-12", "monthly")?.value).toBe(900);
+  });
+});
+
+describe("buildTrends simulated series (#131)", () => {
+  const simulated: TrendConnection = { id: "c2", provider: "fake", granted_scopes: [SIMULATED_SCOPE] };
+  const both = [...connections, simulated];
+
+  it("marks a series simulated when a simulated connection contributes a point, even beside a real one", () => {
+    const rows = [
+      spend({ snapshot_date: "2026-01-15", amount_minor: 100 }),
+      spend({ connection_id: "c2", external_account_id: "a2", snapshot_date: "2026-01-15", amount_minor: 50 }),
+    ];
+    const [series, ...rest] = buildTrends(rows, both, "daily", NOW);
+    expect(rest).toEqual([]);
+    expect(series?.simulated).toBe(true);
+    expect(series?.points.at(-1)?.value).toBe(150);
+  });
+
+  it("leaves a series of real connections unmarked", () => {
+    const [series] = buildTrends([spend({ snapshot_date: "2026-01-15", amount_minor: 100 })], both, "daily", NOW);
+    expect(series?.simulated).toBe(false);
   });
 });
 

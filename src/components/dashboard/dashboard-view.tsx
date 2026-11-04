@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
-import type { CurrencyAmounts, DashboardView as View } from "@/lib/dashboard/aggregate";
+import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
 
@@ -38,14 +39,18 @@ function CurrencyCards({ amounts, noun, now }: { amounts: readonly CurrencyAmoun
   );
 }
 
+/** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
 function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: string; now: Date }) {
   const titleId = useId();
   return (
     <li>
       <section aria-labelledby={titleId} className="h-full rounded-xl border border-line bg-panel p-4">
-        <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
-          {`${noun} in ${amounts.currency}`}
-        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
+            {`${noun} in ${amounts.currency}`}
+          </h3>
+          {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+        </div>
         <div className="mt-2">
           <CurrencyAmountsList
             amounts={amounts}
@@ -211,7 +216,10 @@ function ProjectCard({ name, spend, now }: { name: string; spend: readonly Curre
         <ul className="mt-3 space-y-4">
           {spend.map((amounts) => (
             <li key={amounts.currency}>
-              <p className="mb-1 font-mono text-xs font-medium text-muted">{amounts.currency}</p>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <p className="font-mono text-xs font-medium text-muted">{amounts.currency}</p>
+                {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+              </div>
               <CurrencyAmountsList
                 amounts={amounts}
                 now={now}

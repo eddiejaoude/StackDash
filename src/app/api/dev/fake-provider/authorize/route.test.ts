@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fakeAdapter } from "@/lib/adapters/fake";
+import { simulatedAdapters } from "@/lib/adapters/simulated";
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret } from "@/lib/adapters/types";
 
 import { GET } from "./route";
@@ -130,5 +132,93 @@ describe("connect round trip through the route", () => {
     expect(credential.scopes).toEqual(["usage:read"]);
     expect(credential.metadata).toEqual({ mode: "rate_limited" });
     expect(fakeAdapter.detectMissingPermissions(credential)).toEqual([]);
+  });
+});
+
+const STRIPE_CALLBACK = `${ORIGIN}/api/connections/stripe/callback`;
+const simulatedParams = { provider: "stripe", state: "state-sim", redirect_uri: STRIPE_CALLBACK, scope: SIMULATED_SCOPE };
+
+describe("GET /api/dev/fake-provider/authorize?provider=<live id> guard", () => {
+  it.each([
+    ["unset", undefined, undefined],
+    ["0", "0", undefined],
+    ["true", "true", undefined],
+    ["padded 1", " 1", undefined],
+    ["1 on Vercel production", "1", "production"],
+  ])("answers 404 when DEVMACRO_SIMULATE_PROVIDERS is %s", (_title, value, vercelEnv) => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", value);
+    vi.stubEnv("VERCEL_ENV", vercelEnv);
+    // The fake provider's flag does not open the simulated screen.
+    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    const response = GET(authorizeRequest(simulatedParams));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("does not open the fake provider's screen with only the simulation flag", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "");
+    expect(GET(authorizeRequest(validParams)).status).toBe(404);
+  });
+});
+
+describe("GET /api/dev/fake-provider/authorize?provider=<live id> when simulating", () => {
+  it("redirects to that provider's callback with a simulated code and the simulated scope", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("VERCEL_ENV", undefined);
+    const target = location(GET(authorizeRequest(simulatedParams)));
+    expect(`${target.origin}${target.pathname}`).toBe(STRIPE_CALLBACK);
+    expect(target.searchParams.get("state")).toBe("state-sim");
+    expect(target.searchParams.get("code")).toMatch(/^simulated-[0-9a-f-]{36}$/);
+    expect(target.searchParams.get("granted_scope")).toBe(SIMULATED_SCOPE);
+  });
+
+  it("simulates cancel with error=access_denied and no code", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    const target = location(GET(authorizeRequest({ ...simulatedParams, error: "access_denied" })));
+    expect(target.searchParams.get("error")).toBe("access_denied");
+    expect(target.searchParams.has("code")).toBe(false);
+  });
+
+  it.each([
+    ["an unknown provider", { ...simulatedParams, provider: "heroku" }],
+    ["the fake provider named explicitly", { ...simulatedParams, provider: "fake" }],
+    ["another provider's callback", { ...simulatedParams, redirect_uri: `${ORIGIN}/api/connections/vercel/callback` }],
+    ["the callback on another origin", { ...simulatedParams, redirect_uri: "https://evil.example/api/connections/stripe/callback" }],
+    ["a callback with a query", { ...simulatedParams, redirect_uri: `${STRIPE_CALLBACK}?next=/admin` }],
+    ["state missing", { provider: "stripe", redirect_uri: STRIPE_CALLBACK, scope: SIMULATED_SCOPE }],
+    ["a real scope", { ...simulatedParams, scope: "charge_read" }],
+    ["scope missing", { provider: "stripe", state: "s", redirect_uri: STRIPE_CALLBACK }],
+    ["a decline switch", { ...simulatedParams, decline: SIMULATED_SCOPE }],
+    ["a mode switch", { ...simulatedParams, mode: "revoked" }],
+    ["an unsupported error", { ...simulatedParams, error: "server_error" }],
+  ])("answers 400 without redirecting for %s", (_title, params) => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    const response = GET(authorizeRequest(params));
+    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("round trips buildAuthorizeUrl -> route -> exchangeCode -> listAccounts for every live provider", async () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    const client = { clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} };
+    for (const adapter of Object.values(simulatedAdapters)) {
+      const redirectUri = `${ORIGIN}/api/connections/${adapter.id}/callback`;
+      const authorizeUrl = adapter.buildAuthorizeUrl({ client, state: "state-rt", redirectUri });
+      const callbackParams = Object.fromEntries(location(GET(new Request(authorizeUrl))).searchParams);
+      const code = callbackParams.code;
+      if (code === undefined) throw new Error(`expected a code for ${adapter.id}`);
+      const ctx = {
+        fetch: vi.fn(() => Promise.reject(new Error("network is not allowed"))),
+        now: () => new Date("2026-11-04T21:00:00.000Z"),
+        timeoutMs: 5000,
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        client,
+      };
+      const credential = await adapter.exchangeCode({ code, redirectUri, callbackParams }, ctx);
+      expect(adapter.detectMissingPermissions(credential), adapter.id).toEqual([]);
+      expect((await adapter.listAccounts(credential, ctx)).length, adapter.id).toBeGreaterThan(0);
+      expect(ctx.fetch).not.toHaveBeenCalled();
+    }
   });
 });

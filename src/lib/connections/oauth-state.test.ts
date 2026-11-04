@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+
 import {
   callbackRedirectUri,
   connectErrorCodes,
@@ -15,6 +17,7 @@ import {
   newStateToken,
   OAUTH_STATE_TTL_SECONDS,
   pkceChallenge,
+  reconnectMismatch,
   stateExpiresAt,
 } from "./oauth-state";
 
@@ -136,5 +139,29 @@ describe("connect feedback", () => {
     for (const code of connectErrorCodes) {
       expect(connectErrorMessage(code, "Vercel")).not.toMatch(/[\u2013\u2014!]/);
     }
+  });
+});
+
+describe("reconnectMismatch (#131)", () => {
+  const real = { granted_scopes: ["read:project"] };
+  const simulated = { granted_scopes: [SIMULATED_SCOPE] };
+
+  it("allows a real connection through a real adapter and a simulated one through the simulator", () => {
+    expect(reconnectMismatch(real, false)).toBeNull();
+    expect(reconnectMismatch(simulated, true)).toBeNull();
+  });
+
+  it("refuses a real connection through the simulator, and says to connect a new simulated one", () => {
+    expect(reconnectMismatch(real, true)).toBe("reconnect_real_connection");
+    expect(connectErrorMessage("reconnect_real_connection", "Vercel")).toBe(
+      "This connection was made with the real Vercel app. Connect a new simulated one instead.",
+    );
+  });
+
+  it("refuses a simulated connection through a real adapter, and says to connect a new real one", () => {
+    expect(reconnectMismatch(simulated, false)).toBe("reconnect_simulated_connection");
+    expect(connectErrorMessage("reconnect_simulated_connection", "Stripe")).toBe(
+      "This connection was made with the simulated Stripe. Connect a new real one instead.",
+    );
   });
 });

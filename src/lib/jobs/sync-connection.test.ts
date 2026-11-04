@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { fakeAdapter, type FakeMode } from "@/lib/adapters/fake";
+import { simulatedAdapters } from "@/lib/adapters/simulated";
+import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import type { Logger } from "@/lib/log/logger";
 
@@ -294,6 +296,66 @@ describe("sync job: failure episodes (#60)", () => {
     const events = harness.failureEvents();
     expect(events).toHaveLength(2);
     expect(events[0]?.dedupe_key).not.toBe(events[1]?.dedupe_key);
+  });
+});
+
+describe("sync job: simulated credentials (#131)", () => {
+  const simulatedCredential: OAuthCredential = {
+    accessToken: new Secret("simulated-at-test"),
+    scopes: [SIMULATED_SCOPE],
+    tokenType: "bearer",
+    metadata: simulatedCredentialMetadata("5eed0a11"),
+  };
+
+  it("refuses a simulated credential with a real adapter at once, without asking for a client or calling the provider", async () => {
+    const calls = { sync: 0, fetch: 0, client: 0 };
+    const real: ProviderAdapter = {
+      ...fakeAdapter,
+      sync: (input, ctx) => {
+        calls.sync += 1;
+        return fakeAdapter.sync(input, ctx);
+      },
+    };
+    const harness = setup({ adapter: real });
+    harness.store.credentials.set(harness.connectionId, simulatedCredential);
+    const deps: SyncDeps = {
+      ...harness.deps,
+      loadOAuthClient: (adapter) => {
+        calls.client += 1;
+        return harness.deps.loadOAuthClient(adapter);
+      },
+      createOAuthContext: (oauthClient) => ({
+        ...harness.deps.createOAuthContext(oauthClient),
+        fetch: () => {
+          calls.fetch += 1;
+          return Promise.reject(new Error("no network in tests"));
+        },
+      }),
+    };
+
+    await runTick(deps);
+
+    const job = lastSyncJob(harness);
+    expect(job.status).toBe("failed");
+    expect(job.attempts).toBe(1);
+    expect(job.error_code).toBe("simulated_credential");
+    const connection = connectionOf(harness);
+    expect(connection.status).toBe("needs_attention");
+    expect(connection.last_error_code).toBe("simulated_credential");
+    expect(connection.next_sync_at).toBeNull();
+    expect(calls).toEqual({ sync: 0, fetch: 0, client: 0 });
+    const [event, ...rest] = harness.failureEvents();
+    expect(rest).toHaveLength(0);
+    expect(event?.severity).toBe("critical");
+    expect(event?.body).toContain("DEVMACRO_SIMULATE_PROVIDERS=1");
+  });
+
+  it("syncs a simulated credential with the registry's simulated adapter", async () => {
+    const harness = setup({ adapter: simulatedAdapters.stripe, accounts: 0 });
+    harness.store.credentials.set(harness.connectionId, simulatedCredential);
+    await harness.tick();
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).status).toBe("active");
   });
 });
 

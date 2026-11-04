@@ -1,3 +1,4 @@
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
 import type { Tables } from "@/lib/supabase/database.types";
 
@@ -139,6 +140,17 @@ export class MemoryJobStore implements JobStore {
     let queued = 0;
     for (const row of due) if (this.#insertSync(row.workspace_id, row.id)) queued += 1;
     return queued;
+  }
+
+  async markSimulatedSyncsDue(at: Date): Promise<number> {
+    let moved = 0;
+    for (const row of this.connections) {
+      if (row.status !== "active" || !isSimulatedConnection(row)) continue;
+      if (row.next_sync_at === null || new Date(row.next_sync_at).getTime() <= at.getTime()) continue;
+      row.next_sync_at = at.toISOString();
+      moved += 1;
+    }
+    return moved;
   }
 
   async enqueueSync(key: ConnectionKey): Promise<boolean> {
@@ -300,13 +312,17 @@ export class MemoryJobStore implements JobStore {
     }
   }
 
-  async insertEvents(rows: readonly EventRow[]): Promise<void> {
+  async insertEvents(rows: readonly EventRow[]): Promise<number> {
+    let inserted = 0;
     for (const row of rows) {
       const exists = this.events.some(
         (event) => event.workspace_id === row.workspace_id && event.dedupe_key === row.dedupe_key,
       );
-      if (!exists) this.events.push({ ...row, id: crypto.randomUUID() });
+      if (exists) continue;
+      this.events.push({ ...row, id: crypto.randomUUID() });
+      inserted += 1;
     }
+    return inserted;
   }
 
   async setCursor(workspaceId: string, externalAccountId: string, cursor: string | null): Promise<void> {

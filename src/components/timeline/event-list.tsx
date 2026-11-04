@@ -1,3 +1,4 @@
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { PlatformLogo } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
 import type { TimelineEvent } from "@/lib/data/timeline";
@@ -18,7 +19,8 @@ const SEVERITY_EDGE: Record<EventSeverity, string> = {
 /**
  * One page of events, newest first, under a heading per London day. The events region holds one
  * list per day, labelled by that day's heading, so a screen reader can jump between days by
- * heading and still hear how many events each day holds.
+ * heading and still hear how many events each day holds. Every row prints "Simulated" when its
+ * connection was made by the provider simulator.
  */
 export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
   return (
@@ -72,7 +74,10 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
               <EventTime occurredAt={event.occurred_at} now={now} />
             </p>
           </div>
-          <SeverityBadge severity={severityBadge(event.severity)} />
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {event.simulated ? <SimulatedBadge /> : null}
+            <SeverityBadge severity={severityBadge(event.severity)} />
+          </div>
         </div>
         {event.body === null ? null : (
           <p className="mt-1 whitespace-pre-line break-words text-sm leading-5 text-muted">{event.body}</p>

@@ -95,7 +95,10 @@ where source = 'auth_audit_logs'
   and log_attributes['auth_audit_event.action'] in ('login', 'token_refreshed')
 limit 1`;
 
-const PRICING_SOURCE = "https://supabase.com/pricing (checked 2026-10-31)";
+// Exported, like the allowance vocabulary and event types below, for the local simulator (#131).
+export const PRICING_SOURCE = "https://supabase.com/pricing (checked 2026-10-31)";
+
+export const DAILY_ACTIVE_USERS_METRIC_KEY = "supabase.auth.daily_active_users";
 
 type AllowanceSpec = Readonly<{ metricKey: string; label: string; value: number; unit: string }>;
 
@@ -103,7 +106,7 @@ type AllowanceSpec = Readonly<{ metricKey: string; label: string; value: number;
  * Plan limits with no entitlement key, taken from the pricing page and labeled estimated
  * (page, "Plan and entitlements"). Enterprise and platform limits are custom, so none apply.
  */
-const PRICING_PAGE_LIMITS: Readonly<Record<string, readonly AllowanceSpec[]>> = {
+export const PRICING_PAGE_LIMITS: Readonly<Record<string, readonly AllowanceSpec[]>> = {
   free: [
     { metricKey: "supabase.plan.database_size", label: "Database size per project (estimated)", value: 500, unit: "MB" },
     { metricKey: "supabase.plan.monthly_active_users", label: "Monthly active users (estimated)", value: 50_000, unit: "users" },
@@ -120,7 +123,7 @@ const PRICING_PAGE_LIMITS: Readonly<Record<string, readonly AllowanceSpec[]>> = 
 
 const AUDIT_RETENTION_KEY = "security.audit_logs_days";
 
-const ENTITLEMENT_ALLOWANCES: Readonly<
+export const ENTITLEMENT_ALLOWANCES: Readonly<
   Record<string, Readonly<{ metricKey: string; label: string; defaultUnit?: string }>>
 > = {
   [AUDIT_RETENTION_KEY]: { metricKey: "supabase.plan.audit_log_retention", label: "Auth audit log retention", defaultUnit: "days" },
@@ -137,7 +140,7 @@ const ENTITLEMENT_ALLOWANCES: Readonly<
 // Same rule as the metric model's unit field.
 const UNIT_PATTERN = /^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/;
 
-const eventTypes: readonly EventType[] = [
+export const eventTypes = [
   {
     id: "supabase.auth.signup",
     label: "New signup",
@@ -162,7 +165,7 @@ const eventTypes: readonly EventType[] = [
     description: "Every checked Supabase service of the project is healthy again.",
     shownByDefault: true,
   },
-];
+] as const satisfies readonly EventType[];
 
 const HealthStateSchema = z.enum(["healthy", "unhealthy"]);
 type HealthState = z.infer<typeof HealthStateSchema>;
@@ -276,7 +279,8 @@ function isoMinute(ms: number): string {
 
 const numberFormat = new Intl.NumberFormat("en-GB");
 
-function counted(value: number, singular: string, plural: string): string {
+/** "1 login", "1,234 logins". Exported for the local simulator's daily summary (#131). */
+export function counted(value: number, singular: string, plural: string): string {
   return `${numberFormat.format(value)} ${value === 1 ? singular : plural}`;
 }
 
@@ -563,7 +567,7 @@ async function finishDay(
     activeUsers = rows[0]?.active_users ?? 0;
     metric = {
       kind: "usage",
-      metricKey: "supabase.auth.daily_active_users",
+      metricKey: DAILY_ACTIVE_USERS_METRIC_KEY,
       label: "Daily active users",
       value: activeUsers,
       unit: "users",

@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
 import {
   aggregateDashboard,
   dropSupersededBreakdowns,
   freshnessLabel,
+  hasSimulatedSource,
   isCurrentPeriod,
   isStale,
   latestSnapshots,
@@ -26,6 +29,7 @@ const connection: ConnectionInput = {
   status: "active",
   last_synced_at: "2026-10-15T11:30:00.000Z",
   poll_interval_seconds: HOUR,
+  granted_scopes: ["usage:read"],
 };
 
 const accounts: AccountInput[] = [
@@ -185,6 +189,54 @@ describe("aggregateDashboard by project", () => {
       input([money({ metric_key: "fake.spend.month", amount_minor: 1_000, currency: "USD" })], { projects: [] }),
     );
     expect(view.byProject.map(({ projectId }) => projectId)).toEqual([null]);
+  });
+});
+
+describe("aggregateDashboard simulated sources (#131)", () => {
+  // A real connection and a simulated one in the same workspace, each with one account.
+  const simulated: ConnectionInput = { ...connection, id: "c2", display_name: "Simulated account", granted_scopes: [SIMULATED_SCOPE] };
+  const mixedAccounts: AccountInput[] = [...accounts, { id: "a3", connection_id: "c2", display_name: "Example team", project_id: "p1" }];
+  const mixed = (overrides: Partial<DashboardInput> = {}) =>
+    input(
+      [
+        money({ metric_key: "fake.spend.month", amount_minor: 1_000, currency: "USD" }),
+        money({ connection_id: "c2", external_account_id: "a3", metric_key: "fake.spend.month", amount_minor: 500, currency: "USD" }),
+        money({ metric_key: "fake.spend.eur", amount_minor: 300, currency: "EUR" }),
+        money({ connection_id: "c2", external_account_id: "a3", metric_key: "fake.revenue.month", kind: "revenue", amount_minor: 9_000, currency: "USD" }),
+      ],
+      { connections: [connection, simulated], accounts: mixedAccounts, ...overrides },
+    );
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("marks a spend or revenue total simulated when any source is, and leaves real-only totals unmarked", () => {
+    const view = aggregateDashboard(mixed());
+    const byCurrency = new Map(view.totals.map((amounts) => [amounts.currency, amounts]));
+    const usd = byCurrency.get("USD");
+    const eur = byCurrency.get("EUR");
+    if (usd === undefined || eur === undefined) throw new Error("expected USD and EUR totals");
+    expect(usd.verified?.sources.map((source) => [source.connectionId, source.simulated])).toEqual([
+      ["c1", false],
+      ["c2", true],
+    ]);
+    expect(hasSimulatedSource(usd)).toBe(true);
+    expect(hasSimulatedSource(eur)).toBe(false);
+    expect(view.revenue.map(hasSimulatedSource)).toEqual([true]);
+    // Checkout holds the real EUR spend and both USD spends; the unassigned account has none.
+    expect(view.byProject.map(({ name, spend }) => [name, spend.map(hasSimulatedSource)])).toEqual([["Checkout", [false, true]]]);
+  });
+
+  it("marks each provider card from its connection, never from the process flag", () => {
+    for (const flag of [undefined, "1"]) {
+      vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", flag);
+      const view = aggregateDashboard(mixed());
+      expect(view.byProvider.map((summary) => [summary.connectionId, summary.simulated])).toEqual([
+        ["c1", false],
+        ["c2", true],
+      ]);
+    }
   });
 });
 

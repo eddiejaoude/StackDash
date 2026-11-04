@@ -1,6 +1,8 @@
 import { AdapterError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "@/lib/adapters/errors";
 import { validateAdapterEvents } from "@/lib/adapters/events";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
+import { isSimulatedAdapter, SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
+import { isSimulatedCredential } from "@/lib/adapters/simulated/marker";
 import type {
   OAuthClient,
   OAuthContext,
@@ -49,7 +51,7 @@ export type SyncDeps = Readonly<{
 /** A failure that is ours or the instance's, not the provider's. */
 class SyncSetupError extends Error {
   constructor(
-    readonly code: "provider_not_configured" | "credential_missing",
+    readonly code: "provider_not_configured" | "credential_missing" | "simulated_credential",
     message: string,
   ) {
     super(message);
@@ -57,8 +59,13 @@ class SyncSetupError extends Error {
   }
 }
 
-// The user has to act (reconnect, grant scopes): retrying cannot help.
-const PERMANENT_CODES: Record<string, true> = { auth_revoked: true, permission_missing: true, credential_missing: true };
+// The user has to act (reconnect, grant scopes, or delete a simulated connection): retrying cannot help.
+const PERMANENT_CODES: Record<string, true> = {
+  auth_revoked: true,
+  permission_missing: true,
+  credential_missing: true,
+  simulated_credential: true,
+};
 
 // Healthy means syncing normally. needs_attention and failed are the two failure states; an
 // episode starts when a connection leaves `active` for one of them.
@@ -103,14 +110,26 @@ async function syncConnection(
   key: ConnectionKey,
   deps: SyncDeps,
 ): Promise<void> {
+  let credential = await deps.store.loadCredential(key);
+  if (credential === null) throw new SyncSetupError("credential_missing", "Connection has no stored credential");
+  // A credential the simulator minted (#131) is made up: it is never handed to a real adapter,
+  // which would send it to the provider. The credential is loaded and checked before the client,
+  // so a refusal never depends on whether the real provider's OAuth app is configured here. It also
+  // means a missing credential outranks an unconfigured provider: such a connection reports
+  // `credential_missing` and needs attention at once, rather than `provider_not_configured`, which
+  // is retried and ends in `failed`.
+  if (isSimulatedCredential(credential) && !isSimulatedAdapter(adapter)) {
+    throw new SyncSetupError(
+      "simulated_credential",
+      `${adapter.id} connection holds a simulated credential while ${SIMULATE_PROVIDERS_ENV} is off`,
+    );
+  }
+
   const client = deps.loadOAuthClient(adapter);
   if (client === null) {
     throw new SyncSetupError("provider_not_configured", `${adapter.id} OAuth client is not configured on this instance`);
   }
   const ctx = deps.createOAuthContext(client);
-
-  let credential = await deps.store.loadCredential(key);
-  if (credential === null) throw new SyncSetupError("credential_missing", "Connection has no stored credential");
   credential = await refreshIfExpiring(adapter, credential, key, ctx, deps);
 
   const accounts = await deps.store.listIncludedAccounts(key);
@@ -212,7 +231,9 @@ function syncFailedEvent(input: {
   const action =
     input.errorCode === "permission_missing"
       ? `Reconnect ${name} in Connections and grant the requested permissions.`
-      : `Reconnect ${name} in Connections to resume syncing.`;
+      : input.errorCode === "simulated_credential"
+        ? `This is a simulated connection and provider simulation is off, so its made-up data is not mixed with real data. Delete it in Connections, or turn simulation back on (${SIMULATE_PROVIDERS_ENV}=1) and reconnect it.`
+        : `Reconnect ${name} in Connections to resume syncing.`;
   const body =
     input.status === "needs_attention"
       ? `DevMacro can no longer read ${name} data for ${account}. ${action} Reference ${input.errorReference}.`

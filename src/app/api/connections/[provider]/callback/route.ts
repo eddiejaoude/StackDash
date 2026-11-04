@@ -2,10 +2,16 @@ import { notFound, unstable_rethrow } from "next/navigation";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AdapterError } from "@/lib/adapters/errors";
-import { createOAuthContext, getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapters/registry";
+import {
+  createOAuthContext,
+  getAdapter,
+  isFakeProviderEnabled,
+  isProviderSimulated,
+  loadOAuthClient,
+} from "@/lib/adapters/registry";
 import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
 import { getCurrentUser } from "@/lib/auth/session";
-import { completeConnection, ReconnectTargetMissingError } from "@/lib/connections/connect";
+import { completeConnection, ReconnectMismatchError, ReconnectTargetMissingError } from "@/lib/connections/connect";
 import { githubCallbackStep, type CallbackStep } from "@/lib/connections/github-steps";
 import {
   callbackRedirectUri,
@@ -91,7 +97,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
     const redirectUri = callbackRedirectUri(connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL), provider);
 
     let step: CallbackStep;
-    if (provider === "github") {
+    // Simulated GitHub returns the code on the first leg, like every other provider.
+    if (provider === "github" && !isProviderSimulated(provider)) {
       step = await githubCallbackStep({ params, consumed, client, redirectUri, now });
     } else if (params.error !== undefined) {
       step = { kind: "error", code: params.error === "access_denied" ? "cancelled" : "provider_error" };
@@ -128,6 +135,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
     if (error instanceof ForbiddenError) return withFeedback(connectionsPath, { error: "forbidden", provider });
     if (error instanceof ReconnectTargetMissingError) {
       return withFeedback(connectionsPath, { error: "invalid", provider });
+    }
+    if (error instanceof ReconnectMismatchError) {
+      return withFeedback(connectionsPath, { error: error.code, provider });
     }
     if (error instanceof AdapterError) {
       // The provider refused or answered badly; the log keeps the detail, the user gets a reference.
