@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
 import { ScopeFilter } from "@/components/filters/scope-filter";
+import type { ProviderId } from "@/lib/adapters/types";
 import type { CurrencyAmounts, DashboardView as View } from "@/lib/dashboard/aggregate";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
@@ -115,6 +116,7 @@ export function DashboardView({
   scopeOptions,
   scopeDescription,
   trends,
+  simulatedProviders,
 }: {
   view: View;
   now: Date;
@@ -124,6 +126,8 @@ export function DashboardView({
   /** The active filter in words, or null when nothing is filtered. */
   scopeDescription: string | null;
   trends: DashboardTrends;
+  /** Providers this instance simulates, decided on the server (#131). */
+  simulatedProviders: readonly ProviderId[];
 }) {
   const count = view.byProvider.length;
   const shown = count === 0 ? "Showing no connections" : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
@@ -165,7 +169,12 @@ export function DashboardView({
         ) : (
           <ul className="space-y-4">
             {view.byProvider.map((summary) => (
-              <ProviderCard key={summary.connectionId} summary={summary} now={now} />
+              <ProviderCard
+                key={summary.connectionId}
+                summary={summary}
+                now={now}
+                simulated={simulatedProviders.includes(summary.provider)}
+              />
             ))}
           </ul>
         )}

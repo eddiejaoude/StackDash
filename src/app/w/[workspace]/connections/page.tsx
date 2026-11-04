@@ -8,8 +8,9 @@ import { PageHeader } from "@/components/app/page-header";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ProviderMark } from "@/components/connections/provider-mark";
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, LockIcon, PlugIcon } from "@/components/icons";
-import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
+import { availableProviders, isProviderConfigured, isProviderSimulated } from "@/lib/adapters/registry";
 import { ProviderIdSchema, type ProviderAdapter } from "@/lib/adapters/types";
 import { connectErrorMessage, ConnectFeedbackSchema } from "@/lib/connections/oauth-state";
 import { listConnections, type ConnectionSummary } from "@/lib/data/connections";
@@ -115,6 +116,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
                   providerName={PROVIDER_NAMES[connection.provider]}
                   href={`${connectionsPath}/${connection.id}`}
                   now={now}
+                  simulated={isProviderSimulated(connection.provider)}
                 />
               ))}
             </ul>
@@ -147,6 +149,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
               href={`${connectionsPath}/new/${adapter.id}`}
               canConnect={canConnect}
               configured={isProviderConfigured(adapter)}
+              simulated={isProviderSimulated(adapter.id)}
             />
           ))}
         </ul>
@@ -160,11 +163,13 @@ function ConnectionRow({
   providerName,
   href,
   now,
+  simulated,
 }: {
   connection: ConnectionSummary;
   providerName: string;
   href: string;
   now: Date;
+  simulated: boolean;
 }) {
   const lastSynced = connection.last_synced_at === null ? null : new Date(connection.last_synced_at);
   return (
@@ -176,6 +181,7 @@ function ConnectionRow({
             {connection.display_name}
           </Link>
           <ConnectionStatusBadge status={connection.status} />
+          {simulated ? <SimulatedBadge /> : null}
         </div>
         <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
           <dt className="text-muted">Provider</dt>
@@ -209,11 +215,13 @@ function CatalogCard({
   href,
   canConnect,
   configured,
+  simulated,
 }: {
   adapter: ProviderAdapter;
   href: string;
   canConnect: boolean;
   configured: boolean;
+  simulated: boolean;
 }) {
   const hasFullAccess = adapter.permissions.some((permission) => permission.access === "full");
   const reason = !canConnect
@@ -226,6 +234,7 @@ function CatalogCard({
       <div className="flex items-center gap-3">
         <ProviderMark provider={adapter.id} />
         <h3 className="font-semibold">{adapter.displayName}</h3>
+        {simulated ? <SimulatedBadge /> : null}
       </div>
       <p className="mt-3 text-xs font-medium text-muted">Data collected</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">

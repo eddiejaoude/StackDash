@@ -7,8 +7,9 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { PageHeader } from "@/components/app/page-header";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ProviderMark } from "@/components/connections/provider-mark";
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
-import { getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapters/registry";
+import { getAdapter, isFakeProviderEnabled, isProviderSimulated, loadOAuthClient } from "@/lib/adapters/registry";
 import { ProviderIdSchema } from "@/lib/adapters/types";
 import { connectErrorMessage } from "@/lib/connections/oauth-state";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
@@ -54,6 +55,7 @@ async function ConnectProviderContent({
 
   const canConnect = canPerform(role, "manage_connections");
   const configured = loadOAuthClient(adapter) !== null;
+  const simulated = isProviderSimulated(provider);
   const fullAccess = adapter.permissions.filter((permission) => permission.access === "full");
   const consentMissing = query.error === "consent_required";
   const title = reconnect === null ? `Connect ${adapter.displayName}` : `Reconnect ${adapter.displayName}`;
@@ -63,9 +65,11 @@ async function ConnectProviderContent({
       <PageHeader
         title={title}
         description={
-          reconnect === null
-            ? `Review what DevMacro asks ${adapter.displayName} for. You approve it on ${adapter.displayName}'s own consent screen next.`
-            : `Approve access again for ${reconnect.display_name}. The connection keeps its history and project assignments.`
+          reconnect !== null
+            ? `Approve access again for ${reconnect.display_name}. The connection keeps its history and project assignments.`
+            : simulated
+              ? `${adapter.displayName} is simulated on this instance. DevMacro approves at once and makes up example ${adapter.displayName} data on this computer; no ${adapter.displayName} account is connected.`
+              : `Review what DevMacro asks ${adapter.displayName} for. You approve it on ${adapter.displayName}'s own consent screen next.`
         }
       />
 
@@ -86,6 +90,7 @@ async function ConnectProviderContent({
           <h2 id="permissions-title" className="text-sm font-semibold">
             Permissions {adapter.displayName} will ask you to grant
           </h2>
+          {simulated ? <SimulatedBadge /> : null}
         </div>
         <ul className="divide-y divide-line">
           {adapter.permissions.map((permission) => (

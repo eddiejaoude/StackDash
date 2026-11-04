@@ -1,5 +1,6 @@
 import { useId } from "react";
 
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import type { Allowance, ProviderSummary, QuantityValue } from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatPercent, formatPeriod, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
@@ -89,7 +90,7 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
 }
 
 /** One connection: its spend, revenue, credit balance, billing period, and allowances. */
-export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: Date }) {
+export function ProviderCard({ summary, now, simulated }: { summary: ProviderSummary; now: Date; simulated: boolean }) {
   const titleId = useId();
   const name = providerName(summary.provider);
   return (
@@ -98,9 +99,12 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
         <header className="flex flex-wrap items-start gap-3">
           <ProviderMark provider={summary.provider} />
           <div className="min-w-0 flex-1">
-            <h3 id={titleId} className="font-semibold">
-              {summary.name}
-            </h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 id={titleId} className="font-semibold">
+                {summary.name}
+              </h3>
+              {simulated ? <SimulatedBadge /> : null}
+            </div>
             <p className="text-xs text-muted">
               {name}. Status: {connectionStatusLabel(summary.status)}
             </p>
