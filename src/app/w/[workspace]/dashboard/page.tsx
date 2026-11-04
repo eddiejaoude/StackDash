@@ -13,6 +13,7 @@ import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getTrendData } from "@/lib/data/trends";
+import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
   appendScopeParams,
   buildScopeOptions,
@@ -63,7 +64,6 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
         title="Dashboard"
         description="Spend, usage, and allowances across every provider this workspace connects."
       />
-      <AlertsSummary workspace={access.workspace} />
       <Suspense fallback={<DashboardSkeleton />}>
         <DashboardContent access={access} scope={scope} trend={parsed.trend} />
       </Suspense>
@@ -84,22 +84,28 @@ async function DashboardContent({
   // Request data first: reading the clock before it would fail the prerender.
   await connection();
   const now = new Date();
-  const [workspaceScope, data, trendData] = await Promise.all([
+  // Alerts load with the rest so their row never streams in later and shifts the provider cards.
+  const [workspaceScope, data, trendData, alertsSummary] = await Promise.all([
     getWorkspaceScope(workspace.id),
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
     getTrendData(workspace.id, now, scope),
+    getUnacknowledgedSummary(workspace.id),
   ]);
+  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} />;
 
   if (workspaceScope.connections.length === 0) {
     const canConnect = canPerform(role, "manage_connections");
     return (
-      <EmptyState
-        icon={<GaugeIcon width={20} height={20} />}
-        title="Connect your first provider"
-        description="Connect a provider to see what you have spent, how much allowance is left, and when it resets."
-        action={{ href: workspacePath(workspace.slug, "connections"), label: "Connect a provider" }}
-        deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
-      />
+      <>
+        <EmptyState
+          icon={<GaugeIcon width={20} height={20} />}
+          title="Connect your first provider"
+          description="Connect a provider to see what you have spent, how much allowance is left, and when it resets."
+          action={{ href: workspacePath(workspace.slug, "connections"), label: "Connect a provider" }}
+          deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
+        />
+        {alerts}
+      </>
     );
   }
 
@@ -113,6 +119,7 @@ async function DashboardContent({
       scope={scope}
       scopeOptions={scopeOptions}
       scopeDescription={describeScope(scope, scopeOptions)}
+      alerts={alerts}
       trends={{
         granularity: trend,
         series: buildTrends(trendData.snapshots, trendData.connections, trend, now),
@@ -125,13 +132,20 @@ async function DashboardContent({
   );
 }
 
+/** Shaped like the first screen (the closed filter bar and a row of total cards), so nothing jumps. */
 function DashboardSkeleton() {
   return (
-    <div role="status" aria-live="polite" className="mt-8">
+    <div role="status" aria-live="polite">
       <span className="sr-only">Loading the dashboard</span>
-      <div aria-hidden="true" className="grid gap-4 md:grid-cols-2">
-        <div className="h-40 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
-        <div className="h-40 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
+      <div aria-hidden="true">
+        <div className="mt-6 h-12.5 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
+        <div className="mt-8 h-6 w-56 rounded bg-panel-raised motion-safe:animate-pulse" />
+        <div className="mt-2 h-4 w-full max-w-xs rounded bg-panel-raised motion-safe:animate-pulse" />
+        <div className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="h-36 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
+          <div className="h-36 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
+          <div className="h-36 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
+        </div>
       </div>
     </div>
   );

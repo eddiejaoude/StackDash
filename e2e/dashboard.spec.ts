@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { Locator } from "@playwright/test";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -157,8 +158,9 @@ ownerTest.describe("dashboard as the owner", () => {
       await expect(usd).not.toContainText("€");
       await expect(usd.getByText("Verified", { exact: true })).toBeVisible();
       await expect(usd.getByText("Estimated", { exact: true })).toBeVisible();
-      await expect(usd).toContainText("Pricing source: Fake price list 2026");
       await expect(usd).toContainText("Updated");
+      // The totals print amounts only; the price list behind an estimate is named on the provider card.
+      await expect(page.getByRole("region", { name: "By provider" })).toContainText("Pricing source: Fake price list 2026");
 
       const eur = totals.getByRole("region", { name: "Spend in EUR" });
       await expect(eur).toContainText("€67.89");
@@ -284,6 +286,15 @@ async function seedSecondProvider(workspace: TestWorkspace): Promise<void> {
   if (error) throw new Error(`Seeding a snapshot failed (code ${error.code}).`);
 }
 
+/**
+ * Opens the closed filter bar so its checkboxes can be used. A page load starts it closed; a
+ * client navigation may keep it open, so it is only clicked when closed.
+ */
+async function openFilters(filters: Locator): Promise<void> {
+  if ((await filters.locator("details").getAttribute("open")) === null) await filters.locator("summary").click();
+  await expect(filters.getByRole("button", { name: "Apply filters" })).toBeVisible();
+}
+
 ownerTest.describe("dashboard filters", () => {
   ownerTest("narrows by provider and project, keeps the filter in the URL, and announces the result", async ({ page }) => {
     const workspace = await createTestWorkspace("Dashboard filters");
@@ -297,6 +308,9 @@ ownerTest.describe("dashboard filters", () => {
       await expect(usd).toContainText("$173.45");
 
       const filters = page.getByRole("region", { name: "Filters" });
+      // The result sentence sits in the closed bar, so it is read before the form is opened.
+      await expect(filters.getByRole("status")).toHaveText("Showing 2 connections");
+      await openFilters(filters);
       await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "Example provider" }).check();
       await filters.getByRole("button", { name: "Apply filters" }).click();
       await expect(page).toHaveURL(/[?&]provider=fake(&|$)/);
@@ -306,6 +320,7 @@ ownerTest.describe("dashboard filters", () => {
       await expect(page.getByRole("region", { name: "By provider" })).not.toContainText("GitHub e2e organization");
 
       // Keyboard only: tick the project and submit with Enter.
+      await openFilters(filters);
       const checkout = filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Checkout" });
       await checkout.focus();
       await page.keyboard.press("Space");
@@ -322,6 +337,7 @@ ownerTest.describe("dashboard filters", () => {
       // The filtered view is bookmarkable: reloading the URL shows the same result.
       await page.reload();
       await expect(status).toHaveText("Showing 1 connection for provider Example provider, project Checkout");
+      await openFilters(filters);
       await expect(checkout).toBeChecked();
 
       const scan = await new AxeBuilder({ page }).analyze();

@@ -13,20 +13,24 @@ import { TrendChart } from "./trend-chart";
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="mt-10">
+    <section aria-labelledby={titleId} className="mt-8 min-w-0">
       <h2 id={titleId} className="text-lg font-semibold tracking-tight">
         {title}
       </h2>
       {description === undefined ? null : <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{description}</p>}
-      <div className="mt-4">{children}</div>
+      <div className="mt-3">{children}</div>
     </section>
   );
 }
 
-/** One card per currency, each its own labeled region, so currencies are never read as one sum. */
+/**
+ * One card per currency, each its own labeled region, so currencies are never read as one sum.
+ * The columns follow the card list's own width rather than the viewport, because the same list
+ * fills the whole row on its own and shares it when revenue sits beside spend.
+ */
 function CurrencyCards({ amounts, noun, now }: { amounts: readonly CurrencyAmounts[]; noun: string; now: Date }) {
   return (
-    <ul className="grid gap-4 md:grid-cols-2">
+    <ul className="grid gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
       {amounts.map((entry) => (
         <CurrencyCard key={entry.currency} amounts={entry} noun={noun} now={now} />
       ))}
@@ -38,16 +42,17 @@ function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: 
   const titleId = useId();
   return (
     <li>
-      <section aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
+      <section aria-labelledby={titleId} className="h-full rounded-xl border border-line bg-panel p-4">
         <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
           {`${noun} in ${amounts.currency}`}
         </h3>
-        <div className="mt-3">
+        <div className="mt-2">
           <CurrencyAmountsList
             amounts={amounts}
             now={now}
             verifiedLabel={`Verified ${noun.toLowerCase()}`}
             estimatedLabel={`Estimated ${noun.toLowerCase()}`}
+            headline
           />
         </div>
       </section>
@@ -71,7 +76,7 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
   return (
     <Section
       title="Trends"
-      description="Each provider metric as reported per UTC day or month, compared with the period before. Days or months with no data are shown as unavailable, never as zero, and currencies and units are never mixed in one chart."
+      description="Each metric per UTC day or month, with missing data shown as unavailable, never as zero."
     >
       <nav aria-label="Trend period" className="flex flex-wrap gap-2">
         {TREND_PERIODS.map(({ granularity, label }) => {
@@ -114,6 +119,7 @@ export function DashboardView({
   scope,
   scopeOptions,
   scopeDescription,
+  alerts,
   trends,
 }: {
   view: View;
@@ -123,47 +129,53 @@ export function DashboardView({
   scopeOptions: ScopeOptions;
   /** The active filter in words, or null when nothing is filtered. */
   scopeDescription: string | null;
+  /** The unacknowledged alerts row, placed after the totals so the numbers lead the page. */
+  alerts: ReactNode;
   trends: DashboardTrends;
 }) {
   const count = view.byProvider.length;
   const shown = count === 0 ? "Showing no connections" : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
+  const hasRevenue = view.revenue.length > 0;
   return (
     <>
       <ScopeFilter
         action={dashboardPath}
         scope={scope}
         options={scopeOptions}
+        status={scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
         hidden={trends.granularity === "daily" ? undefined : { trend: trends.granularity }}
       />
 
-      <p role="status" aria-live="polite" className="mt-6 text-sm text-muted">
-        {scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
-      </p>
-
-      <Section
-        title="Spending this billing period"
-        description="Totals per currency. Currencies are never added together, and verified amounts from providers are kept apart from DevMacro estimates."
-      >
-        {view.totals.length === 0 ? (
-          <p className="text-sm text-muted">
-            No spend has been reported for the current billing period yet. Values appear after the next sync.
-          </p>
-        ) : (
-          <CurrencyCards amounts={view.totals} noun="Spend" now={now} />
-        )}
-      </Section>
-
-      {view.revenue.length === 0 ? null : (
-        <Section title="Revenue this billing period" description="Money coming in, shown apart from spending.">
-          <CurrencyCards amounts={view.revenue} noun="Revenue" now={now} />
+      {/* The headline: totals first, with revenue sharing the row on wide screens. */}
+      <div className={hasRevenue ? "grid gap-x-6 xl:grid-cols-[2fr_1fr]" : undefined}>
+        <Section title="Spending this billing period" description="Currencies are never added together.">
+          {view.totals.length === 0 ? (
+            <p className="text-sm text-muted">
+              No spend has been reported for the current billing period yet. Values appear after the next sync.
+            </p>
+          ) : (
+            <div className="@container">
+              <CurrencyCards amounts={view.totals} noun="Spend" now={now} />
+            </div>
+          )}
         </Section>
-      )}
+
+        {hasRevenue ? (
+          <Section title="Revenue this billing period" description="Money coming in, shown apart from spending.">
+            <div className="@container">
+              <CurrencyCards amounts={view.revenue} noun="Revenue" now={now} />
+            </div>
+          </Section>
+        ) : null}
+      </div>
+
+      {alerts}
 
       <Section title="By provider" description="Spend, credit balance, and allowances for each connected account.">
         {view.byProvider.length === 0 ? (
           <p className="text-sm text-muted">No connections match these filters. Choose other filters or clear them.</p>
         ) : (
-          <ul className="space-y-4">
+          <ul className="grid gap-4 lg:grid-cols-2">
             {view.byProvider.map((summary) => (
               <ProviderCard key={summary.connectionId} summary={summary} now={now} />
             ))}
@@ -171,10 +183,9 @@ export function DashboardView({
         )}
       </Section>
 
-      <Section
-        title="By project"
-        description="Spend this billing period grouped by project. Accounts without a project are listed as unassigned."
-      >
+      <TrendsSection trends={trends} />
+
+      <Section title="By project" description="Spend by project, with accounts outside a project listed as unassigned.">
         {view.byProject.length === 0 ? (
           <p className="text-sm text-muted">No spend to group by project yet.</p>
         ) : (
@@ -185,8 +196,6 @@ export function DashboardView({
           </ul>
         )}
       </Section>
-
-      <TrendsSection trends={trends} />
     </>
   );
 }

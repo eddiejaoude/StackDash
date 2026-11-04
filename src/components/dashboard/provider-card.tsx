@@ -42,7 +42,8 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
           {allowance.label}
         </h5>
         <p className="text-xs text-muted">{allowance.accountName}</p>
-        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {/* Two columns once provider cards sit two to a row, so quantities and their badges fit. */}
+        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
           <QuantityCell label="Included" value={allowance.included} />
           <QuantityCell label="Used" value={allowance.used} />
           <QuantityCell label="Remaining" value={allowance.remaining} />
@@ -94,7 +95,7 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
   const name = providerName(summary.provider);
   return (
     <li>
-      <article aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
+      <article aria-labelledby={titleId} className="h-full rounded-xl border border-line bg-panel p-4">
         <header className="flex flex-wrap items-start gap-3">
           <ProviderMark provider={summary.provider} />
           <div className="min-w-0 flex-1">
