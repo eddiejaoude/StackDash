@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { ScopeFilter } from "@/components/filters/scope-filter";
 import type { ScopeOptions } from "@/lib/filters/scope";
 import { typeOwnerName } from "@/lib/providers";
@@ -5,6 +7,7 @@ import {
   EVENT_SEVERITIES,
   eventTypeLabel,
   severityBadge,
+  timelineHref,
   type TimelineQuery,
 } from "@/lib/timeline/query";
 
@@ -12,6 +15,40 @@ const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text
 const CHECKBOX = "size-4 shrink-0 accent-accent";
 const DATE_INPUT =
   "mt-1 block min-h-10 w-full rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-sm text-foreground [color-scheme:dark]";
+
+const SEVERITY_LINK = "inline-flex min-h-10 items-center rounded-md border px-4 py-2 text-sm transition-colors";
+
+/**
+ * One-click severity views, so the commonest filter needs no form. Each link keeps every other
+ * filter and, like the form, starts from the newest events because it carries no cursor. A
+ * mixed severity selection from the form marks no link as current.
+ */
+export function SeverityLinks({ action, query }: { action: string; query: TimelineQuery }) {
+  const links = [
+    { label: "All", severities: [], current: query.severities.length === 0 },
+    ...EVENT_SEVERITIES.map((severity) => ({
+      label: severityBadge(severity),
+      severities: [severity],
+      current: query.severities.length === 1 && query.severities[0] === severity,
+    })),
+  ];
+  return (
+    <nav aria-label="Severity" className="mt-4 flex flex-wrap gap-2">
+      {links.map(({ label, severities, current }) => (
+        <Link
+          key={label}
+          href={timelineHref(action, { ...query, severities }, null)}
+          aria-current={current ? "page" : undefined}
+          className={`${SEVERITY_LINK} ${
+            current ? "border-accent font-medium text-foreground" : "border-line-strong text-muted hover:text-foreground"
+          }`}
+        >
+          {label}
+        </Link>
+      ))}
+    </nav>
+  );
+}
 
 /**
  * The shared scope filter (provider, project, account) with the timeline's own fields: event
@@ -23,19 +60,26 @@ export function TimelineFilters({
   query,
   typeIds,
   scopeOptions,
+  status,
 }: {
   action: string;
   query: TimelineQuery;
   /** Type ids present in the workspace; selected ones are added so they can be unticked. */
   typeIds: readonly string[];
   scopeOptions: ScopeOptions;
+  /** The result in words, such as "Showing 3 events for provider GitHub". */
+  status: string;
 }) {
   const typeOptions = [...new Set([...typeIds, ...query.types])].sort();
+  const extraActiveCount =
+    query.types.length + query.severities.length + (query.from === null ? 0 : 1) + (query.to === null ? 0 : 1);
   return (
     <ScopeFilter
       action={action}
       scope={query.scope}
       options={scopeOptions}
+      status={status}
+      extraActiveCount={extraActiveCount}
       resetKey={JSON.stringify([query.types, query.severities, query.from, query.to])}
     >
       <div className="grid gap-6 md:grid-cols-[2fr_1fr_1fr]">

@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
-import { TimelineFilters } from "@/components/timeline/timeline-filters";
+import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
@@ -71,15 +71,19 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const scopeDescription = describeScope(query.scope, scopeOptions);
   const shown =
     count === 0 ? "Showing no events" : `Showing ${count} ${olderPage ? "older " : ""}${count === 1 ? "event" : "events"}`;
+  const status = scopeDescription === null ? shown : `${shown} for ${scopeDescription}`;
 
   return (
     <>
       <PageHeader title="Timeline" description={DESCRIPTION} />
-      <TimelineFilters action={basePath} query={query} typeIds={typeIds} scopeOptions={scopeOptions} />
-
-      <p role="status" aria-live="polite" className="mt-6 text-sm text-muted">
-        {scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
-      </p>
+      <SeverityLinks action={basePath} query={query} />
+      <TimelineFilters
+        action={basePath}
+        query={query}
+        typeIds={typeIds}
+        scopeOptions={scopeOptions}
+        status={status}
+      />
 
       {count === 0 ? (
         filtered ? (
