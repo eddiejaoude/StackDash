@@ -138,7 +138,7 @@ npm run dev
 ```
 
 Open <http://localhost:3000/sign-in> and continue with GitHub. This needs the real GitHub OAuth app
-from step 3. After sign-in you land on your personal workspace dashboard. The landing page at
+from step 3. After sign-in you land on your personal workspace timeline. The landing page at
 <http://localhost:3000> works without signing in.
 
 ### 8. Connect the fake provider

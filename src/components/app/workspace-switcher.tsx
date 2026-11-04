@@ -6,6 +6,8 @@ import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent
 export type SwitcherWorkspace = {
   slug: string;
   name: string;
+  /** Where the workspace opens; computed by the server, since the default section lives in server-only code. */
+  href: string;
 };
 
 /**
@@ -93,7 +95,7 @@ export function WorkspaceSwitcher({
             return (
               <li key={workspace.slug}>
                 <Link
-                  href={`/w/${workspace.slug}/dashboard`}
+                  href={workspace.href}
                   aria-current={isCurrent ? "true" : undefined}
                   onClick={() => setOpen(false)}
                   className={`flex min-h-9 items-center justify-between gap-3 rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-panel ${

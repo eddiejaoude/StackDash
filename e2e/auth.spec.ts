@@ -107,6 +107,16 @@ ownerTest("a signed-in user visiting sign-in is sent into the app", async ({ pag
   await expect(page).toHaveURL(/\/(app|w\/)/);
 });
 
+ownerTest("the app and a workspace root open on the timeline", async ({ page }) => {
+  await page.goto("/app");
+  await expect(page).toHaveURL(/\/w\/[a-z0-9]+\/timeline$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Timeline");
+
+  const slug = new URL(page.url()).pathname.split("/")[2];
+  await page.goto(`/w/${slug}`);
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}/timeline$`));
+});
+
 signOutTest("signing out ends the session", async ({ page }) => {
   await page.goto("/app");
   await expect(page).not.toHaveURL(/\/sign-in/);

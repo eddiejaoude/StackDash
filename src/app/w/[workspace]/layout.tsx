@@ -14,7 +14,7 @@ import {
   rememberWorkspace,
   type WorkspaceMembership,
 } from "@/lib/data/workspaces";
-import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/access";
 import { roleLabel } from "@/lib/workspaces/permissions";
 
 type WorkspaceParams = LayoutProps<"/w/[workspace]">["params"];
@@ -59,7 +59,7 @@ export default function WorkspaceLayout({ children, params }: LayoutProps<"/w/[w
 async function loadMembership(slug: string): Promise<WorkspaceMembership | null> {
   // Session verification reads the clock; see requireWorkspace.
   await connection();
-  const user = await requireUser(isWorkspaceSlug(slug) ? workspacePath(slug, "dashboard") : "/app");
+  const user = await requireUser(isWorkspaceSlug(slug) ? workspaceHome(slug) : "/app");
   if (!isWorkspaceSlug(slug)) return null;
   return getWorkspaceMembership(user.id, slug);
 }
@@ -78,7 +78,7 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
       {/* Only for a member: the channel is scoped to a workspace the user can read. */}
       {membership ? <LiveRefresh workspaceId={membership.workspace.id} /> : null}
       <WorkspaceSwitcher
-        workspaces={workspaces.map(({ slug: workspaceSlug, name }) => ({ slug: workspaceSlug, name }))}
+        workspaces={workspaces.map(({ slug: workspaceSlug, name }) => ({ slug: workspaceSlug, name, href: workspaceHome(workspaceSlug) }))}
         currentSlug={membership ? membership.workspace.slug : null}
       />
       <div className="ml-auto flex shrink-0 items-center gap-3">
