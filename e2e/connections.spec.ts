@@ -211,7 +211,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
         .insert({ workspace_id: workspace.id, name: "Checkout" })
         .select("id")
         .single();
-      if (error !== null) throw new Error(`Seeding the project failed (code ${error.code}).`);
+      if (error) throw new Error(`Seeding the project failed (code ${error.code}).`);
       await connectThroughUi(page, workspace.slug);
 
       const row = page.getByRole("list", { name: "Accounts" }).getByRole("listitem").filter({ hasText: "Example team" });
@@ -244,17 +244,30 @@ ownerTest.describe("connecting a provider as the owner", () => {
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
-      // Back to no project, saved from the keyboard: the empty value survives the reset too.
+      // Back to no project, from the keyboard: the empty value survives the reset too. Focus order
+      // is checked before the save, since the pending button drops focus (#161).
       await select.selectOption({ label: "No project" });
       await select.focus();
       await page.keyboard.press("Tab");
       await expect(save).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(exclude).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(save).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(row.getByRole("status").filter({ hasText: "Project removed." })).toBeVisible();
       await expect(select).toHaveValue("");
-      await save.focus();
-      await page.keyboard.press("Tab");
-      await expect(exclude).toBeFocused();
+
+      // Exclude's message sits below it, in the status row, not above it beside the label.
+      await exclude.click();
+      const excluded = row.getByRole("status").filter({ hasText: "Account excluded." });
+      await expect(excluded).toBeVisible();
+      const [statusBox, includeBox] = await Promise.all([
+        excluded.boundingBox(),
+        row.getByRole("button", { name: "Include Example team" }).boundingBox(),
+      ]);
+      if (statusBox === null || includeBox === null) throw new Error("The include control or its message is not rendered.");
+      expect(statusBox.y).toBeGreaterThanOrEqual(includeBox.y + includeBox.height);
     } finally {
       await deleteTestWorkspace(workspace);
     }
