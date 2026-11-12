@@ -12,13 +12,16 @@ import { groupEventRuns, type EventRun } from "@/lib/timeline/runs";
 import { ArrivalEventRow, ArrivalEvents, ArrivalNewLabel } from "./arrival-events";
 import { EventTime } from "./event-time";
 
-// A quick visual scan only: the badge on every row still prints the severity as a word.
-const SEVERITY_EDGE: Record<EventSeverity, string> = {
-  info: "border-l-line-strong",
-  success: "border-l-success",
-  warning: "border-l-warning",
-  critical: "border-l-danger",
+// Severity belongs to the node, not a competing left edge. Every row still prints the word.
+const SEVERITY_NODE: Record<EventSeverity, string> = {
+  info: "border-line-strong",
+  success: "border-success",
+  warning: "border-warning",
+  critical: "border-danger",
 };
+
+// The neutral line connects chronological neighbors, not causes or dependent events.
+const TIMELINE_ROW = "grid grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 pb-5 before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:-z-10 before:w-px before:bg-line-strong last:before:bottom-auto last:before:h-9 lg:grid-cols-[7.5rem_2.5rem_minmax(0,1fr)] lg:gap-x-4 lg:before:left-[9.75rem]";
 
 // The edge an arriving event flashes, in the same colors (#171).
 const SEVERITY_FLASH: Record<EventSeverity, string> = {
@@ -48,13 +51,15 @@ export function EventList({ events, now, markSimulated }: { events: readonly Tim
         {groupEventsByDay(events, now).map((day) => {
           const headingId = `timeline-day-${day.date}`;
           return (
-            <section key={day.date} className="grid gap-2">
-              <h2 id={headingId} className="text-sm font-semibold text-foreground">
-                {day.label}
-              </h2>
+            <section key={day.date}>
+              {/* Below the shell's 3.5rem header, 2.75rem nav, and borders; no scroll listener. */}
+              <div className="sticky top-[calc(6.25rem+2px)] z-20 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-background py-3 md:top-[calc(6.25rem+1px)]">
+                <h2 id={headingId} className="text-sm font-semibold text-foreground">{day.label}</h2>
+                <span className="text-xs text-muted">London time</span>
+              </div>
               <ol
                 aria-labelledby={headingId}
-                className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel"
+                className="pt-2"
               >
                 {groupEventRuns(day.events).map((run) =>
                   // Keyed by the run's oldest event: arrivals join a run at its newest end, so the
@@ -81,11 +86,11 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
     <ArrivalEventRow
       eventIds={[event.id]}
       flash={SEVERITY_FLASH[event.severity]}
-      className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[event.severity]}`}
+      className={TIMELINE_ROW}
     >
-      <ProviderMark provider={event.provider} size="sm" />
-      <article className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
+      <TimelinePosition event={event} now={now} />
+      <article className="col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="break-words text-sm font-medium leading-5">{event.title}</h3>
             <p className="mt-0.5 break-words font-mono text-xs text-muted">
@@ -97,9 +102,6 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
                   <span>{source}</span>
                 </>
               )}
-              <span aria-hidden="true"> · </span>
-              <span className="sr-only">, </span>
-              <EventTime occurredAt={event.occurred_at} now={now} />
               <ArrivalNewLabel eventIds={[event.id]} />
             </p>
           </div>
@@ -147,11 +149,11 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
     <ArrivalEventRow
       eventIds={eventIds}
       flash={SEVERITY_FLASH[latest.severity]}
-      className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[latest.severity]}`}
+      className={TIMELINE_ROW}
     >
-      <ProviderMark provider={latest.provider} size="sm" />
-      <article className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-3">
+      <TimelinePosition event={latest} now={now} latest />
+      <article className="col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h3 className="break-words text-sm font-medium leading-5">{title}</h3>
@@ -168,9 +170,6 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
                   <span>{source}</span>
                 </>
               )}
-              <span aria-hidden="true"> · </span>
-              <span className="sr-only">, latest </span>
-              <EventTime occurredAt={latest.occurred_at} now={now} />
               <ArrivalNewLabel eventIds={eventIds} />
             </p>
           </div>
@@ -193,6 +192,22 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
         </details>
       </article>
     </ArrivalEventRow>
+  );
+}
+
+function TimelinePosition({ event, now, latest = false }: { event: TimelineEvent; now: Date; latest?: boolean }) {
+  return (
+    <>
+      <div className="col-start-2 row-start-1 min-w-0 pt-4 lg:col-start-1 lg:pt-5">
+        {latest ? <span className="sr-only">Latest event: </span> : null}
+        <EventTime occurredAt={event.occurred_at} now={now} gutter />
+      </div>
+      <div aria-hidden="true" className="col-start-1 row-span-2 row-start-1 pt-4 lg:col-start-2">
+        <span className={`flex size-10 items-center justify-center rounded-lg border bg-background ${SEVERITY_NODE[event.severity]}`}>
+          <ProviderMark provider={event.provider} size="sm" />
+        </span>
+      </div>
+    </>
   );
 }
 

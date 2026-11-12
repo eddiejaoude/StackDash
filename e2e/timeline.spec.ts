@@ -171,6 +171,64 @@ ownerTest.describe("timeline as the owner", () => {
     }
   });
 
+  for (const width of [1280, 375, 320]) {
+    ownerTest(`keeps timeline times aligned and day labels visible while scrolling at ${width}px`, async ({ page }) => {
+      const workspace = await seedTimeline("Timeline spine");
+      try {
+        const longTitle = `Deployment ${"with-a-long-unbroken-name".repeat(8)}`;
+        const { error } = await adminClient().from("activity_events")
+          .update({ title: longTitle })
+          .eq("workspace_id", workspace.id)
+          .eq("dedupe_key", "e2e-timeline-1");
+        if (error) throw new Error(`Updating the synthetic title failed (code ${error.code}).`);
+
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const region = page.getByRole("region", { name: "Events", exact: true });
+        const day = region.getByRole("list", { name: "Monday, 2026-06-15", exact: true });
+        const rows = day.getByRole("listitem");
+        const time = rows.first().locator("time");
+        await expect(time).toHaveAttribute("datetime", "2026-06-15T22:30:00.000Z");
+        await expect(time).toHaveAttribute("title", "2026-06-15 23:30 BST");
+        const title = page.getByRole("heading", { name: longTitle, exact: true });
+        await expect(title).toBeVisible();
+        const timeBox = await time.boundingBox();
+        const nextTimeBox = await rows.nth(1).locator("time").boundingBox();
+        const titleBox = await title.boundingBox();
+        if (!timeBox || !nextTimeBox || !titleBox) throw new Error("Timeline content is not rendered.");
+        expect(Math.abs(timeBox.x - nextTimeBox.x)).toBeLessThan(1);
+        if (width >= 1024) {
+          expect(timeBox.x + timeBox.width).toBeLessThan(titleBox.x);
+        } else {
+          expect(timeBox.y + timeBox.height).toBeLessThan(titleBox.y);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+
+        // Scroll within a long day, then into the next one: the active label stays below the shell.
+        const heading = region.getByRole("heading", { name: "Monday, 2026-06-15", exact: true });
+        await rows.nth(5).evaluate((row) => row.scrollIntoView({ block: "start", behavior: "instant" }));
+        const header = await page.getByRole("banner").boundingBox();
+        const headingBox = await heading.boundingBox();
+        if (!header || !headingBox) throw new Error("The sticky heading or shell is not rendered.");
+        expect(headingBox.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(headingBox.y).toBeLessThan(header.y + header.height + 24);
+        const nextDay = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
+        await nextDay.getByRole("listitem").nth(3).evaluate((row) => row.scrollIntoView({ block: "start", behavior: "instant" }));
+        const nextHeading = await region.getByRole("heading", { name: "Sunday, 2026-06-14", exact: true }).boundingBox();
+        if (!nextHeading) throw new Error("The next day heading is not rendered.");
+        expect(nextHeading.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(nextHeading.y).toBeLessThan(header.y + header.height + 24);
+
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+        const scan = await new AxeBuilder({ page }).analyze();
+        expect(scan.violations).toEqual([]);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
   ownerTest("shows an event ingested twice only once", async ({ page }) => {
     const workspace = await seedTimeline("Timeline dedupe");
     try {
@@ -674,53 +732,58 @@ async function seedBursts(label: string): Promise<TestWorkspace> {
 }
 
 ownerTest.describe("timeline bursts and search", () => {
-  ownerTest("collapses a run of identical events into one row that opens to each event", async ({ page }) => {
-    const workspace = await seedBursts("Timeline bursts");
-    try {
-      await page.goto(`/w/${workspace.slug}/timeline`);
-      await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 events");
-      const rows = eventItems(page);
-      await expect(rows).toHaveCount(5);
+  for (const width of [1280, 375]) {
+    ownerTest(`collapses a run of identical events into one row that opens to each event at ${width}px`, async ({ page }) => {
+      const workspace = await seedBursts("Timeline bursts");
+      try {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 events");
+        const rows = eventItems(page);
+        await expect(rows).toHaveCount(5);
 
-      // The first burst: one row named by the type Stripe's adapter declares, "Payment succeeded"
-      // rather than its id's "Charge succeeded", since the amounts differ, with the count, account,
-      // and latest time.
-      const burst = rows.nth(0);
-      await expect(burst.getByRole("heading", { name: "Payment succeeded", exact: true })).toBeVisible();
-      await expect(burst.getByText("5 events", { exact: true })).toBeVisible();
-      await expect(burst).toContainText("Acme e2e Stripe account");
-      // The first time is the row's own; each event inside the closed disclosure has one too.
-      await expect(burst.locator("time").first()).toHaveAttribute("datetime", new Date(BURST_MS).toISOString());
-      // The refund in between breaks the run, so the three payments after it are a run of their own.
-      await expect(rows.nth(1).getByRole("heading", { name: "Payment refunded: $20.00", exact: true })).toBeVisible();
-      await expect(rows.nth(2).getByText("3 events", { exact: true })).toBeVisible();
-      // One minute apart, but either side of London midnight: one row under each day.
-      const region = page.getByRole("region", { name: "Events", exact: true });
-      await expect(region.getByRole("heading", { level: 2 })).toHaveText(["Monday, 2026-06-15", "Sunday, 2026-06-14"]);
-      await expect(rows.nth(3).getByRole("heading", { name: "Payment succeeded: $18.00", exact: true })).toBeVisible();
-      const dayBefore = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
-      await expect(dayBefore.getByRole("listitem")).toHaveCount(1);
-      await expect(dayBefore.getByRole("heading", { name: "Payment succeeded: $19.00", exact: true })).toBeVisible();
+        // The first burst: one row named by the type Stripe's adapter declares, "Payment succeeded"
+        // rather than its id's "Charge succeeded", since the amounts differ, with the count, account,
+        // and latest time.
+        const burst = rows.nth(0);
+        await expect(burst.getByRole("heading", { name: "Payment succeeded", exact: true })).toBeVisible();
+        await expect(burst.getByText("5 events", { exact: true })).toBeVisible();
+        await expect(burst).toContainText("Acme e2e Stripe account");
+        // The first time is the row's own; each event inside the closed disclosure has one too.
+        await expect(burst.locator("time").first()).toHaveAttribute("datetime", new Date(BURST_MS).toISOString());
+        // The refund in between breaks the run, so the three payments after it are a run of their own.
+        await expect(rows.nth(1).getByRole("heading", { name: "Payment refunded: $20.00", exact: true })).toBeVisible();
+        await expect(rows.nth(2).getByText("3 events", { exact: true })).toBeVisible();
+        // One minute apart, but either side of London midnight: one row under each day.
+        const region = page.getByRole("region", { name: "Events", exact: true });
+        await expect(region.getByRole("heading", { level: 2 })).toHaveText(["Monday, 2026-06-15", "Sunday, 2026-06-14"]);
+        await expect(rows.nth(3).getByRole("heading", { name: "Payment succeeded: $18.00", exact: true })).toBeVisible();
+        const dayBefore = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
+        await expect(dayBefore.getByRole("listitem")).toHaveCount(1);
+        await expect(dayBefore.getByRole("heading", { name: "Payment succeeded: $19.00", exact: true })).toBeVisible();
 
-      // The individual events stay closed until asked for. Keyboard only: focus and press Enter.
-      const members = burst.getByRole("list", { name: "Payment succeeded: 5 events", exact: true });
-      await expect(members).toBeHidden();
-      await burst.locator("summary").focus();
-      await page.keyboard.press("Enter");
-      await expect(burst.getByText("Hide the 5 events", { exact: true })).toBeVisible();
-      await expect(members.getByRole("heading", { level: 4 })).toHaveText(
-        [10, 11, 12, 13, 14].map((amount) => `Payment succeeded: $${amount}.00`),
-      );
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+        // The individual events stay closed until asked for. Keyboard only: focus and press Enter.
+        const members = burst.getByRole("list", { name: "Payment succeeded: 5 events", exact: true });
+        await expect(members).toBeHidden();
+        await burst.locator("summary").focus();
+        await page.keyboard.press("Enter");
+        await expect(burst.getByText("Hide the 5 events", { exact: true })).toBeVisible();
+        await expect(members.getByRole("heading", { level: 4 })).toHaveText(
+          [10, 11, 12, 13, 14].map((amount) => `Payment succeeded: $${amount}.00`),
+        );
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        const scan = await new AxeBuilder({ page }).analyze();
+        expect(scan.violations).toEqual([]);
 
-      await page.keyboard.press("Enter");
-      await expect(members).toBeHidden();
-      await expect(burst.getByText("Show the 5 events", { exact: true })).toBeVisible();
-    } finally {
-      await deleteTestWorkspace(workspace);
-    }
-  });
+        await page.keyboard.press("Enter");
+        await expect(members).toBeHidden();
+        await expect(burst.getByText("Show the 5 events", { exact: true })).toBeVisible();
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   ownerTest("searches event titles, narrowing the list and the badges together and across pages", async ({ page }) => {
     const workspace = await seedTimeline("Timeline search");

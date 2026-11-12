@@ -17,6 +17,11 @@ badges, and cards, read a workspace from your own scripts through a read-only RE
 an AI assistant through a read-only MCP server, and see spend and allowances where each provider
 reports them.
 
+The timeline groups events under sticky London-day labels. A neutral spine connects provider
+nodes in newest-first order, not cause and effect. Times sit in a left gutter on desktop and
+above each event on smaller screens. Severity remains labeled in words, and repeated events
+expand to show their individual timestamps and details.
+
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
 integration comes from the provider's documentation and none has been tried with a real account
