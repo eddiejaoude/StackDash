@@ -120,6 +120,8 @@ const SIZES = {
   lg: `m-auto max-h-[calc(100%-2rem)] w-[min(40rem,calc(100%-2rem))] overflow-y-auto border-line p-6 ${FRAME}`,
   /** Near the top and edge to edge inside, for a search box with results under it. */
   palette: `mx-auto mt-[12vh] w-[calc(100%-2rem)] max-w-xl border-line-strong p-0 shadow-xl shadow-black/40 ${FRAME}`,
+  /** Full-screen on phones; a right-hand panel leaves the timeline visible on wider screens. */
+  inspector: "fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-full max-w-none overflow-y-auto overscroll-contain border-0 border-l border-line-strong bg-panel p-5 text-foreground shadow-xl backdrop:bg-black/30 sm:w-[28rem] sm:p-6",
 } as const;
 
 export function ModalDialog({

@@ -11,17 +11,18 @@ import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
+import { EventInspector } from "@/components/timeline/event-inspector";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
-import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { getTimelineEvent, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
-import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
+import { hasActiveFilters, parseTimelineEventId, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -48,17 +49,20 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const { workspace, role } = await requireWorkspace(slug, "viewer");
   const rawQuery = await searchParams;
   const query = parseTimelineSearchParams(rawQuery);
+  const selectedEventId = parseTimelineEventId(rawQuery.event);
   const basePath = workspacePath(workspace.slug, "timeline");
 
   const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
-  const [page, connectionCounts, typeIds, workspaceScope] = await Promise.all([
+  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent] = await Promise.all([
     listTimelineEvents(workspace.id, filters),
     listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
     getWorkspaceScope(workspace.id),
+    selectedEventId === null ? null : getTimelineEvent(workspace.id, selectedEventId),
   ]);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
+  const inspectorProps = { events: page.events, linkedEvent, baseHref: timelineHref(basePath, query, query.cursor) };
 
   // The type ids come from the daily event count rollup, which its triggers keep equal to every
   // event the workspace has, so they are empty only when there are no events at all.
@@ -69,7 +73,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     if (emptyKind !== "no_connections") {
       const connectionsPath = workspacePath(workspace.slug, "connections");
       return (
-        <>
+        <EventInspector {...inspectorProps}>
           <PageHeader title="Timeline" description={DESCRIPTION} />
           {emptyKind === "first_sync" ? (
             <EmptyState
@@ -86,7 +90,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
               action={{ href: connectionsPath, label: "Check connections" }}
             />
           )}
-        </>
+        </EventInspector>
       );
     }
     const canConnect = canPerform(role, "manage_connections");
@@ -98,7 +102,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         connectionCount: workspaceScope.connections.length,
       }) === null;
     return (
-      <>
+      <EventInspector {...inspectorProps}>
         <PageHeader title="Timeline" description={DESCRIPTION} />
         <EmptyState
           icon={<TimelineIcon width={20} height={20} />}
@@ -112,7 +116,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
           secondaryAction={offerSampleData ? <SampleDataForm workspaceSlug={workspace.slug} /> : undefined}
         />
-      </>
+      </EventInspector>
     );
   }
 
@@ -130,7 +134,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
 
   return (
-    <>
+    <EventInspector {...inspectorProps}>
       <PageHeader
         title="Timeline"
         description={DESCRIPTION}
@@ -207,6 +211,6 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           )}
         </nav>
       )}
-    </>
+    </EventInspector>
   );
 }

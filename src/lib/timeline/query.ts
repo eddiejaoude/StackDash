@@ -220,6 +220,13 @@ function one<T>(parse: (value: string) => T | null) {
   });
 }
 
+const EventIdParamSchema = one((value) => (UUID_PATTERN.test(value) ? value.toLowerCase() : null));
+
+/** Inspector selection is not a feed filter and never changes its counts or cursor. */
+export function parseTimelineEventId(value: SearchParamValue): string | null {
+  return EventIdParamSchema.parse(value);
+}
+
 const isSeverity = (value: string): value is EventSeverity =>
   (EVENT_SEVERITIES as readonly string[]).includes(value);
 

@@ -152,9 +152,12 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(newest).toContainText("Acme e2e team");
       await expect(newest).toContainText("Critical");
       await expect(newest.locator("time")).toHaveAttribute("datetime", "2026-06-15T23:30:00.000Z");
-      const link = newest.getByRole("link", { name: /View in Vercel/ });
+      await newest.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      const link = inspector.getByRole("link", { name: /View in Vercel/ });
       await expect(link).toHaveAttribute("href", "https://example.com/deployments/0");
       await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      await inspector.getByRole("button", { name: "Close event" }).click();
 
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events" })).toBeVisible();
@@ -772,10 +775,21 @@ ownerTest.describe("timeline bursts and search", () => {
         await expect(members.getByRole("heading", { level: 4 })).toHaveText(
           [10, 11, 12, 13, 14].map((amount) => `Payment succeeded: $${amount}.00`),
         );
+        const memberLink = members.getByRole("link", { name: "Payment succeeded: $13.00", exact: true });
+        await memberLink.focus();
+        await page.keyboard.press("Enter");
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        await expect(inspector.getByRole("heading", { name: "Payment succeeded: $13.00", exact: true })).toBeVisible();
+        await expect(inspector).toContainText("This event has no additional details.");
+        await expect(inspector.getByRole("link", { name: /View in/ })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(memberLink).toBeFocused();
+        await expect(members).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
         const scan = await new AxeBuilder({ page }).analyze();
         expect(scan.violations).toEqual([]);
 
+        await burst.locator("summary").focus();
         await page.keyboard.press("Enter");
         await expect(members).toBeHidden();
         await expect(burst.getByText("Show the 5 events", { exact: true })).toBeVisible();
@@ -826,6 +840,171 @@ ownerTest.describe("timeline bursts and search", () => {
       await page.goto(`/w/${workspace.slug}/timeline?q=event.5`);
       await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
       await expect(providerBadges(page)).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
+ownerTest.describe("timeline event inspector", () => {
+  for (const width of [1280, 375]) {
+    inspectorEvidenceTest(`opens, shares, navigates, and restores the timeline from the keyboard at ${width}px`, async ({ page, context }) => {
+      const workspace = await seedTimeline("Event inspector");
+      try {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const trigger = page.getByRole("link", { name: "Synthetic event 0", exact: true });
+        const href = await trigger.getAttribute("href");
+        if (href === null) throw new Error("The event has no shareable link.");
+        await trigger.focus();
+        const scrollBefore = await page.evaluate(() => window.scrollY);
+        await page.keyboard.press("Enter");
+
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const close = inspector.getByRole("button", { name: "Close event" });
+        await expect(inspector).toBeVisible();
+        await expect(close).toBeFocused();
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+        await expect(inspector).toContainText("Synthetic body 0");
+        await expect(inspector).toContainText("2026-06-16 00:30 BST");
+        await expect(inspector.locator("time")).toHaveAttribute("datetime", /^2026-06-15T23:30:00/);
+        const source = inspector.getByRole("link", { name: /View in Vercel/ });
+        await expect(source).toHaveAttribute("href", "https://example.com/deployments/0");
+        await expect(source).toHaveAttribute("rel", "noopener noreferrer");
+        await expect(page).toHaveURL(new RegExp(`event=${new URL(href, page.url()).searchParams.get("event")}$`));
+
+        const box = await inspector.boundingBox();
+        if (box === null) throw new Error("The inspector is not rendered.");
+        expect(box.y).toBe(0);
+        expect(box.height).toBe(900);
+        expect(Math.round(box.x + box.width)).toBe(width);
+        if (width < 640) expect(box.width).toBe(width);
+        else expect(box.width).toBeLessThan(width / 2);
+        expect(await inspector.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/after/inspector-${width}.png`, animations: "disabled" });
+        }
+
+        // Both ends of the modal tab order stay in the inspector.
+        await page.keyboard.press("Shift+Tab");
+        await expect(inspector.getByRole("button", { name: "Older event" })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(close).toBeFocused();
+        await inspector.getByRole("button", { name: "Copy event link" }).focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("status").filter({ hasText: "Copied the event link." })).toBeVisible();
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(href, page.url()).href);
+
+        await inspector.getByRole("button", { name: "Older event" }).focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await inspector.getByRole("button", { name: "Newer event" }).focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+
+        await page.goBack();
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+        await page.goForward();
+        await expect(inspector).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+
+        // Opening a scrolled row must not jump to the top on either open or close.
+        const scrolled = page.getByRole("link", { name: "Synthetic event 15", exact: true });
+        await scrolled.focus();
+        const scrolledY = await page.evaluate(() => window.scrollY);
+        expect(scrolledY).toBeGreaterThan(0);
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 15", exact: true })).toBeVisible();
+        expect(await page.evaluate(() => window.scrollY)).toBe(scrolledY);
+        await page.keyboard.press("Escape");
+        await expect(scrolled).toBeFocused();
+        expect(await page.evaluate(() => window.scrollY)).toBe(scrolledY);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  ownerTest("opens a shared event outside the loaded page and filters, including after reload", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector shared link");
+    try {
+      const { data: event, error } = await adminClient().from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-59").single();
+      if (error) throw new Error(`Finding the synthetic event failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&event=${event.id}`);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
+      await expect(inspector).toContainText("Synthetic body 59");
+      await expect(inspector.getByRole("button", { name: "Older event" })).toHaveAttribute("aria-disabled", "true");
+      await page.reload();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
+      await expect(page.getByRole("status").filter({ hasText: "Showing 6 events" })).toBeVisible();
+      await expect(eventItems(page)).toHaveCount(6);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("does not expose an event from another workspace or a deleted event", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector private source");
+    const other = await createTestWorkspace("Inspector empty target");
+    try {
+      const { data: event, error } = await adminClient().from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-0").single();
+      if (error) throw new Error(`Finding the synthetic event failed (code ${error.code}).`);
+      await page.goto(`/w/${other.slug}/timeline?event=${event.id}`);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Event unavailable" })).toBeVisible();
+      await expect(page.getByText("Synthetic body 0", { exact: true })).toHaveCount(0);
+      await expect(inspector.getByRole("button", { name: "Copy event link" })).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
+      const { error: deleteError } = await adminClient().from("activity_events").delete()
+        .eq("workspace_id", workspace.id).eq("id", event.id);
+      if (deleteError) throw new Error(`Removing the synthetic event failed (code ${deleteError.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?event=${event.id}`);
+      await expect(inspector.getByRole("heading", { name: "Event unavailable" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await page.goto(`/w/${workspace.slug}/timeline?event=not-a-uuid`);
+      await expect(inspector).toBeHidden();
+      await expect(page.getByRole("heading", { name: "Timeline", exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(other);
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("offers a selectable event link when clipboard access is denied", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector clipboard");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: () => Promise.reject(new DOMException("Permission denied", "NotAllowedError")) },
+        });
+      });
+      await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await inspector.getByRole("button", { name: "Copy event link" }).click();
+      await expect(inspector.getByRole("alert")).toContainText("Could not copy the event link.");
+      const manual = inspector.getByRole("textbox", { name: "Event link", exact: true });
+      await expect(manual).toHaveValue(page.url());
+      await manual.focus();
+      expect(await manual.evaluate((input: HTMLInputElement) => input.selectionEnd === input.value.length && input.selectionStart === 0)).toBe(true);
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -14,6 +14,7 @@ import {
   MAX_SEARCH_LENGTH,
   MAX_TYPE_FILTERS,
   occurredRange,
+  parseTimelineEventId,
   parseTimelineSearchParams,
   severityBadge,
   timelineHref,
@@ -28,6 +29,19 @@ const CURSOR: TimelineCursor = {
 
 const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
 const ACCOUNT_ID = "20000000-0000-4000-8000-000000000002";
+
+describe("parseTimelineEventId", () => {
+  it("accepts a shared event id, normalizes case, and uses the first repeated value", () => {
+    expect(parseTimelineEventId(` ${CURSOR.id.toUpperCase()} `)).toBe(CURSOR.id);
+    expect(parseTimelineEventId([CURSOR.id, PROJECT_ID])).toBe(CURSOR.id);
+  });
+
+  it.each([undefined, "", [], "not-an-event", `${CURSOR.id},id.eq.${PROJECT_ID}`, ["invalid", CURSOR.id]])(
+    "ignores a missing or malformed selection: %j", (value) => {
+      expect(parseTimelineEventId(value)).toBeNull();
+    },
+  );
+});
 
 describe("encodeCursor and decodeCursor", () => {
   it("round trips a cursor with microseconds intact", () => {

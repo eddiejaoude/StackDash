@@ -58,6 +58,27 @@ export type TimelinePage = {
   nextCursor: TimelineCursor | null;
 };
 
+const EVENT_COLUMNS = "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)";
+
+/** A shared event link can point outside the loaded page, but never outside this workspace. */
+export async function getTimelineEvent(workspaceId: string, eventId: string): Promise<TimelineEvent | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("activity_events")
+    .select(EVENT_COLUMNS)
+    .eq("workspace_id", workspaceId)
+    .eq("id", eventId)
+    .maybeSingle();
+  if (error) throw new Error("Failed to load the timeline event", { cause: error });
+  if (data === null) return null;
+  const { external_accounts, connections, ...event } = data;
+  return {
+    ...event,
+    accountName: external_accounts?.display_name ?? null,
+    connectionName: connections?.display_name ?? null,
+    simulated: connections !== null && isSimulatedConnection(connections),
+  };
+}
+
 // Postgres timestamps hold commas and colons, so the values in the `or` filter are quoted. The
 // cursor was validated by `decodeCursor`, so it never contains a quote.
 function olderThan(cursor: TimelineCursor): string {
@@ -117,9 +138,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   if (scope.accountIds !== null && scope.accountIds.length === 0) return { events: [], nextCursor: null };
   let query = supabase
     .from("activity_events")
-    .select(
-      "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)",
-    )
+    .select(EVENT_COLUMNS)
     .eq("workspace_id", workspaceId);
 
   if (filters.types.length > 0) query = query.in("type_id", [...filters.types]);

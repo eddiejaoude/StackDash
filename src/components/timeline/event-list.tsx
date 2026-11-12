@@ -11,6 +11,7 @@ import { groupEventRuns, type EventRun } from "@/lib/timeline/runs";
 
 import { ArrivalEventRow, ArrivalEvents, ArrivalNewLabel } from "./arrival-events";
 import { EventTime } from "./event-time";
+import { EventInspectorLink } from "./event-inspector";
 
 // Severity belongs to the node, not a competing left edge. Every row still prints the word.
 const SEVERITY_NODE: Record<EventSeverity, string> = {
@@ -89,10 +90,12 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
       className={TIMELINE_ROW}
     >
       <TimelinePosition event={event} now={now} />
-      <article className="col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
+      <article className="relative col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="break-words text-sm font-medium leading-5">{event.title}</h3>
+            <h3 className="break-words text-sm font-medium leading-5">
+              <EventInspectorLink eventId={event.id}>{event.title}</EventInspectorLink>
+            </h3>
             <p className="mt-0.5 break-words font-mono text-xs text-muted">
               <span className="text-foreground">{providerName(event.provider)}</span>
               {source === null ? null : (
@@ -110,20 +113,6 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
             <SeverityBadge severity={severityBadge(event.severity)} />
           </div>
         </div>
-        {event.body === null ? null : (
-          <p className="mt-1 whitespace-pre-line break-words text-sm leading-5 text-muted">{event.body}</p>
-        )}
-        {event.url === null || !event.url.startsWith("https://") ? null : (
-          <a
-            href={event.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 inline-flex min-h-6 items-center text-sm text-accent underline-offset-4 hover:underline"
-          >
-            View in {providerName(event.provider)}
-            <span className="sr-only"> (opens in a new tab)</span>
-          </a>
-        )}
       </article>
     </ArrivalEventRow>
   );
@@ -152,11 +141,13 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
       className={TIMELINE_ROW}
     >
       <TimelinePosition event={latest} now={now} latest />
-      <article className="col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
+      <article className="relative col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h3 className="break-words text-sm font-medium leading-5">{title}</h3>
+              <h3 className="break-words text-sm font-medium leading-5">
+                <EventInspectorLink eventId={latest.id}>{title}</EventInspectorLink>
+              </h3>
               <span className="whitespace-nowrap rounded-full border border-line-strong px-1.5 font-mono text-[11px] text-muted">
                 {count}
               </span>
@@ -178,7 +169,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
             <SeverityBadge severity={severityBadge(latest.severity)} />
           </div>
         </div>
-        <details className="group mt-2">
+        <details className="group relative z-10 mt-2">
           <summary className="inline-flex min-h-6 list-none items-center gap-1 text-sm text-accent underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">
             <span className="group-open:hidden">Show the {count}</span>
             <span className="hidden group-open:inline">Hide the {count}</span>
@@ -212,31 +203,19 @@ function TimelinePosition({ event, now, latest = false }: { event: TimelineEvent
 }
 
 /**
- * One event inside an expanded run: its own title, time, details, and link. The provider, account,
+ * One event inside an expanded run: its own title, time, and inspector link. The provider, account,
  * severity, and simulated label are the run's, already on the row above, so they are not repeated.
  */
 function EventRunMember({ event, now }: { event: TimelineEvent; now: Date }) {
   return (
     <ArrivalEventRow eventIds={[event.id]} flash={SEVERITY_FLASH[event.severity]} className="px-3 py-2">
-      <h4 className="break-words text-sm leading-5">{event.title}</h4>
+      <h4 className="break-words text-sm leading-5">
+        <EventInspectorLink eventId={event.id}>{event.title}</EventInspectorLink>
+      </h4>
       <p className="mt-0.5 break-words">
         <EventTime occurredAt={event.occurred_at} now={now} />
         <ArrivalNewLabel eventIds={[event.id]} />
       </p>
-      {event.body === null ? null : (
-        <p className="mt-1 whitespace-pre-line break-words text-sm leading-5 text-muted">{event.body}</p>
-      )}
-      {event.url === null || !event.url.startsWith("https://") ? null : (
-        <a
-          href={event.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-1 inline-flex min-h-6 items-center text-sm text-accent underline-offset-4 hover:underline"
-        >
-          View in {providerName(event.provider)}
-          <span className="sr-only"> (opens in a new tab)</span>
-        </a>
-      )}
     </ArrivalEventRow>
   );
 }

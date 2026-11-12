@@ -20,7 +20,11 @@ reports them.
 The timeline groups events under sticky London-day labels. A neutral spine connects provider
 nodes in newest-first order, not cause and effect. Times sit in a left gutter on desktop and
 above each event on smaller screens. Severity remains labeled in words, and repeated events
-expand to show their individual timestamps and details.
+expand to show their individual timestamps. Select an event to inspect its full text, exact time,
+and source link in a right-hand panel, or a full-screen view on mobile. Newer and older controls
+follow the current page. Copy an event link to reopen it later, even when it is outside the loaded
+page or filters; workspace access still applies. Escape or Close event returns to the timeline
+without losing your scroll position or expanded groups.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
