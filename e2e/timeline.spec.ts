@@ -1048,6 +1048,8 @@ ownerTest.describe("timeline active filters", () => {
         ["account", account.id],
       ]);
       await page.goto(`/w/${workspace.slug}/timeline?${params}`);
+      // Before hydration a chip is a plain anchor: Enter would load the page and move no focus.
+      await expectHydrated(page);
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
       await expect(status).toHaveText(
         "Showing 1 event with “Synthetic” in the title for provider Vercel, project Unassigned, account Acme e2e team (Vercel e2e connection)",
