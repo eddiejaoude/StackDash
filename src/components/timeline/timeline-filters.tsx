@@ -18,6 +18,8 @@ import {
   type TimelineQuery,
 } from "@/lib/timeline/query";
 
+import { SeverityLinkRow } from "./filter-links";
+
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
 const CHECKBOX = "size-4 shrink-0 accent-accent";
 const TEXT_INPUT =
@@ -29,8 +31,9 @@ const SEVERITY_LINK = "inline-flex min-h-10 shrink-0 items-center rounded-md bor
  * One-click severity views, so the commonest filter needs no form. Each link keeps every other
  * filter and, like the form, starts from the newest events because it carries no cursor. A
  * mixed severity selection from the form marks no link as current. Below `sm` the links scroll
- * sideways on one row instead of wrapping to a second; the padding keeps their focus outline
- * inside the scroll box, which would otherwise clip it.
+ * sideways on one row instead of wrapping to a second, and `SeverityLinkRow` keeps the current
+ * link in view; the padding keeps their focus outline inside the scroll box, which would
+ * otherwise clip it.
  */
 function SeverityLinks({ action, query }: { action: string; query: TimelineQuery }) {
   const links = [
@@ -42,7 +45,11 @@ function SeverityLinks({ action, query }: { action: string; query: TimelineQuery
     })),
   ];
   return (
-    <nav aria-label="Severity" className="-m-1 flex min-w-0 gap-2 overflow-x-auto p-1 sm:flex-wrap md:shrink-0">
+    <SeverityLinkRow
+      current={links.find((link) => link.current)?.label ?? null}
+      label="Severity"
+      className="-m-1 flex min-w-0 gap-2 overflow-x-auto p-1 sm:flex-wrap md:shrink-0"
+    >
       {links.map(({ label, severities, current }) => (
         <Link
           key={label}
@@ -56,7 +63,7 @@ function SeverityLinks({ action, query }: { action: string; query: TimelineQuery
           {label}
         </Link>
       ))}
-    </nav>
+    </SeverityLinkRow>
   );
 }
 

@@ -1121,6 +1121,11 @@ ownerTest.describe("timeline active filters", () => {
         const severity = page.getByRole("navigation", { name: "Severity" });
         const links = severity.getByRole("link");
         await expect(links).toHaveCount(5);
+        // The current view's link starts wholly in view before anything is focused, even below `sm`,
+        // where the row scrolls sideways and Critical, the last link, is past its right edge.
+        const critical = severity.getByRole("link", { name: "Critical", exact: true });
+        await expect(critical).toHaveAttribute("aria-current", "page");
+        await expect(critical).toBeInViewport({ ratio: 1 });
         const search = page.getByRole("searchbox", { name: "Search event titles" });
         await expect(search).toBeVisible();
         await expect(search).toHaveValue("Synthetic");
@@ -1139,6 +1144,14 @@ ownerTest.describe("timeline active filters", () => {
         // The last severity link is reachable: scrolled into view when focused.
         await links.last().focus();
         await expect(links.last()).toBeInViewport();
+        // A client navigation keeps the row and where it is scrolled to, and the current link is still
+        // brought into view: All scrolls the row back to its start, then Back makes Critical current.
+        const all = severity.getByRole("link", { name: "All", exact: true });
+        await all.click();
+        await expect(all).toHaveAttribute("aria-current", "page");
+        await page.goBack();
+        await expect(critical).toHaveAttribute("aria-current", "page");
+        await expect(critical).toBeInViewport({ ratio: 1 });
 
         const chips = activeFilterChips(page).getByRole("link");
         await expect(chips).toHaveCount(4);
