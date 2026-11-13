@@ -122,7 +122,8 @@ const ChipArrivalsContext = createContext<ChipArrivals>({ grown: new Set(), batc
 /**
  * Around the provider chips in the title row (#403), with each provider's event count under the
  * current filters. A provider whose count grew in a live refresh, or that has its first event in
- * view, arrived; a count that fell (a filter, retention) is not an arrival. The event list already
+ * view, arrived; a count that fell (retention) is not an arrival. Mount it even when no chip shows,
+ * so the first chip of an empty view has a count of zero to grow from. The event list already
  * announces the new events, so this adds no announcement of its own.
  */
 export function ArrivalProviderChips({ counts, children }: { counts: Readonly<Record<string, number>>; children: ReactNode }) {
@@ -141,18 +142,23 @@ export function ArrivalProviderChips({ counts, children }: { counts: Readonly<Re
 /**
  * One provider chip's list item. While its provider's arrival is highlighted, the coral glow the
  * dashboard's changed cards use pulses out of the chip, and its count is the new one. The glow
- * layer sits over the chip, so under reduced motion its static highlight (a coral tint and edge)
- * shows on the chip's own background rather than behind it.
+ * layer sits over the chip, so under reduced motion its static highlight (a translucent coral tint
+ * and edge, globals.css) shows on the chip's own background rather than behind it.
  */
 export function ArrivalProviderChip({ provider, children }: { provider: string; children: ReactNode }) {
   const { grown, batch, highlighted } = useContext(ChipArrivalsContext);
   const arrived = highlighted && grown.has(provider);
   return (
-    <li className="relative" data-arrived={arrived ? "true" : undefined}>
+    <li className="relative">
       {children}
       {/* Keyed by batch, so a second arrival while highlighted pulses again. */}
       {arrived ? (
-        <span key={batch} aria-hidden="true" className="arrival-pulse pointer-events-none absolute inset-0 z-10 rounded-lg" />
+        <span
+          key={batch}
+          aria-hidden="true"
+          data-testid="chip-glow"
+          className="arrival-pulse pointer-events-none absolute inset-0 z-10 rounded-lg"
+        />
       ) : null}
     </li>
   );

@@ -28,34 +28,36 @@ export function ProviderBadges({
   query: TimelineQuery;
 }) {
   const badges = providerBadges(counts);
-  if (badges.length === 0) return null;
   return (
+    // Mounted even with no chip, so the first chip in an empty view glows when its event arrives.
     <ArrivalProviderChips counts={Object.fromEntries(badges.map((badge) => [badge.provider, badge.events]))}>
-      <ul aria-label="Events by provider" className="flex min-w-0 flex-wrap items-center gap-2">
-        {badges.map((badge) => {
-          const link = providerBadgeQuery(query, badge.provider);
-          const { name, label, short } = providerBadgeText(badge, link.current);
-          return (
-            <ArrivalProviderChip key={badge.provider} provider={badge.provider}>
-              <Link
-                href={timelineHref(action, link.query, null)}
-                scroll={false}
-                aria-current={link.current ? "page" : undefined}
-                className={`flex min-h-9 items-center rounded-lg border bg-panel py-1 pl-1 pr-3 text-sm transition-colors hover:border-accent ${
-                  link.current ? "border-accent ring-1 ring-accent" : "border-line-strong"
-                }`}
-              >
-                <span aria-hidden="true" title={name} className="flex items-center gap-2">
-                  <ProviderMark provider={badge.provider} size="sm" />
-                  <span className="hidden text-foreground sm:inline">{label}</span>
-                  <span className="font-mono text-xs text-muted">{short}</span>
-                </span>
-                <span className="sr-only">{name}</span>
-              </Link>
-            </ArrivalProviderChip>
-          );
-        })}
-      </ul>
+      {badges.length === 0 ? null : (
+        <ul aria-label="Events by provider" className="flex min-w-0 flex-wrap items-center gap-2">
+          {badges.map((badge) => {
+            const link = providerBadgeQuery(query, badge.provider);
+            const { name, label, short } = providerBadgeText(badge, link.current);
+            return (
+              <ArrivalProviderChip key={badge.provider} provider={badge.provider}>
+                <Link
+                  href={timelineHref(action, link.query, null)}
+                  scroll={false}
+                  aria-current={link.current ? "page" : undefined}
+                  className={`flex min-h-9 items-center rounded-lg border bg-panel py-1 pl-1 pr-3 text-sm transition-colors hover:border-accent ${
+                    link.current ? "border-accent ring-1 ring-accent" : "border-line-strong"
+                  }`}
+                >
+                  <span aria-hidden="true" title={name} className="flex items-center gap-2">
+                    <ProviderMark provider={badge.provider} size="sm" />
+                    <span className="hidden text-foreground sm:inline">{label}</span>
+                    <span className="font-mono text-xs text-muted">{short}</span>
+                  </span>
+                  <span className="sr-only">{name}</span>
+                </Link>
+              </ArrivalProviderChip>
+            );
+          })}
+        </ul>
+      )}
     </ArrivalProviderChips>
   );
 }
