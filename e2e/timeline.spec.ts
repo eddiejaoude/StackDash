@@ -1121,14 +1121,15 @@ function eventCount(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
 }
 
-/** The London start and exclusive end a bucket link names, as the page prints them. */
-async function bucketPeriod(link: Locator): Promise<Readonly<{ from: string; until: string }>> {
+/** The count, London start, and exclusive end a bucket link names, as the page prints them. */
+async function bucketPeriod(link: Locator): Promise<Readonly<{ count: string; from: string; until: string }>> {
   const name = await link.getAttribute("aria-label");
-  const match = name?.match(new RegExp(` from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
-  const from = match?.[1];
-  const until = match?.[2];
-  if (from === undefined || until === undefined) throw new Error(`The bucket link names no period: ${name}`);
-  return { from, until };
+  const match = name?.match(new RegExp(`^Show ([\\d,]+ events?) from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
+  const count = match?.[1];
+  const from = match?.[2];
+  const until = match?.[3];
+  if (count === undefined || from === undefined || until === undefined) throw new Error(`The bucket link names no period: ${name}`);
+  return { count, from, until };
 }
 
 /** A bucket link, its position among the bucket links, and the half-open range its URL selects. */
@@ -1208,7 +1209,8 @@ async function expectFeedHolds(page: Page, indexes: readonly number[], extra = 0
 
 /**
  * Which bucket is current, and the selection's live region: mounted and empty with nothing
- * selected, and naming the selected period otherwise.
+ * selected, and naming the selected period and its count otherwise, so a touch user, who cannot
+ * hover a bar, still reads how many events it holds.
  */
 async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> {
   const selected = activityOverview(page).locator('[aria-current="true"]');
@@ -1223,8 +1225,8 @@ async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> 
   await expect(selected).toHaveCount(1);
   const link = bucketLinks(page).nth(bucket.position);
   await expect(link).toHaveAttribute("aria-current", "true");
-  const { from, until } = await bucketPeriod(link);
-  await expect(status).toHaveText(`Selected: ${from} to before ${until}`);
+  const { count, from, until } = await bucketPeriod(link);
+  await expect(status).toHaveText(`Selected: ${count} from ${from} to before ${until}`);
   await expect(clear).toBeVisible();
 }
 
@@ -1257,9 +1259,9 @@ async function expectOverviewFits(page: Page, width: number): Promise<void> {
   }
 }
 
-/** The period a bucket shows over the caption row while its link is hovered or has keyboard focus. */
-function shownPeriod(page: Page, from: string): Locator {
-  return activityOverview(page).getByTestId("activity-period").filter({ has: page.getByText(from, { exact: true }) });
+/** The count and period a bucket shows over the caption row while its link is hovered or has keyboard focus. */
+function shownPeriod(page: Page, { count, from }: Readonly<{ count: string; from: string }>): Locator {
+  return activityOverview(page).getByTestId("activity-period").filter({ has: page.getByText(`${count} from ${from}`, { exact: true }) });
 }
 
 /**
@@ -1455,6 +1457,8 @@ ownerTest.describe("timeline activity overview", () => {
       await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
       await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
       await expect(overview.locator('[aria-current="true"]')).toHaveCount(0);
+      // No bar is selected, so there is no count to repeat, only the period.
+      await expect(overview.getByRole("status")).toHaveText("Selected: 2020-01-01 00:00 GMT to before 2020-01-01 01:00 GMT");
       await overview.getByRole("link", { name: "Clear time selection", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
       await expect(eventItems(page)).toHaveCount(50);
@@ -1479,7 +1483,7 @@ ownerTest.describe("timeline activity overview", () => {
       expect(buckets).toHaveLength(12);
       const third = buckets.at(2);
       if (third === undefined) throw new Error("There is no third bucket.");
-      const thirdPeriod = shownPeriod(page, (await bucketPeriod(third.link)).from);
+      const thirdPeriod = shownPeriod(page, await bucketPeriod(third.link));
       await expect(thirdPeriod).toBeHidden();
       await tabTo(page, third.link, 120);
       await expectPeriodCoversCaption(page, thirdPeriod, "375px");
@@ -1491,8 +1495,8 @@ ownerTest.describe("timeline activity overview", () => {
       // With the newest bar focused, hovering the oldest shows the oldest bar's period on top.
       await page.setViewportSize({ width: 375, height: 900 });
       const [oldest, newest] = firstAndLast(buckets, "buckets");
-      const newestPeriod = shownPeriod(page, (await bucketPeriod(newest.link)).from);
-      const oldestPeriod = shownPeriod(page, (await bucketPeriod(oldest.link)).from);
+      const newestPeriod = shownPeriod(page, await bucketPeriod(newest.link));
+      const oldestPeriod = shownPeriod(page, await bucketPeriod(oldest.link));
       await tabTo(page, newest.link, 120);
       await expect(newestPeriod).toBeVisible();
       await expect(oldestPeriod).toBeHidden();
@@ -1543,14 +1547,17 @@ ownerTest.describe("timeline activity overview", () => {
           await page.screenshot({ path: `pr-evidence/after/overview-${width}.png`, animations: "disabled" });
         }
 
-        // Tab to the newest bucket: the chart scrolls it into view, its period shows in the
-        // caption row, and Enter selects it.
+        // Tab to the newest bucket: the chart scrolls it into view, its count and period show in
+        // the caption row, and Enter selects it.
         const buckets = await readBuckets(page);
         const [, newest] = firstAndLast(buckets, "buckets");
-        const { from, until } = await bucketPeriod(newest.link);
-        // The period is the link's sibling, so the link's visible text stays inside its name.
-        const period = shownPeriod(page, from);
-        const periodStart = period.getByText(from, { exact: true });
+        const named = await bucketPeriod(newest.link);
+        const { count, from, until } = named;
+        // The period is the link's sibling, so the bar itself prints nothing at rest and the
+        // link's name is all it says.
+        await expect(newest.link).toHaveText("");
+        const period = shownPeriod(page, named);
+        const periodStart = period.getByText(`${count} from ${from}`, { exact: true });
         const periodEnd = period.getByText(`Before ${until}`, { exact: true });
         await expect(periodStart).toBeHidden();
         await expect(periodEnd).toBeHidden();
