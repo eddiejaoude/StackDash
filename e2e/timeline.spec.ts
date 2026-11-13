@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
+import { z } from "zod";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -111,6 +112,12 @@ function eventItems(page: Page) {
 function eventHeading(page: Page, index: number) {
   return page.getByRole("heading", { name: `Synthetic event ${index}`, exact: true });
 }
+
+// The row surface's backgrounds: none at rest, `--panel-raised` under the pointer, and the
+// `--accent-soft` wash while its event is open (src/app/globals.css).
+const ROW_AT_REST = "rgba(0, 0, 0, 0)";
+const ROW_HOVERED = "rgb(22, 22, 26)";
+const ROW_OPEN = "rgba(255, 93, 59, 0.12)";
 
 function providerBadges(page: Page) {
   return page.getByRole("list", { name: "Events by provider", exact: true });
@@ -881,8 +888,13 @@ ownerTest.describe("timeline bursts and search", () => {
         await expect(inspector.getByRole("heading", { name: "Payment succeeded: $13.00", exact: true })).toBeVisible();
         await expect(inspector).toContainText("This event has no additional details.");
         await expect(inspector.getByRole("link", { name: /View in/ })).toHaveCount(0);
+        // The open event is marked inside its expanded run, over the run's own wash (#399).
+        const member = members.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Payment succeeded: $13.00", exact: true }) });
+        await expect(member).toHaveCSS("background-color", ROW_OPEN);
+        await expect(burst.getByRole("article")).toHaveCSS("background-color", ROW_OPEN);
         await page.keyboard.press("Escape");
         await expect(memberLink).toBeFocused();
+        await expect(member).toHaveCSS("background-color", ROW_AT_REST);
         await expect(members).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
         const scan = await new AxeBuilder({ page }).analyze();
@@ -1148,6 +1160,42 @@ ownerTest.describe("timeline active filters", () => {
 
 const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
 
+const MOTION = z.array(z.object({ moved: z.string(), durationMs: z.number(), loops: z.boolean() }));
+
+/**
+ * Records every CSS transition and animation that starts on the given elements, from the first
+ * document on (#399): what moved, as "element property" (`dialog::backdrop opacity` for a dialog's
+ * backdrop, or the keyframes' name in place of the property), how long one run takes, and whether
+ * it repeats forever. The returned function hands over what started since it was last called.
+ * Call before navigating.
+ */
+async function recordMotion(page: Page, elements: readonly string[]): Promise<() => Promise<z.infer<typeof MOTION>>> {
+  await page.addInitScript((watched) => {
+    const started: unknown[] = [];
+    const seen = new WeakSet<Animation>();
+    Reflect.set(window, "__motion", started);
+    const record = () => {
+      for (const animation of document.getAnimations()) {
+        if (seen.has(animation)) continue;
+        seen.add(animation);
+        const effect = animation.effect;
+        if (!(effect instanceof KeyframeEffect)) continue;
+        const element = `${effect.target?.tagName.toLowerCase() ?? "none"}${effect.pseudoElement ?? ""}`;
+        if (!watched.includes(element)) continue;
+        const property = animation instanceof CSSTransition ? animation.transitionProperty : animation instanceof CSSAnimation ? animation.animationName : "script";
+        const timing = effect.getComputedTiming();
+        started.push({ moved: `${element} ${property}`, durationMs: Number(timing.duration), loops: timing.iterations === Infinity });
+      }
+    };
+    document.addEventListener("transitionrun", record, true);
+    document.addEventListener("animationstart", record, true);
+  }, elements);
+  return async () => MOTION.parse(await page.evaluate(() => {
+    const started: unknown = Reflect.get(window, "__motion");
+    return Array.isArray(started) ? started.splice(0) : [];
+  }));
+}
+
 ownerTest.describe("timeline event inspector", () => {
   for (const width of [1280, 375]) {
     inspectorEvidenceTest(`opens, shares, navigates, and restores the timeline from the keyboard at ${width}px`, async ({ page, context }) => {
@@ -1236,6 +1284,66 @@ ownerTest.describe("timeline event inspector", () => {
         await page.keyboard.press("Escape");
         await expect(scrolled).toBeFocused();
         expect(await page.evaluate(() => window.scrollY)).toBe(scrolledY);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  // #399: the panel slides in and out, and the row lightens under the pointer and takes the accent
+  // wash while its event is open: each change runs once, within 200ms. Under reduced motion the
+  // same states change at once. Closing never waits for the motion: focus and the URL move at once.
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    const moves = reducedMotion === "reduce" ? "moves nothing under reduced motion" : "moves the panel and the row once, within 200ms,";
+    ownerTest(`${moves} as the details open and close`, async ({ page }) => {
+      const workspace = await seedTimeline(`Inspector motion ${reducedMotion}`);
+      try {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.emulateMedia({ reducedMotion });
+        const motion = await recordMotion(page, ["article", "dialog", "dialog::backdrop"]);
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const row = eventItems(page).filter({ has: trigger }).getByRole("article");
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        await motion();
+
+        await trigger.hover();
+        await expect(row).toHaveCSS("background-color", ROW_HOVERED);
+        // Away from the feed, so the open row shows its own state rather than the hover.
+        await page.getByRole("heading", { level: 1, name: "Timeline", exact: true }).hover();
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        const hovered = await motion();
+
+        await trigger.focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("button", { name: "Close event" })).toBeFocused();
+        await expect(inspector).toHaveCSS("opacity", "1");
+        await expect(inspector).toHaveCSS("transform", "none");
+        await expect(row).toHaveCSS("background-color", ROW_OPEN);
+        const opened = await motion();
+
+        await page.keyboard.press("Escape");
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+        await expect(inspector).toBeHidden();
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        const closed = await motion();
+
+        expect([...hovered, ...opened, ...closed].filter((entry) => entry.loops || entry.durationMs > 200)).toEqual([]);
+        if (reducedMotion === "reduce") {
+          expect([...hovered, ...opened, ...closed]).toEqual([]);
+          return;
+        }
+        expect(hovered.map((entry) => entry.moved)).toEqual(expect.arrayContaining(["article background-color"]));
+        for (const step of [opened, closed]) {
+          expect(step.map((entry) => entry.moved)).toEqual(expect.arrayContaining([
+            "article background-color",
+            "dialog opacity",
+            "dialog transform",
+            "dialog::backdrop opacity",
+          ]));
+        }
       } finally {
         await deleteTestWorkspace(workspace);
       }
