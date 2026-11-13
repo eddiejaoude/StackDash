@@ -52,7 +52,7 @@ export type ArrivalStore = Readonly<{
   setStatus: (status: LiveStatus) => void;
   /**
    * A batch of changes arrived and the page is refreshing; `at` is its newest commit time and
-   * `connectionIds` the connections those changes belong to.
+   * `connectionIds` the connections that sent provider data in it (see `changedConnectionId`).
    */
   arrived: (at: string | null, connectionIds: ReadonlySet<string>) => void;
   /** A component that marks data is in view until the returned function runs. */

@@ -35,8 +35,9 @@ let mountCount = 0;
 /**
  * Refreshes the current workspace page when a sync writes rows for this workspace (#129), so the
  * Server Components read again and no row data is copied into client state. The one exception is
- * an id: the connection each usage snapshot or provider event came from, kept per batch so the
- * indicator can say which connection is receiving (#392). One channel per
+ * an id: the connection each usage snapshot or provider event came from, which the store keeps
+ * with the last batch that brought it so the indicator can say which connection is receiving
+ * (#392). One channel per
  * workspace, removed when the workspace layout unmounts or the workspace changes. Realtime checks
  * every change against the subscriber's select policy, so a member only hears about their own
  * workspace; the filter keeps a member of several workspaces from hearing about the others.
@@ -72,7 +73,8 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const supabase = createClient();
     // The newest commit among the changes delivered so far: the database's clock, not the browser's.
     let lastCommitAt: string | null = null;
-    // The connections the changes since the last refresh belong to, for the indicator's list (#392).
+    // The connections that sent provider data since the last refresh (changedConnectionId), for the
+    // indicator's list (#392).
     let changedConnections = new Set<string>();
     const scheduler = createRefreshScheduler({
       refresh: () => {
