@@ -240,7 +240,7 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
  *
  * Below `md` the tooltip is placed against the header's top row (positioned in the workspace
  * layout) rather than the button, so its width never runs off the left edge: on a phone, and up
- * to `md`, where a long workspace or account name can leave the button within 288px of the edge.
+ * to `md`, where a long account name can leave the button within 288px of the edge.
  */
 export function LiveIndicator({ connections }: { connections: LiveConnectionsRead }) {
   const store = useContext(ArrivalStoreContext);

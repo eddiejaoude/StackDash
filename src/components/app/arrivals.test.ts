@@ -33,8 +33,11 @@ describe("LiveIndicator connections", () => {
     expect(buttonName({ state: "failed", reference: "ref_abc123" })).toBe("Live updates, connecting");
   });
 
-  it("counts the connections past the cap rather than listing them", () => {
-    const connections = Array.from({ length: LIVE_CONNECTIONS_LISTED + 2 }, (_, index) => ({
+  it.each([
+    [LIVE_CONNECTIONS_LISTED, null],
+    [LIVE_CONNECTIONS_LISTED + 2, "And 2 more on the Connections page."],
+  ])("with %i connections lists the cap and counts the rest: %j", (total, more) => {
+    const connections = Array.from({ length: total }, (_, index) => ({
       id: String(index),
       provider: "vercel" as const,
       display_name: `Project ${index}`,
@@ -43,7 +46,8 @@ describe("LiveIndicator connections", () => {
     const text = tooltipText({ state: "loaded", summary: summarizeLiveConnections(connections) });
     expect(text).toContain(`Project ${LIVE_CONNECTIONS_LISTED - 1}`);
     expect(text).not.toContain(`Project ${LIVE_CONNECTIONS_LISTED}`);
-    expect(text).toContain("And 2 more on the Connections page.");
+    if (more === null) expect(text).not.toContain("more on the Connections page");
+    else expect(text).toContain(more);
   });
 
   it("names the count and the connections needing attention", () => {
