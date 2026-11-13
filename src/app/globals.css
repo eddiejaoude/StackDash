@@ -418,6 +418,50 @@ summary {
   animation: feed-content-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/*
+ * The event details panel (ModalDialog's `inspector` size) slides in from the right edge and fades,
+ * and leaves the same way (#399), with the rise and arrival easing. Transitions rather than
+ * keyframes, so nothing runs for a panel that is closed when the page loads. `display` and
+ * `overlay` transition as discrete steps, so a closing panel stays drawn in the top layer while it
+ * fades. To script it has closed at once: the `close` event, focus return, and the history entry
+ * (dialog-controller.ts, event-inspector.tsx) do not wait for the motion. It takes no pointer input
+ * while it leaves, so the page under it works straight away.
+ */
+.panel-slide,
+.panel-slide::backdrop {
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.15s;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-behavior: allow-discrete;
+}
+
+.panel-slide[open],
+.panel-slide[open]::backdrop {
+  transition-duration: 0.2s;
+}
+
+.panel-slide:not([open]) {
+  opacity: 0;
+  transform: translateX(1rem);
+  pointer-events: none;
+}
+
+.panel-slide:not([open])::backdrop {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@starting-style {
+  .panel-slide[open] {
+    opacity: 0;
+    transform: translateX(1rem);
+  }
+
+  .panel-slide[open]::backdrop {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -473,6 +517,11 @@ summary {
     .feed-exit-compact {
       display: none;
     }
+  }
+  /* The panel opens and closes in place: with no transition, a closed one is hidden at once. */
+  .panel-slide,
+  .panel-slide::backdrop {
+    transition: none;
   }
   html {
     scroll-behavior: auto;
