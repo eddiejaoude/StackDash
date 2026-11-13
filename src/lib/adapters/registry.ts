@@ -1,6 +1,7 @@
 import "server-only";
 
 import { log } from "@/lib/log/logger";
+import { eventTypeLabel } from "@/lib/timeline/query";
 
 import { digitaloceanAdapter } from "./digitalocean";
 import type { EventType } from "./events";
@@ -103,6 +104,18 @@ export const revenueProviderIds: readonly ProviderId[] = declaringAdapters
 export const spendProviderIds: readonly ProviderId[] = declaringAdapters
   .filter((adapter) => adapter.capabilities.spending)
   .map((adapter) => adapter.id);
+
+// A Map: the key is a stored type id, which may be one no adapter declares any more.
+const declaredEventTypeLabels: ReadonlyMap<string, string> = new Map(declaredEventTypes.map((type) => [type.id, type.label]));
+
+/**
+ * The adapter's own name for an event type, "Payment succeeded" for `stripe.charge.succeeded`, so
+ * every timeline surface names a type the way its events read (#294). A type no adapter declares
+ * any more falls back to the name `eventTypeLabel` derives from its id.
+ */
+export function eventTypeName(typeId: string): string {
+  return declaredEventTypeLabels.get(typeId) ?? eventTypeLabel(typeId);
+}
 
 /**
  * What the adapter for `provider` declares it reports, whatever the flags say: a simulated twin

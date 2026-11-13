@@ -11,11 +11,12 @@ import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
-import { EventInspector } from "@/components/timeline/event-inspector";
+import { EventInspector, type InspectorEvent } from "@/components/timeline/event-inspector";
 import { ActivityOverview } from "@/components/timeline/activity-overview";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { ActiveFilterChips, TimelineFilters, TimelineToolbar } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
+import { eventTypeName } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
@@ -45,9 +46,10 @@ const HEADING_ID = "timeline-title";
 // Per-member hidden event types arrive with #119; the query already excludes whatever is listed.
 const HIDDEN_TYPE_IDS: readonly string[] = [];
 
-// Written on the server, as the row's own time is: browsers name the London zone differently.
-function inspected(event: TimelineEvent) {
-  return { ...event, londonTime: formatDateTime(event.occurred_at) };
+// Written on the server, as the row's own time is: browsers name the London zone differently. The
+// type's declared name comes from the adapter registry, which is server-only (#294).
+function inspected(event: TimelineEvent): InspectorEvent {
+  return { ...event, londonTime: formatDateTime(event.occurred_at), typeName: eventTypeName(event.type_id) };
 }
 
 // Every section renders inside its own Suspense boundary so navigating between sections

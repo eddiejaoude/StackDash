@@ -898,6 +898,38 @@ ownerTest.describe("timeline bursts and search", () => {
     });
   }
 
+  // #294: Stripe declares "Payment succeeded" for `stripe.charge.succeeded`; its id reads "Charge succeeded".
+  ownerTest("names event types by their adapters' declared labels in the filter, its chips, and the details", async ({ page }) => {
+    const workspace = await seedBursts("Timeline declared labels");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      // The details name the type as the collapsed run's heading does.
+      const burst = eventItems(page).nth(0);
+      await burst.getByRole("link", { name: "Payment succeeded", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Payment succeeded: $10.00", exact: true })).toBeVisible();
+      await expect(inspector.getByRole("definition").first()).toHaveText("Payment succeeded");
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+
+      await openFilters(page);
+      const types = page.getByRole("group", { name: "Event type" }).getByRole("checkbox");
+      await expect(types).toHaveCount(2);
+      await expect(types.nth(0)).toHaveAccessibleName("Stripe: Payment refunded");
+      await expect(types.nth(1)).toHaveAccessibleName("Stripe: Payment succeeded");
+      await types.nth(1).check();
+      await page.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page).toHaveURL(/[?&]type=stripe\.charge\.succeeded(&|$)/);
+      // The chip names the type exactly as the box that set it.
+      const chips = activeFilterChips(page).getByRole("link");
+      await expect(chips).toHaveCount(1);
+      await expect(chips.first()).toHaveAccessibleName("Remove filter: event type Stripe: Payment succeeded");
+      await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 10 of 10 events");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("searches event titles from the visible search box, keeping every other filter and starting from the newest events", async ({ page }) => {
     const workspace = await seedTimeline("Timeline search");
     try {

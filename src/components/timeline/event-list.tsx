@@ -2,11 +2,11 @@ import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ChevronDownIcon } from "@/components/icons";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import { SeverityBadge } from "@/components/severity-badge";
-import { declaredEventTypes } from "@/lib/adapters/registry";
+import { eventTypeName } from "@/lib/adapters/registry";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
 import { groupEventsByDay } from "@/lib/timeline/days";
-import { eventTypeLabel, severityBadge, type EventSeverity } from "@/lib/timeline/query";
+import { severityBadge, type EventSeverity } from "@/lib/timeline/query";
 import { groupEventRuns, type EventRun } from "@/lib/timeline/runs";
 
 import { ArrivalEventRow, ArrivalEvents, ArrivalFlash, ArrivalNewLabel } from "./arrival-events";
@@ -41,11 +41,6 @@ const SEVERITY_FLASH: Record<EventSeverity, string> = {
   warning: "var(--warning)",
   critical: "var(--danger)",
 };
-
-// The adapters' own names for their event types, "Payment succeeded" for `stripe.charge.succeeded`,
-// so a run of payments with different amounts (#261) is named the way each payment is. A Map: the
-// key is a stored type id. A type no adapter declares any more falls back to `eventTypeLabel`.
-const DECLARED_LABELS: ReadonlyMap<string, string> = new Map(declaredEventTypes.map((type) => [type.id, type.label]));
 
 /**
  * One page of events, newest first, under a heading per London day. The events region holds one
@@ -135,9 +130,8 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
   const [latest] = run;
   const source = latest.accountName ?? latest.connectionName;
   const eventIds = run.map((event) => event.id);
-  const title = run.every((event) => event.title === latest.title)
-    ? latest.title
-    : (DECLARED_LABELS.get(latest.type_id) ?? eventTypeLabel(latest.type_id));
+  // A run of payments with different amounts (#261) is named the way each payment is, by its type.
+  const title = run.every((event) => event.title === latest.title) ? latest.title : eventTypeName(latest.type_id);
   const count = `${run.length} events`;
   return (
     <ArrivalEventRow eventIds={eventIds} className={TIMELINE_ROW}>

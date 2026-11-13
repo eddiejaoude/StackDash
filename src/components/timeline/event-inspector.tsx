@@ -13,10 +13,13 @@ import { DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/
 import { ProviderMark } from "@/components/ui/provider-mark";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
-import { eventTypeLabel, parseTimelineEventId, severityBadge } from "@/lib/timeline/query";
+import { parseTimelineEventId, severityBadge } from "@/lib/timeline/query";
 
-/** An event with its London time, written on the server: browsers name the London zone differently. */
-export type InspectorEvent = TimelineEvent & Readonly<{ londonTime: string }>;
+/**
+ * An event with what only the server can write: its London time, since browsers name the London
+ * zone differently, and its type's declared name, from the server-only adapter registry (#294).
+ */
+export type InspectorEvent = TimelineEvent & Readonly<{ londonTime: string; typeName: string }>;
 
 const InspectorContext = createContext<{
   baseHref: string;
@@ -217,7 +220,7 @@ function EventDetails({ event, href }: { event: InspectorEvent; href: string }) 
       </div>
       <h3 className="break-words text-xl font-semibold leading-7">{event.title}</h3>
       <dl className="grid gap-3 text-sm">
-        <div><dt className="text-muted">Event type</dt><dd className="mt-1 break-words">{eventTypeLabel(event.type_id)}</dd></div>
+        <div><dt className="text-muted">Event type</dt><dd className="mt-1 break-words">{event.typeName}</dd></div>
         {source === null ? null : <div><dt className="text-muted">Source account</dt><dd className="mt-1 break-words">{source}</dd></div>}
         <div><dt className="text-muted">London time</dt><dd className="mt-1 font-mono text-xs">{event.londonTime}</dd></div>
         <div><dt className="text-muted">Exact timestamp (UTC)</dt><dd className="mt-1 break-all font-mono text-xs"><time dateTime={event.occurred_at}>{event.occurred_at}</time></dd></div>

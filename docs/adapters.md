@@ -127,7 +127,7 @@ The dashboard labels figures verified or estimated from the kind, so never repor
 
 ## Events
 
-An event type is declared once, in `eventTypes`, with a stable id (`acme.deploy.failed`), a label, a description, whether it is shown by default, and optionally a category (`signup`, `deploy_succeeded`, or `deploy_failed`) so the dashboard headline counts it. An event emitted with an undeclared type id rejects the whole batch.
+An event type is declared once, in `eventTypes`, with a stable id (`acme.deploy.failed`), a label, a description, whether it is shown by default, and optionally a category (`signup`, `deploy_succeeded`, or `deploy_failed`) so the dashboard headline counts it. An event emitted with an undeclared type id rejects the whole batch. The label is the type's name everywhere the app names it: the timeline's event type filter and its chips, a collapsed run of events, **Event details**, and the command palette. Write it the way a person would say it (`Payment succeeded`, not `Charge succeeded`), since the id's own words are shown only for a type no adapter declares any more.
 
 Each event carries a type id, when it happened, a severity (`info`, `success`, `warning`, `critical`), a title of at most 200 characters, an optional body, the external account, and a dedupe key that is the same every time the same event is read, so reading it twice never stores it twice. An optional link must be `https`: an event with any other link fails validation, and that rejects the whole batch. Drop a link that is not `https` before the event reaches the batch, as the example's `httpsUrl` does.
 

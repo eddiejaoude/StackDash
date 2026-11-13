@@ -135,6 +135,19 @@ describe("buildPaletteCommands", () => {
     expect(byType?.keywords).toContain("deployment failed");
   });
 
+  it("names an event type by its adapter's declared label, and an undeclared one by its id (#294)", () => {
+    const labels = buildPaletteCommands({ ...SOURCES, eventTypeIds: ["stripe.charge.succeeded", "vercel.deployment_ready"] })
+      .filter((command) => command.kind === "Event timeline")
+      .map((command) => [command.label, hrefOf(command)]);
+    expect(labels).toEqual([
+      ["Stripe: Payment succeeded", `/w/${SLUG}/timeline?type=stripe.charge.succeeded`],
+      ["Vercel: Deployment ready", `/w/${SLUG}/timeline?type=vercel.deployment_ready`],
+    ]);
+    // The id's own words still find it.
+    const found = searchCommands(buildPaletteCommands({ ...SOURCES, eventTypeIds: ["stripe.charge.succeeded"] }), "charge succeeded");
+    expect(found.results.map((command) => command.label)).toEqual(["Stripe: Payment succeeded"]);
+  });
+
   it("never repeats an account's name in its label, and still finds it by its provider and connection", () => {
     const stripe = find(commands, "Account dashboard", "Example Stripe account (test mode)");
     expect(hrefOf(stripe)).toBe(`/w/${SLUG}/dashboard?account=${A2}`);

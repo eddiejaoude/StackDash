@@ -1,8 +1,9 @@
+import { eventTypeName } from "@/lib/adapters/registry";
 import { ADMIN_PATH } from "@/lib/auth/super-admin";
 import { appendScopeParams, buildScopeOptions, EMPTY_SCOPE, type ScopeFilters, type ScopeSources } from "@/lib/filters/scope";
 import { providerName, typeOwnerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
-import { eventTypeLabel, timelineHref } from "@/lib/timeline/query";
+import { timelineHref } from "@/lib/timeline/query";
 import {
   alertSettingsPath,
   createApiKeyPath,
@@ -142,7 +143,7 @@ function scopeCommands(sources: PaletteSources, scope: PaletteScope) {
     ...sources.eventTypeIds.map((typeId): PaletteCommand => ({
       id: `timeline:type:${typeId}`,
       // The words the timeline's own type filter prints, so the palette and the form agree.
-      label: `${typeOwnerName(typeId)}: ${eventTypeLabel(typeId)}`,
+      label: `${typeOwnerName(typeId)}: ${eventTypeName(typeId)}`,
       kind: "Event timeline",
       keywords: `${typeId.replaceAll(/[._]/g, " ")} events`,
       action: { kind: "navigate", href: timelineFor(timelinePath, EMPTY_SCOPE, [typeId]) },

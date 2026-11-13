@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { eventTypeName } from "@/lib/adapters/registry";
 import { EMPTY_SCOPE, type ScopeOptions } from "@/lib/filters/scope";
 
 import {
@@ -406,11 +407,11 @@ describe("activeFilters", () => {
   });
 
   it("lists nothing when no filter is active, even on an older page", () => {
-    expect(activeFilters({ ...parseTimelineSearchParams({}), cursor: CURSOR }, SCOPE_OPTIONS)).toEqual([]);
+    expect(activeFilters({ ...parseTimelineSearchParams({}), cursor: CURSOR }, SCOPE_OPTIONS, eventTypeName)).toEqual([]);
   });
 
   it("names one chip per filter, in the page's order, named the way the filter form names them", () => {
-    expect(activeFilters(every, SCOPE_OPTIONS).map(({ kind, value, name }) => ({ kind, value, name }))).toEqual([
+    expect(activeFilters(every, SCOPE_OPTIONS, eventTypeName).map(({ kind, value, name }) => ({ kind, value, name }))).toEqual([
       { kind: "Search", value: "“deploy”", name: "Remove filter: search “deploy”" },
       { kind: "Event type", value: "Vercel: Deployment ready", name: "Remove filter: event type Vercel: Deployment ready" },
       { kind: "Severity", value: "Critical", name: "Remove filter: severity Critical" },
@@ -428,12 +429,12 @@ describe("activeFilters", () => {
   });
 
   it("removes only its own filter, keeps the rest, and starts from the newest events", () => {
-    const chips = activeFilters(every, SCOPE_OPTIONS);
+    const chips = activeFilters(every, SCOPE_OPTIONS, eventTypeName);
     expect(new Set(chips.map((chip) => chip.key)).size).toBe(chips.length);
     for (const chip of chips) {
       expect(chip.query.cursor).toBeNull();
       // Removing the chip and putting its one value back gives the original filters.
-      const remaining = activeFilters(chip.query, SCOPE_OPTIONS).map((other) => other.key);
+      const remaining = activeFilters(chip.query, SCOPE_OPTIONS, eventTypeName).map((other) => other.key);
       expect(remaining).toEqual(chips.map((other) => other.key).filter((key) => key !== chip.key));
     }
     const withoutProvider = chips.find((chip) => chip.key === "provider=vercel")?.query;
@@ -443,14 +444,16 @@ describe("activeFilters", () => {
   it("names each of several values in one dimension, and removing one keeps the others", () => {
     const query = parseTimelineSearchParams({
       severity: ["critical", "warning"],
-      type: ["vercel.deployment_ready", "github.release_published"],
+      type: ["vercel.deployment_ready", "github.release_published", "stripe.charge.succeeded"],
       provider: ["github", "vercel"],
       project: [PROJECT_ID, "unassigned"],
     });
-    const chips = activeFilters(query, SCOPE_OPTIONS);
+    const chips = activeFilters(query, SCOPE_OPTIONS, eventTypeName);
     expect(chips.map((chip) => chip.value)).toEqual([
       "Vercel: Deployment ready",
       "GitHub: Release published",
+      // The adapter's declared name, as the filter form prints it (#294), not "Charge succeeded".
+      "Stripe: Payment succeeded",
       "Critical",
       "Warning",
       "GitHub",
@@ -468,12 +471,12 @@ describe("activeFilters", () => {
   it("never prints an internal id for a value missing from the options", () => {
     const query = parseTimelineSearchParams({ provider: "stripe", project: PROJECT_ID, account: ACCOUNT_ID });
     const empty: ScopeOptions = { providers: [], projects: [], accounts: [] };
-    expect(activeFilters(query, empty).map((chip) => chip.value)).toEqual(["Stripe", "Unknown project", "Unknown account"]);
+    expect(activeFilters(query, empty, eventTypeName).map((chip) => chip.value)).toEqual(["Stripe", "Unknown project", "Unknown account"]);
   });
 
   it("keeps a search of exactly the longest length and unicode whole", () => {
     const search = "é".repeat(MAX_SEARCH_LENGTH);
-    const [chip] = activeFilters(parseTimelineSearchParams({ q: search }), SCOPE_OPTIONS);
+    const [chip] = activeFilters(parseTimelineSearchParams({ q: search }), SCOPE_OPTIONS, eventTypeName);
     expect(chip?.value).toBe(`“${search}”`);
     expect(chip?.query.search).toBeNull();
   });

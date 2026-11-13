@@ -357,10 +357,11 @@ function optionLabel(value: string, options: readonly ScopeOption[], unknown: st
 /**
  * Every active filter value, one entry each, in the order the page describes them: search, event
  * types, severities, dates, the selected period, then providers, projects, and accounts. Event
- * types are named as the filter form names them, and scope values by the form's options, so a chip
- * reads the same as the box that set it. Each entry's query drops only its own value and the cursor.
+ * types are named as the filter form names them, with `typeName` (the adapters' declared names live
+ * on the server, #294), and scope values by the form's options, so a chip reads the same as the box
+ * that set it. Each entry's query drops only its own value and the cursor.
  */
-export function activeFilters(query: TimelineQuery, options: ScopeOptions): ActiveFilter[] {
+export function activeFilters(query: TimelineQuery, options: ScopeOptions, typeName: (typeId: string) => string): ActiveFilter[] {
   const base = { ...query, cursor: null };
   const filters: ActiveFilter[] = [];
   const add = (key: string, kind: string, value: string, without: Partial<TimelineQuery>) => {
@@ -368,7 +369,7 @@ export function activeFilters(query: TimelineQuery, options: ScopeOptions): Acti
   };
   if (query.search !== null) add("q", "Search", `“${query.search}”`, { search: null });
   for (const type of query.types) {
-    add(`type=${type}`, "Event type", `${typeOwnerName(type)}: ${eventTypeLabel(type)}`, {
+    add(`type=${type}`, "Event type", `${typeOwnerName(type)}: ${typeName(type)}`, {
       types: query.types.filter((other) => other !== type),
     });
   }
