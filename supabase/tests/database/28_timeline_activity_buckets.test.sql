@@ -1,12 +1,13 @@
--- Timeline activity overview (20261112212026_timeline_activity_buckets.sql): at most 12 equal
--- slices of time counting every event the timeline's filters match, across all of its pages,
--- with zero slices kept, half open slices in whole microseconds, UTC widths across Europe/London
--- clock changes, and members only.
+-- Timeline activity overview (20261112212026_timeline_activity_buckets.sql, with severities from
+-- 20261113100000_timeline_activity_bucket_severities.sql): at most 12 equal slices of time counting
+-- every event the timeline's filters match, across all of its pages, and how many of them are
+-- critical and warning, with zero slices kept, half open slices in whole microseconds, UTC widths
+-- across Europe/London clock changes, and members only.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(33);
+select plan(41);
 
 -- Fixtures as postgres: a viewer of workspace W, an outsider, a Vercel connection A with account
 -- XA, a GitHub connection B with account XB. The outsider owns a second workspace W2 with one
@@ -86,6 +87,24 @@ values
    null, 'devmacro.sync_failed', 'warning', 'Sync failed', '2026-04-01T09:15:00Z', 'buckets-filter-4'),
   ('d37700a0-0000-4000-8000-000000000000', null, null,
    null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-04-01T10:00:00Z', 'buckets-filter-5'),
+  -- 2026-05-01: mixed severities. 03:00 to 04:00 UTC holds 2 critical, 3 warning, 1 info, and 1
+  -- success event; 07:00 to 08:00 holds 1 critical event.
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_error', 'critical', 'Mixed failure', '2026-05-01T03:10:00Z', 'buckets-mixed-1'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_error', 'critical', 'Mixed failure', '2026-05-01T03:20:00Z', 'buckets-mixed-2'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_ready', 'warning', 'Mixed slow deploy', '2026-05-01T03:30:00Z', 'buckets-mixed-3'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_ready', 'warning', 'Mixed slow deploy', '2026-05-01T03:40:00Z', 'buckets-mixed-4'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_ready', 'warning', 'Mixed slow deploy', '2026-05-01T03:45:00Z', 'buckets-mixed-5'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_ready', 'info', 'Mixed deploy', '2026-05-01T03:50:00Z', 'buckets-mixed-6'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_ready', 'success', 'Mixed deploy', '2026-05-01T03:55:00Z', 'buckets-mixed-7'),
+  ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
+   'vercel', 'vercel.deployment_error', 'critical', 'Mixed failure', '2026-05-01T07:00:00Z', 'buckets-mixed-8'),
   -- 2026-10-25: London falls back at 01:00 UTC. 01:30 BST, then 01:30 GMT.
   ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
    'vercel', 'vercel.deployment_ready', 'info', 'Clock change deploy', '2026-10-25T00:30:00Z', 'buckets-autumn-1'),
@@ -107,6 +126,18 @@ select ok(
   has_function_privilege('authenticated',
     'public.timeline_activity_buckets(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)', 'execute'),
   'timeline_activity_buckets: authenticated can execute it');
+
+-- The deployed app selects bucket_start, bucket_end, and events by name, so those keep their names,
+-- types, and order, and the severity counts come after them.
+select is(
+  pg_get_function_result('public.timeline_activity_buckets(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)'::regprocedure),
+  'TABLE(bucket_start timestamp with time zone, bucket_end timestamp with time zone, events bigint, critical_events bigint, warning_events bigint)',
+  'timeline_activity_buckets: returns the original three columns first, then critical_events and warning_events');
+select ok(
+  (select not p.prosecdef and p.proconfig = array['search_path=""', 'plan_cache_mode=force_custom_plan']::text[] collate "C"
+   from pg_proc p
+   where p.oid = 'public.timeline_activity_buckets(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)'::regprocedure),
+  'timeline_activity_buckets: still security invoker, with an empty search path and a plan per call');
 
 -- ---------------------------------------------------------------------------
 -- As a viewer of W (and of W2).
@@ -320,6 +351,77 @@ select is(
   array[0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]::bigint[],
   'timeline_activity_buckets: a member of two workspaces counts only the workspace asked for');
 
+-- Severities, over 2026-05-01 00:00 to 12:00 UTC: 12 one hour slices.
+select results_eq(
+  $$
+    select array_agg(events order by bucket_start), array_agg(critical_events order by bucket_start),
+           array_agg(warning_events order by bucket_start)
+    from public.timeline_activity_buckets(
+      'd37700a0-0000-4000-8000-000000000000',
+      p_from => '2026-05-01T00:00:00Z', p_until => '2026-05-01T12:00:00Z')
+  $$,
+  $$
+    values (array[0, 0, 0, 7, 0, 0, 0, 1, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[])
+  $$,
+  'timeline_activity_buckets: a slice with mixed severities counts its critical and warning events beside the total');
+
+select results_eq(
+  $$
+    select array_agg(events order by bucket_start), array_agg(critical_events order by bucket_start),
+           array_agg(warning_events order by bucket_start)
+    from public.timeline_activity_buckets(
+      'd37700a0-0000-4000-8000-000000000000', p_severities => array['critical']::public.event_severity[],
+      p_from => '2026-05-01T00:00:00Z', p_until => '2026-05-01T12:00:00Z')
+  $$,
+  $$
+    values (array[0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[])
+  $$,
+  'timeline_activity_buckets: with a critical severity filter, every counted event is critical and none is a warning');
+
+select results_eq(
+  $$
+    select array_agg(events order by bucket_start), array_agg(critical_events order by bucket_start),
+           array_agg(warning_events order by bucket_start)
+    from public.timeline_activity_buckets(
+      'd37700a0-0000-4000-8000-000000000000', p_severities => array['warning']::public.event_severity[],
+      p_from => '2026-05-01T00:00:00Z', p_until => '2026-05-01T12:00:00Z')
+  $$,
+  $$
+    values (array[0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[])
+  $$,
+  'timeline_activity_buckets: with a warning severity filter, the critical events drop out of every count');
+
+select results_eq(
+  $$
+    select array_agg(events order by bucket_start), array_agg(critical_events order by bucket_start),
+           array_agg(warning_events order by bucket_start)
+    from public.timeline_activity_buckets(
+      'd37700a0-0000-4000-8000-000000000000', p_severities => array['info', 'success']::public.event_severity[],
+      p_from => '2026-05-01T00:00:00Z', p_until => '2026-05-01T12:00:00Z')
+  $$,
+  $$
+    values (array[0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[],
+            array[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]::bigint[])
+  $$,
+  'timeline_activity_buckets: with an info and success severity filter, the slices count no critical or warning events');
+
+select results_eq(
+  $$
+    select count(*)::int, sum(events)::int, sum(critical_events)::int, sum(warning_events)::int
+    from public.timeline_activity_buckets(
+      'd37700a0-0000-4000-8000-000000000000', p_title_pattern => 'no title has this',
+      p_from => '2026-05-01T00:00:00Z', p_until => '2026-05-01T12:00:00Z')
+  $$,
+  $$ values (12, 0, 0, 0) $$,
+  'timeline_activity_buckets: a window with no matching event returns 12 zero slices, with 0 critical and 0 warning');
+
 -- No bounds, no rows.
 select is_empty(
   $$
@@ -375,6 +477,14 @@ select is_empty(
 select is_empty(
   $$ select * from public.timeline_activity_buckets('d37700a0-0000-4000-8000-000000000000') $$,
   'timeline_activity_buckets: a non member gets no slices without a window');
+
+select is_empty(
+  $$
+    select * from public.timeline_activity_buckets(
+      'd37700a0-0000-4000-8000-000000000000', p_severities => array['critical']::public.event_severity[],
+      p_from => '2026-05-01T00:00:00Z', p_until => '2026-05-01T12:00:00Z')
+  $$,
+  'timeline_activity_buckets: a non member gets no severity counts for a window with critical events');
 
 select is(
   (select sum(events)::int from public.timeline_activity_buckets(
