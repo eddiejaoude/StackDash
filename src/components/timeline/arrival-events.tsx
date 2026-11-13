@@ -123,7 +123,9 @@ const ChipArrivalsContext = createContext<ChipArrivals>({ grown: new Set(), batc
  * Around the provider chips in the title row (#403), with each provider's event count under the
  * current filters. A provider whose count grew in a live refresh, or that has its first event in
  * view, arrived; a count that fell (retention) is not an arrival. Mount it even when no chip shows,
- * so the first chip of an empty view has a count of zero to grow from. The event list already
+ * so the first chip of a view that filters out every event has a count of zero to grow from. A
+ * workspace with no events at all renders its empty state without the chips (timeline/page.tsx),
+ * so its very first event mounts them fresh and glows nothing. The event list already
  * announces the new events, so this adds no announcement of its own.
  */
 export function ArrivalProviderChips({ counts, children }: { counts: Readonly<Record<string, number>>; children: ReactNode }) {
