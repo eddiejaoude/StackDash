@@ -129,7 +129,7 @@ ownerTest.describe("simulated providers", () => {
 
       // Every Sentry project releases every 20 minutes, so the 30 minute backfill always holds one.
       await page.goto(`/w/${workspace.slug}/timeline?provider=sentry`);
-      await expect(status).toHaveText(/^Showing \d+ events? for provider Sentry$/);
+      await expect(status).toHaveText(/^Showing \d+ of [\d,]+ events? for provider Sentry$/);
       await expect(events.first()).toBeVisible();
       await expect(events.first().getByText("Sentry", { exact: true })).toBeVisible();
       await expectOneSimulatedNotice(page);
@@ -141,7 +141,7 @@ ownerTest.describe("simulated providers", () => {
       // and then nothing is in view to call simulated. The dashboard below always is.
       for (const [slug, name] of [["stripe", "Stripe"], ["polar", "Polar"], ["vercel", "Vercel"], ["railway", "Railway"]] as const) {
         await page.goto(`/w/${workspace.slug}/timeline?provider=${slug}`);
-        await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ events?) for provider ${name}$`));
+        await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ of [\\d,]+ events?) for provider ${name}$`));
         const rows = await events.count();
         for (let index = 0; index < rows; index += 1) {
           await expect(events.nth(index).getByText(name, { exact: true })).toBeVisible();

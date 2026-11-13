@@ -3,7 +3,7 @@ import Link from "next/link";
 import { LiveRegion } from "@/components/ui/live-region";
 import type { ActivityBucket } from "@/lib/data/timeline";
 import { formatDateTime } from "@/lib/format";
-import { timelineHref, type TimelineQuery } from "@/lib/timeline/query";
+import { selectedActivityBucket, timelineHref, type TimelineQuery } from "@/lib/timeline/query";
 
 const FULL_COUNT = new Intl.NumberFormat("en-US");
 
@@ -38,8 +38,7 @@ export function ActivityOverview({ buckets, query, basePath }: {
   const last = buckets.at(-1);
   // A hand-written range that is not one bar has no count to print, only its period.
   const range = query.timeRange;
-  const selectedBucket = range === null ? undefined : buckets.find((bucket) =>
-    new Date(bucket.bucket_start).toISOString() === range.from && new Date(bucket.bucket_end).toISOString() === range.toExclusive);
+  const selectedBucket = selectedActivityBucket(buckets, range);
   return (
     <section aria-labelledby="activity-overview-title" className="my-6 min-w-0 rounded-lg border border-line bg-panel p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">

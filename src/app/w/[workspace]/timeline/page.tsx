@@ -14,7 +14,7 @@ import { EventList } from "@/components/timeline/event-list";
 import { EventInspector } from "@/components/timeline/event-inspector";
 import { ActivityOverview } from "@/components/timeline/activity-overview";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
-import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
+import { ActiveFilterChips, TimelineFilters, TimelineToolbar } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
@@ -24,7 +24,14 @@ import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { formatDateTime } from "@/lib/format";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
-import { hasActiveFilters, parseTimelineEventId, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
+import {
+  hasActiveFilters,
+  parseTimelineEventId,
+  parseTimelineSearchParams,
+  timelineHref,
+  timelineStatus,
+  timelineTotal,
+} from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -140,11 +147,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const olderPage = query.cursor !== null;
   const showNewestLink = olderPage && count > 0;
   const scopeOptions = buildScopeOptions(workspaceScope, query.scope);
-  const scopeDescription = describeScope(query.scope, scopeOptions);
-  const shown =
-    count === 0 ? "Showing no events" : `Showing ${count} ${olderPage ? "older " : ""}${count === 1 ? "event" : "events"}`;
-  const matching = query.search === null ? shown : `${shown} with “${query.search}” in the title`;
-  const status = scopeDescription === null ? matching : `${matching} for ${scopeDescription}`;
+  const status = timelineStatus({
+    count,
+    total: timelineTotal(activity, query.timeRange),
+    olderPage,
+    search: query.search,
+    scopeDescription: describeScope(query.scope, scopeOptions),
+  });
   // Events with a connection are the connections in view; DevMacro's own events have none (#269).
   const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
 
@@ -171,7 +180,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           </p>
         </FeedbackBanner>
       ) : null}
-      <SeverityLinks action={basePath} query={query} />
+      <TimelineToolbar action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
         query={query}
@@ -179,6 +188,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
+      <ActiveFilterChips action={basePath} query={query} scopeOptions={scopeOptions} />
       <ActivityOverview buckets={activity} query={query} basePath={basePath} />
 
       {count === 0 ? (

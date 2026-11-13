@@ -40,8 +40,16 @@ describe("providerBadgeText", () => {
     { case: "the first shortened count", events: 1000, connections: 1, name: "Show only Stripe: 1,000 events from 1 connection", short: "1K" },
     { case: "one decimal in the badge", events: 1240, connections: 2, name: "Show only Stripe: 1,240 events from 2 connections", short: "1.2K" },
     { case: "rounding up into millions", events: 999_999, connections: 3, name: "Show only Stripe: 999,999 events from 3 connections", short: "1M" },
-  ])("$case: $short in the badge, the exact counts in the name", ({ events, connections, name, short }) => {
-    expect(providerBadgeText({ provider: "stripe", connections, events }, false)).toEqual({ name, short });
+  ])("$case: the provider and $short on the chip, the exact counts in the name", ({ events, connections, name, short }) => {
+    expect(providerBadgeText({ provider: "stripe", connections, events }, false)).toEqual({ name, label: "Stripe", short });
+  });
+
+  it.each([
+    { provider: "github" as const, label: "GitHub" },
+    { provider: "digitalocean" as const, label: "DigitalOcean" },
+    { provider: "fake" as const, label: "Example provider" },
+  ])("prints the provider's display name on the chip: $label", ({ provider, label }) => {
+    expect(providerBadgeText({ provider, connections: 1, events: 0 }, false)).toMatchObject({ label, short: "0" });
   });
 
   it("names the current view's badge for what it does: back to every provider", () => {
