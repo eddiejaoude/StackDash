@@ -19,7 +19,9 @@ function eventCount(events: number, before = ""): string {
  * a sighted keyboard user sees what each bar covers. The period is the link's sibling, not its
  * content, so the link's visible text stays inside its accessible name (WCAG 2.5.3, label in name).
  * It is positioned against the wrapper around the scrolling chart, so the scroll box does not clip
- * it and it stays put while the chart scrolls.
+ * it and it stays put while the chart scrolls. It shares the caption row's layout (two unwrapped
+ * lines below `sm`, one row above), so its opaque box covers the caption exactly, and a hovered
+ * bar's period stacks above a focused bar's.
  */
 export function ActivityOverview({ buckets, query, basePath }: {
   buckets: readonly ActivityBucket[];
@@ -74,19 +76,19 @@ export function ActivityOverview({ buckets, query, basePath }: {
                     <span
                       aria-hidden="true"
                       data-testid="activity-period"
-                      className="pointer-events-none absolute inset-x-0 bottom-0 hidden justify-between gap-4 bg-panel text-xs text-foreground peer-hover:flex peer-focus-visible:flex"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 hidden flex-col gap-x-4 whitespace-nowrap bg-panel text-xs text-foreground peer-hover:z-10 peer-hover:flex peer-focus-visible:flex sm:flex-row sm:justify-between"
                     >
                       <span>{from}</span>
-                      <span className="text-right">Before {until}</span>
+                      <span>Before {until}</span>
                     </span>
                   </div>
                 );
               })}
             </div>
           </div>
-          <div className="mt-2 flex justify-between gap-4 text-xs text-muted">
+          <div data-testid="activity-caption" className="mt-2 flex flex-col gap-x-4 whitespace-nowrap text-xs text-muted sm:flex-row sm:justify-between">
             <time dateTime={first.bucket_start}>{formatDateTime(first.bucket_start)}</time>
-            <span className="text-right">Before <time dateTime={last.bucket_end}>{formatDateTime(last.bucket_end)}</time></span>
+            <span>Before <time dateTime={last.bucket_end}>{formatDateTime(last.bucket_end)}</time></span>
           </div>
         </div>
       )}
