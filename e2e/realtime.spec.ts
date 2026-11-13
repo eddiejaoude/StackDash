@@ -896,6 +896,9 @@ ownerTest.describe("arriving data", () => {
   }) => {
     const workspace = await createTestWorkspace("Live indicator connections");
     try {
+      // One insert gives every row the same default created_at, and the header lists connections
+      // by created_at then id, so each row gets its own minute to pin the order they connected in.
+      const connectedFrom = Date.now() - 60 * 60_000;
       const { data: rows, error } = await adminClient()
         .from("connections")
         .insert(
@@ -906,12 +909,13 @@ ownerTest.describe("arriving data", () => {
               ["stripe", "active", "Acme billing"],
               ["resend", "revoked", "Old mailer"],
             ] as const
-          ).map(([provider, status, display_name]) => ({
+          ).map(([provider, status, display_name], index) => ({
             workspace_id: workspace.id,
             provider,
             status,
             display_name,
             poll_interval_seconds: 3_600,
+            created_at: new Date(connectedFrom + index * 60_000).toISOString(),
           })),
         )
         .select("id, display_name");
