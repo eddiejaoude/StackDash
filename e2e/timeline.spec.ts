@@ -196,6 +196,20 @@ ownerTest.describe("timeline as the owner", () => {
         const time = rows.first().locator("time");
         await expect(time).toHaveAttribute("datetime", "2026-06-15T22:30:00.000Z");
         await expect(time).toHaveAttribute("title", "2026-06-15 23:30 BST");
+        // #385: the gutter shows hours and minutes; the time's accessible text keeps the date and zone.
+        await expect(time.locator('[aria-hidden="true"]')).toHaveText("23:30");
+        await expect(time).toContainText("2026-06-15 23:30 BST");
+        // "London time" is said once for the feed, not under every day heading.
+        await expect(region.getByText("London time")).toHaveCount(1);
+        await expect(region.getByText("London time")).toBeVisible();
+        // An info row prints no pill; its word is screen-reader text, which is clipped to 1px.
+        // A critical row keeps its visible pill.
+        const infoWord = rows.first().getByText("Event", { exact: true });
+        await expect(infoWord).toHaveCount(1);
+        expect((await infoWord.boundingBox())?.width).toBeLessThanOrEqual(1);
+        const criticalPill = region.getByRole("list", { name: "Tuesday, 2026-06-16", exact: true }).getByText("Critical", { exact: true });
+        await expect(criticalPill).toBeVisible();
+        expect((await criticalPill.boundingBox())?.width).toBeGreaterThan(1);
         const title = page.getByRole("heading", { name: longTitle, exact: true });
         await expect(title).toBeVisible();
         const timeBox = await time.boundingBox();

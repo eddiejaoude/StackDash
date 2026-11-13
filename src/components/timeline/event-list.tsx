@@ -13,8 +13,10 @@ import { ArrivalEventRow, ArrivalEvents, ArrivalFlash, ArrivalNewLabel } from ".
 import { EventTime } from "./event-time";
 import { EventInspectorLink } from "./event-inspector";
 
-// At rest, severity belongs to the node, not a competing left edge on the card; only an arriving
-// event's card flashes one for a moment (#171). Every row still prints the word.
+// At rest, severity belongs to the node, not a competing left edge on the row; only an arriving
+// event's row flashes one for a moment (#171). Success, warning, and critical rows also print the
+// word in a pill; an info row, the quiet majority, gives its word to assistive tech only (#385).
+// Color still never carries severity alone: info's node is neutral, so it has no color to explain.
 const SEVERITY_NODE: Record<EventSeverity, string> = {
   info: "border-line-strong",
   success: "border-success",
@@ -22,10 +24,16 @@ const SEVERITY_NODE: Record<EventSeverity, string> = {
   critical: "border-danger",
 };
 
-// The neutral line connects chronological neighbors, not causes or dependent events.
-const TIMELINE_ROW = "grid grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 pb-5 before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:-z-10 before:w-px before:bg-line-strong last:before:bottom-auto last:before:h-9 lg:grid-cols-[7.5rem_2.5rem_minmax(0,1fr)] lg:gap-x-4 lg:before:left-[9.75rem]";
+// The neutral line connects chronological neighbors, not causes or dependent events. Rows are flat
+// (#385): no card, only a divider under each row's content, so the line never crosses one.
+const TIMELINE_ROW = "group/row grid grid-cols-[2.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 pt-2 before:pointer-events-none before:absolute before:inset-y-0 before:left-5 before:-z-10 before:w-px before:bg-line-strong last:before:bottom-auto last:before:h-7 lg:grid-cols-[7.5rem_2.5rem_minmax(0,1fr)] lg:gap-x-4 lg:before:left-[9.75rem]";
 
-// The left edge an arriving event's card flashes (#171), in its severity's color. Info uses the
+// A row's content: the surface its arrival flash and its details link's hit area cover, reaching a
+// little left of the text so neither touches it. The divider starts at the text, and the last row
+// of a day has none: the next day's heading draws its own line.
+const ROW_CONTENT = "relative isolate col-start-2 min-w-0 -ml-2 pb-2 pl-2 after:pointer-events-none after:absolute after:bottom-0 after:left-2 after:right-0 after:h-px after:bg-line group-last/row:after:hidden lg:col-start-3 lg:row-start-1 lg:pt-2.5";
+
+// The left edge an arriving event's row flashes (#171), in its severity's color. Info uses the
 // accent, since the node's neutral border would not stand out as an arrival.
 const SEVERITY_FLASH: Record<EventSeverity, string> = {
   info: "var(--accent)",
@@ -49,35 +57,36 @@ const DECLARED_LABELS: ReadonlyMap<string, string> = new Map(declaredEventTypes.
  */
 export function EventList({ events, now, markSimulated }: { events: readonly TimelineEvent[]; now: Date; markSimulated: boolean }) {
   return (
-    <section aria-label="Events" className="mt-6 grid gap-6">
-      <ArrivalEvents eventIds={events.map((event) => event.id)}>
-        {groupEventsByDay(events, now).map((day) => {
-          const headingId = `timeline-day-${day.date}`;
-          return (
-            <section key={day.date}>
-              {/* Below the shell's 3.5rem header, 2.75rem nav, and borders; no scroll listener. */}
-              <div className="sticky top-[calc(6.25rem+2px)] z-20 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line bg-background py-3 md:top-[calc(6.25rem+1px)]">
-                <h2 id={headingId} className="text-sm font-semibold text-foreground">{day.label}</h2>
-                <span className="text-xs text-muted">London time</span>
-              </div>
-              <ol
-                aria-labelledby={headingId}
-                className="pt-2"
-              >
-                {groupEventRuns(day.events).map((run) =>
-                  // Keyed by the run's oldest event: arrivals join a run at its newest end, so the
-                  // row they join keeps its key, stays mounted, and keeps its disclosure state.
-                  run.length === 1 ? (
-                    <EventItem key={run[0].id} event={run[0]} now={now} markSimulated={markSimulated} />
-                  ) : (
-                    <EventRunItem key={(run.at(-1) ?? run[0]).id} run={run} now={now} markSimulated={markSimulated} />
-                  ),
-                )}
-              </ol>
-            </section>
-          );
-        })}
-      </ArrivalEvents>
+    <section aria-label="Events" className="mt-4">
+      {/* Said once for the whole feed (#385); each time's accessible text also names GMT or BST. */}
+      <p className="text-xs text-muted">Times are London time.</p>
+      <div className="grid gap-6">
+        <ArrivalEvents eventIds={events.map((event) => event.id)}>
+          {groupEventsByDay(events, now).map((day) => {
+            const headingId = `timeline-day-${day.date}`;
+            return (
+              <section key={day.date}>
+                {/* Below the shell's 3.5rem header, 2.75rem nav, and borders; no scroll listener. */}
+                <div className="sticky top-[calc(6.25rem+2px)] z-20 border-b border-line bg-background py-3 md:top-[calc(6.25rem+1px)]">
+                  <h2 id={headingId} className="text-sm font-semibold text-foreground">{day.label}</h2>
+                </div>
+                {/* The first row's own top padding follows the heading's line, as every row follows a divider. */}
+                <ol aria-labelledby={headingId}>
+                  {groupEventRuns(day.events).map((run) =>
+                    // Keyed by the run's oldest event: arrivals join a run at its newest end, so the
+                    // row they join keeps its key, stays mounted, and keeps its disclosure state.
+                    run.length === 1 ? (
+                      <EventItem key={run[0].id} event={run[0]} now={now} markSimulated={markSimulated} />
+                    ) : (
+                      <EventRunItem key={(run.at(-1) ?? run[0]).id} run={run} now={now} markSimulated={markSimulated} />
+                    ),
+                  )}
+                </ol>
+              </section>
+            );
+          })}
+        </ArrivalEvents>
+      </div>
     </section>
   );
 }
@@ -88,14 +97,14 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
   return (
     <ArrivalEventRow eventIds={[event.id]} className={TIMELINE_ROW}>
       <TimelinePosition event={event} now={now} />
-      <article className="relative isolate col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
-        <ArrivalFlash eventIds={[event.id]} flash={SEVERITY_FLASH[event.severity]} className="rounded-xl" />
+      <article className={ROW_CONTENT}>
+        <ArrivalFlash eventIds={[event.id]} flash={SEVERITY_FLASH[event.severity]} className="rounded-md" />
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="break-words text-sm font-medium leading-5">
               <EventInspectorLink eventId={event.id}>{event.title}</EventInspectorLink>
             </h3>
-            <p className="mt-0.5 break-words font-mono text-xs text-muted">
+            <p className="mt-0.5 break-words text-xs text-muted">
               <span className="text-foreground">{providerName(event.provider)}</span>
               {source === null ? null : (
                 <>
@@ -107,10 +116,7 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
               <ArrivalNewLabel eventIds={[event.id]} />
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {markSimulated && event.simulated ? <SimulatedBadge /> : null}
-            <SeverityBadge severity={severityBadge(event.severity)} />
-          </div>
+          <RowLabels severity={event.severity} simulated={markSimulated && event.simulated} />
         </div>
       </article>
     </ArrivalEventRow>
@@ -136,8 +142,8 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
   return (
     <ArrivalEventRow eventIds={eventIds} className={TIMELINE_ROW}>
       <TimelinePosition event={latest} now={now} latest />
-      <article className="relative isolate col-start-2 min-w-0 rounded-xl border border-line bg-panel p-3 lg:col-start-3 lg:row-start-1 lg:mt-4 lg:p-4">
-        <ArrivalFlash eventIds={eventIds} flash={SEVERITY_FLASH[latest.severity]} className="rounded-xl" />
+      <article className={ROW_CONTENT}>
+        <ArrivalFlash eventIds={eventIds} flash={SEVERITY_FLASH[latest.severity]} className="rounded-md" />
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -148,7 +154,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
                 {count}
               </span>
             </div>
-            <p className="mt-0.5 break-words font-mono text-xs text-muted">
+            <p className="mt-0.5 break-words text-xs text-muted">
               <span className="text-foreground">{providerName(latest.provider)}</span>
               {source === null ? null : (
                 <>
@@ -160,10 +166,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
               <ArrivalNewLabel eventIds={eventIds} />
             </p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {markSimulated && latest.simulated ? <SimulatedBadge /> : null}
-            <SeverityBadge severity={severityBadge(latest.severity)} />
-          </div>
+          <RowLabels severity={latest.severity} simulated={markSimulated && latest.simulated} />
         </div>
         <details className="group relative z-10 mt-2">
           <summary className="inline-flex min-h-6 list-none items-center gap-1 text-sm text-accent underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">
@@ -182,14 +185,32 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
   );
 }
 
+/**
+ * The row's labels on the right: "Simulated" when asked for, and the severity pill for success,
+ * warning, and critical. An info row's word ("Event") is screen-reader text only, so quiet rows
+ * carry no pill and the pills that remain stand out. It sits where the pill would, so a row reads
+ * in the same order whatever its severity.
+ */
+function RowLabels({ severity, simulated }: { severity: EventSeverity; simulated: boolean }) {
+  const word = severityBadge(severity);
+  const quiet = severity === "info";
+  if (quiet && !simulated) return <span className="sr-only">{word}</span>;
+  return (
+    <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      {simulated ? <SimulatedBadge /> : null}
+      {quiet ? <span className="sr-only">{word}</span> : <SeverityBadge severity={word} />}
+    </div>
+  );
+}
+
 function TimelinePosition({ event, now, latest = false }: { event: TimelineEvent; now: Date; latest?: boolean }) {
   return (
     <>
-      <div className="col-start-2 row-start-1 min-w-0 pt-4 lg:col-start-1 lg:pt-5">
+      <div className="col-start-2 row-start-1 min-w-0 lg:col-start-1 lg:pt-3">
         {latest ? <span className="sr-only">Latest event: </span> : null}
         <EventTime occurredAt={event.occurred_at} now={now} gutter />
       </div>
-      <div aria-hidden="true" className="col-start-1 row-span-2 row-start-1 pt-4 lg:col-start-2">
+      <div aria-hidden="true" className="col-start-1 row-span-2 row-start-1 lg:col-start-2 lg:row-span-1">
         <span className={`flex size-10 items-center justify-center rounded-lg border bg-background ${SEVERITY_NODE[event.severity]}`}>
           <ProviderMark provider={event.provider} size="sm" />
         </span>
