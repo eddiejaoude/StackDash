@@ -17,23 +17,9 @@ badges, and cards, read a workspace from your own scripts through a read-only RE
 an AI assistant through a read-only MCP server, and see spend and allowances where each provider
 reports them.
 
-The timeline groups events under sticky London-day labels. A neutral spine connects provider
-nodes in newest-first order, not cause and effect. Times sit in a left gutter on desktop and
-above each event on smaller screens. Severity remains labeled in words, and repeated events
-expand to show their individual timestamps. Select an event to inspect its full text, exact time,
-and source link in a right-hand panel, or a full-screen view on mobile. Newer and older controls
-follow the current page. Copy an event link to reopen it later, even when it is outside the loaded
-page or filters; workspace access still applies. Escape or Close event returns to the timeline
-without losing your scroll position or expanded groups.
-
-An activity overview above the feed counts every matching event, not just the loaded page, in up
-to 12 time buckets. Counts follow the provider, project, account, event type, severity, title,
-and whole-day date filters. Without dates, the chart spans the matching events; explicit dates
-keep quiet periods visible. Select a bucket to narrow the feed and provider counts to its exact
-start-inclusive, end-exclusive range. The overview keeps the wider context. Time selections are
-shareable through `start` and `until` URL parameters; **Clear time selection** preserves the
-other filters. Times name the London timezone, including GMT/BST clock changes. Buckets work
-with the keyboard, and the chart scrolls horizontally on narrow screens.
+The timeline groups events by London day, opens any event's details from its row with a link you
+can share, and charts every matching event over time so you can narrow the feed to one period
+([Getting started](docs/getting-started.md#4-read-the-timeline-and-the-dashboard)).
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
@@ -677,7 +663,7 @@ src/
     connections/               connection status and controls
     projects/                  project forms and rules
     public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
-    timeline/                  event list and filters
+    timeline/                  event list and filters, the event inspector, and the activity overview
     admin/                     instance overview tables and status pills
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
