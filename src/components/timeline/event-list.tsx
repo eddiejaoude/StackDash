@@ -30,8 +30,13 @@ const TIMELINE_ROW = "group/row grid grid-cols-[2.5rem_minmax(0,1fr)] items-star
 
 // A row's content: the surface its arrival flash and its details link's hit area cover, reaching a
 // little left of the text so neither touches it. The divider starts at the text, and the last row
-// of a day has none: the next day's heading draws its own line.
-const ROW_CONTENT = "relative isolate col-start-2 min-w-0 -ml-2 pb-2 pl-2 after:pointer-events-none after:absolute after:bottom-0 after:left-2 after:right-0 after:h-px after:bg-line group-last/row:after:hidden lg:col-start-3 lg:row-start-1 lg:pt-2.5";
+// of a day has none: the next day's heading draws its own line. The surface lightens under the
+// pointer and takes the accent wash while its event is open in the details panel (#399), fading
+// briefly except under reduced motion; the `:has()` stays inside the row.
+const ROW_CONTENT = "relative isolate col-start-2 min-w-0 -ml-2 rounded-md pb-2 pl-2 transition-colors motion-reduce:transition-none after:pointer-events-none after:absolute after:bottom-0 after:left-2 after:right-0 after:h-px after:bg-line hover:bg-panel-raised has-[a[aria-current=location]]:bg-accent-soft group-last/row:after:hidden lg:col-start-3 lg:row-start-1 lg:pt-2.5";
+
+// An event inside an expanded run takes the same wash when it is the open one, over its run's.
+const RUN_MEMBER = "px-3 py-2 transition-colors motion-reduce:transition-none has-[a[aria-current=location]]:bg-accent-soft";
 
 // The left edge an arriving event's row flashes (#171), in its severity's color. Info uses the
 // accent, since the node's neutral border would not stand out as an arrival.
@@ -219,7 +224,7 @@ function TimelinePosition({ event, now, latest = false }: { event: TimelineEvent
  */
 function EventRunMember({ event, now }: { event: TimelineEvent; now: Date }) {
   return (
-    <ArrivalEventRow eventIds={[event.id]} className="px-3 py-2">
+    <ArrivalEventRow eventIds={[event.id]} className={RUN_MEMBER}>
       <ArrivalFlash eventIds={[event.id]} flash={SEVERITY_FLASH[event.severity]} />
       <h4 className="break-words text-sm leading-5">
         <EventInspectorLink eventId={event.id}>{event.title}</EventInspectorLink>
