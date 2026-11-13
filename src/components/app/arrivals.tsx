@@ -238,8 +238,9 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
  * last arrived and lists the connections with their status; Escape hides that until the pointer
  * or focus leaves, and a press keeps it open for touch screens.
  *
- * Below `sm` the tooltip is placed against the header's top row (positioned in the workspace
- * layout) rather than the button, so its width never runs off the left edge of a phone.
+ * Below `md` the tooltip is placed against the header's top row (positioned in the workspace
+ * layout) rather than the button, so its width never runs off the left edge: on a phone, and up
+ * to `md`, where a long workspace or account name can leave the button within 288px of the edge.
  */
 export function LiveIndicator({ connections }: { connections: LiveConnectionsRead }) {
   const store = useContext(ArrivalStoreContext);
@@ -264,7 +265,7 @@ export function LiveIndicator({ connections }: { connections: LiveConnectionsRea
 
   const visibility = dismissed ? "invisible" : pinned ? "visible" : "invisible group-hover:visible group-focus-within:visible";
   return (
-    <div className="group inline-flex sm:relative" onMouseLeave={() => setDismissed(false)}>
+    <div className="group inline-flex md:relative" onMouseLeave={() => setDismissed(false)}>
       <button
         type="button"
         aria-describedby={tooltipId}

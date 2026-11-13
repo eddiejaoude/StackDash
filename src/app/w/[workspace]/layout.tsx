@@ -53,7 +53,7 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-40 border-b border-line bg-background/90 backdrop-blur-md">
           <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-            {/* Positioned, so the live indicator's tooltip can sit against the row on a phone. */}
+            {/* Positioned, so the live indicator's tooltip can sit against the row below md. */}
             <div className="relative flex h-14 items-center gap-1.5 sm:gap-3">
               <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
                 <Wordmark />
