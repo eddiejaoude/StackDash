@@ -345,9 +345,9 @@ describe("runWatchTick", () => {
 });
 
 describe("withSimulatedEventVolume", () => {
-  it("returns the deps unchanged at volume 1", () => {
-    const deps = syncDeps(new MemoryJobStore(() => NOW), simulatedGetAdapter);
-    expect(withSimulatedEventVolume(deps, 1)).toBe(deps);
+  it("hands back the registry's own simulated adapters at volume 1", () => {
+    const deps = withSimulatedEventVolume(syncDeps(new MemoryJobStore(() => NOW), simulatedGetAdapter), 1);
+    expect(deps.getAdapter("stripe")).toBe(simulatedAdapters.stripe);
   });
 
   it("swaps each simulated adapter for the same provider's at the volume, built once", () => {

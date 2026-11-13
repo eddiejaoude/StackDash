@@ -628,7 +628,7 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
 // `npm run jobs:tick -- --watch --volume <n>` (#383). Every realistic-volume bound above stays on
 // `simulatedAdapters`, the default volume; these hold what a higher volume may and may not change.
 describe.each(liveProviderIds)("simulated %s at a higher event volume", (id) => {
-  const VOLUME = 10;
+  const VOLUME = MAX_EVENT_VOLUME;
   type CoveredSync = { result: SyncResult; fromMs: number; toMs: number };
 
   /** DAY_CHAIN's syncs for every account, each with the slots it covered: [fromMs, toMs). */
@@ -990,6 +990,44 @@ describe("simulated numbers", () => {
       for (const event of final) expect(event.occurredAt.getTime()).toBeGreaterThan(building.occurredAt.getTime());
     }
   });
+
+  it.each([
+    ["Railway", "railway", "railway.deployment.building", ["railway.deployment.deployed", "railway.deployment.failed", "railway.deployment.crashed"]],
+    ["DigitalOcean", "digitalocean", "digitalocean.deployment.started", ["digitalocean.deployment.succeeded", "digitalocean.deployment.failed"]],
+  ] as const)("pairs every %s deployment outcome with its own start at the maximum event volume (#383)", async (_name, id, startType, outcomeTypes) => {
+    const day = async (adapter: ProviderAdapter) =>
+      (await syncChain(adapter, await connect(adapter), DAY_CHAIN)).flatMap(({ result }) => result.events);
+    const starts = (events: readonly ActivityEvent[]) => events.filter((event) => event.typeId === startType);
+    const events = await day(simulatedAdaptersAtVolume(MAX_EVENT_VOLUME)[id]);
+    // More starts than the default volume's, so the pairing below is not held by lane 0 alone.
+    expect(starts(events).length).toBeGreaterThan(starts(await day(simulatedAdapters[id])).length);
+
+    const byDeployment = new Map<string, ActivityEvent[]>();
+    for (const event of events.filter((candidate) => candidate.typeId === startType || outcomeTypes.some((type) => type === candidate.typeId))) {
+      const deployment = event.dedupeKey.split(":")[1] ?? "";
+      byDeployment.set(deployment, [...(byDeployment.get(deployment) ?? []), event]);
+    }
+    // Only the window's edges leave one side alone: an outcome whose start came before the first
+    // backfill, or a start still building at the last sync. Both profiles build for at most 6 minutes.
+    const windowStart = DAY_CHAIN.start.getTime() - SIMULATED_BACKFILL_MS;
+    const windowEnd = DAY_CHAIN.start.getTime() + DAY_CHAIN.steps * DAY_CHAIN.stepMs;
+    const longestBuildMs = 6 * MINUTE_MS;
+    for (const [deployment, list] of byDeployment) {
+      const started = list.filter((event) => event.typeId === startType);
+      const outcomes = list.filter((event) => event.typeId !== startType);
+      expect(started.length, deployment).toBeLessThanOrEqual(1);
+      expect(outcomes.length, deployment).toBeLessThanOrEqual(1);
+      const [start] = started;
+      const [outcome] = outcomes;
+      if (start !== undefined && outcome !== undefined) {
+        expect(outcome.occurredAt.getTime(), deployment).toBeGreaterThan(start.occurredAt.getTime());
+      } else if (outcome !== undefined) {
+        expect(outcome.occurredAt.getTime(), deployment).toBeLessThan(windowStart + longestBuildMs);
+      } else if (start !== undefined) {
+        expect(start.occurredAt.getTime(), deployment).toBeGreaterThanOrEqual(windowEnd - longestBuildMs);
+      }
+    }
+  }, WATCH_TIMEOUT_MS);
 
   it("takes GitLab compute minutes past 75 and then 90 percent of the Free quota late in the month, resetting with a new one", async () => {
     const samples = await metricsAt(simulatedAdapters.gitlab, [
