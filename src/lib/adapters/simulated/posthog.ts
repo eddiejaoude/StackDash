@@ -172,7 +172,7 @@ function eventsInSlot(accountId: string, slot: number, volume: number): Activity
   if (slotStart % DAY_MS === 0) events.push(...signupEvents(signupsOn(accountId, slotStart - DAY_MS), accountId, REGION));
   // About 4 usage limit warnings a day (8,640 slots), times the volume.
   for (const lane of lanesAt(0.0005, volume, accountId, "limit", slot)) events.push(...limitWarning(accountId, slot, lane));
-  return events;
+  return events.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
 }
 
 export const postHogProfile: SimulatedProfile = {
