@@ -7,8 +7,8 @@ import { newEventIds } from "@/lib/realtime/arrivals";
 
 /**
  * Timeline events that arrived in a live refresh (#171). The list compares its ids with the
- * previous render; a new row slides into its day group with a severity-colored edge and wash that
- * fade, and says "New" while highlighted. Rows already on screen never move or animate.
+ * previous render; a new row slides into its day group, its card shows a severity-colored edge and
+ * wash that fade, and it says "New" while highlighted. Rows already on screen never move or animate.
  */
 
 type Arrivals = Readonly<{
@@ -45,36 +45,49 @@ export function ArrivalEvents({ eventIds, children }: { eventIds: readonly strin
 /**
  * One row's list item: a single event, or a run of identical events collapsed into one row (#253).
  * A row that is new as a whole mounts with the slide in, so it runs once; a run already on screen
- * that an arriving event joins stays put. Either way the edge and wash (or, under reduced motion,
- * a static highlight) stay only while an arrival in the row is highlighted.
+ * that an arriving event joins stays put. The item is positioned and isolated, so its own layers
+ * (the timeline line, or an `ArrivalFlash`) stay behind its content and inside the item.
  */
 export function ArrivalEventRow({
   eventIds,
-  flash,
   className,
   children,
 }: {
   /** The row's events: one, or every event in its run. */
   eventIds: readonly string[];
-  /** The severity color of the arriving edge, as a CSS color. */
-  flash: string;
   className: string;
   children: ReactNode;
 }) {
+  const { newIds } = useContext(ArrivalsContext);
+  const entered = eventIds.some((id) => newIds.has(id)) && eventIds.every((id) => newIds.has(id));
+  return <li className={`relative isolate ${className} ${entered ? "arrival-enter" : ""}`}>{children}</li>;
+}
+
+/**
+ * The severity-colored edge and wash (or, under reduced motion, a static highlight) of an event
+ * that arrived, shown only while an arrival among `eventIds` is highlighted. Render it inside the
+ * surface it marks, which must be positioned and isolated so this layer sits above the surface's
+ * background and below its content; `className` matches the surface's corners.
+ */
+export function ArrivalFlash({
+  eventIds,
+  flash,
+  className = "",
+}: {
+  /** The events the surface shows: one, or every event in its run. */
+  eventIds: readonly string[];
+  /** The severity color of the arriving edge, as a CSS color. */
+  flash: string;
+  className?: string;
+}) {
   const { newIds, highlighted } = useContext(ArrivalsContext);
-  const arrived = eventIds.some((id) => newIds.has(id));
-  const entered = arrived && eventIds.every((id) => newIds.has(id));
+  if (!highlighted || !eventIds.some((id) => newIds.has(id))) return null;
   return (
-    <li className={`relative isolate ${className} ${entered ? "arrival-enter" : ""}`}>
-      {arrived && highlighted ? (
-        <span
-          aria-hidden="true"
-          className="arrival-flash pointer-events-none absolute inset-0 -z-10"
-          style={{ "--flash": flash }}
-        />
-      ) : null}
-      {children}
-    </li>
+    <span
+      aria-hidden="true"
+      className={`arrival-flash pointer-events-none absolute inset-0 -z-10 ${className}`}
+      style={{ "--flash": flash }}
+    />
   );
 }
 

@@ -371,7 +371,7 @@ summary {
   animation: feed-content-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* The severity-colored edge and wash of a new timeline event; the row sets --flash. */
+/* The severity-colored edge and wash behind a new timeline event; ArrivalFlash sets --flash. */
 .arrival-flash {
   animation: feed-flash 1s ease-out both;
 }
