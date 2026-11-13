@@ -1014,6 +1014,21 @@ ownerTest.describe("timeline event inspector", () => {
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
       await page.goBack();
       await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+
+      // A second activation can land before the dialog opens; it must not stack a second entry,
+      // or closing would go back to the first and leave the selection in the URL. Two clicks in
+      // one browser task always land before React renders, so the race is forced, not hoped for.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.getByRole("link", { name: "Winter deployment", exact: true }).evaluate((link: HTMLElement) => {
+        link.click();
+        link.click();
+      });
+      await expect(inspector).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -1228,6 +1243,29 @@ async function expectOverviewFits(page: Page, width: number): Promise<void> {
   }
 }
 
+/** The period a bucket shows over the caption row while its link is hovered or has keyboard focus. */
+function shownPeriod(page: Page, from: string): Locator {
+  return activityOverview(page).getByTestId("activity-period").filter({ has: page.getByText(from, { exact: true }) });
+}
+
+/**
+ * The period lies exactly over the caption row, so its opaque box hides the whole caption and never
+ * grows over the chart, and neither overflows its own box.
+ */
+async function expectPeriodCoversCaption(page: Page, period: Locator, at: string): Promise<void> {
+  const caption = activityOverview(page).getByTestId("activity-caption");
+  await expect(period).toBeVisible();
+  const periodBox = await period.boundingBox();
+  const captionBox = await caption.boundingBox();
+  if (periodBox === null || captionBox === null) throw new Error(`The period or the caption is not rendered at ${at}.`);
+  for (const side of ["x", "y", "width", "height"] as const) {
+    expect(periodBox[side], `period ${side} at ${at}`).toBeCloseTo(captionBox[side], 1);
+  }
+  for (const [name, box] of [["period", period], ["caption", caption]] as const) {
+    expect(await box.evaluate((element) => element.scrollWidth <= element.clientWidth), `${name} overflows at ${at}`).toBe(true);
+  }
+}
+
 const overviewEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
 
 ownerTest.describe("timeline activity overview", () => {
@@ -1416,6 +1454,62 @@ ownerTest.describe("timeline activity overview", () => {
     }
   });
 
+  ownerTest("covers the caption row with a bar's period at every width, and shows a hovered bar's over a focused bar's", async ({ page }) => {
+    const workspace = await seedTimeline("Overview period");
+    try {
+      // Three London days in 12 six-hour bars: on a phone the caption's whole days wrap to two
+      // lines while a six-hour period would fit on one, unless both share one layout.
+      await page.setViewportSize({ width: 375, height: 900 });
+      await page.goto(`/w/${workspace.slug}/timeline?from=2026-06-13&to=2026-06-15`);
+      const buckets = await readBuckets(page);
+      expect(buckets).toHaveLength(12);
+      const third = buckets.at(2);
+      if (third === undefined) throw new Error("There is no third bucket.");
+      const thirdPeriod = shownPeriod(page, (await bucketPeriod(third.link)).from);
+      await expect(thirdPeriod).toBeHidden();
+      await tabTo(page, third.link, 120);
+      await expectPeriodCoversCaption(page, thirdPeriod, "375px");
+      for (const width of [320, 640, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expectPeriodCoversCaption(page, thirdPeriod, `${width}px`);
+      }
+
+      // With the newest bar focused, hovering the oldest shows the oldest bar's period on top.
+      await page.setViewportSize({ width: 375, height: 900 });
+      const [oldest, newest] = firstAndLast(buckets, "buckets");
+      const newestPeriod = shownPeriod(page, (await bucketPeriod(newest.link)).from);
+      const oldestPeriod = shownPeriod(page, (await bucketPeriod(oldest.link)).from);
+      await tabTo(page, newest.link, 120);
+      await expect(newestPeriod).toBeVisible();
+      await expect(oldestPeriod).toBeHidden();
+      await oldest.link.hover();
+      await expect(newest.link).toBeFocused();
+      await expect(newestPeriod).toBeVisible();
+      await expectPeriodCoversCaption(page, oldestPeriod, "375px while hovered");
+      // Periods let the pointer through, which hit testing skips, so let them take it just for this check.
+      const periods = activityOverview(page).getByTestId("activity-period");
+      await periods.evaluateAll((elements) => {
+        for (const element of elements) if (element instanceof HTMLElement) element.style.pointerEvents = "auto";
+      });
+      const hoveredOnTop = await oldestPeriod.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const topmost = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return topmost !== null && element.contains(topmost);
+      });
+      await periods.evaluateAll((elements) => {
+        for (const element of elements) if (element instanceof HTMLElement) element.style.removeProperty("pointer-events");
+      });
+      expect(hoveredOnTop, "the hovered bar's period is the topmost element at its center").toBe(true);
+
+      // Moving the pointer away leaves the focused bar's period.
+      await page.mouse.move(0, 0);
+      await expect(oldestPeriod).toBeHidden();
+      await expect(newestPeriod).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   for (const width of [1280, 375, 320]) {
     overviewEvidenceTest(`fits the overview at ${width}px with 24px keyboard targets and no axe violations`, async ({ page }) => {
       // The same label, clock, and viewport as the baseline feed capture, so before and after compare.
@@ -1441,8 +1535,7 @@ ownerTest.describe("timeline activity overview", () => {
         const [, newest] = firstAndLast(buckets, "buckets");
         const { from, until } = await bucketPeriod(newest.link);
         // The period is the link's sibling, so the link's visible text stays inside its name.
-        const period = activityOverview(page).getByTestId("activity-period")
-          .filter({ has: page.getByText(from, { exact: true }) });
+        const period = shownPeriod(page, from);
         const periodStart = period.getByText(from, { exact: true });
         const periodEnd = period.getByText(`Before ${until}`, { exact: true });
         await expect(periodStart).toBeHidden();
@@ -1459,6 +1552,7 @@ ownerTest.describe("timeline activity overview", () => {
           expect(box.x).toBeGreaterThanOrEqual(0);
           expect(box.x + box.width).toBeLessThanOrEqual(width);
         }
+        await expectPeriodCoversCaption(page, period, `${width}px`);
         await expectOverviewFits(page, width);
         await page.keyboard.press("Enter");
         await expect(page).toHaveURL(new URL(newest.href, page.url()).href);
