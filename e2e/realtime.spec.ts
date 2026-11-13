@@ -45,6 +45,15 @@ const LiveChangeSchema = z
   })
   .transform(({ data }) => data);
 
+// A seeded connection with no next_sync_at is due for a sync, so a job tick run against the same
+// database (`npm run jobs:tick`, its watcher, or an instance-wide spec) would sync it mid-test and
+// write sync-failed events into the workspace. `seedConnection` and the provider chip test's GitHub
+// connection are scheduled a month out, as the fixtures do; the seeds still due are #408.
+const notDueForAMonth = () => new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+
+// The static highlight of `.arrival-pulse` under reduced motion: --accent-soft (src/app/globals.css).
+const CORAL_TINT = "rgba(255, 93, 59, 0.12)";
+
 type SeededConnection = Readonly<{ workspaceId: string; connectionId: string; accountId: string }>;
 
 /** A fake connection with one account, the parents every synced row points at. */
@@ -59,6 +68,7 @@ async function seedConnection(workspace: TestWorkspace): Promise<SeededConnectio
       display_name: "Fake live connection",
       poll_interval_seconds: 3_600,
       last_synced_at: new Date().toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -903,6 +913,133 @@ ownerTest.describe("arriving data", () => {
       await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", GREEN);
       expect(await animations()).toEqual([]);
       expect(await announcements()).toHaveLength(1);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("glows the provider chip whose events arrive, and no chip on load or on a filter change", async ({ page }) => {
+    const workspace = await createTestWorkspace("Arrival provider chips");
+    try {
+      const example = await seedConnection(workspace);
+      // A second provider, with no events yet: its chip appears when its first event arrives.
+      const admin = adminClient();
+      const { data: connection, error } = await admin
+        .from("connections")
+        .insert({
+          workspace_id: workspace.id,
+          provider: "github",
+          status: "active",
+          display_name: "acme-org",
+          poll_interval_seconds: 3_600,
+          next_sync_at: notDueForAMonth(),
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+      const { data: account, error: accountError } = await admin
+        .from("external_accounts")
+        .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: "acme-org", display_name: "acme-org", kind: "account" })
+        .select("id")
+        .single();
+      if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+      // insertEvent writes the Example provider; the provider filter below reads the event's own.
+      const insertGitHubEvent = async (title: string) => {
+        const { error: eventError } = await admin.from("activity_events").insert({
+          workspace_id: workspace.id,
+          connection_id: connection.id,
+          external_account_id: account.id,
+          provider: "github",
+          type_id: "github.push",
+          severity: "info",
+          title,
+          occurred_at: new Date().toISOString(),
+          dedupe_key: `e2e-live-${randomUUID()}`,
+        });
+        if (eventError) throw new Error(`Inserting a live event failed (code ${eventError.code}).`);
+      };
+      await insertEvent(example, "Earlier event");
+
+      const animations = await recordArrivalAnimations(page);
+      const glows = async () => (await animations()).filter((name) => name === "alert-glow").length;
+      // The header's receiving ring is keyed by batch, so one starts each time a batch is announced.
+      const batches = async () => (await animations()).filter((name) => name === "live-receive").length;
+      const live = watchLiveChannel(page, workspace.id);
+      const chipList = page.getByRole("list", { name: "Events by provider" });
+      const chips = chipList.getByRole("listitem");
+      const chip = (provider: string) => chips.filter({ has: page.getByRole("link", { name: new RegExp(provider) }) });
+
+      // An empty view: the search matches nothing, so no chip shows. GitHub's first event that
+      // matches makes the first chip, and it glows.
+      await page.goto(`/w/${workspace.slug}/timeline?q=Push`);
+      await expectSubscribed(live);
+      await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
+      await expect(chips).toHaveCount(0);
+      await insertGitHubEvent("Push to main");
+      await expect(chip("GitHub").getByTestId("chip-glow")).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect.poll(glows).toBe(1);
+      // Scanned while the chip glows.
+      await expectNoAxeViolations(page);
+      await expect(page.getByTestId("chip-glow")).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Every provider, freshly loaded: nothing glows on load.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expectSubscribed(live);
+      await expect(chips).toHaveCount(2);
+      expect(await page.getByTestId("chip-glow").count()).toBe(0);
+      expect(await glows()).toBe(0);
+
+      // A second Example provider event: its count grows, and only its chip glows.
+      await insertEvent(example, "Later event");
+      await expect(chip("Example provider").getByTestId("chip-glow")).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(chip("Example provider").getByRole("link")).toHaveAccessibleName(/2 events/);
+      expect(await chip("GitHub").getByTestId("chip-glow").count()).toBe(0);
+      await expect.poll(glows).toBe(1);
+      await expect(page.getByTestId("chip-glow")).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Filtered to GitHub, an Example provider event arrives unseen. Clearing the filter then
+      // shows the Example provider's grown count, but that is navigation: nothing glows.
+      await chip("GitHub").getByRole("link").click();
+      await expect(page).toHaveURL(/provider=github/);
+      await expect(chips).toHaveCount(1);
+      // Waits for the batch to be announced, not just delivered: the announcement comes after the
+      // refresh debounce, and clearing the filter before it would let any chip code pass.
+      const announced = await batches();
+      await insertEvent(example, "Unseen event");
+      await expect.poll(batches, { timeout: LIVE_TIMEOUT_MS }).toBeGreaterThan(announced);
+      await chip("GitHub").getByRole("link").click();
+      await expect(chip("Example provider").getByRole("link")).toHaveAccessibleName(/3 events/);
+      expect(await page.getByTestId("chip-glow").count()).toBe(0);
+      expect(await glows()).toBe(1);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("under reduced motion, tints a provider chip whose events arrive instead of pulsing it", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const workspace = await createTestWorkspace("Arrival provider chips reduced");
+    try {
+      const example = await seedConnection(workspace);
+      await insertEvent(example, "Earlier event");
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expectSubscribed(live);
+      const glow = page.getByRole("list", { name: "Events by provider" }).getByTestId("chip-glow");
+      await expect(glow).toHaveCount(0);
+
+      await insertEvent(example, "Later event");
+      // A static translucent coral tint and edge over the chip, then gone; nothing moved.
+      await expect(glow).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(glow).toHaveCSS("background-color", CORAL_TINT);
+      await expect(glow).toHaveCSS("animation-name", "none");
+      await expectNoAxeViolations(page);
+      if (process.env.PW_PR_EVIDENCE === "1") {
+        await page.screenshot({ path: "pr-evidence/after/chips-reduced-motion.png", clip: { x: 0, y: 56, width: 1280, height: 344 } });
+      }
+      await expect(glow).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
+      expect(await animations()).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }

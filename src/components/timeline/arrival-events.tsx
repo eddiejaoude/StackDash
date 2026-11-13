@@ -9,6 +9,7 @@ import { newEventIds } from "@/lib/realtime/arrivals";
  * Timeline events that arrived in a live refresh (#171). The list compares its ids with the
  * previous render; a new row slides into its day group, its card shows a severity-colored edge and
  * wash that fade, and it says "New" while highlighted. Rows already on screen never move or animate.
+ * The provider chips in the title row glow when their provider's count grows (#403).
  */
 
 type Arrivals = Readonly<{
@@ -106,5 +107,61 @@ export function ArrivalNewLabel({ eventIds }: { eventIds: readonly string[] }) {
       <span className="sr-only">, </span>
       New
     </span>
+  );
+}
+
+type ChipArrivals = Readonly<{
+  /** Providers whose event count grew, or that appeared, in the latest batch. */
+  grown: ReadonlySet<string>;
+  batch: number;
+  highlighted: boolean;
+}>;
+
+const ChipArrivalsContext = createContext<ChipArrivals>({ grown: new Set(), batch: 0, highlighted: false });
+
+/**
+ * Around the provider chips in the title row (#403), with each provider's event count under the
+ * current filters. A provider whose count grew in a live refresh, or that has its first event in
+ * view, arrived; a count that fell (retention) is not an arrival. Mount it even when no chip shows,
+ * so the first chip of a view that filters out every event has a count of zero to grow from. A
+ * workspace with no events at all renders its empty state without the chips (timeline/page.tsx),
+ * so its very first event mounts them fresh and glows nothing. The event list already
+ * announces the new events, so this adds no announcement of its own.
+ */
+export function ArrivalProviderChips({ counts, children }: { counts: Readonly<Record<string, number>>; children: ReactNode }) {
+  const diff = useRenderDiff(counts, JSON.stringify(counts));
+  const previous = diff.previous;
+  const grown =
+    previous === null
+      ? []
+      : Object.entries(counts)
+          .filter(([provider, events]) => events > (previous[provider] ?? 0))
+          .map(([provider]) => provider);
+  const highlighted = useArrivalHighlight(diff.batch, grown.length > 0);
+  return <ChipArrivalsContext value={{ grown: new Set(grown), batch: diff.batch, highlighted }}>{children}</ChipArrivalsContext>;
+}
+
+/**
+ * One provider chip's list item. While its provider's arrival is highlighted, the coral glow the
+ * dashboard's changed cards use pulses out of the chip, and its count is the new one. The glow
+ * layer sits over the chip, so under reduced motion its static highlight (a translucent coral tint
+ * and edge, globals.css) shows on the chip's own background rather than behind it.
+ */
+export function ArrivalProviderChip({ provider, children }: { provider: string; children: ReactNode }) {
+  const { grown, batch, highlighted } = useContext(ChipArrivalsContext);
+  const arrived = highlighted && grown.has(provider);
+  return (
+    <li className="relative">
+      {children}
+      {/* Keyed by batch, so a second arrival while highlighted pulses again. */}
+      {arrived ? (
+        <span
+          key={batch}
+          aria-hidden="true"
+          data-testid="chip-glow"
+          className="arrival-pulse pointer-events-none absolute inset-0 z-10 rounded-lg"
+        />
+      ) : null}
+    </li>
   );
 }

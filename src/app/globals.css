@@ -376,7 +376,11 @@ summary {
   animation: feed-flash 1s ease-out both;
 }
 
-/* One soft pulse around a card whose value changed. */
+/*
+ * One soft pulse around a card whose value changed, or a timeline provider chip whose count grew.
+ * The card's layer sits behind its content; the chip's sits over it (ArrivalProviderChip), so this
+ * class must never paint an opaque background.
+ */
 .arrival-pulse {
   --glow: var(--accent);
   animation: alert-glow 1s ease-out both;
@@ -551,6 +555,7 @@ summary {
     background-color: var(--accent-soft);
     box-shadow: inset 2px 0 0 var(--flash);
   }
+  /* Translucent, because a provider chip's layer sits over the chip's text (ArrivalProviderChip). */
   .arrival-pulse {
     animation: none;
     background-color: var(--accent-soft);
