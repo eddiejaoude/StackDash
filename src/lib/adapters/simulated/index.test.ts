@@ -311,7 +311,7 @@ describe("a simulated adapter with an incident (#256)", () => {
   const cursor = new Date(Math.floor(now.getTime() / SLOT_MS) * SLOT_MS - SLOT_MS).toISOString();
 
   async function syncBoth(incident: SimulatedIncident): Promise<{ usual: SyncResult; withIncident: SyncResult; accountId: string }> {
-    const adapter = createSimulatedAdapter(vercelProfile, "vercel", incident);
+    const adapter = createSimulatedAdapter(vercelProfile, "vercel", { incident });
     const credential = await connect(adapter);
     const [account] = await adapter.listAccounts(credential, makeCtx(now));
     if (account === undefined) throw new Error("simulated Vercel has an account");
@@ -324,7 +324,7 @@ describe("a simulated adapter with an incident (#256)", () => {
   }
 
   it("is simulated, so it gets the local client and syncs simulated credentials", () => {
-    expect(isSimulatedAdapter(createSimulatedAdapter(vercelProfile, "vercel", { events: () => [] }))).toBe(true);
+    expect(isSimulatedAdapter(createSimulatedAdapter(vercelProfile, "vercel", { incident: { events: () => [] } }))).toBe(true);
   });
 
   it("adds the incident's events at the sync's clock, even to a sync that covers no new slot", async () => {

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import { githubProfile } from "@/lib/adapters/simulated/github";
 import { resendProfile } from "@/lib/adapters/simulated/resend";
-import { DAY_MS, SLOT_MS, type SimulatedProfile } from "@/lib/adapters/simulated/simulation";
+import { DAY_MS, DEFAULT_EVENT_VOLUME, SLOT_MS, type SimulatedProfile } from "@/lib/adapters/simulated/simulation";
 import { stripeProfile } from "@/lib/adapters/simulated/stripe";
 import { supabaseProfile } from "@/lib/adapters/simulated/supabase";
 import { vercelProfile } from "@/lib/adapters/simulated/vercel";
@@ -76,7 +76,7 @@ function storedEvents(profile: SimulatedProfile, provider: LiveProviderId): Stor
   const first = Math.floor((AS_OF.getTime() - HISTORY_DAYS * DAY_MS) / SLOT_MS);
   const last = Math.floor(SYNCED_AT.getTime() / SLOT_MS);
   for (let slot = first; slot < last; slot += 1) {
-    for (const event of profile.eventsInSlot(accountId(provider), slot)) {
+    for (const event of profile.eventsInSlot(accountId(provider), slot, DEFAULT_EVENT_VOLUME)) {
       events.push({ typeId: event.typeId, occurredAt: event.occurredAt, accountId: accountId(provider) });
     }
   }

@@ -23,7 +23,15 @@ import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } f
 import { polarProfile } from "./polar";
 import { sentryProfile } from "./sentry";
 import { railwayProfile } from "./railway";
-import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedIncident, type SimulatedProfile } from "./simulation";
+import {
+  DEFAULT_EVENT_VOLUME,
+  MAX_EVENT_VOLUME,
+  simulatedEndpoint,
+  SLOT_MS,
+  slotOf,
+  type SimulatedIncident,
+  type SimulatedProfile,
+} from "./simulation";
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
 import { vercelProfile } from "./vercel";
@@ -80,12 +88,24 @@ function readCursor(cursor: string | undefined, provider: LiveProviderId, ctx: O
   return undefined;
 }
 
-// Every adapter createSimulatedAdapter built: the registry's, and the one `npm run demo:event`
-// builds with an incident (#256). Membership, not the id, is what makes an adapter simulated.
+// Every adapter createSimulatedAdapter built: the registry's, the one `npm run demo:event` builds
+// with an incident (#256), and the ones `npm run jobs:tick -- --watch --volume` builds (#383).
+// Membership, not the id, is what makes an adapter simulated.
 const builtBySimulator = new WeakSet<ProviderAdapter>();
 
-/** A simulated adapter for `provider`; with an `incident`, every sync also carries it. */
-export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId, incident?: SimulatedIncident): ProviderAdapter {
+export type SimulatedAdapterOptions = Readonly<{
+  /** Carried by every sync, on top of the profile's events. */
+  incident?: SimulatedIncident;
+  /** Whole number, DEFAULT_EVENT_VOLUME (the default) to MAX_EVENT_VOLUME. */
+  volume?: number;
+}>;
+
+/** A simulated adapter for `provider`, optionally with an incident or at a higher event volume. */
+export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId, options: SimulatedAdapterOptions = {}): ProviderAdapter {
+  const { incident, volume = DEFAULT_EVENT_VOLUME } = options;
+  if (!Number.isInteger(volume) || volume < DEFAULT_EVENT_VOLUME || volume > MAX_EVENT_VOLUME) {
+    throw new RangeError(`Simulated event volume must be a whole number from ${DEFAULT_EVENT_VOLUME} to ${MAX_EVENT_VOLUME}`);
+  }
   const { real } = profile;
   const name = PROVIDER_NAMES[provider];
   const endpoint = (path: string) => simulatedEndpoint(provider, path);
@@ -169,7 +189,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
 
       const events: ActivityEvent[] = [];
       for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
-        events.push(...profile.eventsInSlot(externalAccountId, slot));
+        events.push(...profile.eventsInSlot(externalAccountId, slot, volume));
       }
       // Outside the slot loop, so the incident arrives even when this slot was already synced.
       if (incident !== undefined) events.push(...incident.events(externalAccountId, ctx.now()));
@@ -186,19 +206,25 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
   return adapter;
 }
 
-export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
-  vercel: createSimulatedAdapter(vercelProfile, "vercel"),
-  github: createSimulatedAdapter(githubProfile, "github"),
-  resend: createSimulatedAdapter(resendProfile, "resend"),
-  stripe: createSimulatedAdapter(stripeProfile, "stripe"),
-  supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
-  digitalocean: createSimulatedAdapter(digitaloceanProfile, "digitalocean"),
-  posthog: createSimulatedAdapter(postHogProfile, "posthog"),
-  polar: createSimulatedAdapter(polarProfile, "polar"),
-  sentry: createSimulatedAdapter(sentryProfile, "sentry"),
-  railway: createSimulatedAdapter(railwayProfile, "railway"),
-  gitlab: createSimulatedAdapter(gitlabProfile, "gitlab"),
-};
+/** A simulated adapter for every live provider, at `volume` (#383). */
+export function simulatedAdaptersAtVolume(volume: number): Readonly<Record<LiveProviderId, ProviderAdapter>> {
+  const options = { volume };
+  return {
+    vercel: createSimulatedAdapter(vercelProfile, "vercel", options),
+    github: createSimulatedAdapter(githubProfile, "github", options),
+    resend: createSimulatedAdapter(resendProfile, "resend", options),
+    stripe: createSimulatedAdapter(stripeProfile, "stripe", options),
+    supabase: createSimulatedAdapter(supabaseProfile, "supabase", options),
+    digitalocean: createSimulatedAdapter(digitaloceanProfile, "digitalocean", options),
+    posthog: createSimulatedAdapter(postHogProfile, "posthog", options),
+    polar: createSimulatedAdapter(polarProfile, "polar", options),
+    sentry: createSimulatedAdapter(sentryProfile, "sentry", options),
+    railway: createSimulatedAdapter(railwayProfile, "railway", options),
+    gitlab: createSimulatedAdapter(gitlabProfile, "gitlab", options),
+  };
+}
+
+export const simulatedAdapters = simulatedAdaptersAtVolume(DEFAULT_EVENT_VOLUME);
 
 /**
  * True only for an adapter createSimulatedAdapter built, compared by identity rather than id, so

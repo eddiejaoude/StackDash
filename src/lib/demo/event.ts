@@ -229,7 +229,7 @@ export async function runDemoEvent(
   input: Readonly<{ deps: DemoEventDeps; target: DemoEventTarget; incident: SimulatedIncident }>,
 ): Promise<DemoEventOutcome> {
   const { deps, target } = input;
-  const adapter = createSimulatedAdapter(vercelProfile, "vercel", input.incident);
+  const adapter = createSimulatedAdapter(vercelProfile, "vercel", { incident: input.incident });
   // A holder, not a `let`: it is set inside the callback, which control flow analysis cannot see.
   const alerts: { result: Readonly<{ triggered: number }> | Readonly<{ errorReference: string }> | null } = { result: null };
   const job = oneShotJob({ kind: "sync", workspace_id: target.workspace.id, connection_id: target.connectionId, dedupe_key: null }, deps.now());

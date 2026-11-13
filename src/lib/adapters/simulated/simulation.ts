@@ -28,9 +28,20 @@ export type SimulatedProfile = Readonly<{
   /**
    * Events a sync first sees in `slot` (10 second slots since the Unix epoch), oldest first. Most
    * happen in that slot; a daily summary is seen at UTC midnight and dated like the real adapter's.
+   * `volume` (DEFAULT_EVENT_VOLUME to MAX_EVENT_VOLUME) multiplies the chance of every random
+   * occurrence, through `countAtVolume` and `lanesAt`; calendar events (daily summaries, monthly
+   * invoices, fixed cadences) do not scale. At DEFAULT_EVENT_VOLUME the events are exactly the
+   * ones the profile made before volume existed.
    */
-  eventsInSlot: (accountId: string, slot: number) => ActivityEvent[];
+  eventsInSlot: (accountId: string, slot: number, volume: number) => ActivityEvent[];
 }>;
+
+/**
+ * Simulated event volume (#383), chosen with `npm run jobs:tick -- --watch --volume <n>` so live
+ * screens can be tested without waiting. The default is the small product of #264.
+ */
+export const DEFAULT_EVENT_VOLUME = 1;
+export const MAX_EVENT_VOLUME = 20;
 
 /**
  * One thing made to happen on cue by `npm run demo:event` (#256), on top of what the profile makes
@@ -77,6 +88,34 @@ export function chance(p: number, ...parts: readonly (string | number)[]): boole
 /** How many of `p.length` independent chances came up, e.g. events in one slot. */
 export function countOf(probabilities: readonly number[], ...parts: readonly (string | number)[]): number {
   return probabilities.filter((p, index) => chance(p, ...parts, index)).length;
+}
+
+type Part = string | number;
+
+/**
+ * The hash parts of occurrence `lane` (0 to volume - 1) of a random event. Lane 0 is the default
+ * volume's occurrence and keeps its parts, so DEFAULT_EVENT_VOLUME changes nothing; every other
+ * lane appends a marker, so its randomness differs and anything derived from its parts (ids,
+ * dedupe keys) never repeats lane 0's.
+ */
+export function laneParts(lane: number, ...parts: readonly Part[]): Part[] {
+  return lane === 0 ? [...parts] : [...parts, "volume", lane];
+}
+
+/** The lanes, 0 to volume - 1, in which an event with chance `p` per slot occurs, ascending. */
+export function lanesAt(p: number, volume: number, ...parts: readonly Part[]): number[] {
+  const lanes: number[] = [];
+  for (let lane = 0; lane < volume; lane += 1) {
+    if (chance(p, ...laneParts(lane, ...parts))) lanes.push(lane);
+  }
+  return lanes;
+}
+
+/** `countOf` with every chance taken `volume` times, independently; at volume 1, `countOf` itself. */
+export function countAtVolume(probabilities: readonly number[], volume: number, ...parts: readonly Part[]): number {
+  let count = 0;
+  for (let lane = 0; lane < volume; lane += 1) count += countOf(probabilities, ...laneParts(lane, ...parts));
+  return count;
 }
 
 export function slotOf(at: Date): number {
