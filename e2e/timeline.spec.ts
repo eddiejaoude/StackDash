@@ -8,7 +8,9 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
+import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
+import { openWith } from "./fixtures/palette";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 type AccountInsert = Database["public"]["Tables"]["external_accounts"]["Insert"];
@@ -1160,6 +1162,16 @@ ownerTest.describe("timeline active filters", () => {
 
 const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
 
+/**
+ * The middle of the page's "Timeline" heading: on the dimmed page beside the open details panel or
+ * the command palette at 1280px, and over no row. Read it before a dialog opens.
+ */
+async function headingCenter(page: Page): Promise<{ x: number; y: number }> {
+  const box = await page.getByRole("heading", { level: 1, name: "Timeline", exact: true }).boundingBox();
+  if (box === null) throw new Error("The timeline heading is not rendered.");
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
 const MOTION = z.array(z.object({ moved: z.string(), durationMs: z.number(), loops: z.boolean() }));
 
 /**
@@ -1313,7 +1325,8 @@ ownerTest.describe("timeline event inspector", () => {
         // The hovered row's text keeps its contrast on the lighter surface.
         await expectNoAxeViolations(page);
         // Away from the feed, so the open row shows its own state rather than the hover.
-        await page.getByRole("heading", { level: 1, name: "Timeline", exact: true }).hover();
+        const beside = await headingCenter(page);
+        await page.mouse.move(beside.x, beside.y);
         await expect(row).toHaveCSS("background-color", ROW_AT_REST);
         const hovered = await motion();
 
@@ -1332,13 +1345,26 @@ ownerTest.describe("timeline event inspector", () => {
         await expect(row).toHaveCSS("background-color", ROW_AT_REST);
         const closed = await motion();
 
-        expect([...hovered, ...opened, ...closed].filter((entry) => entry.loops || entry.durationMs > 200)).toEqual([]);
+        // A click beside the panel closes it the same way (#407).
+        await page.keyboard.press("Enter");
+        await expect(inspector).toHaveCSS("opacity", "1");
+        await expect(row).toHaveCSS("background-color", ROW_OPEN);
+        const reopened = await motion();
+        await page.mouse.click(beside.x, beside.y);
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+        await expect(inspector).toBeHidden();
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        const clickedAway = await motion();
+
+        const all = [...hovered, ...opened, ...closed, ...reopened, ...clickedAway];
+        expect(all.filter((entry) => entry.loops || entry.durationMs > 200)).toEqual([]);
         if (reducedMotion === "reduce") {
-          expect([...hovered, ...opened, ...closed]).toEqual([]);
+          expect(all).toEqual([]);
           return;
         }
         expect(hovered.map((entry) => entry.moved)).toEqual(expect.arrayContaining(["article background-color"]));
-        for (const step of [opened, closed]) {
+        for (const step of [opened, closed, reopened, clickedAway]) {
           expect(step.map((entry) => entry.moved)).toEqual(expect.arrayContaining([
             "article background-color",
             "dialog opacity",
@@ -1351,6 +1377,79 @@ ownerTest.describe("timeline event inspector", () => {
       }
     });
   }
+
+  // #407: a click on the dimmed timeline beside the panel closes it exactly as Escape does. A press
+  // that starts or ends on the panel, such as selecting its text, and a click on its own padding
+  // keep it open.
+  ownerTest("closes the details on a click beside the panel, and only there, at 1280px", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector outside click");
+    try {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/w/${workspace.slug}/connections`);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expectHydrated(page);
+      const beside = await headingCenter(page);
+      const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(inspector.getByRole("button", { name: "Close event" })).toBeFocused();
+      await expectNoAxeViolations(page);
+      const opened = page.url();
+      const panel = await inspector.boundingBox();
+      const title = await inspector.getByRole("heading", { name: "Synthetic event 1", exact: true }).boundingBox();
+      if (panel === null || title === null) throw new Error("The inspector is not rendered.");
+      expect(beside.x).toBeLessThan(panel.x);
+
+      // Selecting the title and releasing over the timeline, and the reverse.
+      await page.mouse.move(title.x + 1, title.y + title.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(beside.x, beside.y, { steps: 5 });
+      await page.mouse.up();
+      await page.mouse.down();
+      await page.mouse.move(title.x + 1, title.y + title.height / 2, { steps: 5 });
+      await page.mouse.up();
+      // The panel's own padding: beside its left edge and in its bottom-right corner.
+      await page.mouse.click(panel.x + 1, panel.y + panel.height / 2);
+      await page.mouse.click(panel.x + panel.width - 2, panel.y + panel.height - 2);
+      await expect(inspector).toHaveJSProperty("open", true);
+      await expect(page).toHaveURL(opened);
+
+      await page.mouse.click(beside.x, beside.y);
+      await expect(inspector).toBeHidden();
+      await expect(trigger).toBeFocused();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      // Closing went back past the entry the details pushed, so Back leaves the timeline rather than
+      // showing it again without them.
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // #407: light dismiss is the details panel's alone. Every other dialog, the command palette
+  // among them, stays open on a click outside it, so a click never discards what someone typed.
+  ownerTest("keeps the command palette open on a click outside it", async ({ page }) => {
+    const workspace = await createTestWorkspace("Inspector palette outside click");
+    try {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const beside = await headingCenter(page);
+      const palette = page.getByRole("dialog", { name: "Command palette" });
+      await openWith(palette, () => page.getByRole("button", { name: "Jump to" }).click());
+      const box = await palette.boundingBox();
+      if (box === null) throw new Error("The palette is not rendered.");
+      expect(beside.x).toBeLessThan(box.x);
+      await page.mouse.click(beside.x, beside.y);
+      await expect(palette).toHaveJSProperty("open", true);
+      await expect(palette).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(palette).toBeHidden();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
 
   ownerTest("opens a shared event outside the loaded page and filters, including after reload", async ({ page }) => {
     const workspace = await seedTimeline("Inspector shared link");
