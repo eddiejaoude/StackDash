@@ -7,6 +7,8 @@ import {
   chance,
   DAY_MS,
   instantInSlot,
+  laneParts,
+  lanesAt,
   utcDayStart,
   utcMonthStart,
   utcNextMonthStart,
@@ -79,28 +81,28 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
   return [...usage, ...delivery];
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
-  // About 20 domain status changes a day (8,640 slots).
-  if (!chance(0.0023, accountId, "domain", slot)) return [];
-  const domain = `mail${between(1, 99, accountId, "domain-name", slot)}.example.com`;
-  const typeId: DomainTypeId = chance(0.8, accountId, "domain-verified", slot)
-    ? "resend.domain.verified"
-    : "resend.domain.failed";
-  const verified = typeId === "resend.domain.verified";
-  return [
-    {
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
+  // About 20 domain status changes a day (8,640 slots) at the default volume.
+  const events = lanesAt(0.0023, volume, accountId, "domain", slot).map((lane): ActivityEvent => {
+    const domain = `mail${between(1, 99, ...laneParts(lane, accountId, "domain-name", slot))}.example.com`;
+    const typeId: DomainTypeId = chance(0.8, ...laneParts(lane, accountId, "domain-verified", slot))
+      ? "resend.domain.verified"
+      : "resend.domain.failed";
+    const verified = typeId === "resend.domain.verified";
+    return {
       typeId,
-      occurredAt: instantInSlot(slot, accountId, "domain-at"),
+      occurredAt: instantInSlot(slot, ...laneParts(lane, accountId, "domain-at")),
       severity: verified ? "success" : "critical",
       title: verified ? `Domain ${domain} verified` : `Domain ${domain} failed verification`,
       ...(verified
         ? {}
         : { body: "Resend could not find the domain's DNS records within 72 hours. Check its DNS settings in Resend." }),
       externalAccountId: accountId,
-      // The slot keeps two changes of the same simulated domain apart.
-      dedupeKey: `resend.domain:${accountId}:${domain}:${typeId}:${slot}`,
-    },
-  ];
+      // The slot keeps two changes of the same simulated domain apart, and the lane two in one slot.
+      dedupeKey: `resend.domain:${accountId}:${domain}:${typeId}:${laneParts(lane, slot).join(":")}`,
+    };
+  });
+  return events.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
 }
 
 export const resendProfile: SimulatedProfile = {

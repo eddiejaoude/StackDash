@@ -6,7 +6,7 @@ import {
   accrued,
   between,
   chance,
-  countOf,
+  countAtVolume,
   DAY_MS,
   instantInSlot,
   isLaunchDay,
@@ -28,7 +28,8 @@ import {
  * half hour the demo seed's daily step reads, the one before London midnight (22:30 to 23:00 UTC
  * in summer, 23:30 to 00:00 UTC in winter), lands inside it in both seasons. Deployments go
  * through the real adapter's `deploymentEvent`, so titles, severities, and dedupe keys match a
- * real sync.
+ * real sync. Deploy counts are at the default event volume; a higher volume (#383) multiplies them
+ * and leaves spend alone.
  */
 
 const PROJECTS = ["web", "docs", "api"] as const;
@@ -140,11 +141,13 @@ export function vercelFailedDeployment(accountId: string, at: Date): ActivityEve
   return event;
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
-  // About 60 finished deployments on a weekday (8,640 slots).
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
+  // About 60 finished deployments on a weekday (8,640 slots) at the default volume. Every lane takes
+  // the weekend, launch day, and release multipliers, so a higher volume keeps the same shape.
   const percent = deployPercent(accountId, slot * SLOT_MS);
-  const count = countOf(
+  const count = countAtVolume(
     [0.006, 0.001].map((p) => (p * percent) / 100),
+    volume,
     accountId,
     "deployments",
     slot,

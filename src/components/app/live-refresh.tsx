@@ -6,6 +6,7 @@ import { useEffect, useRef, useTransition } from "react";
 
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
+import { changedConnectionId } from "@/lib/realtime/arrivals";
 import { createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
@@ -22,6 +23,9 @@ const LIVE_TABLES = [
 
 const LIVE_EVENTS = ["INSERT", "UPDATE"] as const;
 
+/** What onChange reads from a postgres_changes payload; `new` is the whole row (default replica identity). */
+type LiveChange = Readonly<{ commit_timestamp: string; table: string; new: unknown }>;
+
 // Realtime hands back an existing channel for a topic it still holds, and a removed channel stays
 // held until the server acknowledges the leave. A subscription made inside that window (leaving a
 // workspace and coming straight back) would attach to the departing channel and never join, so
@@ -30,15 +34,18 @@ let mountCount = 0;
 
 /**
  * Refreshes the current workspace page when a sync writes rows for this workspace (#129), so the
- * Server Components read again and no data is copied into client state. One channel per
+ * Server Components read again and no row data is copied into client state. The one exception is
+ * an id: the connection each usage snapshot or provider event came from, which the store keeps
+ * with the last batch that brought it so the indicator can say which connection is receiving
+ * (#392). One channel per
  * workspace, removed when the workspace layout unmounts or the workspace changes. Realtime checks
  * every change against the subscriber's select policy, so a member only hears about their own
  * workspace; the filter keeps a member of several workspaces from hearing about the others.
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level and the page
  * behaves as it did before live updates: it shows new data on the next navigation or reload.
- * It tells the ArrivalProvider whether the channel is live and when each batch arrives, which the
- * live indicator in the header shows (#171).
+ * It tells the ArrivalProvider whether the channel is live, when each batch arrives, and which
+ * connections it brought data from, which the live indicator in the header shows (#171, #392).
  *
  * One refresh runs at a time (#309, src/lib/realtime/refresh-scheduler.ts). `router.refresh()`
  * returns nothing, and its router action settles as soon as the request is spawned
@@ -66,9 +73,13 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const supabase = createClient();
     // The newest commit among the changes delivered so far: the database's clock, not the browser's.
     let lastCommitAt: string | null = null;
+    // The connections that sent provider data since the last refresh (changedConnectionId), for the
+    // indicator's list (#392).
+    let changedConnections = new Set<string>();
     const scheduler = createRefreshScheduler({
       refresh: () => {
-        arrivals?.arrived(lastCommitAt);
+        arrivals?.arrived(lastCommitAt, changedConnections);
+        changedConnections = new Set();
         startRefresh(() => refresh());
       },
       isHidden: () => document.visibilityState === "hidden",
@@ -76,8 +87,10 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     schedulerRef.current = scheduler;
     const onVisibilityChange = () => scheduler.visibilityChanged();
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const onChange = ({ commit_timestamp: committedAt }: { commit_timestamp: string }) => {
+    const onChange = ({ commit_timestamp: committedAt, table, new: row }: LiveChange) => {
       if (lastCommitAt === null || Date.parse(committedAt) > Date.parse(lastCommitAt)) lastCommitAt = committedAt;
+      const connectionId = changedConnectionId(table, row);
+      if (connectionId !== null) changedConnections.add(connectionId);
       scheduler.notify();
     };
 

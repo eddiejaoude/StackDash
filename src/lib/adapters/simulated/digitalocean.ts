@@ -19,6 +19,8 @@ import {
   chance,
   DAY_MS,
   instantInSlot,
+  laneParts,
+  lanesAt,
   SLOT_MS,
   simulatedEndpoint,
   unit,
@@ -31,7 +33,8 @@ import {
  * Simulated DigitalOcean team: two App Platform apps deploy about 35 times a day (one or two minutes
  * to build, some fail), Droplets are created, resized, power cycled, and deleted a dozen times a
  * day, usage grows hour by hour through the month, yesterday's spend is split by SKU, and an
- * invoice for the month before lands at 00:00 UTC on the 1st. Everything goes through the real
+ * invoice for the month before lands at 00:00 UTC on the 1st. A higher event volume (#383) multiplies
+ * the deployments and Droplet actions; the invoice keeps its date. Everything goes through the real
  * adapter's metric and event builders, so keys, titles, severities, and dedupe keys match a real
  * sync; only the provenance endpoints say "simulated".
  */
@@ -120,15 +123,19 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
   return result;
 }
 
-function buildSlots(accountId: string, startSlot: number): number {
-  return between(MIN_BUILD_SLOTS, MAX_BUILD_SLOTS, accountId, "build", startSlot);
+/** How long the deployment in volume lane `lane` of `startSlot` builds, in whole slots. */
+function buildSlots(accountId: string, startSlot: number, lane: number): number {
+  return between(MIN_BUILD_SLOTS, MAX_BUILD_SLOTS, ...laneParts(lane, accountId, "build", startSlot));
 }
 
-/** The deployment that started in `startSlot`, as the real API would show it once `finished` is known. */
-function deploymentEventsFrom(accountId: string, startSlot: number, finished: boolean): ActivityEvent[] {
-  const parts = [accountId, "deployment", startSlot] as const;
+/**
+ * The deployment that started in volume lane `lane` of `startSlot`, as the real API would show it
+ * once `finished` is known. Its id hashes the lane's parts, so lanes never share one.
+ */
+function deploymentEventsFrom(accountId: string, startSlot: number, lane: number, finished: boolean): ActivityEvent[] {
+  const parts = laneParts(lane, accountId, "deployment", startSlot);
   const app = APPS[between(0, APPS.length - 1, ...parts, "app")] ?? APPS[0];
-  const endSlot = startSlot + buildSlots(accountId, startSlot);
+  const endSlot = startSlot + buildSlots(accountId, startSlot, lane);
   const failed = chance(DEPLOYMENT_FAILURE_CHANCE, ...parts, "failed");
   const endedAt = instantInSlot(endSlot, ...parts, "end");
   return deploymentEvents(
@@ -143,9 +150,9 @@ function deploymentEventsFrom(accountId: string, startSlot: number, finished: bo
   );
 }
 
-function dropletActionInSlot(accountId: string, slot: number): ActivityEvent | undefined {
-  if (!chance(DROPLET_ACTION_CHANCE, accountId, "droplet", slot)) return undefined;
-  const parts = [accountId, "droplet", slot] as const;
+/** The Droplet action in volume lane `lane` of `slot`; its id is drawn from the lane's parts. */
+function dropletActionIn(accountId: string, slot: number, lane: number): ActivityEvent | undefined {
+  const parts = laneParts(lane, accountId, "droplet", slot);
   const type = dropletActionTypes[between(0, dropletActionTypes.length - 1, ...parts, "type")] ?? "power_cycle";
   const droplet = between(0, DROPLETS.length - 1, ...parts, "name");
   const startedAt = new Date(slot * SLOT_MS);
@@ -165,21 +172,28 @@ function dropletActionInSlot(accountId: string, slot: number): ActivityEvent | u
   );
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  if (chance(DEPLOYMENT_CHANCE, accountId, "deployment", slot)) {
-    events.push(...deploymentEventsFrom(accountId, slot, false));
+  for (const lane of lanesAt(DEPLOYMENT_CHANCE, volume, accountId, "deployment", slot)) {
+    events.push(...deploymentEventsFrom(accountId, slot, lane, false));
   }
   // Deployments that started a build ago finish in this slot; their started event is already out.
+  // Each lane of a start slot has its own build length, so every lane is checked against this slot.
   for (let start = slot - MAX_BUILD_SLOTS; start <= slot - MIN_BUILD_SLOTS; start += 1) {
-    if (start + buildSlots(accountId, start) !== slot) continue;
-    if (!chance(DEPLOYMENT_CHANCE, accountId, "deployment", start)) continue;
-    events.push(...deploymentEventsFrom(accountId, start, true).filter((event) => event.typeId !== "digitalocean.deployment.started"));
+    for (const lane of lanesAt(DEPLOYMENT_CHANCE, volume, accountId, "deployment", start)) {
+      if (start + buildSlots(accountId, start, lane) !== slot) continue;
+      events.push(
+        ...deploymentEventsFrom(accountId, start, lane, true).filter((event) => event.typeId !== "digitalocean.deployment.started"),
+      );
+    }
   }
-  const action = dropletActionInSlot(accountId, slot);
-  if (action !== undefined) events.push(action);
+  for (const lane of lanesAt(DROPLET_ACTION_CHANCE, volume, accountId, "droplet", slot)) {
+    const action = dropletActionIn(accountId, slot, lane);
+    if (action !== undefined) events.push(action);
+  }
 
-  // The invoice for the month before is issued at 00:00 UTC on the 1st.
+  // The invoice for the month before is issued at 00:00 UTC on the 1st, a calendar event the
+  // volume does not scale.
   const slotStart = new Date(slot * SLOT_MS);
   if (slotStart.getTime() === utcMonthStart(slotStart).getTime()) {
     const { invoice, items } = previousInvoice(accountId, slotStart);

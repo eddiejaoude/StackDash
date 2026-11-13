@@ -13,7 +13,10 @@ import {
   type ReactNode,
 } from "react";
 
+import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
+import { AlertIcon } from "@/components/icons";
 import { LiveRegion } from "@/components/ui/live-region";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { formatLondonTime } from "@/lib/format";
 import {
   createArrivalStore,
@@ -22,7 +25,15 @@ import {
   type ArrivalBatch,
   type ArrivalStore,
 } from "@/lib/realtime/arrival-store";
-import { ARRIVAL_HIGHLIGHT_MS, describeArrivals, liveStatusText, type ArrivalReport } from "@/lib/realtime/arrivals";
+import {
+  ARRIVAL_HIGHLIGHT_MS,
+  describeArrivals,
+  liveConnectionsText,
+  liveStatusText,
+  type ArrivalReport,
+  type LiveConnection,
+  type LiveConnectionsRead,
+} from "@/lib/realtime/arrivals";
 
 /**
  * Arriving data, made visible (#171). The provider sits in the workspace layout around the header
@@ -222,11 +233,19 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
 }
 
 /**
- * "Live" in the workspace header. The dot pulses once per arriving batch and is steady between
- * arrivals. Hover or focus shows when data last arrived; Escape hides that until the pointer or
- * focus leaves, and a press keeps it open for touch screens.
+ * "Live" in the workspace header. While the channel is live the dot breathes a slow ring (ready);
+ * when a batch arrives it flashes coral and ripples, a different effect, and the connections that
+ * batch came from are marked "Receiving" in the list (#392). Beside the word, from `lg`, how many
+ * connections are connected, and from `sm` a mark when one needs attention; the name always
+ * carries both. Hover or focus shows when data
+ * last arrived and lists the connections with their status; Escape hides that until the pointer
+ * or focus leaves, and a press keeps it open for touch screens.
+ *
+ * Below `md` the tooltip is placed against the header's top row (positioned in the workspace
+ * layout) rather than the button, so its width never runs off the left edge: on a phone, and up
+ * to `md`, where a long account name can leave the button within 288px of the edge.
  */
-export function LiveIndicator() {
+export function LiveIndicator({ connections }: { connections: LiveConnectionsRead }) {
   const store = useContext(ArrivalStoreContext);
   const { status, lastArrivalAt } = useSyncExternalStore(
     store?.subscribe ?? noSubscription,
@@ -234,7 +253,12 @@ export function LiveIndicator() {
     initialLiveState,
   );
   const arrivals = useArrivalBatch().number;
+  // The coral flash's class stays on for the highlight time: under reduced motion it is the static
+  // sign of an arrival (globals.css), where no ring moves.
+  const receiving = useArrivalHighlight(arrivals, arrivals > 0);
   const text = liveStatusText(status);
+  const summary = connections.state === "loaded" ? connections.summary : null;
+  const count = summary === null ? null : liveConnectionsText(summary);
   const tooltipId = useId();
   const [pinned, setPinned] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -247,7 +271,7 @@ export function LiveIndicator() {
 
   const visibility = dismissed ? "invisible" : pinned ? "visible" : "invisible group-hover:visible group-focus-within:visible";
   return (
-    <span className="group relative inline-flex" onMouseLeave={() => setDismissed(false)}>
+    <div className="group inline-flex md:relative" onMouseLeave={() => setDismissed(false)}>
       <button
         type="button"
         aria-describedby={tooltipId}
@@ -263,44 +287,121 @@ export function LiveIndicator() {
         className="inline-flex min-h-6 min-w-6 items-center gap-1.5 rounded-md px-1.5 font-mono text-xs text-muted transition-colors hover:text-foreground"
       >
         <span aria-hidden="true" className="relative flex size-2">
-          {/* Keyed by batch, so each arrival mounts a fresh pulse that runs once. */}
+          {status === "live" ? <span data-testid="live-ready" className="live-ready absolute inset-0 rounded-full bg-success" /> : null}
+          {/* Keyed by batch, so each arrival mounts a fresh ripple that runs its three rings once. */}
           {arrivals > 0 ? (
-            <span key={arrivals} data-testid="live-pulse" className="arrival-live-pulse absolute inset-0 rounded-full bg-success" />
+            <span key={arrivals} data-testid="live-receive" className="live-receive absolute inset-0 rounded-full border border-accent" />
           ) : null}
-          {/* Filled when live, hollow otherwise: the shape says it as well as the color and the word. */}
+          {/* Filled when live, hollow otherwise: the shape says it as well as the color and the word.
+              Keyed by batch too, so its coral flash restarts on every arrival. */}
           <span
+            key={`dot-${arrivals}`}
             data-testid="live-dot"
-            className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"}`}
+            className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"} ${receiving ? "live-receive-dot" : ""}`}
           />
         </span>
-        {/* The whole name, and the visible word for sight; the tooltip describes the state. Below
+        {/* The whole name, and the visible words for sight; the tooltip describes the state. Below
             sm the phone header row has no room for the word (#175, #198): the dot's shape (filled
-            or hollow) still says it, and the name and tooltip are unchanged. */}
-        <span className="sr-only">{text.name}</span>
+            or hollow) still says it, and the name and tooltip are unchanged. The count waits for
+            lg, where the top row has room for it beside the Admin link (#364). */}
+        <span className="sr-only">{count === null ? text.name : `${text.name}, ${count.name}`}</span>
         <span aria-hidden="true" className="hidden sm:inline">
           {text.word}
         </span>
+        {count === null ? null : (
+          <span aria-hidden="true" className="hidden border-l border-line pl-1.5 lg:inline">
+            {count.word}
+          </span>
+        )}
+        {summary !== null && summary.attention > 0 ? (
+          <AlertIcon data-testid="live-attention" width={12} height={12} className="hidden text-warning sm:inline" />
+        ) : null}
       </button>
-      <span
+      <div
         role="tooltip"
         id={tooltipId}
-        className={`absolute right-0 top-full z-50 mt-2 w-max max-w-64 rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-xs leading-5 text-foreground shadow-lg ${visibility}`}
+        className={`absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] space-y-2 rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-xs leading-5 text-foreground shadow-lg ${visibility}`}
       >
-        {status === "offline" ? (
-          // The client rejoins on its own after a failure (phoenix's rejoinTimer) and the word turns
-          // back to Live when it does, so say so and keep the reload for when it sticks.
-          "Live updates stopped. Trying to reconnect; reload the page if this does not clear."
-        ) : status === "connecting" ? (
-          "Connecting to live updates."
-        ) : lastArrivalAt === null ? (
-          "Live updates are on. No new data since this page opened."
-        ) : (
-          <>
-            Live updates are on. Data last arrived at{" "}
-            <time dateTime={lastArrivalAt}>{formatLondonTime(lastArrivalAt)}</time> London time.
-          </>
-        )}
+        <p>
+          {status === "offline" ? (
+            // The client rejoins on its own after a failure (phoenix's rejoinTimer) and the word turns
+            // back to Live when it does, so say so and keep the reload for when it sticks.
+            "Live updates stopped. Trying to reconnect; reload the page if this does not clear."
+          ) : status === "connecting" ? (
+            "Connecting to live updates."
+          ) : lastArrivalAt === null ? (
+            "Live updates are on. No new data since this page opened."
+          ) : (
+            <>
+              Live updates are on. Data last arrived at{" "}
+              <time dateTime={lastArrivalAt}>{formatLondonTime(lastArrivalAt)}</time> London time.
+            </>
+          )}
+        </p>
+        <LiveConnectionsList connections={connections} />
+      </div>
+    </div>
+  );
+}
+
+/** The tooltip's connections: a sentence that counts them, then each one with its status. */
+function LiveConnectionsList({ connections }: { connections: LiveConnectionsRead }) {
+  if (connections.state === "loading") return <p className="text-muted">Loading connections.</p>;
+  if (connections.state === "failed") {
+    return (
+      <p>
+        Connections could not be loaded. Reload the page to try again, and quote reference {connections.reference} if it
+        keeps happening.
+      </p>
+    );
+  }
+  const { summary } = connections;
+  if (summary.listed.length === 0) return <p>No connections yet. Add one on the Connections page.</p>;
+  return (
+    <>
+      <p>Connections: {liveConnectionsText(summary).name}.</p>
+      <ul className="space-y-1.5" aria-label="Connections">
+        {summary.listed.map((connection) => (
+          <LiveConnectionRow key={connection.id} connection={connection} />
+        ))}
+      </ul>
+      {summary.unlisted > 0 ? <p className="text-muted">And {summary.unlisted} more on the Connections page.</p> : null}
+    </>
+  );
+}
+
+/**
+ * One connection in the tooltip. For ARRIVAL_HIGHLIGHT_MS after the last batch that brought its
+ * data it says "Receiving" under its name, beside a coral ripple; the word carries it under reduced
+ * motion, where the ripple is hidden, and for a screen reader reading the description. Under the
+ * name, not beside it, so a wide status badge never squeezes the name that tells two connections
+ * of one provider apart.
+ *
+ * A row that mounts later (its connection sorts into the capped list, or the list loads after a
+ * failed read) only counts batches from its own mount on: the highlight timer lives in the row, so
+ * a batch from before it would otherwise start a fresh 4 s on mount.
+ */
+function LiveConnectionRow({ connection }: { connection: LiveConnection }) {
+  const batch = useArrivalBatch();
+  const [mountedIn] = useState(batch.number);
+  const receivedIn = batch.receivedIn.get(connection.id) ?? 0;
+  const receiving = useArrivalHighlight(receivedIn, receivedIn > 0 && receivedIn >= mountedIn);
+  return (
+    <li className="flex items-center gap-2">
+      <ProviderMark provider={connection.provider} size="sm" labeled />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{connection.display_name}</span>
+        {receiving ? (
+          <span className="flex items-center gap-1.5 text-accent">
+            <span aria-hidden="true" className="relative flex size-1.5">
+              <span key={receivedIn} className="live-receive absolute inset-0 rounded-full border border-accent" />
+              <span className="relative size-1.5 rounded-full bg-accent" />
+            </span>
+            Receiving
+          </span>
+        ) : null}
       </span>
-    </span>
+      <ConnectionStatusBadge status={connection.status} />
+    </li>
   );
 }

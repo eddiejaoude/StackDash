@@ -9,6 +9,7 @@ import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_IN_FLIGHT_MS } from "../src/lib/realti
 
 import {
   createSyntheticUser,
+  E2E_USERS,
   expect,
   ownerTest,
   removeSyntheticUser,
@@ -18,6 +19,7 @@ import {
 } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectTopRowFits } from "./fixtures/header";
 import {
   expectSubscribed,
   FrameSchema,
@@ -470,7 +472,8 @@ const ARRIVAL_ANIMATIONS: readonly string[] = [
   "count-up",
   "bar-fill",
   "spark-ping",
-  "live-pulse",
+  "live-receive",
+  "live-receive-dot",
 ];
 
 // A highlight clears after ARRIVAL_HIGHLIGHT_MS (4 s, src/lib/realtime/arrivals.ts); this leaves
@@ -479,6 +482,13 @@ const HIGHLIGHT_CLEARED_MS = 10_000;
 
 // The live indicator's dot has no fill unless the channel is live (src/components/app/arrivals.tsx).
 const NO_FILL = "rgba(0, 0, 0, 0)";
+// The live dot's green while live and the coral it holds after an arrival under reduced motion
+// (--success and --accent in src/app/globals.css).
+const GREEN = "rgb(62, 207, 142)";
+const CORAL = "rgb(255, 93, 59)";
+
+// The account link's name in the header, for the top-row fit check.
+const OWNER_ACCOUNT = `Account: ${E2E_USERS.owner.userName}`;
 
 /**
  * Records the name of every arrival animation that starts on the page, from the first document
@@ -524,11 +534,13 @@ ownerTest.describe("arriving data", () => {
       const announcements = await recordAnnouncements(page);
       const indicator = page.getByRole("button", { name: "Live updates" });
       await expect(indicator).toBeVisible();
-      // Subscribed: the name is exactly "Live updates" and the visible word says Live.
-      await expect(indicator).toHaveAccessibleName("Live updates");
+      // Subscribed: the name is "Live updates" with the one seeded connection, and the visible word says Live.
+      await expect(indicator).toHaveAccessibleName("Live updates, 1 connected");
       await expect(indicator.getByText("Live", { exact: true })).toBeVisible();
       await expect(page.getByTestId("live-dot")).not.toHaveCSS("background-color", NO_FILL);
-      await expect(page.getByTestId("live-pulse")).toHaveCount(0);
+      await expect(page.getByTestId("live-receive")).toHaveCount(0);
+      // Ready: the slow ring breathes while live; it is not an arrival animation.
+      await expect(page.getByTestId("live-ready")).toHaveCount(1);
       expect(await animations()).toEqual([]);
 
       const title = `Arriving event ${randomUUID().slice(0, 8)}`;
@@ -537,7 +549,7 @@ ownerTest.describe("arriving data", () => {
       const label = row.getByText(/^,?\s*New$/);
       await expect(label).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId("arrival-announcement")).toHaveText("1 new event.");
-      await expect.poll(animations).toEqual(expect.arrayContaining(["live-pulse", "feed-content-in", "feed-flash"]));
+      await expect.poll(animations).toEqual(expect.arrayContaining(["live-receive", "feed-content-in", "feed-flash"]));
       // The row that was already there is not marked.
       const earlier = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Earlier event" }) });
       await expect(earlier.getByText(/^,?\s*New$/)).toHaveCount(0);
@@ -625,22 +637,28 @@ ownerTest.describe("arriving data", () => {
       const indicator = page.getByRole("button", { name: "Live updates" });
       const dot = page.getByTestId("live-dot");
 
-      // Connecting: the join is unanswered, so the word, the name, and the hollow dot agree.
-      await expect(indicator).toHaveAccessibleName("Live updates, connecting");
+      // Connecting: the join is unanswered, so the word, the name, and the hollow dot agree. The
+      // workspace has no connections, which the name and the tooltip say as well.
+      await expect(indicator).toHaveAccessibleName("Live updates, connecting, 0 connected");
       await expect(indicator.getByText("Connecting", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
+      // The ready ring says live; it never breathes while connecting or offline.
+      await expect(page.getByTestId("live-ready")).toHaveCount(0);
       await expect.poll(() => held.length).toBeGreaterThan(0);
 
       // Offline: Realtime refuses the join. The client keeps rejoining, refused each time.
       refusing = true;
       for (const refuse of held.splice(0)) refuse();
-      await expect(indicator).toHaveAccessibleName("Live updates, offline");
+      await expect(indicator).toHaveAccessibleName("Live updates, offline, 0 connected");
       await expect(indicator.getByText("Offline", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
+      await expect(page.getByTestId("live-ready")).toHaveCount(0);
       await indicator.focus();
-      await expect(page.getByRole("tooltip")).toHaveText(
+      // Two paragraphs: the live status, then the connections (the workspace has none).
+      await expect(page.getByRole("tooltip").getByRole("paragraph")).toHaveText([
         "Live updates stopped. Trying to reconnect; reload the page if this does not clear.",
-      );
+        "No connections yet. Add one on the Connections page.",
+      ]);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
       await page.keyboard.press("Escape");
@@ -671,7 +689,7 @@ ownerTest.describe("arriving data", () => {
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
       await expect
         .poll(animations)
-        .toEqual(expect.arrayContaining(["live-pulse", "count-up", "alert-glow", "spark-ping"]));
+        .toEqual(expect.arrayContaining(["live-receive", "count-up", "alert-glow", "spark-ping"]));
       await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
 
       // Changing the trend period is navigation, not arrival: nothing new animates.
@@ -865,8 +883,13 @@ ownerTest.describe("arriving data", () => {
       await expectSubscribed(live);
       const announcements = await recordAnnouncements(page);
       await expect(usd.getByText("Updated", { exact: true })).toHaveCount(0);
+      // No ring breathes under reduced motion.
+      await expect(page.getByTestId("live-ready")).toBeHidden();
 
       await updateMoneySnapshot(snapshotId, 5_000);
+      // The live dot holds the arrival's coral instead of rippling; asserted first, because its 4 s
+      // start at the batch, before the refreshed label below.
+      await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", CORAL, { timeout: LIVE_TIMEOUT_MS });
       await expect(usd.getByText("Updated", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(usd).toContainText("$50.00");
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
@@ -876,6 +899,8 @@ ownerTest.describe("arriving data", () => {
 
       // The static label clears on its own; nothing moved, scaled, or counted on the way.
       await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
+      // And returns to green with the label.
+      await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", GREEN);
       expect(await animations()).toEqual([]);
       expect(await announcements()).toHaveLength(1);
     } finally {
@@ -946,6 +971,131 @@ ownerTest.describe("arriving data", () => {
       await expect(chips).toHaveCount(1);
       await expect(page).toHaveURL(/provider=github/);
       expect(await glowing.count()).toBe(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("lists the workspace's connections, marks one needing attention, and follows a status change", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Live indicator connections");
+    try {
+      // One insert gives every row the same default created_at, and the header lists connections
+      // by created_at then id, so each row gets its own minute to pin the order they connected in.
+      const connectedFrom = Date.now() - 60 * 60_000;
+      const { data: rows, error } = await adminClient()
+        .from("connections")
+        .insert(
+          (
+            [
+              ["vercel", "active", "Acme production"],
+              ["github", "needs_attention", "acme-org"],
+              ["stripe", "active", "Acme billing"],
+              ["resend", "revoked", "Old mailer"],
+            ] as const
+          ).map(([provider, status, display_name], index) => ({
+            workspace_id: workspace.id,
+            provider,
+            status,
+            display_name,
+            poll_interval_seconds: 3_600,
+            created_at: new Date(connectedFrom + index * 60_000).toISOString(),
+          })),
+        )
+        .select("id, display_name");
+      if (error) throw new Error(`Seeding connections failed (code ${error.code}).`);
+      const github = rows.find((row) => row.display_name === "acme-org");
+      if (!github) throw new Error("The seeded GitHub connection is missing.");
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      if (process.env.PW_PR_EVIDENCE === "1") await page.emulateMedia({ reducedMotion: "reduce" });
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await expectSubscribed(live);
+      const indicator = page.getByRole("button", { name: /^Live updates/ });
+      // The disconnected connection is neither counted nor listed; the attention mark is a shape, named too.
+      await expect(indicator).toHaveAccessibleName("Live updates, 2 connected, 1 needs attention");
+      await expect(indicator.getByText("2 connected", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("live-attention")).toBeVisible();
+
+      await indicator.focus();
+      const tooltip = page.getByRole("tooltip");
+      await expect(tooltip).toContainText("Connections: 2 connected, 1 needs attention.");
+      const items = tooltip.getByRole("list", { name: "Connections" }).getByRole("listitem");
+      // Problems first, then in the order they were connected.
+      await expect(items).toHaveText([/acme-org.*Needs attention/, /Acme production.*Active/, /Acme billing.*Active/]);
+      await expect(items.first().getByRole("img", { name: "GitHub" })).toBeVisible();
+      await expect(tooltip).not.toContainText("Old mailer");
+      await expectNoAxeViolations(page);
+      if (process.env.PW_PR_EVIDENCE === "1") {
+        await page.screenshot({
+          path: "pr-evidence/after/live-indicator-1280.png",
+          clip: { x: 480, y: 0, width: 800, height: 340 },
+          animations: "disabled",
+        });
+      }
+      await page.keyboard.press("Escape");
+      await expect(tooltip).toBeHidden();
+
+      // Opened again by focus after leaving (Escape dismissed it until focus leaves), the tooltip
+      // stays inside the viewport at this width.
+      async function expectTooltipOnScreen(width: number): Promise<void> {
+        await page.setViewportSize({ width, height: 800 });
+        await indicator.blur();
+        await indicator.focus();
+        await expect(tooltip).toBeVisible();
+        const box = await tooltip.boundingBox();
+        if (box === null) throw new Error("The tooltip is not rendered.");
+        expect(box.x, `tooltip left edge at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `tooltip right edge at ${width}px`).toBeLessThanOrEqual(width);
+      }
+
+      // With the count and the attention mark showing, the top row still fits where each appears,
+      // and the tooltip stays on screen where it moves from the row to the button.
+      await page.setViewportSize({ width: 1024, height: 800 });
+      await expectTopRowFits(page, OWNER_ACCOUNT, { adminLink: true });
+      await page.setViewportSize({ width: 640, height: 800 });
+      await expectTopRowFits(page, OWNER_ACCOUNT);
+      for (const width of [640, 767, 768]) await expectTooltipOnScreen(width);
+
+      // A sync fixes the connection: the header reads the connections again on the live refresh.
+      const { error: updateError } = await adminClient().from("connections").update({ status: "active" }).eq("id", github.id);
+      if (updateError) throw new Error(`Updating the connection failed (code ${updateError.code}).`);
+      await expect(indicator).toHaveAccessibleName("Live updates, 3 connected", { timeout: LIVE_TIMEOUT_MS });
+      await expect(page.getByTestId("live-attention")).toHaveCount(0);
+      // A change to the connection's own row is not data received from it. Read once, right as the
+      // refresh lands: a retrying "not" would also pass once a wrong 4 s label had cleared.
+      const receivingRow = items.filter({ hasText: "acme-org" });
+      expect(await receivingRow.textContent()).not.toContain("Receiving");
+
+      // An event from the GitHub connection: its row says so, no other row does, and it clears.
+      const { data: account, error: accountError } = await adminClient()
+        .from("external_accounts")
+        .insert({ workspace_id: workspace.id, connection_id: github.id, external_id: "acme-org", display_name: "acme-org", kind: "account" })
+        .select("id")
+        .single();
+      if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+      await insertEvent({ workspaceId: workspace.id, connectionId: github.id, accountId: account.id }, "Push to main");
+      // Asserted before anything else, because the 4 s run from the batch, not from the refresh.
+      await expect(receivingRow).toContainText("Receiving", { timeout: LIVE_TIMEOUT_MS });
+      expect(await items.filter({ hasText: "Acme billing" }).textContent()).not.toContain("Receiving");
+      await expect(receivingRow).not.toContainText("Receiving", { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Disconnected and connected again, the row mounts afresh: the batch it received data in is
+      // in the past, so it does not say "Receiving" again.
+      for (const status of ["revoked", "active"] as const) {
+        const { error: statusError } = await adminClient().from("connections").update({ status }).eq("id", github.id);
+        if (statusError) throw new Error(`Updating the connection failed (code ${statusError.code}).`);
+        await expect(items).toHaveCount(status === "revoked" ? 2 : 3, { timeout: LIVE_TIMEOUT_MS });
+      }
+      expect(await receivingRow.textContent()).not.toContain("Receiving");
+
+      // On a phone, too.
+      await expectTooltipOnScreen(320);
+      if (process.env.PW_PR_EVIDENCE === "1") {
+        await page.screenshot({ path: "pr-evidence/after/live-indicator-320.png", clip: { x: 0, y: 0, width: 320, height: 420 } });
+      }
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -14,9 +14,11 @@ import {
   accrued,
   between,
   chance,
-  countOf,
+  countAtVolume,
   DAY_MS,
   instantInSlot,
+  laneParts,
+  lanesAt,
   SLOT_MS,
   simulatedEndpoint,
   unit,
@@ -28,13 +30,15 @@ import {
  * Simulated Sentry organization with three projects. Each project takes in a few hundred errors an
  * hour (more in the UTC working day), filters about a tenth, and on some days hits a rate limit
  * for an hour. About one new issue an hour, a regression or a resolution every hour or two, and a
- * release every 20 minutes, so a 30 minute backfill always holds at least one event per project.
- * Everything goes through the real adapter's metric and event builders, so keys, titles,
- * severities, and dedupe keys match a real sync. No sentry.io links: they would point nowhere.
+ * release every 20 minutes, so a 30 minute backfill always holds at least one event per project. A
+ * higher event volume (#383) multiplies the issue events; releases keep their cadence. Everything
+ * goes through the real adapter's metric and event builders, so keys, titles, severities, and
+ * dedupe keys match a real sync. No sentry.io links: they would point nowhere.
  */
 
 const PROJECTS = ["web", "api", "ios"] as const;
-// One release per project every 120 slots (20 minutes), at an offset fixed per project.
+// One release per project every 120 slots (20 minutes), at an offset fixed per project. A cadence,
+// not a chance, so the event volume does not scale it.
 const RELEASE_EVERY_SLOTS = 120;
 const ENDPOINT = simulatedEndpoint("sentry", "/api/0/organizations/{organization}/stats_v2/");
 
@@ -72,11 +76,18 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
   return errorVolumeMetrics(counts, { type: "period", start: new Date(start), end: at }, accountId, at, ENDPOINT);
 }
 
-function issue(accountId: string, slot: number, ...parts: readonly (string | number)[]): IssueSnapshot {
+/**
+ * An issue first seen in `slot`. `lane` is which of the slot's occurrences it is, a volume lane or a
+ * later issue created in the same slot; above 0 it joins the id as two more digits, so no two events
+ * of one kind (created, regressed, resolved) in one slot share an issue id, and none shares one with
+ * the project's default volume issues, which are shorter.
+ */
+function issue(accountId: string, slot: number, lane: number, ...parts: readonly (string | number)[]): IssueSnapshot {
   const level = unit(accountId, slot, ...parts, "level");
+  const laneDigits = lane === 0 ? "" : String(lane).padStart(2, "0");
   return {
     // Account first, so two projects or two simulated connections never share an issue id.
-    id: `${accountId}${slot}${between(0, 9, accountId, slot, ...parts, "id")}`,
+    id: `${accountId}${slot}${between(0, 9, accountId, slot, ...parts, "id")}${laneDigits}`,
     shortId: `${projectOf(accountId).toUpperCase()}-${Math.floor(unit(accountId, slot, ...parts, "short") * 36 ** 3).toString(36).toUpperCase()}`,
     level: level < 0.1 ? "fatal" : level < 0.8 ? "error" : "warning",
     firstSeen: instantInSlot(slot, accountId, ...parts, "first-seen"),
@@ -84,22 +95,24 @@ function issue(accountId: string, slot: number, ...parts: readonly (string | num
   };
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const windowKey = new Date(slot * SLOT_MS).toISOString();
 
-  // About 1.4 new issues an hour (360 slots).
-  const created = countOf([0.004], accountId, "created", slot);
+  // About 1.4 new issues an hour (360 slots), times the volume.
+  const created = countAtVolume([0.004], volume, accountId, "created", slot);
   for (let index = 0; index < created; index += 1) {
-    events.push(issueCreatedEvent(issue(accountId, slot, "created", index), accountId));
+    events.push(issueCreatedEvent(issue(accountId, slot, index, "created", index), accountId));
   }
-  if (chance(0.0015, accountId, "regressed", slot)) {
-    const regressed = issue(accountId, slot, "regressed");
-    events.push(issueStatusEvent("regressed", regressed, accountId, instantInSlot(slot, accountId, "regressed-at"), windowKey));
+  for (const lane of lanesAt(0.0015, volume, accountId, "regressed", slot)) {
+    const regressed = issue(accountId, slot, lane, ...laneParts(lane, "regressed"));
+    const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "regressed-at"));
+    events.push(issueStatusEvent("regressed", regressed, accountId, detectedAt, windowKey));
   }
-  if (chance(0.003, accountId, "resolved", slot)) {
-    const resolved = issue(accountId, slot, "resolved");
-    events.push(issueStatusEvent("resolved", resolved, accountId, instantInSlot(slot, accountId, "resolved-at"), windowKey));
+  for (const lane of lanesAt(0.003, volume, accountId, "resolved", slot)) {
+    const resolved = issue(accountId, slot, lane, ...laneParts(lane, "resolved"));
+    const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "resolved-at"));
+    events.push(issueStatusEvent("resolved", resolved, accountId, detectedAt, windowKey));
   }
 
   const offset = between(0, RELEASE_EVERY_SLOTS - 1, accountId, "release-offset");

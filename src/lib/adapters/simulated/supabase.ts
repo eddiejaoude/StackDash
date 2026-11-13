@@ -12,11 +12,13 @@ import {
 
 import {
   between,
-  countOf,
+  countAtVolume,
   DAY_MS,
+  DEFAULT_EVENT_VOLUME,
   HOUR_MS,
   instantInSlot,
   isWeekend,
+  laneParts,
   SLOT_MS,
   SLOTS_PER_HOUR,
   simulatedEndpoint,
@@ -57,23 +59,26 @@ function project(accountId: string): (typeof PROJECTS)[number] {
   return PROJECTS.find((candidate) => accountId.endsWith(candidate.suffix)) ?? PROJECTS[0];
 }
 
-function signupsInSlot(accountId: string, slot: number): number {
+function signupsInSlot(accountId: string, slot: number, volume: number): number {
   const chances = project(accountId).signupChances;
   const scaled = isWeekend(slot * SLOT_MS) ? chances.map((p) => (p * WEEKEND_SIGNUP_PERCENT) / 100) : chances;
-  return countOf(scaled, accountId, "signups", slot);
+  return countAtVolume(scaled, volume, accountId, "signups", slot);
 }
+
+type Incident = { startSlot: number; endSlot: number; service: string };
 
 /**
  * An unhealthy spell of 3 to 9 minutes in the hour starting at `hourMs`, or null when the hour is
  * calm. It starts at least 10 minutes before the hour ends, so it always ends within the same hour.
+ * A spell is a random occurrence, not a schedule, so each volume lane has its own chance of one.
  */
-function incident(accountId: string, hourMs: number): { startSlot: number; endSlot: number; service: string } | null {
-  if (between(0, 99, accountId, "incident", hourMs) >= 6) return null;
-  const startSlot = hourMs / SLOT_MS + between(0, SLOTS_PER_HOUR - 61, accountId, "incident-start", hourMs);
+function incident(accountId: string, hourMs: number, lane: number): Incident | null {
+  if (between(0, 99, ...laneParts(lane, accountId, "incident", hourMs)) >= 6) return null;
+  const startSlot = hourMs / SLOT_MS + between(0, SLOTS_PER_HOUR - 61, ...laneParts(lane, accountId, "incident-start", hourMs));
   return {
     startSlot,
-    endSlot: startSlot + between(18, 54, accountId, "incident-length", hourMs),
-    service: SERVICES[between(0, SERVICES.length - 1, accountId, "incident-service", hourMs)] ?? "auth",
+    endSlot: startSlot + between(18, 54, ...laneParts(lane, accountId, "incident-length", hourMs)),
+    service: SERVICES[between(0, SERVICES.length - 1, ...laneParts(lane, accountId, "incident-service", hourMs))] ?? "auth",
   };
 }
 
@@ -81,11 +86,13 @@ function dailyActiveUsers(accountId: string, dayStartMs: number): number {
   return between(150, 450, accountId, "active-users", dayStartMs);
 }
 
+// One summary a day, as the real adapter reports it. A calendar event, so it reads the same at any
+// volume (#383): it counts the default volume's signups, in step with the metrics, which do not scale.
 function dailySummary(accountId: string, dayStartMs: number): ActivityEvent {
   const firstSlot = dayStartMs / SLOT_MS;
   let signups = 0;
   for (let slot = firstSlot; slot < firstSlot + DAY_MS / SLOT_MS; slot += 1) {
-    signups += signupsInSlot(accountId, slot);
+    signups += signupsInSlot(accountId, slot, DEFAULT_EVENT_VOLUME);
   }
   const logins = signups + 2 * dailyActiveUsers(accountId, dayStartMs);
   const logouts = Math.floor(logins / 4);
@@ -107,32 +114,36 @@ function healthEvent(
   typeId: Extract<SupabaseTypeId, `supabase.project.${string}`>,
   slot: number,
   service: string,
+  lane: number,
 ): ActivityEvent {
   const { name } = project(accountId);
   const unhealthy = typeId === "supabase.project.unhealthy";
   return {
     typeId,
-    occurredAt: instantInSlot(slot, accountId, typeId),
+    occurredAt: instantInSlot(slot, ...laneParts(lane, accountId, typeId)),
     severity: unhealthy ? "critical" : "success",
     title: unhealthy ? `${name} is unhealthy` : `${name} is healthy again`,
     ...(unhealthy ? { body: `Unhealthy services: ${service}.` } : {}),
     externalAccountId: accountId,
-    dedupeKey: `${typeId}:${accountId}:${slot}`,
+    dedupeKey: `${typeId}:${accountId}:${laneParts(lane, slot).join(":")}`,
   };
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+// Signups past the default volume's follow them in `index`, which keeps every dedupe key in the slot apart.
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const startMs = slot * SLOT_MS;
   const events: ActivityEvent[] = [];
   if (startMs % DAY_MS === 0) events.push(dailySummary(accountId, startMs - DAY_MS));
 
-  const candidate = incident(accountId, Math.floor(startMs / HOUR_MS) * HOUR_MS);
-  if (candidate !== null) {
-    if (candidate.startSlot === slot) events.push(healthEvent(accountId, "supabase.project.unhealthy", slot, candidate.service));
-    if (candidate.endSlot === slot) events.push(healthEvent(accountId, "supabase.project.healthy", slot, candidate.service));
+  const hourMs = Math.floor(startMs / HOUR_MS) * HOUR_MS;
+  for (let lane = 0; lane < volume; lane += 1) {
+    const candidate = incident(accountId, hourMs, lane);
+    if (candidate === null) continue;
+    if (candidate.startSlot === slot) events.push(healthEvent(accountId, "supabase.project.unhealthy", slot, candidate.service, lane));
+    if (candidate.endSlot === slot) events.push(healthEvent(accountId, "supabase.project.healthy", slot, candidate.service, lane));
   }
 
-  const signups = signupsInSlot(accountId, slot);
+  const signups = signupsInSlot(accountId, slot, volume);
   for (let index = 0; index < signups; index += 1) {
     events.push({
       typeId: "supabase.auth.signup",
