@@ -946,7 +946,7 @@ isOneToOne: false
                            },
 "timeline_activity_buckets":
 { Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_title_pattern"?: string,"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
-              "bucket_end": string,"bucket_start": string,"events": number
+              "bucket_end": string,"bucket_start": string,"critical_events": number,"events": number,"warning_events": number
             }[]
                            },
 "timeline_connection_event_counts":
