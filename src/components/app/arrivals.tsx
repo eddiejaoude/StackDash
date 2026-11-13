@@ -376,10 +376,16 @@ function LiveConnectionsList({ connections }: { connections: LiveConnectionsRead
  * motion, where the ripple is hidden, and for a screen reader reading the description. Under the
  * name, not beside it, so a wide status badge never squeezes the name that tells two connections
  * of one provider apart.
+ *
+ * A row that mounts later (its connection sorts into the capped list, or the list loads after a
+ * failed read) only counts batches from its own mount on: the highlight timer lives in the row, so
+ * a batch from before it would otherwise start a fresh 4 s on mount.
  */
 function LiveConnectionRow({ connection }: { connection: LiveConnection }) {
-  const receivedIn = useArrivalBatch().receivedIn.get(connection.id) ?? 0;
-  const receiving = useArrivalHighlight(receivedIn, receivedIn > 0);
+  const batch = useArrivalBatch();
+  const [mountedIn] = useState(batch.number);
+  const receivedIn = batch.receivedIn.get(connection.id) ?? 0;
+  const receiving = useArrivalHighlight(receivedIn, receivedIn > 0 && receivedIn >= mountedIn);
   return (
     <li className="flex items-center gap-2">
       <ProviderMark provider={connection.provider} size="sm" labeled />
