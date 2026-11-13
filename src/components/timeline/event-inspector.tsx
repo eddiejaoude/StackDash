@@ -180,7 +180,7 @@ export function EventInspectorLink({ eventId, children }: { eventId: string; chi
         event.preventDefault();
         inspector.select(eventId, ref.current);
       }}
-      className="after:absolute after:inset-0 after:rounded-xl hover:text-accent aria-[current=location]:text-accent focus-visible:after:outline-2 focus-visible:after:outline-accent"
+      className="after:absolute after:inset-0 after:rounded-md hover:text-accent aria-[current=location]:text-accent focus-visible:after:outline-2 focus-visible:after:outline-accent"
     >
       {children}
     </Link>
