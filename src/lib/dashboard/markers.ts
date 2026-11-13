@@ -228,6 +228,7 @@ export function markerTimelineHref(
       severities: [],
       from,
       to,
+      timeRange: null,
       search: null,
       cursor: null,
       scope: own ? { ...scope, providers: [marker.provider] } : scope,

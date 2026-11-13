@@ -78,6 +78,7 @@ export function TimelineFilters({
     query.severities.length +
     (query.from === null ? 0 : 1) +
     (query.to === null ? 0 : 1) +
+    (query.timeRange === null ? 0 : 1) +
     (query.search === null ? 0 : 1);
   return (
     <ScopeFilter
@@ -86,8 +87,14 @@ export function TimelineFilters({
       options={scopeOptions}
       status={status}
       extraActiveCount={extraActiveCount}
-      resetKey={JSON.stringify([query.types, query.severities, query.from, query.to, query.search])}
+      resetKey={JSON.stringify([query.types, query.severities, query.from, query.to, query.search, query.timeRange])}
     >
+      {query.timeRange === null ? null : (
+        <>
+          <input type="hidden" name="start" value={query.timeRange.from} />
+          <input type="hidden" name="until" value={query.timeRange.toExclusive} />
+        </>
+      )}
       <label className="block text-sm font-medium">
         Search event titles
         <input

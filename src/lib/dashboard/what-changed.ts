@@ -167,6 +167,7 @@ export function whatChanged(
           severities: [],
           from: anomaly.date,
           to: anomaly.date,
+          timeRange: null,
           search: null,
           cursor: null,
           scope: { ...link.scope, providers: [anomaly.provider] },

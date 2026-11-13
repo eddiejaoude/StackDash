@@ -18,6 +18,7 @@ import {
   parseTimelineSearchParams,
   severityBadge,
   timelineHref,
+  timelineOccurredRange,
   titleSearchPattern,
   type TimelineCursor,
 } from "./query";
@@ -146,6 +147,7 @@ describe("parseTimelineSearchParams", () => {
       severities: ["critical", "warning"],
       from: "2026-06-01",
       to: "2026-06-15",
+      timeRange: null,
       search: "Deploy failed",
       cursor: CURSOR,
       scope: { providers: ["vercel"], projects: ["unassigned", PROJECT_ID], accounts: [ACCOUNT_ID] },
@@ -158,6 +160,7 @@ describe("parseTimelineSearchParams", () => {
       severities: [],
       from: null,
       to: null,
+      timeRange: null,
       search: null,
       cursor: null,
       scope: EMPTY_SCOPE,
@@ -182,6 +185,7 @@ describe("parseTimelineSearchParams", () => {
       severities: ["info"],
       from: null,
       to: null,
+      timeRange: null,
       search: null,
       cursor: null,
       scope: { providers: ["github"], projects: [], accounts: [] },
@@ -211,6 +215,56 @@ describe("parseTimelineSearchParams", () => {
 
   it("drops a title search one character too long", () => {
     expect(parseTimelineSearchParams({ q: "a".repeat(MAX_SEARCH_LENGTH + 1) }).search).toBeNull();
+  });
+});
+
+describe("activity time selection", () => {
+  const start = "2026-10-25T01:00:00.000Z";
+  const until = "2026-10-25T02:00:00.000Z";
+
+  it("round trips exact bounds alongside other filters and pagination", () => {
+    const query = parseTimelineSearchParams({ start, until, q: "deploy", severity: "critical" });
+    expect(query.timeRange).toEqual({ from: start, toExclusive: until });
+    expect(hasActiveFilters(query)).toBe(true);
+    const params = new URL(timelineHref("/timeline", query, CURSOR), "https://example.com").searchParams;
+    expect(parseTimelineSearchParams(Object.fromEntries(params))).toEqual({ ...query, cursor: CURSOR });
+  });
+
+  it("normalizes offsets across the repeated London hour without losing the instant", () => {
+    expect(parseTimelineSearchParams({
+      start: "2026-10-25T01:00:00+01:00", until: "2026-10-25T01:00:00Z",
+    }).timeRange).toEqual({ from: "2026-10-25T00:00:00.000Z", toExclusive: start });
+  });
+
+  it.each([
+    { start }, { until }, { start, until: start }, { start: until, until: start },
+    { start: "0000-01-01T00:00:00Z", until },
+    { start, until: "9999-12-31T23:59:59-01:00" },
+    { start: "2026-02-30T00:00:00Z", until },
+    { start: "2026-10-25T00:00:00", until },
+    { start: "2026-10-25T00:00:00.000001Z", until },
+    { start: "now", until },
+    { start: "2026-10-25T00:00:00Z),id.gt.(x", until },
+  ])("ignores an invalid or incomplete pair: %j", (params) => {
+    expect(parseTimelineSearchParams(params).timeRange).toBeNull();
+  });
+
+  it("intersects calendar days with a wider bucket rather than broadening them", () => {
+    const query = parseTimelineSearchParams({
+      from: "2026-10-25", to: "2026-10-25",
+      start: "2026-10-24T00:00:00Z", until: "2026-10-27T00:00:00Z",
+    });
+    expect(timelineOccurredRange(query)).toEqual({
+      from: "2026-10-24T23:00:00.000Z", toExclusive: "2026-10-26T00:00:00.000Z",
+    });
+    expect(timelineOccurredRange({ ...query, from: null, to: null })).toEqual(query.timeRange);
+  });
+
+  it("keeps a disjoint intersection empty and honors narrower buckets", () => {
+    const query = parseTimelineSearchParams({ from: "2026-10-26", start, until });
+    expect(timelineOccurredRange(query)).toEqual({ from: "2026-10-26T00:00:00.000Z", toExclusive: until });
+    expect(timelineOccurredRange({ ...query, from: "2026-10-25", to: "2026-10-25" })).toEqual(query.timeRange);
+    expect(timelineOccurredRange({ ...query, timeRange: null })).toEqual(occurredRange(query.from, query.to));
   });
 });
 
@@ -257,7 +311,7 @@ describe("severityBadge", () => {
 });
 
 describe("timelineHref and hasActiveFilters", () => {
-  const empty = { types: [], severities: [], from: null, to: null, search: null, cursor: null, scope: EMPTY_SCOPE };
+  const empty = parseTimelineSearchParams({});
 
   it("returns the bare path with no filters", () => {
     expect(timelineHref("/w/abc/timeline", empty, null)).toBe("/w/abc/timeline");

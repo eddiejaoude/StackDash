@@ -1,11 +1,13 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
+import { tabTo } from "./fixtures/keyboard";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 type AccountInsert = Database["public"]["Tables"]["external_accounts"]["Insert"];
@@ -484,6 +486,9 @@ viewerTest.describe("timeline as a viewer", () => {
   });
 });
 
+/** When `seedGitHubProject`'s releases happened: 23:00, 22:00, and 21:00 UTC on June 15. */
+const GITHUB_RELEASE_MS = [0, 1, 2].map((index) => NEWEST_MS - (index * 2 + 1) * (HOUR_MS / 2));
+
 /**
  * Adds a project "Checkout" holding a GitHub organization with three release events, beside the
  * 60 unassigned Vercel events from `seedTimeline`.
@@ -504,7 +509,7 @@ async function seedGitHubProject(workspace: TestWorkspace): Promise<void> {
     kind: "organization",
     projectId: project.id,
   });
-  const events: EventInsert[] = [0, 1, 2].map((index) => ({
+  const events: EventInsert[] = GITHUB_RELEASE_MS.map((occurredMs, index) => ({
     workspace_id: workspace.id,
     connection_id: connectionId,
     external_account_id: accountId,
@@ -514,7 +519,7 @@ async function seedGitHubProject(workspace: TestWorkspace): Promise<void> {
     title: `GitHub release ${index}`,
     body: null,
     url: null,
-    occurred_at: new Date(NEWEST_MS - (index * 2 + 1) * (HOUR_MS / 2)).toISOString(),
+    occurred_at: new Date(occurredMs).toISOString(),
     dedupe_key: `e2e-timeline-github-${index}`,
   }));
   const { error } = await admin.from("activity_events").insert(events);
@@ -1009,4 +1014,361 @@ ownerTest.describe("timeline event inspector", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+});
+
+// #377: the activity overview counts every matching event in at most 12 equal buckets.
+const SEEDED_VERCEL_MS = Array.from({ length: EVENT_COUNT }, (_, index) => NEWEST_MS - index * HOUR_MS);
+const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const MINUTE_MS = 60 * 1000;
+const LONDON_MINUTE = String.raw`\d{4}-\d{2}-\d{2} \d{2}:\d{2} BST`;
+
+function activityOverview(page: Page) {
+  return page.getByRole("region", { name: "Activity overview", exact: true });
+}
+
+function bucketLinks(page: Page) {
+  return activityOverview(page).getByRole("link", { name: /^Show \d+ events from / });
+}
+
+/** A bucket link, its position among the bucket links, and the half-open range its URL selects. */
+type Bucket = Readonly<{ link: Locator; position: number; href: string; start: number; until: number }>;
+
+/**
+ * Reads every bucket link, oldest first. Each selects a canonical millisecond UTC `start` and an
+ * exclusive `until`, and never carries the feed's cursor.
+ */
+async function readBuckets(page: Page): Promise<Bucket[]> {
+  await expect(bucketLinks(page).first()).toBeVisible();
+  const buckets: Bucket[] = [];
+  for (const [position, link] of (await bucketLinks(page).all()).entries()) {
+    const href = await link.getAttribute("href");
+    if (href === null) throw new Error(`Bucket ${position} has no link.`);
+    const params = new URL(href, page.url()).searchParams;
+    const start = params.get("start");
+    const until = params.get("until");
+    if (start === null || until === null) throw new Error(`Bucket ${position} selects no time range: ${href}`);
+    expect(start).toMatch(CANONICAL_INSTANT);
+    expect(until).toMatch(CANONICAL_INSTANT);
+    expect(params.has("cursor"), `bucket ${position} keeps the cursor`).toBe(false);
+    buckets.push({ link, position, href, start: Date.parse(start), until: Date.parse(until) });
+  }
+  return buckets.sort((a, b) => a.start - b.start);
+}
+
+function countIn(times: readonly number[], bucket: Pick<Bucket, "start" | "until">): number {
+  return times.filter((time) => time >= bucket.start && time < bucket.until).length;
+}
+
+/** The first and last items, failing when there are none. */
+function firstAndLast<T>(items: readonly T[], what: string): readonly [T, T] {
+  const first = items.at(0);
+  const last = items.at(-1);
+  if (first === undefined || last === undefined) throw new Error(`There are no ${what}.`);
+  return [first, last];
+}
+
+/**
+ * At most 12 contiguous buckets of one whole-minute width; only the last may be clipped. Each link
+ * names how many of `times` its range holds, with London times and their zone.
+ */
+async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly number[]): Promise<void> {
+  expect(buckets.length).toBeLessThanOrEqual(12);
+  const [first] = firstAndLast(buckets, "buckets");
+  const width = first.until - first.start;
+  expect(width).toBeGreaterThanOrEqual(MINUTE_MS);
+  expect(width % MINUTE_MS).toBe(0);
+  for (const [index, bucket] of buckets.entries()) {
+    const next = buckets[index + 1];
+    if (next === undefined) {
+      expect(bucket.until).toBeGreaterThan(bucket.start);
+      expect(bucket.until - bucket.start).toBeLessThanOrEqual(width);
+    } else {
+      expect(bucket.until - bucket.start).toBe(width);
+      expect(next.start).toBe(bucket.until);
+    }
+    // The seeded week is summer, so London times carry British Summer Time.
+    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${countIn(times, bucket)} events from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
+  }
+}
+
+/** The seeded Vercel event indexes, newest first, whose time falls in the bucket. */
+function vercelIndexesIn(bucket: Pick<Bucket, "start" | "until">, keep: (index: number) => boolean = () => true): number[] {
+  return SEEDED_VERCEL_MS.flatMap((time, index) => (time >= bucket.start && time < bucket.until && keep(index) ? [index] : []));
+}
+
+/** Exactly these seeded Vercel events are listed, and their neighbors outside the bucket are not. */
+async function expectFeedHolds(page: Page, indexes: readonly number[], extra = 0): Promise<void> {
+  await expect(eventItems(page)).toHaveCount(indexes.length + extra);
+  for (const index of indexes) await expect(eventHeading(page, index)).toBeVisible();
+  const [newest, oldest] = firstAndLast(indexes, "expected events");
+  const outside = [newest - 1, oldest + 1].filter((index) => index >= 0 && index < EVENT_COUNT);
+  for (const index of outside) await expect(eventHeading(page, index)).toHaveCount(0);
+}
+
+async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> {
+  const selected = activityOverview(page).locator('[aria-current="true"]');
+  const clear = activityOverview(page).getByRole("link", { name: "Clear time selection", exact: true });
+  if (bucket === null) {
+    await expect(selected).toHaveCount(0);
+    await expect(clear).toHaveCount(0);
+    return;
+  }
+  await expect(selected).toHaveCount(1);
+  await expect(bucketLinks(page).nth(bucket.position)).toHaveAttribute("aria-current", "true");
+  await expect(clear).toBeVisible();
+}
+
+/** The URL's filters, ignoring the time selection and the page. */
+function filterParams(url: string): string[] {
+  return [...new URL(url).searchParams.entries()]
+    .filter(([key]) => !["start", "until", "cursor"].includes(key))
+    .map(([key, value]) => `${key}=${value}`)
+    .sort();
+}
+
+/**
+ * The page never scrolls sideways and the overview region does not overflow (on a narrow screen
+ * only its chart scrolls, inside the region); every bucket link and the clear link are at least
+ * 24 by 24 pixels.
+ */
+async function expectOverviewFits(page: Page, width: number): Promise<void> {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  const overview = activityOverview(page);
+  expect(await overview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const targets = [
+    ...(await bucketLinks(page).all()),
+    ...(await overview.getByRole("link", { name: "Clear time selection", exact: true }).all()),
+  ];
+  for (const [index, target] of targets.entries()) {
+    const box = await target.boundingBox();
+    if (box === null) throw new Error(`Overview link ${index} is not rendered.`);
+    expect(box.width, `overview link ${index} width`).toBeGreaterThanOrEqual(24);
+    expect(box.height, `overview link ${index} height`).toBeGreaterThanOrEqual(24);
+  }
+}
+
+const overviewEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
+ownerTest.describe("timeline activity overview", () => {
+  ownerTest("counts all 60 matching events beyond the first page and stays the same while paging", async ({ page }) => {
+    const workspace = await seedTimeline("Overview counts");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const overview = activityOverview(page);
+      await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(eventItems(page)).toHaveCount(50);
+      const buckets = await readBuckets(page);
+      await expectEvenBuckets(buckets, SEEDED_VERCEL_MS);
+      // No dates chosen: the bounds are the oldest event's UTC hour and the hour after the newest.
+      const oldest = NEWEST_MS - (EVENT_COUNT - 1) * HOUR_MS;
+      const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
+      expect(firstBucket.start).toBe(oldest - (oldest % HOUR_MS));
+      expect(lastBucket.until).toBe(NEWEST_MS - (NEWEST_MS % HOUR_MS) + HOUR_MS);
+      await expectSelected(page, null);
+      const hrefs = buckets.map((bucket) => bucket.href);
+
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events" })).toBeVisible();
+      await expect(page).toHaveURL(/[?&]cursor=/);
+      await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+      expect((await readBuckets(page)).map((bucket) => bucket.href)).toEqual(hrefs);
+      await expectSelected(page, null);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("selects a bucket from the keyboard, narrowing the feed and badges, across reload, Back, and Forward", async ({ page }) => {
+    const workspace = await seedTimeline("Overview selection");
+    try {
+      await seedGitHubProject(workspace);
+      const allTimes = [...SEEDED_VERCEL_MS, ...GITHUB_RELEASE_MS];
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const overview = activityOverview(page);
+      await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
+      // Start on an older page: selecting a bucket must drop the cursor.
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(page).toHaveURL(/[?&]cursor=/);
+      const buckets = await readBuckets(page);
+      await expectEvenBuckets(buckets, allTimes);
+      const [oldest, newest] = firstAndLast(buckets, "buckets");
+      const oldestIndexes = vercelIndexesIn(oldest);
+      const newestIndexes = vercelIndexesIn(newest);
+      expect(oldestIndexes.length).toBeGreaterThan(0);
+      expect(countIn(GITHUB_RELEASE_MS, oldest)).toBe(0);
+      const newestReleases = countIn(GITHUB_RELEASE_MS, newest);
+      expect(newestReleases).toBeGreaterThan(0);
+      expect(newestIndexes.length).toBeGreaterThan(newestReleases);
+
+      // Keyboard only: the oldest bucket shows exactly its events, on the first page.
+      await oldest.link.focus();
+      await page.keyboard.press("Enter");
+      const oldestUrl = new URL(oldest.href, page.url()).href;
+      await expect(page).toHaveURL(oldestUrl);
+      await expectFeedHolds(page, oldestIndexes);
+      await expectSelected(page, oldest);
+      // The overview keeps its full context; the badges count only the selected range.
+      await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(bucketLinks(page)).toHaveCount(buckets.length);
+      await expectProviderBadges(page, [`Show only Vercel: ${oldestIndexes.length} events from 1 connection`]);
+
+      await bucketLinks(page).nth(newest.position).click();
+      const newestUrl = new URL(newest.href, page.url()).href;
+      await expect(page).toHaveURL(newestUrl);
+      await expectFeedHolds(page, newestIndexes, newestReleases);
+      await expectSelected(page, newest);
+      const newestBadges = [
+        `Show only Vercel: ${newestIndexes.length} events from 1 connection`,
+        `Show only GitHub: ${newestReleases} events from 1 connection`,
+      ];
+      await expectProviderBadges(page, newestBadges);
+
+      // The selection is the URL: reload, Back, and Forward restore it.
+      await page.reload();
+      await expect(page).toHaveURL(newestUrl);
+      await expectFeedHolds(page, newestIndexes, newestReleases);
+      await expectSelected(page, newest);
+      await expectProviderBadges(page, newestBadges);
+      await page.goBack();
+      await expect(page).toHaveURL(oldestUrl);
+      await expectFeedHolds(page, oldestIndexes);
+      await expectSelected(page, oldest);
+      await expectProviderBadges(page, [`Show only Vercel: ${oldestIndexes.length} events from 1 connection`]);
+      await page.goForward();
+      await expect(page).toHaveURL(newestUrl);
+      await expectSelected(page, newest);
+      await page.goBack();
+      await page.goBack();
+      await expect(page).toHaveURL(/[?&]cursor=/);
+      await expectSelected(page, null);
+      await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("clears only the time selection, keeping the search, severity, provider, and date filters", async ({ page }) => {
+    const workspace = await seedTimeline("Overview clear");
+    try {
+      // London June 13 to 15 holds events 1 to 59; the critical ones are 10, 20, 30, 40, and 50.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&from=2026-06-13&to=2026-06-15&q=Synthetic&provider=vercel`);
+      const filters = filterParams(page.url());
+      const critical = (index: number) => index % 10 === 0 && index > 0;
+      const overview = activityOverview(page);
+      await expect(overview.getByText("5 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(eventItems(page)).toHaveCount(5);
+      const buckets = await readBuckets(page);
+      const criticalTimes = SEEDED_VERCEL_MS.filter((_, index) => critical(index));
+      await expectEvenBuckets(buckets, criticalTimes);
+      // Chosen dates are the bounds: London midnight June 13 to London midnight June 16, zero buckets included.
+      const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
+      expect(firstBucket.start).toBe(Date.UTC(2026, 5, 12, 23));
+      expect(lastBucket.until).toBe(Date.UTC(2026, 5, 15, 23));
+      expect(buckets).toHaveLength(12);
+
+      const busy = buckets.find((bucket) => countIn(criticalTimes, bucket) > 0);
+      if (busy === undefined) throw new Error("No bucket holds a critical event.");
+      await busy.link.click();
+      await expect(page).toHaveURL(new URL(busy.href, page.url()).href);
+      expect(filterParams(page.url())).toEqual(filters);
+      await expectFeedHolds(page, vercelIndexesIn(busy, critical));
+      await expectSelected(page, busy);
+      await expect(overview.getByText("5 matching events across all pages", { exact: true })).toBeVisible();
+
+      await overview.getByRole("link", { name: "Clear time selection", exact: true }).click();
+      await expect(page).not.toHaveURL(/[?&](start|until)=/);
+      expect(filterParams(page.url())).toEqual(filters);
+      await expect(eventItems(page)).toHaveCount(5);
+      for (const index of [10, 20, 30, 40, 50]) await expect(eventHeading(page, index)).toBeVisible();
+      await expectSelected(page, null);
+      await expect(overview.getByText("5 matching events across all pages", { exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows zero matching events, selects an empty period, and ignores an unordered time pair", async ({ page }) => {
+    const workspace = await seedTimeline("Overview empty");
+    try {
+      const overview = activityOverview(page);
+
+      // Nothing matches and no dates bound the overview: no buckets, and a way forward.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=success`);
+      await expect(overview.getByText("0 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(overview).toContainText("No activity matches these filters. Change or clear the filters to see activity.");
+      await expect(bucketLinks(page)).toHaveCount(0);
+
+      // Chosen dates bound it: every bucket is an empty, selectable period.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=success&from=2026-06-15&to=2026-06-15`);
+      await expect(overview.getByText("0 matching events across all pages", { exact: true })).toBeVisible();
+      const buckets = await readBuckets(page);
+      await expectEvenBuckets(buckets, []);
+      expect(buckets).toHaveLength(12);
+      const [quiet] = firstAndLast(buckets, "buckets");
+      await quiet.link.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new URL(quiet.href, page.url()).href);
+      await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
+      await expectSelected(page, quiet);
+
+      // A quiet period outside every bucket: the feed is empty, the overview keeps its context.
+      await page.goto(`/w/${workspace.slug}/timeline?start=2020-01-01T00:00:00.000Z&until=2020-01-01T01:00:00.000Z`);
+      await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
+      await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(overview.locator('[aria-current="true"]')).toHaveCount(0);
+      await overview.getByRole("link", { name: "Clear time selection", exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
+      await expect(eventItems(page)).toHaveCount(50);
+
+      // An unordered pair selects nothing.
+      await page.goto(`/w/${workspace.slug}/timeline?start=2026-06-15T00:00:00.000Z&until=2026-06-14T00:00:00.000Z`);
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expectSelected(page, null);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  for (const width of [1280, 375, 320]) {
+    overviewEvidenceTest(`fits the overview at ${width}px with 24px keyboard targets and no axe violations`, async ({ page }) => {
+      // The same label, clock, and viewport as the baseline feed capture, so before and after compare.
+      const workspace = await seedTimeline("Activity overview");
+      try {
+        await page.clock.setFixedTime(new Date("2026-11-12T12:00:00Z"));
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const overview = activityOverview(page);
+        await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+        await expectOverviewFits(page, width);
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          // Unselected, before any paging, scrolled to the top like the baseline.
+          await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+          await page.screenshot({ path: `pr-evidence/after/overview-${width}.png`, animations: "disabled" });
+        }
+
+        // Tab to the newest bucket: the chart scrolls it into view, and Enter selects it.
+        const buckets = await readBuckets(page);
+        const [, newest] = firstAndLast(buckets, "buckets");
+        await tabTo(page, newest.link, 120);
+        const focused = await newest.link.boundingBox();
+        if (focused === null) throw new Error("The focused bucket is not rendered.");
+        expect(focused.x).toBeGreaterThanOrEqual(0);
+        expect(focused.x + focused.width).toBeLessThanOrEqual(width);
+        await page.keyboard.press("Enter");
+        await expect(page).toHaveURL(new URL(newest.href, page.url()).href);
+        await expectSelected(page, newest);
+        await expectFeedHolds(page, vercelIndexesIn(newest));
+        await expectOverviewFits(page, width);
+        await expectNoAxeViolations(page);
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await overview.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: `pr-evidence/after/overview-selected-${width}.png`, animations: "disabled" });
+        }
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 });

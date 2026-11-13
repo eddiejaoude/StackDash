@@ -26,6 +26,15 @@ follow the current page. Copy an event link to reopen it later, even when it is 
 page or filters; workspace access still applies. Escape or Close event returns to the timeline
 without losing your scroll position or expanded groups.
 
+An activity overview above the feed counts every matching event, not just the loaded page, in up
+to 12 time buckets. Counts follow the provider, project, account, event type, severity, title,
+and whole-day date filters. Without dates, the chart spans the matching events; explicit dates
+keep quiet periods visible. Select a bucket to narrow the feed and provider counts to its exact
+start-inclusive, end-exclusive range. The overview keeps the wider context. Time selections are
+shareable through `start` and `until` URL parameters; **Clear time selection** preserves the
+other filters. Times name the London timezone, including GMT/BST clock changes. Buckets work
+with the keyboard, and the chart scrolls horizontally on narrow screens.
+
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
 integration comes from the provider's documentation and none has been tried with a real account

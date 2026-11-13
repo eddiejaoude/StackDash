@@ -12,13 +12,14 @@ import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
 import { EventInspector } from "@/components/timeline/event-inspector";
+import { ActivityOverview } from "@/components/timeline/activity-overview";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
-import { getTimelineEvent, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { getTimelineEvent, listTimelineActivity, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
@@ -53,12 +54,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const basePath = workspacePath(workspace.slug, "timeline");
 
   const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
-  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent] = await Promise.all([
+  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent, activity] = await Promise.all([
     listTimelineEvents(workspace.id, filters),
     listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
     getWorkspaceScope(workspace.id),
     selectedEventId === null ? null : getTimelineEvent(workspace.id, selectedEventId),
+    listTimelineActivity(workspace.id, filters),
   ]);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
@@ -163,6 +165,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
+      <ActivityOverview buckets={activity} query={query} basePath={basePath} />
 
       {count === 0 ? (
         filtered ? (

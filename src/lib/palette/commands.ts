@@ -70,7 +70,7 @@ function dashboardHref(basePath: string, scope: ScopeFilters): string {
 }
 
 function timelineFor(basePath: string, scope: ScopeFilters, types: string[]): string {
-  return timelineHref(basePath, { types, severities: [], from: null, to: null, search: null, cursor: null, scope }, null);
+  return timelineHref(basePath, { types, severities: [], from: null, to: null, timeRange: null, search: null, cursor: null, scope }, null);
 }
 
 /**
