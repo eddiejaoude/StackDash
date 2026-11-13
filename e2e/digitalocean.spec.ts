@@ -102,7 +102,7 @@ ownerTest.describe("DigitalOcean", () => {
 
       await page.goto(`/w/${workspace.slug}/timeline?provider=digitalocean`);
       await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText(
-        "Showing 2 events for provider DigitalOcean",
+        "Showing 2 of 2 events for provider DigitalOcean",
       );
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(events).toHaveCount(2);

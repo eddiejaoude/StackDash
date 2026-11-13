@@ -431,7 +431,7 @@ ownerTest.describe("dashboard trends", () => {
         .getByRole("link", { name: `14 deployments on ${twoDaysAgo}` })
         .click();
       await expect(page).toHaveURL(new RegExp(`/timeline\\?type=fake\\.deploy\\.succeeded&from=${twoDaysAgo}&to=${twoDaysAgo}&provider=fake$`));
-      await expect(page.getByText("Showing 14 events for provider Example provider", { exact: true })).toBeVisible();
+      await expect(page.getByText("Showing 14 of 14 events for provider Example provider", { exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -58,7 +58,7 @@ ownerTest.describe("simulated Sentry", () => {
       // Every project gets a release every 20 minutes, so the 30 minute backfill always has one.
       await page.goto(`/w/${workspace.slug}/timeline?provider=sentry`);
       await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText(
-        /^Showing \d+ events? for provider Sentry$/,
+        /^Showing \d+ of [\d,]+ events? for provider Sentry$/,
       );
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       const release = events.filter({ hasText: /Release \S+ created/ }).first();
