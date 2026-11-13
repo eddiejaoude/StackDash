@@ -1310,6 +1310,8 @@ ownerTest.describe("timeline event inspector", () => {
 
         await trigger.hover();
         await expect(row).toHaveCSS("background-color", ROW_HOVERED);
+        // The hovered row's text keeps its contrast on the lighter surface.
+        await expectNoAxeViolations(page);
         // Away from the feed, so the open row shows its own state rather than the hover.
         await page.getByRole("heading", { level: 1, name: "Timeline", exact: true }).hover();
         await expect(row).toHaveCSS("background-color", ROW_AT_REST);
