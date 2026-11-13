@@ -9,6 +9,7 @@ import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_IN_FLIGHT_MS } from "../src/lib/realti
 
 import {
   createSyntheticUser,
+  E2E_USERS,
   expect,
   ownerTest,
   removeSyntheticUser,
@@ -18,6 +19,7 @@ import {
 } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectTopRowFits } from "./fixtures/header";
 import {
   expectSubscribed,
   FrameSchema,
@@ -480,6 +482,9 @@ const HIGHLIGHT_CLEARED_MS = 10_000;
 // The live indicator's dot has no fill unless the channel is live (src/components/app/arrivals.tsx).
 const NO_FILL = "rgba(0, 0, 0, 0)";
 
+// The account link's name in the header, for the top-row fit check.
+const OWNER_ACCOUNT = `Account: ${E2E_USERS.owner.userName}`;
+
 /**
  * Records the name of every arrival animation that starts on the page, from the first document
  * on, so "nothing animated" is an observed fact rather than a check that happened to run late.
@@ -639,10 +644,11 @@ ownerTest.describe("arriving data", () => {
       await expect(indicator.getByText("Offline", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
       await indicator.focus();
-      await expect(page.getByRole("tooltip")).toHaveText(
-        "Live updates stopped. Trying to reconnect; reload the page if this does not clear." +
-          "No connections yet. Add one on the Connections page.",
-      );
+      // Two paragraphs: the live status, then the connections (the workspace has none).
+      await expect(page.getByRole("tooltip").getByRole("paragraph")).toHaveText([
+        "Live updates stopped. Trying to reconnect; reload the page if this does not clear.",
+        "No connections yet. Add one on the Connections page.",
+      ]);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
       await page.keyboard.press("Escape");
@@ -943,21 +949,35 @@ ownerTest.describe("arriving data", () => {
       await page.keyboard.press("Escape");
       await expect(tooltip).toBeHidden();
 
+      // Opened again by focus after leaving (Escape dismissed it until focus leaves), the tooltip
+      // stays inside the viewport at this width.
+      async function expectTooltipOnScreen(width: number): Promise<void> {
+        await page.setViewportSize({ width, height: 800 });
+        await indicator.blur();
+        await indicator.focus();
+        await expect(tooltip).toBeVisible();
+        const box = await tooltip.boundingBox();
+        if (box === null) throw new Error("The tooltip is not rendered.");
+        expect(box.x, `tooltip left edge at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `tooltip right edge at ${width}px`).toBeLessThanOrEqual(width);
+      }
+
+      // With the count and the attention mark showing, the top row still fits where each appears,
+      // and the tooltip stays on screen where it moves from the row to the button.
+      await page.setViewportSize({ width: 1024, height: 800 });
+      await expectTopRowFits(page, OWNER_ACCOUNT, { adminLink: true });
+      await page.setViewportSize({ width: 640, height: 800 });
+      await expectTopRowFits(page, OWNER_ACCOUNT);
+      for (const width of [640, 767, 768]) await expectTooltipOnScreen(width);
+
       // A sync fixes the connection: the header reads the connections again on the live refresh.
       const { error: updateError } = await adminClient().from("connections").update({ status: "active" }).eq("id", github.id);
       if (updateError) throw new Error(`Updating the connection failed (code ${updateError.code}).`);
       await expect(indicator).toHaveAccessibleName("Live updates, 3 connected", { timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId("live-attention")).toHaveCount(0);
 
-      // On a phone the tooltip stays on screen. Escape dismissed it until focus leaves, so leave first.
-      await page.setViewportSize({ width: 320, height: 800 });
-      await indicator.blur();
-      await indicator.focus();
-      await expect(tooltip).toBeVisible();
-      const box = await tooltip.boundingBox();
-      if (box === null) throw new Error("The tooltip is not rendered.");
-      expect(box.x).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width).toBeLessThanOrEqual(320);
+      // On a phone, too.
+      await expectTooltipOnScreen(320);
       if (process.env.PW_PR_EVIDENCE === "1") {
         await page.screenshot({ path: "pr-evidence/after/live-indicator-320.png", clip: { x: 0, y: 0, width: 320, height: 420 } });
       }
