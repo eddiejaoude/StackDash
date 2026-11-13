@@ -4,6 +4,7 @@ import type { Severity } from "@/components/severity-badge";
 import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import {
   appendScopeParams,
+  EMPTY_SCOPE,
   hasScopeFilters,
   paramValues,
   repeatedParam,
@@ -336,6 +337,54 @@ export function timelineHref(basePath: string, query: TimelineQuery, cursor: Tim
   return search === "" ? basePath : `${basePath}?${search}`;
 }
 
+/** How far either side of an event "Show events around this time" reaches. */
+export const AROUND_EVENT_WINDOW_MINUTES = 60;
+
+const NO_FILTERS: TimelineQuery = {
+  types: [],
+  severities: [],
+  from: null,
+  to: null,
+  timeRange: null,
+  search: null,
+  cursor: null,
+  scope: EMPTY_SCOPE,
+};
+
+/** Links from an event's details to the timeline narrowed by one of the event's own values. */
+export type EventFilterHrefs = Readonly<{
+  type: string;
+  /** null for an event with no account, such as DevMacro's own. */
+  account: string | null;
+  /** The half-open period `AROUND_EVENT_WINDOW_MINUTES` either side of the event, as `start` and `until`. */
+  around: string;
+}>;
+
+/**
+ * The event's type, its account, and the time around it, each as the only filter: a shared event
+ * can be open outside the current filters, so keeping them could show a timeline without it.
+ */
+export function eventFilterHrefs(
+  basePath: string,
+  event: Readonly<{ type_id: string; external_account_id: string | null; occurred_at: string }>,
+): EventFilterHrefs {
+  // Postgres keeps microseconds and the URL's instants stop at milliseconds. Truncating moves the
+  // instant back by under a millisecond, far less than the window, so the event stays inside it.
+  const occurredMs = Date.parse(event.occurred_at.replace(/(\.\d{3})\d+/, "$1"));
+  const windowMs = AROUND_EVENT_WINDOW_MINUTES * 60_000;
+  const timeRange = {
+    from: new Date(occurredMs - windowMs).toISOString(),
+    toExclusive: new Date(occurredMs + windowMs).toISOString(),
+  };
+  return {
+    type: timelineHref(basePath, { ...NO_FILTERS, types: [event.type_id] }, null),
+    account: event.external_account_id === null
+      ? null
+      : timelineHref(basePath, { ...NO_FILTERS, scope: { ...EMPTY_SCOPE, accounts: [event.external_account_id] } }, null),
+    around: timelineHref(basePath, { ...NO_FILTERS, timeRange }, null),
+  };
+}
+
 /** One active filter value, named so it can be removed on its own. */
 export type ActiveFilter = Readonly<{
   /** Unique among the filters of one query, for React keys. */
@@ -357,10 +406,11 @@ function optionLabel(value: string, options: readonly ScopeOption[], unknown: st
 /**
  * Every active filter value, one entry each, in the order the page describes them: search, event
  * types, severities, dates, the selected period, then providers, projects, and accounts. Event
- * types are named as the filter form names them, and scope values by the form's options, so a chip
- * reads the same as the box that set it. Each entry's query drops only its own value and the cursor.
+ * types are named as the filter form names them, with `typeName` (the adapters' declared names live
+ * on the server, #294), and scope values by the form's options, so a chip reads the same as the box
+ * that set it. Each entry's query drops only its own value and the cursor.
  */
-export function activeFilters(query: TimelineQuery, options: ScopeOptions): ActiveFilter[] {
+export function activeFilters(query: TimelineQuery, options: ScopeOptions, typeName: (typeId: string) => string): ActiveFilter[] {
   const base = { ...query, cursor: null };
   const filters: ActiveFilter[] = [];
   const add = (key: string, kind: string, value: string, without: Partial<TimelineQuery>) => {
@@ -368,7 +418,7 @@ export function activeFilters(query: TimelineQuery, options: ScopeOptions): Acti
   };
   if (query.search !== null) add("q", "Search", `“${query.search}”`, { search: null });
   for (const type of query.types) {
-    add(`type=${type}`, "Event type", `${typeOwnerName(type)}: ${eventTypeLabel(type)}`, {
+    add(`type=${type}`, "Event type", `${typeOwnerName(type)}: ${typeName(type)}`, {
       types: query.types.filter((other) => other !== type),
     });
   }

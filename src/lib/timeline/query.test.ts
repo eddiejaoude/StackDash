@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import { eventTypeName } from "@/lib/adapters/registry";
 import { EMPTY_SCOPE, type ScopeOptions } from "@/lib/filters/scope";
 
 import {
   activeFilters,
+  AROUND_EVENT_WINDOW_MINUTES,
   decodeCursor,
   EVENT_SEVERITIES,
   encodeCursor,
+  eventFilterHrefs,
   eventTypeLabel,
   hasActiveFilters,
   isEventTypeId,
@@ -375,6 +378,52 @@ describe("timelineParams", () => {
   });
 });
 
+/** The filters an app-relative href carries, read the way the page reads them. */
+function queryOf(href: string): TimelineQuery {
+  const params = new URL(href, "https://example.com").searchParams;
+  const raw: Record<string, string[]> = {};
+  for (const [key, value] of params) raw[key] = [...(raw[key] ?? []), value];
+  return parseTimelineSearchParams(raw);
+}
+
+describe("eventFilterHrefs", () => {
+  const empty = parseTimelineSearchParams({});
+  const event = { type_id: "stripe.charge.succeeded", external_account_id: ACCOUNT_ID, occurred_at: "2026-06-15T10:00:00+00:00" };
+
+  it("links to the event's type, account, and the hour either side of it, each as the only filter", () => {
+    const hrefs = eventFilterHrefs("/w/abc/timeline", event);
+    expect(queryOf(hrefs.type)).toEqual({ ...empty, types: ["stripe.charge.succeeded"] });
+    expect(queryOf(hrefs.account ?? "")).toEqual({ ...empty, scope: { ...EMPTY_SCOPE, accounts: [ACCOUNT_ID] } });
+    expect(queryOf(hrefs.around)).toEqual({
+      ...empty,
+      timeRange: { from: "2026-06-15T09:00:00.000Z", toExclusive: "2026-06-15T11:00:00.000Z" },
+    });
+    expect(hrefs.around).toBe("/w/abc/timeline?start=2026-06-15T09%3A00%3A00.000Z&until=2026-06-15T11%3A00%3A00.000Z");
+  });
+
+  it("offers no account link for an event with no account", () => {
+    expect(eventFilterHrefs("/w/abc/timeline", { ...event, external_account_id: null }).account).toBeNull();
+  });
+
+  it.each([
+    ["microseconds, as Postgres stores them", "2026-06-15T10:00:00.123456+00:00", "2026-06-15T10:00:00.123Z"],
+    ["the last microsecond of a second", "2026-06-15T10:00:00.999999+00:00", "2026-06-15T10:00:00.999Z"],
+    ["milliseconds", "2026-06-15T10:00:00.5Z", "2026-06-15T10:00:00.500Z"],
+    ["a London summer offset", "2026-06-15T11:00:00.000001+01:00", "2026-06-15T10:00:00.000Z"],
+  ])("writes a start and until pair the URL accepts from %s, with the event inside it", (_, occurredAt, instant) => {
+    const { timeRange } = queryOf(eventFilterHrefs("/w/abc/timeline", { ...event, occurred_at: occurredAt }).around);
+    const occurredMs = Date.parse(instant);
+    const windowMs = AROUND_EVENT_WINDOW_MINUTES * 60_000;
+    expect(timeRange).toEqual({
+      from: new Date(occurredMs - windowMs).toISOString(),
+      toExclusive: new Date(occurredMs + windowMs).toISOString(),
+    });
+    // The window is half open: the event's true instant, microseconds and all, is inside it.
+    expect(Date.parse(timeRange?.from ?? "")).toBeLessThanOrEqual(occurredMs);
+    expect(Date.parse(timeRange?.toExclusive ?? "")).toBeGreaterThan(occurredMs + 1);
+  });
+});
+
 const SCOPE_OPTIONS: ScopeOptions = {
   providers: [
     { value: "github", label: "GitHub" },
@@ -406,11 +455,11 @@ describe("activeFilters", () => {
   });
 
   it("lists nothing when no filter is active, even on an older page", () => {
-    expect(activeFilters({ ...parseTimelineSearchParams({}), cursor: CURSOR }, SCOPE_OPTIONS)).toEqual([]);
+    expect(activeFilters({ ...parseTimelineSearchParams({}), cursor: CURSOR }, SCOPE_OPTIONS, eventTypeName)).toEqual([]);
   });
 
   it("names one chip per filter, in the page's order, named the way the filter form names them", () => {
-    expect(activeFilters(every, SCOPE_OPTIONS).map(({ kind, value, name }) => ({ kind, value, name }))).toEqual([
+    expect(activeFilters(every, SCOPE_OPTIONS, eventTypeName).map(({ kind, value, name }) => ({ kind, value, name }))).toEqual([
       { kind: "Search", value: "“deploy”", name: "Remove filter: search “deploy”" },
       { kind: "Event type", value: "Vercel: Deployment ready", name: "Remove filter: event type Vercel: Deployment ready" },
       { kind: "Severity", value: "Critical", name: "Remove filter: severity Critical" },
@@ -428,12 +477,12 @@ describe("activeFilters", () => {
   });
 
   it("removes only its own filter, keeps the rest, and starts from the newest events", () => {
-    const chips = activeFilters(every, SCOPE_OPTIONS);
+    const chips = activeFilters(every, SCOPE_OPTIONS, eventTypeName);
     expect(new Set(chips.map((chip) => chip.key)).size).toBe(chips.length);
     for (const chip of chips) {
       expect(chip.query.cursor).toBeNull();
       // Removing the chip and putting its one value back gives the original filters.
-      const remaining = activeFilters(chip.query, SCOPE_OPTIONS).map((other) => other.key);
+      const remaining = activeFilters(chip.query, SCOPE_OPTIONS, eventTypeName).map((other) => other.key);
       expect(remaining).toEqual(chips.map((other) => other.key).filter((key) => key !== chip.key));
     }
     const withoutProvider = chips.find((chip) => chip.key === "provider=vercel")?.query;
@@ -443,14 +492,16 @@ describe("activeFilters", () => {
   it("names each of several values in one dimension, and removing one keeps the others", () => {
     const query = parseTimelineSearchParams({
       severity: ["critical", "warning"],
-      type: ["vercel.deployment_ready", "github.release_published"],
+      type: ["vercel.deployment_ready", "github.release_published", "stripe.charge.succeeded"],
       provider: ["github", "vercel"],
       project: [PROJECT_ID, "unassigned"],
     });
-    const chips = activeFilters(query, SCOPE_OPTIONS);
+    const chips = activeFilters(query, SCOPE_OPTIONS, eventTypeName);
     expect(chips.map((chip) => chip.value)).toEqual([
       "Vercel: Deployment ready",
       "GitHub: Release published",
+      // The adapter's declared name, as the filter form prints it (#294), not "Charge succeeded".
+      "Stripe: Payment succeeded",
       "Critical",
       "Warning",
       "GitHub",
@@ -468,12 +519,12 @@ describe("activeFilters", () => {
   it("never prints an internal id for a value missing from the options", () => {
     const query = parseTimelineSearchParams({ provider: "stripe", project: PROJECT_ID, account: ACCOUNT_ID });
     const empty: ScopeOptions = { providers: [], projects: [], accounts: [] };
-    expect(activeFilters(query, empty).map((chip) => chip.value)).toEqual(["Stripe", "Unknown project", "Unknown account"]);
+    expect(activeFilters(query, empty, eventTypeName).map((chip) => chip.value)).toEqual(["Stripe", "Unknown project", "Unknown account"]);
   });
 
   it("keeps a search of exactly the longest length and unicode whole", () => {
     const search = "é".repeat(MAX_SEARCH_LENGTH);
-    const [chip] = activeFilters(parseTimelineSearchParams({ q: search }), SCOPE_OPTIONS);
+    const [chip] = activeFilters(parseTimelineSearchParams({ q: search }), SCOPE_OPTIONS, eventTypeName);
     expect(chip?.value).toBe(`“${search}”`);
     expect(chip?.query.search).toBeNull();
   });

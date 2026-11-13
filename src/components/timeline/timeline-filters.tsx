@@ -4,12 +4,12 @@ import Link from "next/link";
 import { ScopeFilter } from "@/components/filters/scope-filter";
 import { CloseIcon, SearchIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
+import { eventTypeName } from "@/lib/adapters/registry";
 import type { ScopeOptions } from "@/lib/filters/scope";
 import { typeOwnerName } from "@/lib/providers";
 import {
   activeFilters,
   EVENT_SEVERITIES,
-  eventTypeLabel,
   hasActiveFilters,
   MAX_SEARCH_LENGTH,
   severityBadge,
@@ -126,7 +126,7 @@ export function ActiveFilterChips({
   if (!hasActiveFilters(query)) return null;
   return (
     <ul aria-label="Active filters" className="mt-3 flex flex-wrap gap-2">
-      {activeFilters(query, scopeOptions).map((filter) => (
+      {activeFilters(query, scopeOptions, eventTypeName).map((filter) => (
         <li key={filter.key} className="min-w-0">
           <Link
             href={timelineHref(action, filter.query, null)}
@@ -201,7 +201,7 @@ export function TimelineFilters({
                   className={CHECKBOX}
                 />
                 <span className="min-w-0 break-words">
-                  {typeOwnerName(typeId)}: {eventTypeLabel(typeId)}
+                  {typeOwnerName(typeId)}: {eventTypeName(typeId)}
                 </span>
               </label>
             ))}

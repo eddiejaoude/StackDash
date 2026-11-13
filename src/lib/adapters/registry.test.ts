@@ -7,6 +7,7 @@ import {
   createAdapterContext,
   createOAuthContext,
   declaredCapabilities,
+  eventTypeName,
   getAdapter,
   isProviderConfigured,
   isProviderSimulated,
@@ -157,6 +158,28 @@ describe("declaredCapabilities (#269)", () => {
   it("answers for the fake provider whatever its flag says, since its stored data outlives the flag", () => {
     vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", undefined);
     expect(declaredCapabilities("fake")).toEqual(fakeAdapter.capabilities);
+  });
+});
+
+describe("eventTypeName (#294)", () => {
+  it.each([
+    ["stripe.charge.succeeded", "Payment succeeded"],
+    ["github.stars.daily", "New stars"],
+    ["fake.signup", "New signup"],
+  ])("names the declared type %s by its adapter's label", (typeId, expected) => {
+    expect(eventTypeName(typeId)).toBe(expected);
+  });
+
+  it.each([
+    // A type no adapter declares any more, such as an older Vercel id still stored on past events.
+    ["vercel.deployment_ready", "Deployment ready"],
+    // DevMacro's own types are declared by no adapter; the id-derived name keeps its overrides.
+    ["devmacro.anomaly_detected", "Unusual spend or usage"],
+    ["devmacro.daily_summary", "Daily summary"],
+    // An id with no dot after the provider has nothing to derive a name from.
+    ["stripe", "stripe"],
+  ])("falls back to the derived name for the undeclared type %s", (typeId, expected) => {
+    expect(eventTypeName(typeId)).toBe(expected);
   });
 });
 

@@ -480,6 +480,32 @@ ownerTest.describe("command palette as the owner", () => {
     }
   });
 
+  // #294: the adapter declares "Payment succeeded" for `stripe.charge.succeeded`; its id reads "Charge succeeded".
+  ownerTest("names an event type by its adapter's declared label, as the timeline filter does", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette declared labels");
+    try {
+      const { error } = await adminClient().from("connections").insert({
+        workspace_id: workspace.id,
+        provider: "stripe",
+        status: "active",
+        display_name: "Stripe palette account",
+        poll_interval_seconds: 3600,
+      });
+      if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("charge succeeded");
+      const payments = option(page, "Stripe: Payment succeeded", "Event timeline");
+      await expect(payments).toBeVisible();
+      await expect(optionsOfKind(page, "Event timeline")).toHaveCount(1);
+      await page.keyboard.press("Enter");
+      await expect(palette(page)).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?type=stripe.charge.succeeded`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("offers to connect a provider", async ({ page }) => {
     const workspace = await createTestWorkspace("Palette connect");
     try {
