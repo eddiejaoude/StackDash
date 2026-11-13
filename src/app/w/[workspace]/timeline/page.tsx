@@ -19,9 +19,10 @@ import { buttonClass } from "@/components/ui/button";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
-import { getTimelineEvent, listTimelineActivity, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { getTimelineEvent, listTimelineActivity, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds, type TimelineEvent } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
+import { formatDateTime } from "@/lib/format";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
 import { hasActiveFilters, parseTimelineEventId, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
@@ -31,9 +32,16 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 export const metadata: Metadata = { title: "Timeline" };
 
 const DESCRIPTION = "Deploys, payments, alerts, and other activity from every provider, newest first.";
+// The inspector returns focus here when nothing on the page opened it.
+const HEADING_ID = "timeline-title";
 
 // Per-member hidden event types arrive with #119; the query already excludes whatever is listed.
 const HIDDEN_TYPE_IDS: readonly string[] = [];
+
+// Written on the server, as the row's own time is: browsers name the London zone differently.
+function inspected(event: TimelineEvent) {
+  return { ...event, londonTime: formatDateTime(event.occurred_at) };
+}
 
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it.
@@ -64,7 +72,12 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   ]);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
-  const inspectorProps = { events: page.events, linkedEvent, baseHref: timelineHref(basePath, query, query.cursor) };
+  const inspectorProps = {
+    events: page.events.map(inspected),
+    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent),
+    baseHref: timelineHref(basePath, query, query.cursor),
+    fallbackFocusId: HEADING_ID,
+  };
 
   // The type ids come from the daily event count rollup, which its triggers keep equal to every
   // event the workspace has, so they are empty only when there are no events at all.
@@ -76,7 +89,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
       const connectionsPath = workspacePath(workspace.slug, "connections");
       return (
         <EventInspector {...inspectorProps}>
-          <PageHeader title="Timeline" description={DESCRIPTION} />
+          <PageHeader id={HEADING_ID} title="Timeline" description={DESCRIPTION} />
           {emptyKind === "first_sync" ? (
             <EmptyState
               icon={<TimelineIcon width={20} height={20} />}
@@ -105,7 +118,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
       }) === null;
     return (
       <EventInspector {...inspectorProps}>
-        <PageHeader title="Timeline" description={DESCRIPTION} />
+        <PageHeader id={HEADING_ID} title="Timeline" description={DESCRIPTION} />
         <EmptyState
           icon={<TimelineIcon width={20} height={20} />}
           title="No activity yet"
@@ -138,6 +151,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   return (
     <EventInspector {...inspectorProps}>
       <PageHeader
+        id={HEADING_ID}
         title="Timeline"
         description={DESCRIPTION}
         titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
