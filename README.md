@@ -301,9 +301,13 @@ It is for local use only: the app refuses it on a Vercel production deployment.
    Each simulated connection then makes about ten times as many deployments, payments, signups,
    and other random timeline events. The default, 1, is the realistic small product. It needs
    `--watch` and `DEVMACRO_SIMULATE_PROVIDERS=1`, and is refused before any tick runs otherwise.
-   It scales simulated timeline events only: daily summaries and other scheduled events, metrics,
-   real providers, the sync cadence, the 100 job claim limit, and `npm run demo:event` incidents
-   stay as they are. Like the simulator, it is for local use only.
+   It scales simulated timeline events only. Provider metrics (spend, usage, quotas), daily
+   summaries and other scheduled events, real providers, the sync cadence, the 100 job claim
+   limit, and `npm run demo:event` incidents stay as they are. Counts the app derives from
+   timeline events (dashboard markers and headline counts, and public metrics such as signups or
+   deployments in 30 days) rise with the volume and stay raised until those events age out, so
+   use a workspace whose numbers do not need to stay realistic. Like the simulator, it is for
+   local use only.
 4. Open the dashboard and the timeline: deployments, payments, signups, forks, and Sentry issues
    and releases trickle in, spend and usage grow through the billing period, and the Resend daily
    quota crosses 75 and 90 percent each evening, which triggers allowance alerts if you add them.

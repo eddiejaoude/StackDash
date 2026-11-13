@@ -35,7 +35,8 @@ import {
  *   events in the dashboard's "What changed" sentences (`src/lib/dashboard/what-changed.ts`);
  * - the public metric "New customers in 30 days" (`stripe-customers-30d` in
  *   `src/lib/public-metrics/definitions.ts`), which the demo seed publishes on its project page.
- * The headline's signups leave it out (`eventTypes` in src/lib/adapters/stripe/index.ts).
+ * The headline's signups leave it out (`eventTypes` in src/lib/adapters/stripe/index.ts). This is the
+ * default volume's rate: `--volume` (#383) multiplies it, and those counts with it.
  */
 export const NEW_CUSTOMERS_PER_DAY = 50;
 
