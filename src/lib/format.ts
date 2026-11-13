@@ -92,6 +92,22 @@ export function formatLondonTime(at: Instant): string {
   return TIME_OF_DAY_FORMAT.format(typeof at === "string" ? new Date(at) : at);
 }
 
+const HOUR_MINUTE_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * "14:05", the London time of day to the minute, for the timeline's compact time gutter. Like
+ * `formatLondonTime` it names no zone, so the caller says it nearby (the gutter's accessible text
+ * carries `formatDateTime`, which names GMT or BST).
+ */
+export function formatLondonHourMinute(at: Instant): string {
+  return HOUR_MINUTE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
+}
+
 /**
  * "2026-10-01 to 2026-10-31". Billing periods are calendar facts on UTC day boundaries, so they are
  * shown as UTC dates; in Europe/London summer time a period ending at UTC midnight would otherwise

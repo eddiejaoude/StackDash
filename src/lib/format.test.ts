@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatDateTime,
   formatList,
+  formatLondonHourMinute,
   formatLondonTime,
   formatMoney,
   formatPercent,
@@ -91,6 +92,22 @@ describe("formatLondonTime", () => {
 
   it("matches UTC in winter and writes midnight as 00, not 24", () => {
     expect(formatLondonTime(new Date("2026-11-05T00:00:00.000Z"))).toBe("00:00:00");
+  });
+});
+
+describe("formatLondonHourMinute", () => {
+  it.each([
+    ["a GMT instant, the same as UTC in winter", "2026-11-05T09:07:00.000Z", "09:07"],
+    ["a BST instant, an hour ahead of UTC in summer", "2026-07-01T13:05:09.400Z", "14:05"],
+    ["the last second of a minute, cut to the minute rather than rounded up", "2026-11-05T09:07:59.999Z", "09:07"],
+    ["midnight GMT, written as 00 rather than 24", "2026-11-05T00:00:00.000Z", "00:00"],
+    ["midnight BST, while the UTC date is still the day before", "2026-06-30T23:00:00.000Z", "00:00"],
+  ])("shows %s", (_, at, expected) => {
+    expect(formatLondonHourMinute(at)).toBe(expected);
+  });
+
+  it("takes a Date as well as a string", () => {
+    expect(formatLondonHourMinute(new Date("2026-10-31T14:05:00.000Z"))).toBe("14:05");
   });
 });
 
