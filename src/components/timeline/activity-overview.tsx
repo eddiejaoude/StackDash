@@ -16,9 +16,10 @@ function eventCount(events: number, before = ""): string {
  * Server-rendered links keep the chart useful without charting JavaScript or a second fetch.
  *
  * A bar's period is printed in the caption row while the bar is hovered or has keyboard focus, so
- * a sighted keyboard user sees what each bar covers. The period sits inside the link (hidden from
- * assistive technology, which reads the link's name) and is positioned against the wrapper around
- * the scrolling chart, so it is not clipped by the scroll box and stays put while the chart scrolls.
+ * a sighted keyboard user sees what each bar covers. The period is the link's sibling, not its
+ * content, so the link's visible text stays inside its accessible name (WCAG 2.5.3, label in name).
+ * It is positioned against the wrapper around the scrolling chart, so the scroll box does not clip
+ * it and it stays put while the chart scrolls.
  */
 export function ActivityOverview({ buckets, query, basePath }: {
   buckets: readonly ActivityBucket[];
@@ -53,29 +54,32 @@ export function ActivityOverview({ buckets, query, basePath }: {
                 const from = formatDateTime(timeRange.from);
                 const until = formatDateTime(timeRange.toExclusive);
                 return (
-                  <Link
-                    key={timeRange.from}
-                    href={timelineHref(basePath, { ...query, timeRange }, null)}
-                    prefetch={false}
-                    scroll={false}
-                    aria-label={`Show ${eventCount(bucket.events)} from ${from} to before ${until}`}
-                    aria-current={selected ? "true" : undefined}
-                    className={`group flex min-w-6 flex-1 flex-col justify-end gap-1 rounded-t px-1 pb-1 text-center outline-offset-2 hover:bg-panel-raised focus-visible:outline-2 focus-visible:outline-accent ${selected ? "bg-panel-raised ring-1 ring-inset ring-accent" : ""}`}
-                  >
-                    <span aria-hidden="true" className="font-mono text-xs text-muted">{FULL_COUNT.format(bucket.events)}</span>
+                  // `contents` keeps the link the flex item while the period beside it can be its peer.
+                  <div key={timeRange.from} className="contents">
+                    <Link
+                      href={timelineHref(basePath, { ...query, timeRange }, null)}
+                      prefetch={false}
+                      scroll={false}
+                      aria-label={`Show ${eventCount(bucket.events)} from ${from} to before ${until}`}
+                      aria-current={selected ? "true" : undefined}
+                      className={`peer group flex min-w-6 flex-1 flex-col justify-end gap-1 rounded-t px-1 pb-1 text-center outline-offset-2 hover:bg-panel-raised focus-visible:outline-2 focus-visible:outline-accent ${selected ? "bg-panel-raised ring-1 ring-inset ring-accent" : ""}`}
+                    >
+                      <span aria-hidden="true" className="font-mono text-xs text-muted">{FULL_COUNT.format(bucket.events)}</span>
+                      <span
+                        aria-hidden="true"
+                        className={`block rounded-t group-hover:bg-accent group-focus-visible:bg-accent ${selected ? "bg-accent" : "bg-muted"}`}
+                        style={{ height: bucket.events === 0 ? 2 : Math.max(4, bucket.events / peak * 76) }}
+                      />
+                    </Link>
                     <span
                       aria-hidden="true"
-                      className={`block rounded-t group-hover:bg-accent group-focus-visible:bg-accent ${selected ? "bg-accent" : "bg-muted"}`}
-                      style={{ height: bucket.events === 0 ? 2 : Math.max(4, bucket.events / peak * 76) }}
-                    />
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-x-0 bottom-0 hidden justify-between gap-4 bg-panel text-xs text-foreground group-hover:flex group-focus-visible:flex"
+                      data-testid="activity-period"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 hidden justify-between gap-4 bg-panel text-xs text-foreground peer-hover:flex peer-focus-visible:flex"
                     >
                       <span>{from}</span>
                       <span className="text-right">Before {until}</span>
                     </span>
-                  </Link>
+                  </div>
                 );
               })}
             </div>

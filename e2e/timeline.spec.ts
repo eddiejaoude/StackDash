@@ -1440,8 +1440,11 @@ ownerTest.describe("timeline activity overview", () => {
         const buckets = await readBuckets(page);
         const [, newest] = firstAndLast(buckets, "buckets");
         const { from, until } = await bucketPeriod(newest.link);
-        const periodStart = newest.link.getByText(from, { exact: true });
-        const periodEnd = newest.link.getByText(`Before ${until}`, { exact: true });
+        // The period is the link's sibling, so the link's visible text stays inside its name.
+        const period = activityOverview(page).getByTestId("activity-period")
+          .filter({ has: page.getByText(from, { exact: true }) });
+        const periodStart = period.getByText(from, { exact: true });
+        const periodEnd = period.getByText(`Before ${until}`, { exact: true });
         await expect(periodStart).toBeHidden();
         await expect(periodEnd).toBeHidden();
         await tabTo(page, newest.link, 120);
