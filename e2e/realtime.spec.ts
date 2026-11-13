@@ -882,4 +882,58 @@ ownerTest.describe("arriving data", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  ownerTest("glows the provider chip whose events arrive, and no chip on load or on a filter change", async ({ page }) => {
+    const workspace = await createTestWorkspace("Arrival provider chips");
+    try {
+      const example = await seedConnection(workspace);
+      // A second provider, with no events yet: its chip appears when its first event arrives.
+      const admin = adminClient();
+      const { data: connection, error } = await admin
+        .from("connections")
+        .insert({ workspace_id: workspace.id, provider: "github", status: "active", display_name: "acme-org", poll_interval_seconds: 3_600 })
+        .select("id")
+        .single();
+      if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+      const { data: account, error: accountError } = await admin
+        .from("external_accounts")
+        .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: "acme-org", display_name: "acme-org", kind: "account" })
+        .select("id")
+        .single();
+      if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+      const github: SeededConnection = { workspaceId: workspace.id, connectionId: connection.id, accountId: account.id };
+      await insertEvent(example, "Earlier event");
+
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expectSubscribed(live);
+      const chips = page.getByRole("list", { name: "Events by provider" }).getByRole("listitem");
+      const chip = (provider: string) => chips.filter({ has: page.getByRole("link", { name: new RegExp(provider) }) });
+      const glowing = page.getByRole("list", { name: "Events by provider" }).locator("[data-arrived]");
+      await expect(chips).toHaveCount(1);
+      await expect(glowing).toHaveCount(0);
+
+      // GitHub's first event: its new chip glows, the Example provider's does not.
+      await insertEvent(github, "Push to main");
+      await expect(chip("GitHub")).toHaveAttribute("data-arrived", "true", { timeout: LIVE_TIMEOUT_MS });
+      expect(await chip("Example provider").getAttribute("data-arrived")).toBeNull();
+      await expectNoAxeViolations(page);
+      await expect(glowing).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // A second Example provider event: its count grows, and only its chip glows.
+      await insertEvent(example, "Later event");
+      await expect(chip("Example provider")).toHaveAttribute("data-arrived", "true", { timeout: LIVE_TIMEOUT_MS });
+      await expect(chip("Example provider").getByRole("link")).toHaveAccessibleName(/2 events/);
+      expect(await chip("GitHub").getAttribute("data-arrived")).toBeNull();
+      await expect(glowing).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Filtering to one provider changes the counts, but that is navigation: nothing glows.
+      await chip("GitHub").getByRole("link").click();
+      await expect(chips).toHaveCount(1);
+      await expect(page).toHaveURL(/provider=github/);
+      expect(await glowing.count()).toBe(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
 });
