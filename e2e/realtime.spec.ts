@@ -482,6 +482,10 @@ const HIGHLIGHT_CLEARED_MS = 10_000;
 
 // The live indicator's dot has no fill unless the channel is live (src/components/app/arrivals.tsx).
 const NO_FILL = "rgba(0, 0, 0, 0)";
+// The live dot's green while live and the coral it holds after an arrival under reduced motion
+// (--success and --accent in src/app/globals.css).
+const GREEN = "rgb(62, 207, 142)";
+const CORAL = "rgb(255, 93, 59)";
 
 // The account link's name in the header, for the top-row fit check.
 const OWNER_ACCOUNT = `Account: ${E2E_USERS.owner.userName}`;
@@ -638,6 +642,8 @@ ownerTest.describe("arriving data", () => {
       await expect(indicator).toHaveAccessibleName("Live updates, connecting, 0 connected");
       await expect(indicator.getByText("Connecting", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
+      // The ready ring says live; it never breathes while connecting or offline.
+      await expect(page.getByTestId("live-ready")).toHaveCount(0);
       await expect.poll(() => held.length).toBeGreaterThan(0);
 
       // Offline: Realtime refuses the join. The client keeps rejoining, refused each time.
@@ -646,6 +652,7 @@ ownerTest.describe("arriving data", () => {
       await expect(indicator).toHaveAccessibleName("Live updates, offline, 0 connected");
       await expect(indicator.getByText("Offline", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
+      await expect(page.getByTestId("live-ready")).toHaveCount(0);
       await indicator.focus();
       // Two paragraphs: the live status, then the connections (the workspace has none).
       await expect(page.getByRole("tooltip").getByRole("paragraph")).toHaveText([
@@ -876,9 +883,13 @@ ownerTest.describe("arriving data", () => {
       await expectSubscribed(live);
       const announcements = await recordAnnouncements(page);
       await expect(usd.getByText("Updated", { exact: true })).toHaveCount(0);
+      // No ring breathes under reduced motion.
+      await expect(page.getByTestId("live-ready")).toBeHidden();
 
       await updateMoneySnapshot(snapshotId, 5_000);
       await expect(usd.getByText("Updated", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      // The live dot holds the arrival's coral instead of rippling.
+      await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", CORAL);
       await expect(usd).toContainText("$50.00");
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
       await waitForTrends(page);
@@ -887,6 +898,8 @@ ownerTest.describe("arriving data", () => {
 
       // The static label clears on its own; nothing moved, scaled, or counted on the way.
       await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
+      // And returns to green with the label.
+      await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", GREEN);
       expect(await animations()).toEqual([]);
       expect(await announcements()).toHaveLength(1);
     } finally {
@@ -982,9 +995,20 @@ ownerTest.describe("arriving data", () => {
       if (updateError) throw new Error(`Updating the connection failed (code ${updateError.code}).`);
       await expect(indicator).toHaveAccessibleName("Live updates, 3 connected", { timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId("live-attention")).toHaveCount(0);
-      // The batch came from the GitHub connection's row: only its list row says so, then it clears.
+      // A change to the connection's own row is not data received from it.
       const receivingRow = items.filter({ hasText: "acme-org" });
-      await expect(receivingRow).toContainText("Receiving");
+      await expect(receivingRow).not.toContainText("Receiving");
+
+      // An event from the GitHub connection: its row says so, no other row does, and it clears.
+      const { data: account, error: accountError } = await adminClient()
+        .from("external_accounts")
+        .insert({ workspace_id: workspace.id, connection_id: github.id, external_id: "acme-org", display_name: "acme-org", kind: "account" })
+        .select("id")
+        .single();
+      if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+      await insertEvent({ workspaceId: workspace.id, connectionId: github.id, accountId: account.id }, "Push to main");
+      // Asserted before anything else, because the 4 s run from the batch, not from the refresh.
+      await expect(receivingRow).toContainText("Receiving", { timeout: LIVE_TIMEOUT_MS });
       await expect(items.filter({ hasText: "Acme billing" })).not.toContainText("Receiving");
       await expect(receivingRow).not.toContainText("Receiving", { timeout: HIGHLIGHT_CLEARED_MS });
 
