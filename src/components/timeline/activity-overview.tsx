@@ -1,10 +1,25 @@
 import Link from "next/link";
 
+import { LiveRegion } from "@/components/ui/live-region";
 import type { ActivityBucket } from "@/lib/data/timeline";
-import { formatDateTime, formatQuantity } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { timelineHref, type TimelineQuery } from "@/lib/timeline/query";
 
-/** Server-rendered links keep the chart useful without charting JavaScript or a second fetch. */
+const FULL_COUNT = new Intl.NumberFormat("en-US");
+
+/** "1 event" or "1,540 events", grouped and pluralized like the provider badges. */
+function eventCount(events: number, before = ""): string {
+  return `${FULL_COUNT.format(events)} ${before}${events === 1 ? "event" : "events"}`;
+}
+
+/**
+ * Server-rendered links keep the chart useful without charting JavaScript or a second fetch.
+ *
+ * A bar's period is printed in the caption row while the bar is hovered or has keyboard focus, so
+ * a sighted keyboard user sees what each bar covers. The period sits inside the link (hidden from
+ * assistive technology, which reads the link's name) and is positioned against the wrapper around
+ * the scrolling chart, so it is not clipped by the scroll box and stays put while the chart scrolls.
+ */
 export function ActivityOverview({ buckets, query, basePath }: {
   buckets: readonly ActivityBucket[];
   query: TimelineQuery;
@@ -18,14 +33,16 @@ export function ActivityOverview({ buckets, query, basePath }: {
     <section aria-labelledby="activity-overview-title" className="my-6 min-w-0 rounded-lg border border-line bg-panel p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id="activity-overview-title" className="text-sm font-semibold">Activity overview</h2>
-        <p className="text-xs text-muted">{formatQuantity(total, "matching events across all pages")}</p>
+        <p className="text-xs text-muted">{`${eventCount(total, "matching ")} across all pages`}</p>
       </div>
-      <p className="mt-1 text-xs text-muted">Select a time bucket to filter the feed. Counts follow your filters, before time selection.</p>
+      <p className="mt-1 text-xs text-muted">
+        Select a bar to show only the events from that period. The bars count every event that matches your other filters.
+      </p>
       {first === undefined || last === undefined ? (
         <p className="mt-3 text-sm text-muted">No activity matches these filters. Change or clear the filters to see activity.</p>
       ) : (
-        <>
-          <div className="mt-3 overflow-x-auto p-1">
+        <div className="relative mt-3">
+          <div className="overflow-x-auto p-1">
             <div className="flex h-28 min-w-max items-stretch gap-1 border-b border-line-strong">
               {buckets.map((bucket) => {
                 const timeRange = {
@@ -33,24 +50,31 @@ export function ActivityOverview({ buckets, query, basePath }: {
                   toExclusive: new Date(bucket.bucket_end).toISOString(),
                 };
                 const selected = query.timeRange?.from === timeRange.from && query.timeRange.toExclusive === timeRange.toExclusive;
-                const label = `Show ${bucket.events} events from ${formatDateTime(timeRange.from)} to before ${formatDateTime(timeRange.toExclusive)}`;
+                const from = formatDateTime(timeRange.from);
+                const until = formatDateTime(timeRange.toExclusive);
                 return (
                   <Link
                     key={timeRange.from}
                     href={timelineHref(basePath, { ...query, timeRange }, null)}
                     prefetch={false}
                     scroll={false}
-                    aria-label={label}
+                    aria-label={`Show ${eventCount(bucket.events)} from ${from} to before ${until}`}
                     aria-current={selected ? "true" : undefined}
-                    title={label}
                     className={`group flex min-w-6 flex-1 flex-col justify-end gap-1 rounded-t px-1 pb-1 text-center outline-offset-2 hover:bg-panel-raised focus-visible:outline-2 focus-visible:outline-accent ${selected ? "bg-panel-raised ring-1 ring-inset ring-accent" : ""}`}
                   >
-                    <span aria-hidden="true" className="font-mono text-xs text-muted">{bucket.events}</span>
+                    <span aria-hidden="true" className="font-mono text-xs text-muted">{FULL_COUNT.format(bucket.events)}</span>
                     <span
                       aria-hidden="true"
                       className={`block rounded-t group-hover:bg-accent group-focus-visible:bg-accent ${selected ? "bg-accent" : "bg-muted"}`}
                       style={{ height: bucket.events === 0 ? 2 : Math.max(4, bucket.events / peak * 76) }}
                     />
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bottom-0 hidden justify-between gap-4 bg-panel text-xs text-foreground group-hover:flex group-focus-visible:flex"
+                    >
+                      <span>{from}</span>
+                      <span className="text-right">Before {until}</span>
+                    </span>
                   </Link>
                 );
               })}
@@ -60,11 +84,18 @@ export function ActivityOverview({ buckets, query, basePath }: {
             <time dateTime={first.bucket_start}>{formatDateTime(first.bucket_start)}</time>
             <span className="text-right">Before <time dateTime={last.bucket_end}>{formatDateTime(last.bucket_end)}</time></span>
           </div>
-        </>
+        </div>
       )}
-      {query.timeRange === null ? null : (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs">
-          <p role="status">Selected: {formatDateTime(query.timeRange.from)} to before {formatDateTime(query.timeRange.toExclusive)}</p>
+      {/* The region stays mounted while its sentence comes and goes, so selecting a bar is announced. */}
+      <div
+        className={`flex flex-wrap items-center justify-between gap-2 text-xs ${query.timeRange === null ? "" : "mt-3 border-t border-line pt-3"}`}
+      >
+        <LiveRegion tone="status" as="p">
+          {query.timeRange === null
+            ? null
+            : `Selected: ${formatDateTime(query.timeRange.from)} to before ${formatDateTime(query.timeRange.toExclusive)}`}
+        </LiveRegion>
+        {query.timeRange === null ? null : (
           <Link
             href={timelineHref(basePath, { ...query, timeRange: null }, null)}
             prefetch={false}
@@ -73,8 +104,8 @@ export function ActivityOverview({ buckets, query, basePath }: {
           >
             Clear time selection
           </Link>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

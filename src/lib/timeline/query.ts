@@ -13,10 +13,13 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
- * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&q=..&cursor=..`) and its
- * keyset cursor. Nothing here touches the database, so every boundary is unit tested. Anything
- * invalid in the URL is dropped rather than failing the page: a hand-edited or stale link still
- * shows the timeline.
+ * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&start=..&until=..&q=..&cursor=..&event=..`)
+ * and its keyset cursor. `start` and `until` are a half-open pair of instants (the activity
+ * overview's selected period) that counts only when both are valid and `start` is before `until`.
+ * `event` selects the event shown in the inspector and is not a filter: it never changes the feed,
+ * its counts, or its cursor. Nothing here touches the database, so every boundary is unit tested.
+ * Anything invalid in the URL is dropped rather than failing the page: a hand-edited or stale link
+ * still shows the timeline.
  */
 
 export type EventSeverity = Database["public"]["Enums"]["event_severity"];

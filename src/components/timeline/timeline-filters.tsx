@@ -87,14 +87,9 @@ export function TimelineFilters({
       options={scopeOptions}
       status={status}
       extraActiveCount={extraActiveCount}
+      hidden={query.timeRange === null ? undefined : { start: query.timeRange.from, until: query.timeRange.toExclusive }}
       resetKey={JSON.stringify([query.types, query.severities, query.from, query.to, query.search, query.timeRange])}
     >
-      {query.timeRange === null ? null : (
-        <>
-          <input type="hidden" name="start" value={query.timeRange.from} />
-          <input type="hidden" name="until" value={query.timeRange.toExclusive} />
-        </>
-      )}
       <label className="block text-sm font-medium">
         Search event titles
         <input
