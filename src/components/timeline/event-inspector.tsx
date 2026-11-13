@@ -154,6 +154,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
         title="Event details"
         titleAction={<DialogCloseButton className={buttonClass("secondary", "sm")}>Close event</DialogCloseButton>}
         size="inspector"
+        lightDismiss
         onClose={closeSelection}
       >
         {current === null ? (
