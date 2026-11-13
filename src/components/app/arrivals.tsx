@@ -253,6 +253,9 @@ export function LiveIndicator({ connections }: { connections: LiveConnectionsRea
     initialLiveState,
   );
   const arrivals = useArrivalBatch().number;
+  // The coral flash's class stays on for the highlight time: under reduced motion it is the static
+  // sign of an arrival (globals.css), where no ring moves.
+  const receiving = useArrivalHighlight(arrivals, arrivals > 0);
   const text = liveStatusText(status);
   const summary = connections.state === "loaded" ? connections.summary : null;
   const count = summary === null ? null : liveConnectionsText(summary);
@@ -294,7 +297,7 @@ export function LiveIndicator({ connections }: { connections: LiveConnectionsRea
           <span
             key={`dot-${arrivals}`}
             data-testid="live-dot"
-            className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"} ${arrivals > 0 ? "live-receive-dot" : ""}`}
+            className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"} ${receiving ? "live-receive-dot" : ""}`}
           />
         </span>
         {/* The whole name, and the visible words for sight; the tooltip describes the state. Below
@@ -368,26 +371,30 @@ function LiveConnectionsList({ connections }: { connections: LiveConnectionsRead
 }
 
 /**
- * One connection in the tooltip. For ARRIVAL_HIGHLIGHT_MS after a batch that changed its rows it
- * says "Receiving" beside a coral ripple; the word carries it under reduced motion, where the
- * ripple is hidden, and for a screen reader reading the description.
+ * One connection in the tooltip. For ARRIVAL_HIGHLIGHT_MS after the last batch that brought its
+ * data it says "Receiving" under its name, beside a coral ripple; the word carries it under reduced
+ * motion, where the ripple is hidden, and for a screen reader reading the description. Under the
+ * name, not beside it, so a wide status badge never squeezes the name that tells two connections
+ * of one provider apart.
  */
 function LiveConnectionRow({ connection }: { connection: LiveConnection }) {
-  const batch = useArrivalBatch();
-  const receiving = useArrivalHighlight(batch.number, batch.connectionIds.has(connection.id));
+  const receivedIn = useArrivalBatch().receivedIn.get(connection.id) ?? 0;
+  const receiving = useArrivalHighlight(receivedIn, receivedIn > 0);
   return (
     <li className="flex items-center gap-2">
       <ProviderMark provider={connection.provider} size="sm" labeled />
-      <span className="min-w-0 flex-1 truncate">{connection.display_name}</span>
-      {receiving ? (
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-accent">
-          <span aria-hidden="true" className="relative flex size-1.5">
-            <span key={batch.number} className="live-receive absolute inset-0 rounded-full border border-accent" />
-            <span className="relative size-1.5 rounded-full bg-accent" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{connection.display_name}</span>
+        {receiving ? (
+          <span className="flex items-center gap-1.5 text-accent">
+            <span aria-hidden="true" className="relative flex size-1.5">
+              <span key={receivedIn} className="live-receive absolute inset-0 rounded-full border border-accent" />
+              <span className="relative size-1.5 rounded-full bg-accent" />
+            </span>
+            Receiving
           </span>
-          Receiving
-        </span>
-      ) : null}
+        ) : null}
+      </span>
       <ConnectionStatusBadge status={connection.status} />
     </li>
   );

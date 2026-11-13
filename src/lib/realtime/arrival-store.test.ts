@@ -92,14 +92,23 @@ describe("createArrivalStore", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("keeps each batch's connections to that batch, and copies them so the caller can reuse its set", () => {
+  it("records the last batch each connection received data in, and keeps it through batches from others", () => {
     const { store } = setup();
     const pending = new Set(["c1", "c2"]);
     store.arrived(null, pending);
+    // The caller reuses its set for the next batch; the store kept what it needed.
     pending.clear();
-    expect([...store.batch().connectionIds]).toEqual(["c1", "c2"]);
+    expect([...store.batch().receivedIn]).toEqual([
+      ["c1", 1],
+      ["c2", 1],
+    ]);
+    // A batch from another connection, then one with no connection: c1 and c2 keep batch 1.
+    store.arrived(null, new Set(["c3"]));
     store.arrived(null, NO_CONNECTIONS);
-    expect(store.batch().connectionIds.size).toBe(0);
+    expect(Object.fromEntries(store.batch().receivedIn)).toEqual({ c1: 1, c2: 1, c3: 2 });
+    // Receiving again moves it to the new batch.
+    store.arrived(null, new Set(["c1"]));
+    expect(store.batch().receivedIn.get("c1")).toBe(4);
   });
 
   it("stops notifying a listener once it unsubscribes, and keeps notifying the others", () => {

@@ -497,6 +497,10 @@ summary {
   .live-receive {
     display: none;
   }
+  /* The live dot holds the coral of an arrival for as long as the component keeps the class on. */
+  .live-receive-dot {
+    background-color: var(--accent);
+  }
   /* A static highlight in place of each arrival's motion; the component removes it on a timer. */
   .arrival-flash {
     animation: none;

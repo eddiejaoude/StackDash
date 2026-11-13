@@ -30,13 +30,17 @@ export type ArrivalBatch = Readonly<{
   number: number;
   /** The ids of the components that mark data and were in view when it arrived. */
   inView: ReadonlySet<string>;
-  /** The connections whose rows changed in this batch, for the live indicator's list (#392). */
-  connectionIds: ReadonlySet<string>;
+  /**
+   * For each connection that has received data since the page opened, the number of the last batch
+   * that carried its rows, for the live indicator's list (#392). Kept across batches, so a later
+   * batch from another connection does not end this one's "Receiving" early.
+   */
+  receivedIn: ReadonlyMap<string, number>;
 }>;
 
 /** What the server renders, and what every page starts from. */
 export const INITIAL_LIVE_STATE: LiveState = { status: "connecting", lastArrivalAt: null };
-export const NO_BATCH: ArrivalBatch = { number: 0, inView: new Set(), connectionIds: new Set() };
+export const NO_BATCH: ArrivalBatch = { number: 0, inView: new Set(), receivedIn: new Map() };
 
 export type ArrivalStore = Readonly<{
   /** Runs the listener after every change; returns the unsubscribe function. */
@@ -84,7 +88,10 @@ export function createArrivalStore(): ArrivalStore {
       if (at !== null && (live.lastArrivalAt === null || Date.parse(at) > Date.parse(live.lastArrivalAt))) {
         live = { ...live, lastArrivalAt: at };
       }
-      batch = { number: batch.number + 1, inView: new Set(inView), connectionIds: new Set(connectionIds) };
+      const number = batch.number + 1;
+      const receivedIn = new Map(batch.receivedIn);
+      for (const connectionId of connectionIds) receivedIn.set(connectionId, number);
+      batch = { number, inView: new Set(inView), receivedIn };
       changed();
     },
     watch(id) {
