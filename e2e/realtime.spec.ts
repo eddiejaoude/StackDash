@@ -887,9 +887,10 @@ ownerTest.describe("arriving data", () => {
       await expect(page.getByTestId("live-ready")).toBeHidden();
 
       await updateMoneySnapshot(snapshotId, 5_000);
+      // The live dot holds the arrival's coral instead of rippling; asserted first, because its 4 s
+      // start at the batch, before the refreshed label below.
+      await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", CORAL, { timeout: LIVE_TIMEOUT_MS });
       await expect(usd.getByText("Updated", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
-      // The live dot holds the arrival's coral instead of rippling.
-      await expect(page.getByTestId("live-dot")).toHaveCSS("background-color", CORAL);
       await expect(usd).toContainText("$50.00");
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
       await waitForTrends(page);
@@ -995,9 +996,10 @@ ownerTest.describe("arriving data", () => {
       if (updateError) throw new Error(`Updating the connection failed (code ${updateError.code}).`);
       await expect(indicator).toHaveAccessibleName("Live updates, 3 connected", { timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId("live-attention")).toHaveCount(0);
-      // A change to the connection's own row is not data received from it.
+      // A change to the connection's own row is not data received from it. Read once, right as the
+      // refresh lands: a retrying "not" would also pass once a wrong 4 s label had cleared.
       const receivingRow = items.filter({ hasText: "acme-org" });
-      await expect(receivingRow).not.toContainText("Receiving");
+      expect(await receivingRow.textContent()).not.toContain("Receiving");
 
       // An event from the GitHub connection: its row says so, no other row does, and it clears.
       const { data: account, error: accountError } = await adminClient()
@@ -1009,8 +1011,17 @@ ownerTest.describe("arriving data", () => {
       await insertEvent({ workspaceId: workspace.id, connectionId: github.id, accountId: account.id }, "Push to main");
       // Asserted before anything else, because the 4 s run from the batch, not from the refresh.
       await expect(receivingRow).toContainText("Receiving", { timeout: LIVE_TIMEOUT_MS });
-      await expect(items.filter({ hasText: "Acme billing" })).not.toContainText("Receiving");
+      expect(await items.filter({ hasText: "Acme billing" }).textContent()).not.toContain("Receiving");
       await expect(receivingRow).not.toContainText("Receiving", { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Disconnected and connected again, the row mounts afresh: the batch it received data in is
+      // in the past, so it does not say "Receiving" again.
+      for (const status of ["revoked", "active"] as const) {
+        const { error: statusError } = await adminClient().from("connections").update({ status }).eq("id", github.id);
+        if (statusError) throw new Error(`Updating the connection failed (code ${statusError.code}).`);
+        await expect(items).toHaveCount(status === "revoked" ? 2 : 3, { timeout: LIVE_TIMEOUT_MS });
+      }
+      expect(await receivingRow.textContent()).not.toContain("Receiving");
 
       // On a phone, too.
       await expectTooltipOnScreen(320);
