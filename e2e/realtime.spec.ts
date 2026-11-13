@@ -524,8 +524,8 @@ ownerTest.describe("arriving data", () => {
       const announcements = await recordAnnouncements(page);
       const indicator = page.getByRole("button", { name: "Live updates" });
       await expect(indicator).toBeVisible();
-      // Subscribed: the name is exactly "Live updates" and the visible word says Live.
-      await expect(indicator).toHaveAccessibleName("Live updates");
+      // Subscribed: the name is "Live updates" with the one seeded connection, and the visible word says Live.
+      await expect(indicator).toHaveAccessibleName("Live updates, 1 connected");
       await expect(indicator.getByText("Live", { exact: true })).toBeVisible();
       await expect(page.getByTestId("live-dot")).not.toHaveCSS("background-color", NO_FILL);
       await expect(page.getByTestId("live-pulse")).toHaveCount(0);
@@ -625,8 +625,9 @@ ownerTest.describe("arriving data", () => {
       const indicator = page.getByRole("button", { name: "Live updates" });
       const dot = page.getByTestId("live-dot");
 
-      // Connecting: the join is unanswered, so the word, the name, and the hollow dot agree.
-      await expect(indicator).toHaveAccessibleName("Live updates, connecting");
+      // Connecting: the join is unanswered, so the word, the name, and the hollow dot agree. The
+      // workspace has no connections, which the name and the tooltip say as well.
+      await expect(indicator).toHaveAccessibleName("Live updates, connecting, 0 connected");
       await expect(indicator.getByText("Connecting", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
       await expect.poll(() => held.length).toBeGreaterThan(0);
@@ -634,12 +635,13 @@ ownerTest.describe("arriving data", () => {
       // Offline: Realtime refuses the join. The client keeps rejoining, refused each time.
       refusing = true;
       for (const refuse of held.splice(0)) refuse();
-      await expect(indicator).toHaveAccessibleName("Live updates, offline");
+      await expect(indicator).toHaveAccessibleName("Live updates, offline, 0 connected");
       await expect(indicator.getByText("Offline", { exact: true })).toBeVisible();
       await expect(dot).toHaveCSS("background-color", NO_FILL);
       await indicator.focus();
       await expect(page.getByRole("tooltip")).toHaveText(
-        "Live updates stopped. Trying to reconnect; reload the page if this does not clear.",
+        "Live updates stopped. Trying to reconnect; reload the page if this does not clear." +
+          "No connections yet. Add one on the Connections page.",
       );
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
@@ -878,6 +880,87 @@ ownerTest.describe("arriving data", () => {
       await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
       expect(await animations()).toEqual([]);
       expect(await announcements()).toHaveLength(1);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("lists the workspace's connections, marks one needing attention, and follows a status change", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Live indicator connections");
+    try {
+      const { data: rows, error } = await adminClient()
+        .from("connections")
+        .insert(
+          (
+            [
+              ["vercel", "active", "Acme production"],
+              ["github", "needs_attention", "acme-org"],
+              ["stripe", "active", "Acme billing"],
+              ["resend", "revoked", "Old mailer"],
+            ] as const
+          ).map(([provider, status, display_name]) => ({
+            workspace_id: workspace.id,
+            provider,
+            status,
+            display_name,
+            poll_interval_seconds: 3_600,
+          })),
+        )
+        .select("id, display_name");
+      if (error) throw new Error(`Seeding connections failed (code ${error.code}).`);
+      const github = rows.find((row) => row.display_name === "acme-org");
+      if (!github) throw new Error("The seeded GitHub connection is missing.");
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      if (process.env.PW_PR_EVIDENCE === "1") await page.emulateMedia({ reducedMotion: "reduce" });
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await expectSubscribed(live);
+      const indicator = page.getByRole("button", { name: /^Live updates/ });
+      // The disconnected connection is neither counted nor listed; the attention mark is a shape, named too.
+      await expect(indicator).toHaveAccessibleName("Live updates, 2 connected, 1 needs attention");
+      await expect(indicator.getByText("2 connected", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("live-attention")).toBeVisible();
+
+      await indicator.focus();
+      const tooltip = page.getByRole("tooltip");
+      await expect(tooltip).toContainText("Connections: 2 connected, 1 needs attention.");
+      const items = tooltip.getByRole("list", { name: "Connections" }).getByRole("listitem");
+      // Problems first, then in the order they were connected.
+      await expect(items).toHaveText([/acme-org.*Needs attention/, /Acme production.*Active/, /Acme billing.*Active/]);
+      await expect(items.first().getByRole("img", { name: "GitHub" })).toBeVisible();
+      await expect(tooltip).not.toContainText("Old mailer");
+      await expectNoAxeViolations(page);
+      if (process.env.PW_PR_EVIDENCE === "1") {
+        await page.screenshot({
+          path: "pr-evidence/after/live-indicator-1280.png",
+          clip: { x: 480, y: 0, width: 800, height: 340 },
+          animations: "disabled",
+        });
+      }
+      await page.keyboard.press("Escape");
+      await expect(tooltip).toBeHidden();
+
+      // A sync fixes the connection: the header reads the connections again on the live refresh.
+      const { error: updateError } = await adminClient().from("connections").update({ status: "active" }).eq("id", github.id);
+      if (updateError) throw new Error(`Updating the connection failed (code ${updateError.code}).`);
+      await expect(indicator).toHaveAccessibleName("Live updates, 3 connected", { timeout: LIVE_TIMEOUT_MS });
+      await expect(page.getByTestId("live-attention")).toHaveCount(0);
+
+      // On a phone the tooltip stays on screen. Escape dismissed it until focus leaves, so leave first.
+      await page.setViewportSize({ width: 320, height: 800 });
+      await indicator.blur();
+      await indicator.focus();
+      await expect(tooltip).toBeVisible();
+      const box = await tooltip.boundingBox();
+      if (box === null) throw new Error("The tooltip is not rendered.");
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(320);
+      if (process.env.PW_PR_EVIDENCE === "1") {
+        await page.screenshot({ path: "pr-evidence/after/live-indicator-320.png", clip: { x: 0, y: 0, width: 320, height: 420 } });
+      }
     } finally {
       await deleteTestWorkspace(workspace);
     }
