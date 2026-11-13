@@ -55,12 +55,13 @@ export function SeverityLinkRow({
 
 /**
  * The list of active filter chips. A chip links to the view without its filter, so activating it
- * unmounts it, and Next leaves focus alone on a navigation (`ScrollAndFocusHandler` in
- * `next/dist/client/components/layout-router.js`), so focus would fall to the page. Once the new
- * list renders, focus goes to the chip that took the removed one's place, to the last chip when the
- * removed one was last, or to `emptyFocusId` when no chip is left. It moves only after a chip's own
- * client navigation and only when focus is on nothing, so it never takes focus from where someone
- * put it. Rendered even with no chips, so it is still mounted when the last one goes.
+ * unmounts it, and Next leaves focus alone on a navigation (`InnerScrollHandler` in
+ * `next/dist/client/components/layout-router.js`, Next 16.4.3: "This handler intentionally leaves
+ * focus untouched"), so focus would fall to the page. Once the new list renders, focus goes to the
+ * chip that took the removed one's place, to the last chip when the removed one was last, or to
+ * `emptyFocusId` when no chip is left. It moves only after a chip's own client navigation and only
+ * when focus is on nothing, so it never takes focus from where someone put it. Rendered even with
+ * no chips, so it is still mounted when the last one goes.
  */
 export function ActiveFilterList({
   chipKeys,
