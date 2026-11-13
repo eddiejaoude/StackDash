@@ -7,7 +7,7 @@ import type { AdapterContext } from "@/lib/adapters/types";
 import {
   between,
   chance,
-  countOf,
+  countAtVolume,
   dailyCountInHour,
   DAY_MS,
   HOUR_MS,
@@ -35,7 +35,8 @@ import {
  *   events in the dashboard's "What changed" sentences (`src/lib/dashboard/what-changed.ts`);
  * - the public metric "New customers in 30 days" (`stripe-customers-30d` in
  *   `src/lib/public-metrics/definitions.ts`), which the demo seed publishes on its project page.
- * The headline's signups leave it out (`eventTypes` in src/lib/adapters/stripe/index.ts).
+ * The headline's signups leave it out (`eventTypes` in src/lib/adapters/stripe/index.ts). This is the
+ * default volume's rate: `--volume` (#383) multiplies it, and those counts with it.
  */
 export const NEW_CUSTOMERS_PER_DAY = 50;
 
@@ -107,10 +108,11 @@ function objectFor(type: StripeType, id: string, parts: readonly (string | numbe
   }
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+// Volume's extra occurrences follow the default volume's in `index`, which keeps every id in the slot apart.
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   for (const { stripeType } of timelineEvents) {
-    const count = countOf(EVENT_CHANCES[stripeType], accountId, stripeType, slot);
+    const count = countAtVolume(EVENT_CHANCES[stripeType], volume, accountId, stripeType, slot);
     for (let index = 0; index < count; index += 1) {
       const parts = [accountId, stripeType, slot, index] as const;
       const id = `sim${Math.floor(unit(...parts, "id") * 1e14).toString(36)}${slot.toString(36)}`;

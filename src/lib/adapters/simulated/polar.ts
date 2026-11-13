@@ -15,7 +15,7 @@ import type { AdapterContext } from "@/lib/adapters/types";
 import {
   between,
   chance,
-  countOf,
+  countAtVolume,
   dailyCountInHour,
   DAY_MS,
   HOUR_MS,
@@ -87,10 +87,11 @@ function paidOrder(id: string, at: Date, parts: readonly (string | number)[]): O
   };
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+// Volume's extra occurrences follow the default volume's in `index`, which keeps every id in the slot apart.
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   for (const stream of ["order", "started", "canceled", "refund"] as const) {
-    const count = countOf(EVENT_CHANCES[stream], accountId, stream, slot);
+    const count = countAtVolume(EVENT_CHANCES[stream], volume, accountId, stream, slot);
     for (let index = 0; index < count; index += 1) {
       const parts = [accountId, stream, slot, index] as const;
       const id = `sim-${Math.floor(unit(...parts, "id") * 1e14).toString(36)}-${slot.toString(36)}-${index}`;

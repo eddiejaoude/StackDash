@@ -14,9 +14,12 @@ import {
   accrued,
   between,
   chance,
-  countOf,
+  countAtVolume,
   HOUR_MS,
   instantInSlot,
+  laneParts,
+  lanesAt,
+  MAX_EVENT_VOLUME,
   simulatedEndpoint,
   SLOT_MS,
   unit,
@@ -29,6 +32,7 @@ import {
  * then 90 percent of the 400 minute quota late in the month, storage grows slowly, and about 90
  * pipelines, 15 merged merge requests, 10 deployments, and one release land a day. Events go
  * through the real adapter's builders, so titles, severities, and dedupe keys match a real sync.
+ * Event counts are at the default event volume; a higher volume (#383) multiplies every one.
  */
 
 const PLAN = "free";
@@ -93,20 +97,41 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
   );
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+// About 90 finished pipelines a day (8,640 slots) at the default volume.
+const PIPELINE_CHANCES = [0.008, 0.002] as const;
+
+/**
+ * The id of a slot's `index`th pipeline. The default volume's, at most one per chance, are
+ * `slot * 10 + index`; a higher volume's extra ones end in 2 instead, so no two pipelines share an id.
+ */
+function pipelineId(slot: number, index: number): number {
+  if (index < PIPELINE_CHANCES.length) return slot * 10 + index;
+  return (slot * PIPELINE_CHANCES.length * MAX_EVENT_VOLUME + index) * 10 + 2;
+}
+
+/**
+ * A number for `lane` (1 or more) of `slot` that no other slot or lane shares, for the merge requests,
+ * deployments, and releases a higher volume adds. The first lane's numbers repeat (iids every 10,000
+ * slots, tags within 500 versions), so later lanes do not reuse that scheme; theirs are twenty times
+ * a slot, past every first lane iid and patch version and every slot before the year 3100.
+ */
+function laneSerial(slot: number, lane: number): number {
+  return slot * MAX_EVENT_VOLUME + lane;
+}
+
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   const push = (event: ActivityEvent | undefined) => {
     if (event !== undefined) events.push(event);
   };
   const slotEnd = new Date((slot + 1) * SLOT_MS);
 
-  // About 90 finished pipelines a day (8,640 slots).
-  const pipelines = countOf([0.008, 0.002], accountId, "pipelines", slot);
+  const pipelines = countAtVolume(PIPELINE_CHANCES, volume, accountId, "pipelines", slot);
   for (let index = 0; index < pipelines; index += 1) {
     const parts = [accountId, "pipeline", slot, index] as const;
     const projectIndex = between(0, PROJECTS.length - 1, ...parts, "project");
     const project = projectRef(accountId, projectIndex);
-    const id = slot * 10 + index;
+    const id = pipelineId(slot, index);
     push(
       pipelineEvent(
         project,
@@ -125,28 +150,30 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
   }
 
   // About 15 merged merge requests a day.
-  if (chance(0.0017, accountId, "merge-request", slot)) {
-    const project = projectRef(accountId, between(0, PROJECTS.length - 1, accountId, "merge-request-project", slot));
+  for (const lane of lanesAt(0.0017, volume, accountId, "merge-request", slot)) {
+    const project = projectRef(accountId, between(0, PROJECTS.length - 1, ...laneParts(lane, accountId, "merge-request-project", slot)));
+    const iid = lane === 0 ? (slot % 10_000) + 1 : laneSerial(slot, lane);
     push(
       mergeRequestEvent(
         project,
-        { iid: (slot % 10_000) + 1, state: "merged", merged_at: instantInSlot(slot, accountId, "merged"), web_url: "" },
+        { iid, state: "merged", merged_at: instantInSlot(slot, ...laneParts(lane, accountId, "merged")), web_url: "" },
         accountId,
       ),
     );
   }
 
   // About 10 deployments a day, mostly to staging and review apps.
-  if (chance(0.0012, accountId, "deployment", slot)) {
-    const parts = [accountId, "deployment", slot] as const;
+  for (const lane of lanesAt(0.0012, volume, accountId, "deployment", slot)) {
+    const parts = laneParts(lane, accountId, "deployment", slot);
+    const id = lane === 0 ? slot : laneSerial(slot, lane);
     const index = between(0, ENVIRONMENTS.length - 1, ...parts, "environment");
     const environment = ENVIRONMENTS[index] ?? ENVIRONMENTS[1];
     push(
       deploymentEvent(
         projectRef(accountId, 0),
         {
-          id: slot,
-          iid: (slot % 100_000) + 1,
+          id,
+          iid: (id % 100_000) + 1,
           status: chance(0.1, ...parts, "failed") ? "failed" : "success",
           ref: environment.ref,
           updated_at: instantInSlot(slot, ...parts),
@@ -158,14 +185,14 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
   }
 
   // About one release a day.
-  if (chance(0.00012, accountId, "release", slot)) {
-    const minor = Math.floor(unit(accountId, "release-version", slot) * 50);
+  for (const lane of lanesAt(0.00012, volume, accountId, "release", slot)) {
+    const minor = Math.floor(unit(...laneParts(lane, accountId, "release-version", slot)) * 50);
     push(
       releaseEvent(
         projectRef(accountId, 1),
         {
-          tag_name: `v1.${minor}.${slot % 10}`,
-          released_at: instantInSlot(slot, accountId, "released"),
+          tag_name: `v1.${minor}.${lane === 0 ? slot % 10 : laneSerial(slot, lane)}`,
+          released_at: instantInSlot(slot, ...laneParts(lane, accountId, "released")),
           // No link: a release page that never existed would mislead.
         },
         accountId,

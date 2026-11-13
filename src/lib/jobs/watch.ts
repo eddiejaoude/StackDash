@@ -1,4 +1,5 @@
-import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
+import { isProviderSimulationEnabled, isSimulatedAdapter, SIMULATE_PROVIDERS_ENV, simulatedAdaptersAtVolume } from "@/lib/adapters/simulated";
+import { DEFAULT_EVENT_VOLUME, MAX_EVENT_VOLUME } from "@/lib/adapters/simulated/simulation";
 
 import { runTick, type TickResult } from "./runner";
 import type { JobStore } from "./store";
@@ -8,7 +9,8 @@ import type { SyncDeps } from "./sync-connection";
  * `npm run jobs:tick -- --watch` (#131), also started by `npm run demo` once it has seeded (#260):
  * runs the normal tick in a loop for local use, so open screens keep updating. With provider
  * simulation on, each iteration first makes the simulated connections due, so they sync every few
- * seconds instead of once a minute. Everything it touches (the tick, the clock, sleeping, output,
+ * seconds instead of once a minute, and `--volume` (#383) multiplies how many timeline events they
+ * make, so open screens fill faster. Everything it touches (the tick, the clock, sleeping, output,
  * the stop signal) is injected so the loop is tested without a database.
  */
 
@@ -21,15 +23,20 @@ export const WATCH_CLAIM_LIMIT = 100;
 
 export type TickArgs =
   | { kind: "once" }
-  | { kind: "watch"; intervalSeconds: number }
+  | { kind: "watch"; intervalSeconds: number; volume: number }
   | { kind: "invalid"; message: string };
 
-const USAGE = "Usage: npm run jobs:tick [-- --watch [--interval <seconds>]]";
+const USAGE = `Usage: npm run jobs:tick [-- --watch [--interval <seconds>] [--volume <${DEFAULT_EVENT_VOLUME}-${MAX_EVENT_VOLUME}>]]`;
 
-/** Parses the script's arguments. Anything it does not know is refused, so a typo never runs. */
-export function parseTickArgs(argv: readonly string[]): TickArgs {
+/**
+ * Parses the script's arguments. Anything it does not know is refused, so a typo never runs.
+ * `simulationEnabled` is the process's provider simulation setting, passed in so this stays pure:
+ * `--volume` only scales simulated events, so it is refused while simulation is off.
+ */
+export function parseTickArgs(argv: readonly string[], context: Readonly<{ simulationEnabled: boolean }>): TickArgs {
   let watch = false;
   let interval: string | undefined;
+  let volume: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--watch") watch = true;
@@ -37,15 +44,61 @@ export function parseTickArgs(argv: readonly string[]): TickArgs {
       interval = argv[index + 1];
       if (interval === undefined) return { kind: "invalid", message: `--interval needs a number of seconds. ${USAGE}` };
       index += 1;
+    } else if (arg === "--volume") {
+      volume = argv[index + 1];
+      if (volume === undefined) {
+        return { kind: "invalid", message: `--volume needs a multiplier from ${DEFAULT_EVENT_VOLUME} to ${MAX_EVENT_VOLUME}. ${USAGE}` };
+      }
+      index += 1;
     } else return { kind: "invalid", message: `Unknown argument ${JSON.stringify(arg)}. ${USAGE}` };
   }
-  if (!watch) return interval === undefined ? { kind: "once" } : { kind: "invalid", message: `--interval needs --watch. ${USAGE}` };
-  if (interval === undefined) return { kind: "watch", intervalSeconds: WATCH_DEFAULT_INTERVAL_SECONDS };
-  const seconds = /^\d+$/.test(interval) ? Number(interval) : Number.NaN;
-  if (!Number.isSafeInteger(seconds) || seconds < WATCH_MIN_INTERVAL_SECONDS) {
-    return { kind: "invalid", message: `--interval must be a whole number of seconds, at least ${WATCH_MIN_INTERVAL_SECONDS}.` };
+  if (!watch) {
+    if (interval !== undefined) return { kind: "invalid", message: `--interval needs --watch. ${USAGE}` };
+    if (volume !== undefined) return { kind: "invalid", message: `--volume needs --watch. ${USAGE}` };
+    return { kind: "once" };
   }
-  return { kind: "watch", intervalSeconds: seconds };
+
+  let intervalSeconds = WATCH_DEFAULT_INTERVAL_SECONDS;
+  if (interval !== undefined) {
+    intervalSeconds = /^\d+$/.test(interval) ? Number(interval) : Number.NaN;
+    if (!Number.isSafeInteger(intervalSeconds) || intervalSeconds < WATCH_MIN_INTERVAL_SECONDS) {
+      return { kind: "invalid", message: `--interval must be a whole number of seconds, at least ${WATCH_MIN_INTERVAL_SECONDS}.` };
+    }
+  }
+
+  if (volume === undefined) return { kind: "watch", intervalSeconds, volume: DEFAULT_EVENT_VOLUME };
+  // Any explicit --volume, even 1, so nobody believes a volume applies to real providers.
+  if (!context.simulationEnabled) {
+    return {
+      kind: "invalid",
+      message: `--volume scales simulated events only, and provider simulation is off. Add ${SIMULATE_PROVIDERS_ENV}=1 to .env.local and run the command again, or leave out --volume.`,
+    };
+  }
+  const multiplier = /^\d+$/.test(volume) ? Number(volume) : Number.NaN;
+  if (!Number.isSafeInteger(multiplier) || multiplier < DEFAULT_EVENT_VOLUME || multiplier > MAX_EVENT_VOLUME) {
+    return {
+      kind: "invalid",
+      message: `--volume must be a whole number from ${DEFAULT_EVENT_VOLUME} to ${MAX_EVENT_VOLUME}, for example --volume 10.`,
+    };
+  }
+  return { kind: "watch", intervalSeconds, volume: multiplier };
+}
+
+/**
+ * `deps` with every simulated adapter `getAdapter` returns swapped for the same provider's adapter
+ * at `volume` (#383). Real adapters and the fake one pass through, so a volume never touches real
+ * data; at the default volume `deps` is returned as is.
+ */
+export function withSimulatedEventVolume(deps: SyncDeps, volume: number): SyncDeps {
+  if (volume === DEFAULT_EVENT_VOLUME) return deps;
+  const scaled = simulatedAdaptersAtVolume(volume);
+  return {
+    ...deps,
+    getAdapter: (id) => {
+      const adapter = deps.getAdapter(id);
+      return adapter.id !== "fake" && isSimulatedAdapter(adapter) ? scaled[adapter.id] : adapter;
+    },
+  };
 }
 
 /** `store` with every `insertEvents` result added to `counter.written`; everything else passes through. */
@@ -97,11 +150,18 @@ export function formatTickLine(at: Date, tick: WatchTick): string {
   return `${at.toISOString()} synced ${result.succeeded}, events written ${eventsWritten}, failed ${result.failed}, retrying ${result.retried}`;
 }
 
-export async function runWatch(deps: WatchDeps, intervalSeconds: number): Promise<void> {
+export type WatchOptions = Readonly<{
+  intervalSeconds: number;
+  /** The simulated event volume the deps' adapters run at, shown in the startup line. */
+  volume: number;
+}>;
+
+export async function runWatch(deps: WatchDeps, options: WatchOptions): Promise<void> {
+  const { intervalSeconds, volume } = options;
   const simulating = deps.simulationEnabled();
   deps.print(
     simulating
-      ? `Watching: a tick every ${intervalSeconds} seconds, with simulated connections synced on every tick. Press Ctrl+C to stop.`
+      ? `Watching: a tick every ${intervalSeconds} seconds at volume ${volume}, with simulated connections synced on every tick. Press Ctrl+C to stop.`
       : `Watching: a tick every ${intervalSeconds} seconds. Provider simulation is off, so connections sync only when they are due. Press Ctrl+C to stop.`,
   );
   if (!simulating) deps.print(SIMULATION_OFF_HINT);
@@ -153,13 +213,13 @@ export type StopSignals = Readonly<{
  * `runWatch` until Ctrl+C or SIGTERM, which stop it after the tick in progress. The listeners go
  * when it returns, so a second Ctrl+C after "Stopped." ends the process as usual.
  */
-export async function watchUntilStopped(deps: Omit<WatchDeps, "signal">, intervalSeconds: number, signals: StopSignals = process): Promise<void> {
+export async function watchUntilStopped(deps: Omit<WatchDeps, "signal">, options: WatchOptions, signals: StopSignals = process): Promise<void> {
   const controller = new AbortController();
   const stop = () => controller.abort();
   signals.once("SIGINT", stop);
   signals.once("SIGTERM", stop);
   try {
-    await runWatch({ ...deps, signal: controller.signal }, intervalSeconds);
+    await runWatch({ ...deps, signal: controller.signal }, options);
   } finally {
     signals.off("SIGINT", stop);
     signals.off("SIGTERM", stop);

@@ -19,6 +19,7 @@
 import { existsSync } from "node:fs";
 
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
+import { DEFAULT_EVENT_VOLUME } from "@/lib/adapters/simulated/simulation";
 import { connectOrigin } from "@/lib/connections/oauth-state";
 import { demoCommandRefusal } from "@/lib/demo/history";
 import { runDemoCommand, seedDemoWorkspace } from "@/lib/demo/seed";
@@ -55,7 +56,10 @@ function main(): Promise<number> {
       print("Start the app with npm run dev if it is not running, then open the link. The history now continues live:");
       print("");
       // The replay's last step is now, so the watch carries on from its cursors without a gap.
-      await watchUntilStopped(liveWatchDeps(createJobDeps(), print), WATCH_DEFAULT_INTERVAL_SECONDS);
+      await watchUntilStopped(liveWatchDeps(createJobDeps(), print), {
+        intervalSeconds: WATCH_DEFAULT_INTERVAL_SECONDS,
+        volume: DEFAULT_EVENT_VOLUME,
+      });
     },
   });
 }

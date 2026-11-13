@@ -24,6 +24,7 @@ import {
 import { logError } from "@/lib/log/logger";
 import { buildPaletteCommands, type PaletteScope } from "@/lib/palette/commands";
 import { latestCardYear } from "@/lib/public-metrics/yearly";
+import { summarizeLiveConnections, type LiveConnectionsRead } from "@/lib/realtime/arrivals";
 import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 import { roleLabel } from "@/lib/workspaces/permissions";
 
@@ -52,7 +53,8 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-40 border-b border-line bg-background/90 backdrop-blur-md">
           <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-            <div className="flex h-14 items-center gap-1.5 sm:gap-3">
+            {/* Positioned, so the live indicator's tooltip can sit against the row below md. */}
+            <div className="relative flex h-14 items-center gap-1.5 sm:gap-3">
               <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
                 <Wordmark />
               </Link>
@@ -105,7 +107,11 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
         currentSlug={membership ? membership.workspace.slug : null}
       />
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
-        {membership ? <LiveIndicator /> : null}
+        {membership ? (
+          <Suspense fallback={<LiveIndicator connections={{ state: "loading" }} />}>
+            <HeaderLiveIndicator workspaceId={membership.workspace.id} />
+          </Suspense>
+        ) : null}
         {membership ? (
           <span className="hidden rounded-full border border-line px-2 py-0.5 font-mono text-[11px] font-medium leading-none tracking-wide text-muted sm:inline">
             <span className="sr-only">Your role: </span>
@@ -128,6 +134,26 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
       </div>
     </>
   );
+}
+
+/**
+ * The live indicator with the workspace's connections (#392), behind its own Suspense boundary so
+ * the read never holds up the rest of the top row. `getWorkspaceScope` is request-cached, so this
+ * shares the read with the palette below, and a live refresh (connections is a realtime table,
+ * live-refresh.tsx) reads it again. Only the summary crosses to the client. A failed read leaves
+ * the live status working and gives the reference in the tooltip.
+ */
+async function HeaderLiveIndicator({ workspaceId }: { workspaceId: string }) {
+  let connections: LiveConnectionsRead;
+  try {
+    const scope = await getWorkspaceScope(workspaceId);
+    connections = { state: "loaded", summary: summarizeLiveConnections(scope.connections) };
+  } catch (error) {
+    // notFound(), redirect(), and a postponed request-time read signal through throws; let Next.js handle them.
+    unstable_rethrow(error);
+    connections = { state: "failed", reference: logError("live_indicator.connections_load_failed", error, { workspaceId }) };
+  }
+  return <LiveIndicator connections={connections} />;
 }
 
 /**

@@ -3,12 +3,17 @@
  * claimed jobs, exactly as POST /api/jobs/tick does.
  *
  *   npm run jobs:tick
- *   npm run jobs:tick -- --watch [--interval <seconds>]
+ *   npm run jobs:tick -- --watch [--interval <seconds>] [--volume <1-20>]
  *
  * `--watch` repeats the tick every 10 seconds (at least 5) until Ctrl+C or SIGTERM, which stop it
  * after the tick in progress, and claims up to 100 jobs per tick instead of 10. With
  * DEVMACRO_SIMULATE_PROVIDERS=1 each iteration first makes the connections the simulator made due,
  * so they sync on every tick (#131). It prints one line of counts per tick.
+ *
+ * `--volume` (#383, default 1) multiplies the simulated timeline events each sync makes, so local
+ * screens fill faster. It needs `--watch` and DEVMACRO_SIMULATE_PROVIDERS=1 and is refused
+ * otherwise, before any tick runs. Metrics, real providers, the cadence, and the claim limit stay
+ * as they are.
  *
  * Calls the runner directly, so no dev server or CRON_SECRET is needed. Reads `.env.local` when
  * present (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEVMACRO_ENCRYPTION_KEY, provider
@@ -16,13 +21,15 @@
  */
 import { existsSync } from "node:fs";
 
+import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { createJobDeps } from "@/lib/jobs/queue";
 import { runTick } from "@/lib/jobs/runner";
-import { liveWatchDeps, parseTickArgs, watchUntilStopped } from "@/lib/jobs/watch";
+import { liveWatchDeps, parseTickArgs, watchUntilStopped, withSimulatedEventVolume } from "@/lib/jobs/watch";
 
 async function main(): Promise<void> {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  const args = parseTickArgs(process.argv.slice(2));
+  // Read after .env.local, where the flag usually is.
+  const args = parseTickArgs(process.argv.slice(2), { simulationEnabled: isProviderSimulationEnabled() });
   if (args.kind === "invalid") {
     console.error(args.message);
     process.exitCode = 2;
@@ -35,8 +42,8 @@ async function main(): Promise<void> {
   }
 
   await watchUntilStopped(
-    liveWatchDeps(createJobDeps(), (line) => console.log(line)),
-    args.intervalSeconds,
+    liveWatchDeps(withSimulatedEventVolume(createJobDeps(), args.volume), (line) => console.log(line)),
+    { intervalSeconds: args.intervalSeconds, volume: args.volume },
   );
 }
 

@@ -131,8 +131,9 @@ ownerTest.describe("streamed workspace pages hydrate once (#211)", () => {
         await page.goto(`/w/${workspace.slug}/${path}`);
 
         // The header hydrated and LiveRefresh's channel joined, which updates the arrival state
-        // around the page; the page's content is still waiting in its hidden streamed segment.
-        await expect(page.getByRole("button", { name: "Live updates", exact: true })).toBeVisible();
+        // around the page; the page's content is still waiting in its hidden streamed segment. The
+        // exact name says live (not connecting) and that the new workspace has no connections (#392).
+        await expect(page.getByRole("button", { name: "Live updates, 0 connected", exact: true })).toBeVisible();
         await expect(page.getByRole("heading", { level: 1, includeHidden: true })).toHaveCount(1);
 
         await expect
