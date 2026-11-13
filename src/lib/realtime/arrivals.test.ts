@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { Allowance, ConnectionStatus, CurrencyAmounts, MoneyValue, QuantityValue } from "@/lib/dashboard/aggregate";
+import type {
+  Allowance,
+  ConnectionInput,
+  ConnectionStatus,
+  CurrencyAmounts,
+  MoneyValue,
+  QuantityValue,
+} from "@/lib/dashboard/aggregate";
 
 import {
   allowanceValues,
@@ -229,6 +236,17 @@ describe("summarizeLiveConnections", () => {
   it("neither counts nor lists a disconnected connection", () => {
     const summary = summarizeLiveConnections([liveConnection("a", "revoked"), liveConnection("b", "active")]);
     expect(summary).toEqual({ connected: 1, attention: 0, listed: [liveConnection("b", "active")], unlisted: 0 });
+  });
+
+  it("lists only the fields the tooltip shows, whatever row the caller passes", () => {
+    const row: ConnectionInput = {
+      ...liveConnection("a", "active"),
+      last_synced_at: "2026-11-13T08:00:00.000Z",
+      last_sync_requested_at: null,
+      poll_interval_seconds: 3_600,
+      granted_scopes: ["read:usage"],
+    };
+    expect(summarizeLiveConnections([row]).listed).toEqual([liveConnection("a", "active")]);
   });
 
   it("is empty with no connections, or only disconnected ones", () => {

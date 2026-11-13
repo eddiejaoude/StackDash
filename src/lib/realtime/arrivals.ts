@@ -171,7 +171,9 @@ export type LiveConnectionSummary = Readonly<{
 
 /**
  * What the live indicator says about the workspace's connections (#392). A disconnected (revoked)
- * connection is neither counted nor listed: it no longer syncs anything.
+ * connection is neither counted nor listed: it no longer syncs anything. The listed connections
+ * carry only the fields the tooltip shows, because the summary is a prop of a client component and
+ * a caller's wider row (granted scopes, sync times) would otherwise ship to the browser.
  */
 export function summarizeLiveConnections(connections: readonly LiveConnection[]): LiveConnectionSummary {
   const current = connections
@@ -180,7 +182,9 @@ export function summarizeLiveConnections(connections: readonly LiveConnection[])
   return {
     connected: current.filter((connection) => connection.status === "active").length,
     attention: current.filter((connection) => connection.status === "needs_attention" || connection.status === "failed").length,
-    listed: current.slice(0, LIVE_CONNECTIONS_LISTED),
+    listed: current
+      .slice(0, LIVE_CONNECTIONS_LISTED)
+      .map(({ id, provider, display_name, status }) => ({ id, provider, display_name, status })),
     unlisted: Math.max(0, current.length - LIVE_CONNECTIONS_LISTED),
   };
 }
