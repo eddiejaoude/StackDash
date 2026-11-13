@@ -289,14 +289,17 @@ describe("liveConnectionsText", () => {
 
 describe("changedConnectionId", () => {
   it.each([
-    ["connections", { id: "c1", workspace_id: "w1" }, "c1"],
-    ["activity_events", { id: "e1", connection_id: "c2" }, "c2"],
+    ["activity_events", { id: "e1", connection_id: "c2", provider: "github" }, "c2"],
     ["usage_snapshots", { id: "s1", connection_id: "c3" }, "c3"],
+    // A connection's own row changes on a sync request or a failed retry: not data received.
+    ["connections", { id: "c1", workspace_id: "w1" }, null],
+    // DevMacro's sync-failed event names the connection but no provider sent it.
+    ["activity_events", { id: "e3", connection_id: "c2", provider: null }, null],
     ["triggered_alerts", { id: "a1", workspace_id: "w1" }, null],
-    ["activity_events", { id: "e2", connection_id: null }, null],
+    ["activity_events", { id: "e2", connection_id: null, provider: "github" }, null],
     ["activity_events", null, null],
-    ["connections", "not a row", null],
-  ])("a %s change with %j belongs to %j", (table, row, expected) => {
+    ["usage_snapshots", "not a row", null],
+  ])("a %s change with %j brought data from %j", (table, row, expected) => {
     expect(changedConnectionId(table, row)).toBe(expected);
   });
 });

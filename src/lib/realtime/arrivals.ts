@@ -210,13 +210,17 @@ export type LiveConnectionsRead =
   | Readonly<{ state: "failed"; reference: string }>;
 
 /**
- * The connection a realtime change belongs to (#392): the row itself for `connections`, its
- * `connection_id` for the tables that carry one (`activity_events`, `usage_snapshots`), and null
- * for a row without one (`triggered_alerts`) or a payload of another shape.
+ * The connection a realtime change brought provider data from (#392): the `connection_id` of a
+ * usage snapshot or of an activity event a provider sent. Null for everything else, because none
+ * of it is data received from the connection: a `connections` row changes on a sync request, a
+ * failed retry, or a demo tick; DevMacro's own events (a sync failure carries the connection with
+ * a null `provider`) and `triggered_alerts` come from DevMacro; and a payload of another shape.
  */
 export function changedConnectionId(table: string, row: unknown): string | null {
+  if (table !== "activity_events" && table !== "usage_snapshots") return null;
   if (typeof row !== "object" || row === null) return null;
-  const id = table === "connections" ? Reflect.get(row, "id") : Reflect.get(row, "connection_id");
+  if (table === "activity_events" && typeof Reflect.get(row, "provider") !== "string") return null;
+  const id = Reflect.get(row, "connection_id");
   return typeof id === "string" ? id : null;
 }
 
