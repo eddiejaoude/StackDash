@@ -226,7 +226,10 @@ export async function listTimelineConnectionCounts(
 
 export type ActivityBucket = Database["public"]["Functions"]["timeline_activity_buckets"]["Returns"][number];
 
-/** Complete filtered counts, before pagination or bucket selection, in at most 12 time buckets. */
+/**
+ * Complete filtered counts, before pagination or bucket selection, in at most 12 time buckets, each
+ * with how many of its events are critical and how many are warnings.
+ */
 export async function listTimelineActivity(
   workspaceId: string,
   filters: Omit<TimelineFilters, "cursor">,
@@ -245,7 +248,7 @@ export async function listTimelineActivity(
     ...(range.from === null ? {} : { p_from: range.from }),
     ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
     ...(filters.search === null ? {} : { p_title_pattern: titleSearchPattern(filters.search) }),
-  }).select("bucket_start, bucket_end, events").order("bucket_start").limit(12);
+  }).select("bucket_start, bucket_end, events, critical_events, warning_events").order("bucket_start").limit(12);
   if (error) throw new Error("Failed to load timeline activity", { cause: error });
   return data;
 }

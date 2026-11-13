@@ -1506,6 +1506,7 @@ ownerTest.describe("timeline event inspector", () => {
 
 // #377: the activity overview counts every matching event in at most 12 equal buckets.
 const SEEDED_VERCEL_MS = Array.from({ length: EVENT_COUNT }, (_, index) => NEWEST_MS - index * HOUR_MS);
+const SEEDED_CRITICAL_MS = SEEDED_VERCEL_MS.filter((_, index) => index % 10 === 0);
 const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const MINUTE_MS = 60 * 1000;
 const LONDON_MINUTE = String.raw`\d{4}-\d{2}-\d{2} \d{2}:\d{2} BST`;
@@ -1515,7 +1516,7 @@ function activityOverview(page: Page) {
 }
 
 function bucketLinks(page: Page) {
-  return activityOverview(page).getByRole("link", { name: /^Show [\d,]+ events? from / });
+  return activityOverview(page).getByRole("link", { name: /^Show [\d,]+ events?(,| from )/ });
 }
 
 /** "1 event" or "60 events", the way the overview counts a bucket. */
@@ -1523,15 +1524,30 @@ function eventCount(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
 }
 
-/** The count, London start, and exclusive end a bucket link names, as the page prints them. */
-async function bucketPeriod(link: Locator): Promise<Readonly<{ count: string; from: string; until: string }>> {
+/** "5 events" or "5 events, 1 critical, 2 warnings,": a bucket's counts as its link names them. */
+function bucketSummary(events: number, critical = 0, warnings = 0): string {
+  const severities = [
+    ...(critical > 0 ? [`${critical.toLocaleString("en-US")} critical`] : []),
+    ...(warnings > 0 ? [`${warnings.toLocaleString("en-US")} ${warnings === 1 ? "warning" : "warnings"}`] : []),
+  ];
+  return severities.length === 0 ? eventCount(events) : `${eventCount(events)}, ${severities.join(", ")},`;
+}
+
+/**
+ * The counts, London start, and exclusive end a bucket link names, as the page prints them:
+ * `count` is "5 events", and `summary` adds the critical and warning counts when there are any.
+ */
+async function bucketPeriod(link: Locator): Promise<Readonly<{ count: string; summary: string; from: string; until: string }>> {
   const name = await link.getAttribute("aria-label");
-  const match = name?.match(new RegExp(`^Show ([\\d,]+ events?) from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
-  const count = match?.[1];
-  const from = match?.[2];
-  const until = match?.[3];
-  if (count === undefined || from === undefined || until === undefined) throw new Error(`The bucket link names no period: ${name}`);
-  return { count, from, until };
+  const match = name?.match(new RegExp(`^Show (([\\d,]+ events?)(?:, [^,]+(?:, [^,]+)?,)?) from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
+  const summary = match?.[1];
+  const count = match?.[2];
+  const from = match?.[3];
+  const until = match?.[4];
+  if (summary === undefined || count === undefined || from === undefined || until === undefined) {
+    throw new Error(`The bucket link names no period: ${name}`);
+  }
+  return { count, summary, from, until };
 }
 
 /** A bucket link, its position among the bucket links, and the half-open range its URL selects. */
@@ -1573,9 +1589,10 @@ function firstAndLast<T>(items: readonly T[], what: string): readonly [T, T] {
 
 /**
  * At most 12 contiguous buckets of one whole-minute width; only the last may be clipped. Each link
- * names how many of `times` its range holds, with London times and their zone.
+ * names how many of `times` its range holds, and how many of those are in `criticalTimes`, with
+ * London times and their zone.
  */
-async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly number[]): Promise<void> {
+async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly number[], criticalTimes: readonly number[]): Promise<void> {
   expect(buckets.length).toBeLessThanOrEqual(12);
   const [first] = firstAndLast(buckets, "buckets");
   const width = first.until - first.start;
@@ -1591,7 +1608,8 @@ async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly num
       expect(next.start).toBe(bucket.until);
     }
     // The seeded week is summer, so London times carry British Summer Time.
-    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${eventCount(countIn(times, bucket))} from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
+    const summary = bucketSummary(countIn(times, bucket), countIn(criticalTimes, bucket));
+    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${summary} from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
   }
 }
 
@@ -1611,8 +1629,8 @@ async function expectFeedHolds(page: Page, indexes: readonly number[], extra = 0
 
 /**
  * Which bucket is current, and the selection's live region: mounted and empty with nothing
- * selected, and naming the selected period and its count otherwise, so a touch user, who cannot
- * hover a bar, still reads how many events it holds.
+ * selected, and naming the selected period and its counts otherwise, so a touch user, who cannot
+ * hover a bar, still reads how many events it holds and how many are critical or warnings.
  */
 async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> {
   const selected = activityOverview(page).locator('[aria-current="true"]');
@@ -1627,8 +1645,8 @@ async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> 
   await expect(selected).toHaveCount(1);
   const link = bucketLinks(page).nth(bucket.position);
   await expect(link).toHaveAttribute("aria-current", "true");
-  const { count, from, until } = await bucketPeriod(link);
-  await expect(status).toHaveText(`Selected: ${count} from ${from} to before ${until}`);
+  const { summary, from, until } = await bucketPeriod(link);
+  await expect(status).toHaveText(`Selected: ${summary} from ${from} to before ${until}`);
   await expect(clear).toBeVisible();
 }
 
@@ -1684,6 +1702,45 @@ async function expectPeriodCoversCaption(page: Page, period: Locator, at: string
   }
 }
 
+/** A CSS color as computed ("rgb(239, 68, 68)") or declared as a token ("#ef4444"), as 0 to 255 channels. */
+function rgbChannels(color: string): readonly [number, number, number] {
+  const hex = color.trim().match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  const channels = hex === null ? color.match(/[\d.]+/g)?.slice(0, 3).map(Number) : hex.slice(1, 4).map((pair) => Number.parseInt(pair, 16));
+  const [red, green, blue] = channels ?? [];
+  if (red === undefined || green === undefined || blue === undefined) throw new Error(`Not an opaque color: ${color}`);
+  return [red, green, blue];
+}
+
+/** WCAG 2 contrast ratio between two opaque colors. */
+function contrastRatio(one: string, other: string): number {
+  const luminance = (color: string) => {
+    const [red, green, blue] = rgbChannels(color).map((channel) => {
+      const srgb = channel / 255;
+      return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * (red ?? 0) + 0.7152 * (green ?? 0) + 0.0722 * (blue ?? 0);
+  };
+  const [lighter, darker] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+  return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
+}
+
+/** Every segment in `link` has a background of at least 3:1 against the panel and the raised panel a hovered or selected bar sits on. */
+async function expectSegmentContrast(page: Page, link: Locator): Promise<void> {
+  const panels = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    return [root.getPropertyValue("--panel"), root.getPropertyValue("--panel-raised")];
+  });
+  const segments = link.getByTestId(/^activity-segment-/);
+  expect(await segments.count()).toBeGreaterThan(0);
+  for (const segment of await segments.all()) {
+    const name = await segment.getAttribute("data-testid");
+    const color = await segment.evaluate((element) => getComputedStyle(element).backgroundColor);
+    for (const panel of panels) {
+      expect(contrastRatio(color, panel), `${name} ${color} against ${panel}`).toBeGreaterThanOrEqual(3);
+    }
+  }
+}
+
 const overviewEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
 
 ownerTest.describe("timeline activity overview", () => {
@@ -1695,7 +1752,7 @@ ownerTest.describe("timeline activity overview", () => {
       await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
       await expect(eventItems(page)).toHaveCount(50);
       const buckets = await readBuckets(page);
-      await expectEvenBuckets(buckets, SEEDED_VERCEL_MS);
+      await expectEvenBuckets(buckets, SEEDED_VERCEL_MS, SEEDED_CRITICAL_MS);
       // No dates chosen: the bounds are the oldest event's UTC hour and the hour after the newest.
       const oldest = NEWEST_MS - (EVENT_COUNT - 1) * HOUR_MS;
       const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
@@ -1727,7 +1784,7 @@ ownerTest.describe("timeline activity overview", () => {
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(page).toHaveURL(/[?&]cursor=/);
       const buckets = await readBuckets(page);
-      await expectEvenBuckets(buckets, allTimes);
+      await expectEvenBuckets(buckets, allTimes, SEEDED_CRITICAL_MS);
       const [oldest, newest] = firstAndLast(buckets, "buckets");
       const oldestIndexes = vercelIndexesIn(oldest);
       const newestIndexes = vercelIndexesIn(newest);
@@ -1802,7 +1859,7 @@ ownerTest.describe("timeline activity overview", () => {
       await expect(eventItems(page)).toHaveCount(5);
       const buckets = await readBuckets(page);
       const criticalTimes = SEEDED_VERCEL_MS.filter((_, index) => critical(index));
-      await expectEvenBuckets(buckets, criticalTimes);
+      await expectEvenBuckets(buckets, criticalTimes, criticalTimes);
       // Chosen dates are the bounds: London midnight June 13 to London midnight June 16, zero buckets included.
       const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
       expect(firstBucket.start).toBe(Date.UTC(2026, 5, 12, 23));
@@ -1845,7 +1902,7 @@ ownerTest.describe("timeline activity overview", () => {
       await page.goto(`/w/${workspace.slug}/timeline?severity=success&from=2026-06-15&to=2026-06-15`);
       await expect(overview.getByText("0 matching events across all pages", { exact: true })).toBeVisible();
       const buckets = await readBuckets(page);
-      await expectEvenBuckets(buckets, []);
+      await expectEvenBuckets(buckets, [], []);
       expect(buckets).toHaveLength(12);
       const [quiet] = firstAndLast(buckets, "buckets");
       await quiet.link.focus();
@@ -1925,6 +1982,73 @@ ownerTest.describe("timeline activity overview", () => {
       await page.mouse.move(0, 0);
       await expect(oldestPeriod).toBeHidden();
       await expect(newestPeriod).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("stacks critical and warning events in each bar, says their counts, and keeps 3:1 contrast", async ({ page }) => {
+    const workspace = await seedTimeline("Overview severity");
+    try {
+      // Two warnings in the two hour bar that holds events 9 and 10 (13:30 UTC, critical) on the
+      // London day June 15: 4 events, 1 critical, 2 warnings.
+      const warningMs = [NEWEST_MS - 10 * HOUR_MS + 10 * MINUTE_MS, NEWEST_MS - 10 * HOUR_MS + 20 * MINUTE_MS];
+      const { error } = await adminClient().from("activity_events").insert(warningMs.map((occurredMs, index) => ({
+        workspace_id: workspace.id,
+        provider: null,
+        type_id: "devmacro.sync_failed",
+        severity: "warning" as const,
+        title: `Synthetic warning ${index}`,
+        occurred_at: new Date(occurredMs).toISOString(),
+        dedupe_key: `e2e-timeline-warning-${index}`,
+      })));
+      if (error) throw new Error(`Seeding warnings failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?from=2026-06-15&to=2026-06-15`);
+      const overview = activityOverview(page);
+      await expect(overview.getByText("26 matching events across all pages", { exact: true })).toBeVisible();
+      const buckets = await readBuckets(page);
+      expect(buckets).toHaveLength(12);
+      const burst = buckets.find((bucket) => countIn(warningMs, bucket) === 2);
+      const [quiet] = firstAndLast(buckets, "buckets");
+      if (burst === undefined) throw new Error("No bucket holds the warnings.");
+      expect(countIn(SEEDED_CRITICAL_MS, quiet)).toBe(0);
+
+      // The name says the severity counts; the bar stacks a segment for each.
+      const { from, until } = await bucketPeriod(burst.link);
+      await expect(burst.link).toHaveAccessibleName(`Show 4 events, 1 critical, 2 warnings, from ${from} to before ${until}`);
+      for (const key of ["other", "warning", "critical"]) await expect(burst.link.getByTestId(`activity-segment-${key}`)).toHaveCount(1);
+      await expect(quiet.link.getByTestId(/^activity-segment-(warning|critical)$/)).toHaveCount(0);
+      await expect(quiet.link.getByTestId("activity-segment-other")).toHaveCount(1);
+      // The caption names the colors.
+      const caption = overview.getByTestId("activity-caption");
+      await expect(caption.getByText("Critical", { exact: true })).toBeVisible();
+      await expect(caption.getByText("Warning", { exact: true })).toBeVisible();
+      await expectSegmentContrast(page, burst.link);
+
+      // Keyboard: the focused bar's period row says its severity counts, or that it has none.
+      const quietPeriod = shownPeriod(page, await bucketPeriod(quiet.link));
+      await tabTo(page, quiet.link, 120);
+      await expect(quietPeriod.getByText("No critical or warning events", { exact: true })).toBeVisible();
+      const burstPeriod = shownPeriod(page, { count: "4 events", from });
+      await tabTo(page, burst.link, 120);
+      await expect(burstPeriod.getByText("1 critical, 2 warnings", { exact: true })).toBeVisible();
+      await expectPeriodCoversCaption(page, burstPeriod, "the default viewport");
+      await expectSegmentContrast(page, burst.link);
+
+      // Selected, the bar keeps its severity colors and the sentence repeats its counts.
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new URL(burst.href, page.url()).href);
+      await expectSelected(page, burst);
+      await expect(overview.getByRole("status")).toHaveText(`Selected: 4 events, 1 critical, 2 warnings, from ${from} to before ${until}`);
+      await expectSegmentContrast(page, bucketLinks(page).nth(burst.position));
+      await expectNoAxeViolations(page);
+
+      // A severity filter counts only what it keeps: no severity segment and no legend.
+      await page.goto(`/w/${workspace.slug}/timeline?from=2026-06-15&to=2026-06-15&severity=info`);
+      await expect(overview.getByText("22 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(overview.getByTestId(/^activity-segment-(warning|critical)$/)).toHaveCount(0);
+      await expect(caption.getByText("Critical", { exact: true })).toHaveCount(0);
+      await expect(bucketLinks(page).first()).toHaveAccessibleName(new RegExp(`^Show [\\d,]+ events? from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
     } finally {
       await deleteTestWorkspace(workspace);
     }
