@@ -34,15 +34,17 @@ let mountCount = 0;
 
 /**
  * Refreshes the current workspace page when a sync writes rows for this workspace (#129), so the
- * Server Components read again and no data is copied into client state. One channel per
+ * Server Components read again and no row data is copied into client state. The one exception is
+ * an id: the connection each usage snapshot or provider event came from, kept per batch so the
+ * indicator can say which connection is receiving (#392). One channel per
  * workspace, removed when the workspace layout unmounts or the workspace changes. Realtime checks
  * every change against the subscriber's select policy, so a member only hears about their own
  * workspace; the filter keeps a member of several workspaces from hearing about the others.
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level and the page
  * behaves as it did before live updates: it shows new data on the next navigation or reload.
- * It tells the ArrivalProvider whether the channel is live and when each batch arrives, which the
- * live indicator in the header shows (#171).
+ * It tells the ArrivalProvider whether the channel is live, when each batch arrives, and which
+ * connections it brought data from, which the live indicator in the header shows (#171, #392).
  *
  * One refresh runs at a time (#309, src/lib/realtime/refresh-scheduler.ts). `router.refresh()`
  * returns nothing, and its router action settles as soon as the request is spawned
