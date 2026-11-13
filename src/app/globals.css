@@ -408,9 +408,57 @@ summary {
   animation: spark-ping 1s ease-out forwards;
 }
 
-/* Once per arriving batch, never looping: the dot is steady between arrivals. */
-.arrival-live-pulse {
-  animation: live-pulse 1s ease-out both;
+/*
+ * The live indicator (#392). Ready: while the channel is live, a slow soft ring breathes out of the
+ * dot. Receiving: when a batch arrives, the dot flashes coral, the color the app marks arriving
+ * data with, and three quick outlined rings ripple out, so it reads as a different event from the
+ * ready breath. A connection row in the indicator's list that received data plays the same ripple.
+ */
+@keyframes live-ready {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.live-ready {
+  animation: live-ready 2.4s ease-out infinite;
+}
+
+@keyframes live-receive {
+  from {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  to {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+.live-receive {
+  animation: live-receive 0.6s ease-out 3 both;
+}
+
+@keyframes live-receive-dot {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  20%,
+  70% {
+    transform: scale(1.35);
+    background-color: var(--accent);
+  }
+}
+
+.live-receive-dot {
+  animation: live-receive-dot 1.8s ease-in-out both;
 }
 
 /* A year in review slide coming into view (YearSlides): the content settles in once per move. */
@@ -434,15 +482,19 @@ summary {
   .feed-exit,
   .feed-arrival,
   .live-pulse,
+  .live-ready,
+  .live-receive,
+  .live-receive-dot,
   .arrival-enter,
   .arrival-count,
   .arrival-bar,
   .arrival-draw,
-  .arrival-live-pulse,
   .slide-enter {
     animation: none;
   }
-  .arrival-live-pulse {
+  /* The rings only exist while they animate; a list row's "Receiving" label stays without them. */
+  .live-ready,
+  .live-receive {
     display: none;
   }
   /* A static highlight in place of each arrival's motion; the component removes it on a timer. */

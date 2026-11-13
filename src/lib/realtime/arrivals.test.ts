@@ -14,6 +14,7 @@ import {
   amountValues,
   ANNOUNCED_LABELS_MAX,
   barScaleFrom,
+  changedConnectionId,
   changedValueKeys,
   countRange,
   creditValues,
@@ -283,6 +284,20 @@ describe("liveConnectionsText", () => {
     [0, 2, "0 connected", "0 connected, 2 need attention"],
   ])("%i connected and %i needing attention reads %j, named %j", (connected, attention, word, name) => {
     expect(liveConnectionsText({ connected, attention })).toEqual({ word, name });
+  });
+});
+
+describe("changedConnectionId", () => {
+  it.each([
+    ["connections", { id: "c1", workspace_id: "w1" }, "c1"],
+    ["activity_events", { id: "e1", connection_id: "c2" }, "c2"],
+    ["usage_snapshots", { id: "s1", connection_id: "c3" }, "c3"],
+    ["triggered_alerts", { id: "a1", workspace_id: "w1" }, null],
+    ["activity_events", { id: "e2", connection_id: null }, null],
+    ["activity_events", null, null],
+    ["connections", "not a row", null],
+  ])("a %s change with %j belongs to %j", (table, row, expected) => {
+    expect(changedConnectionId(table, row)).toBe(expected);
   });
 });
 

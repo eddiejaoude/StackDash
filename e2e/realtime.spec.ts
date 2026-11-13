@@ -472,7 +472,8 @@ const ARRIVAL_ANIMATIONS: readonly string[] = [
   "count-up",
   "bar-fill",
   "spark-ping",
-  "live-pulse",
+  "live-receive",
+  "live-receive-dot",
 ];
 
 // A highlight clears after ARRIVAL_HIGHLIGHT_MS (4 s, src/lib/realtime/arrivals.ts); this leaves
@@ -533,7 +534,9 @@ ownerTest.describe("arriving data", () => {
       await expect(indicator).toHaveAccessibleName("Live updates, 1 connected");
       await expect(indicator.getByText("Live", { exact: true })).toBeVisible();
       await expect(page.getByTestId("live-dot")).not.toHaveCSS("background-color", NO_FILL);
-      await expect(page.getByTestId("live-pulse")).toHaveCount(0);
+      await expect(page.getByTestId("live-receive")).toHaveCount(0);
+      // Ready: the slow ring breathes while live; it is not an arrival animation.
+      await expect(page.getByTestId("live-ready")).toHaveCount(1);
       expect(await animations()).toEqual([]);
 
       const title = `Arriving event ${randomUUID().slice(0, 8)}`;
@@ -542,7 +545,7 @@ ownerTest.describe("arriving data", () => {
       const label = row.getByText(/^,?\s*New$/);
       await expect(label).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId("arrival-announcement")).toHaveText("1 new event.");
-      await expect.poll(animations).toEqual(expect.arrayContaining(["live-pulse", "feed-content-in", "feed-flash"]));
+      await expect.poll(animations).toEqual(expect.arrayContaining(["live-receive", "feed-content-in", "feed-flash"]));
       // The row that was already there is not marked.
       const earlier = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Earlier event" }) });
       await expect(earlier.getByText(/^,?\s*New$/)).toHaveCount(0);
@@ -679,7 +682,7 @@ ownerTest.describe("arriving data", () => {
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
       await expect
         .poll(animations)
-        .toEqual(expect.arrayContaining(["live-pulse", "count-up", "alert-glow", "spark-ping"]));
+        .toEqual(expect.arrayContaining(["live-receive", "count-up", "alert-glow", "spark-ping"]));
       await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
 
       // Changing the trend period is navigation, not arrival: nothing new animates.
@@ -979,6 +982,11 @@ ownerTest.describe("arriving data", () => {
       if (updateError) throw new Error(`Updating the connection failed (code ${updateError.code}).`);
       await expect(indicator).toHaveAccessibleName("Live updates, 3 connected", { timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId("live-attention")).toHaveCount(0);
+      // The batch came from the GitHub connection's row: only its list row says so, then it clears.
+      const receivingRow = items.filter({ hasText: "acme-org" });
+      await expect(receivingRow).toContainText("Receiving");
+      await expect(items.filter({ hasText: "Acme billing" })).not.toContainText("Receiving");
+      await expect(receivingRow).not.toContainText("Receiving", { timeout: HIGHLIGHT_CLEARED_MS });
 
       // On a phone, too.
       await expectTooltipOnScreen(320);

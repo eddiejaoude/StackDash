@@ -31,6 +31,7 @@ import {
   liveConnectionsText,
   liveStatusText,
   type ArrivalReport,
+  type LiveConnection,
   type LiveConnectionsRead,
 } from "@/lib/realtime/arrivals";
 
@@ -232,9 +233,11 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
 }
 
 /**
- * "Live" in the workspace header. The dot pulses once per arriving batch and is steady between
- * arrivals. Beside the word, from `lg`, how many connections are connected, and from `sm` a mark
- * when one needs attention (#392); the name always carries both. Hover or focus shows when data
+ * "Live" in the workspace header. While the channel is live the dot breathes a slow ring (ready);
+ * when a batch arrives it flashes coral and ripples, a different effect, and the connections that
+ * batch came from are marked "Receiving" in the list (#392). Beside the word, from `lg`, how many
+ * connections are connected, and from `sm` a mark when one needs attention; the name always
+ * carries both. Hover or focus shows when data
  * last arrived and lists the connections with their status; Escape hides that until the pointer
  * or focus leaves, and a press keeps it open for touch screens.
  *
@@ -281,14 +284,17 @@ export function LiveIndicator({ connections }: { connections: LiveConnectionsRea
         className="inline-flex min-h-6 min-w-6 items-center gap-1.5 rounded-md px-1.5 font-mono text-xs text-muted transition-colors hover:text-foreground"
       >
         <span aria-hidden="true" className="relative flex size-2">
-          {/* Keyed by batch, so each arrival mounts a fresh pulse that runs once. */}
+          {status === "live" ? <span data-testid="live-ready" className="live-ready absolute inset-0 rounded-full bg-success" /> : null}
+          {/* Keyed by batch, so each arrival mounts a fresh ripple that runs its three rings once. */}
           {arrivals > 0 ? (
-            <span key={arrivals} data-testid="live-pulse" className="arrival-live-pulse absolute inset-0 rounded-full bg-success" />
+            <span key={arrivals} data-testid="live-receive" className="live-receive absolute inset-0 rounded-full border border-accent" />
           ) : null}
-          {/* Filled when live, hollow otherwise: the shape says it as well as the color and the word. */}
+          {/* Filled when live, hollow otherwise: the shape says it as well as the color and the word.
+              Keyed by batch too, so its coral flash restarts on every arrival. */}
           <span
+            key={`dot-${arrivals}`}
             data-testid="live-dot"
-            className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"}`}
+            className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"} ${arrivals > 0 ? "live-receive-dot" : ""}`}
           />
         </span>
         {/* The whole name, and the visible words for sight; the tooltip describes the state. Below
@@ -353,14 +359,36 @@ function LiveConnectionsList({ connections }: { connections: LiveConnectionsRead
       <p>Connections: {liveConnectionsText(summary).name}.</p>
       <ul className="space-y-1.5" aria-label="Connections">
         {summary.listed.map((connection) => (
-          <li key={connection.id} className="flex items-center gap-2">
-            <ProviderMark provider={connection.provider} size="sm" labeled />
-            <span className="min-w-0 flex-1 truncate">{connection.display_name}</span>
-            <ConnectionStatusBadge status={connection.status} />
-          </li>
+          <LiveConnectionRow key={connection.id} connection={connection} />
         ))}
       </ul>
       {summary.unlisted > 0 ? <p className="text-muted">And {summary.unlisted} more on the Connections page.</p> : null}
     </>
+  );
+}
+
+/**
+ * One connection in the tooltip. For ARRIVAL_HIGHLIGHT_MS after a batch that changed its rows it
+ * says "Receiving" beside a coral ripple; the word carries it under reduced motion, where the
+ * ripple is hidden, and for a screen reader reading the description.
+ */
+function LiveConnectionRow({ connection }: { connection: LiveConnection }) {
+  const batch = useArrivalBatch();
+  const receiving = useArrivalHighlight(batch.number, batch.connectionIds.has(connection.id));
+  return (
+    <li className="flex items-center gap-2">
+      <ProviderMark provider={connection.provider} size="sm" labeled />
+      <span className="min-w-0 flex-1 truncate">{connection.display_name}</span>
+      {receiving ? (
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-accent">
+          <span aria-hidden="true" className="relative flex size-1.5">
+            <span key={batch.number} className="live-receive absolute inset-0 rounded-full border border-accent" />
+            <span className="relative size-1.5 rounded-full bg-accent" />
+          </span>
+          Receiving
+        </span>
+      ) : null}
+      <ConnectionStatusBadge status={connection.status} />
+    </li>
   );
 }

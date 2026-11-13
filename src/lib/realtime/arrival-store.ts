@@ -26,15 +26,17 @@ export type LiveState = Readonly<{
 
 /** The latest batch LiveRefresh announced, and which of the components that mark data saw it. */
 export type ArrivalBatch = Readonly<{
-  /** Batches arrived since the page opened; the indicator pulses once each time it grows. */
+  /** Batches arrived since the page opened; the indicator plays its receiving effect each time it grows. */
   number: number;
   /** The ids of the components that mark data and were in view when it arrived. */
   inView: ReadonlySet<string>;
+  /** The connections whose rows changed in this batch, for the live indicator's list (#392). */
+  connectionIds: ReadonlySet<string>;
 }>;
 
 /** What the server renders, and what every page starts from. */
 export const INITIAL_LIVE_STATE: LiveState = { status: "connecting", lastArrivalAt: null };
-export const NO_BATCH: ArrivalBatch = { number: 0, inView: new Set() };
+export const NO_BATCH: ArrivalBatch = { number: 0, inView: new Set(), connectionIds: new Set() };
 
 export type ArrivalStore = Readonly<{
   /** Runs the listener after every change; returns the unsubscribe function. */
@@ -44,8 +46,11 @@ export type ArrivalStore = Readonly<{
   /** The current batch: the same object until it changes. */
   batch: () => ArrivalBatch;
   setStatus: (status: LiveStatus) => void;
-  /** A batch of changes arrived and the page is refreshing; `at` is its newest commit time. */
-  arrived: (at: string | null) => void;
+  /**
+   * A batch of changes arrived and the page is refreshing; `at` is its newest commit time and
+   * `connectionIds` the connections those changes belong to.
+   */
+  arrived: (at: string | null, connectionIds: ReadonlySet<string>) => void;
   /** A component that marks data is in view until the returned function runs. */
   watch: (id: string) => () => void;
 }>;
@@ -74,12 +79,12 @@ export function createArrivalStore(): ArrivalStore {
       live = { ...live, status };
       changed();
     },
-    arrived(at) {
+    arrived(at, connectionIds) {
       // The newest commit wins: batches can be announced out of commit order.
       if (at !== null && (live.lastArrivalAt === null || Date.parse(at) > Date.parse(live.lastArrivalAt))) {
         live = { ...live, lastArrivalAt: at };
       }
-      batch = { number: batch.number + 1, inView: new Set(inView) };
+      batch = { number: batch.number + 1, inView: new Set(inView), connectionIds: new Set(connectionIds) };
       changed();
     },
     watch(id) {

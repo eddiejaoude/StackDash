@@ -6,6 +6,7 @@ import { useEffect, useRef, useTransition } from "react";
 
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
+import { changedConnectionId } from "@/lib/realtime/arrivals";
 import { createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
@@ -21,6 +22,9 @@ const LIVE_TABLES = [
 ] as const satisfies readonly (keyof Database["public"]["Tables"])[];
 
 const LIVE_EVENTS = ["INSERT", "UPDATE"] as const;
+
+/** What onChange reads from a postgres_changes payload; `new` is the whole row (default replica identity). */
+type LiveChange = Readonly<{ commit_timestamp: string; table: string; new: unknown }>;
 
 // Realtime hands back an existing channel for a topic it still holds, and a removed channel stays
 // held until the server acknowledges the leave. A subscription made inside that window (leaving a
@@ -66,9 +70,12 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const supabase = createClient();
     // The newest commit among the changes delivered so far: the database's clock, not the browser's.
     let lastCommitAt: string | null = null;
+    // The connections the changes since the last refresh belong to, for the indicator's list (#392).
+    let changedConnections = new Set<string>();
     const scheduler = createRefreshScheduler({
       refresh: () => {
-        arrivals?.arrived(lastCommitAt);
+        arrivals?.arrived(lastCommitAt, changedConnections);
+        changedConnections = new Set();
         startRefresh(() => refresh());
       },
       isHidden: () => document.visibilityState === "hidden",
@@ -76,8 +83,10 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     schedulerRef.current = scheduler;
     const onVisibilityChange = () => scheduler.visibilityChanged();
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const onChange = ({ commit_timestamp: committedAt }: { commit_timestamp: string }) => {
+    const onChange = ({ commit_timestamp: committedAt, table, new: row }: LiveChange) => {
       if (lastCommitAt === null || Date.parse(committedAt) > Date.parse(lastCommitAt)) lastCommitAt = committedAt;
+      const connectionId = changedConnectionId(table, row);
+      if (connectionId !== null) changedConnections.add(connectionId);
       scheduler.notify();
     };
 

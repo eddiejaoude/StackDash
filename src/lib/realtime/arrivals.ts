@@ -209,6 +209,17 @@ export type LiveConnectionsRead =
   | Readonly<{ state: "loaded"; summary: LiveConnectionSummary }>
   | Readonly<{ state: "failed"; reference: string }>;
 
+/**
+ * The connection a realtime change belongs to (#392): the row itself for `connections`, its
+ * `connection_id` for the tables that carry one (`activity_events`, `usage_snapshots`), and null
+ * for a row without one (`triggered_alerts`) or a payload of another shape.
+ */
+export function changedConnectionId(table: string, row: unknown): string | null {
+  if (typeof row !== "object" || row === null) return null;
+  const id = table === "connections" ? Reflect.get(row, "id") : Reflect.get(row, "connection_id");
+  return typeof id === "string" ? id : null;
+}
+
 /** How a counted number prints: a trend measure, or a percentage on a 0 to 100 scale. */
 export type CountFormat = TrendMeasure | Readonly<{ type: "percent" }>;
 
