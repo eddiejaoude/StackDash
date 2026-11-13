@@ -7,7 +7,7 @@ import type { AdapterContext } from "@/lib/adapters/types";
 import {
   between,
   chance,
-  countOf,
+  countAtVolume,
   dailyCountInHour,
   DAY_MS,
   HOUR_MS,
@@ -107,10 +107,11 @@ function objectFor(type: StripeType, id: string, parts: readonly (string | numbe
   }
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+// Volume's extra occurrences follow the default volume's in `index`, which keeps every id in the slot apart.
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   for (const { stripeType } of timelineEvents) {
-    const count = countOf(EVENT_CHANCES[stripeType], accountId, stripeType, slot);
+    const count = countAtVolume(EVENT_CHANCES[stripeType], volume, accountId, stripeType, slot);
     for (let index = 0; index < count; index += 1) {
       const parts = [accountId, stripeType, slot, index] as const;
       const id = `sim${Math.floor(unit(...parts, "id") * 1e14).toString(36)}${slot.toString(36)}`;

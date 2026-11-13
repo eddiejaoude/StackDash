@@ -37,9 +37,10 @@ import {
   SIMULATED_CODE_PREFIX,
   SIMULATED_POLL_INTERVAL_SECONDS,
   simulatedAdapters,
+  simulatedAdaptersAtVolume,
 } from "./index";
 import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
-import { DAY_MS, isLaunchDay, isWeekend, type SimulatedIncident } from "./simulation";
+import { DAY_MS, DEFAULT_EVENT_VOLUME, isLaunchDay, isWeekend, MAX_EVENT_VOLUME, type SimulatedIncident } from "./simulation";
 import { NEW_CUSTOMERS_PER_DAY } from "./stripe";
 import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
 
@@ -622,6 +623,85 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
     const moved = spend.slice(1).filter((value, index) => value !== spend[index]).length;
     expect(moved / (spend.length - 1)).toBeGreaterThan(0.1);
   }, WATCH_TIMEOUT_MS);
+});
+
+// `npm run jobs:tick -- --watch --volume <n>` (#383). Every realistic-volume bound above stays on
+// `simulatedAdapters`, the default volume; these hold what a higher volume may and may not change.
+describe.each(liveProviderIds)("simulated %s at a higher event volume", (id) => {
+  const VOLUME = 10;
+  type CoveredSync = { result: SyncResult; fromMs: number; toMs: number };
+
+  /** DAY_CHAIN's syncs for every account, each with the slots it covered: [fromMs, toMs). */
+  async function chainAt(adapter: ProviderAdapter): Promise<CoveredSync[]> {
+    const credential = await connect(adapter);
+    const syncs: CoveredSync[] = [];
+    for (const sync of await syncChain(adapter, credential, DAY_CHAIN)) {
+      const toMs = Date.parse(sync.result.cursor ?? "") + SLOT_MS;
+      const previous = syncs.at(-1);
+      const fromMs = sync.backfill || previous === undefined ? toMs - SIMULATED_BACKFILL_MS : previous.toMs;
+      syncs.push({ result: sync.result, fromMs, toMs });
+    }
+    return syncs;
+  }
+
+  let base: CoveredSync[];
+  let scaled: CoveredSync[];
+  beforeAll(async () => {
+    base = await chainAt(simulatedAdapters[id]);
+    scaled = await chainAt(simulatedAdaptersAtVolume(VOLUME)[id]);
+  }, WATCH_TIMEOUT_MS);
+
+  const events = (syncs: readonly CoveredSync[]) => syncs.flatMap(({ result }) => result.events);
+
+  it("writes more events over a UTC day than the default volume, keeping every default event as it was", () => {
+    const defaults = events(base);
+    const more = events(scaled);
+    expect(more.length).toBeGreaterThan(defaults.length);
+    const byKey = new Map(more.map((event) => [event.dedupeKey, event]));
+    for (const event of defaults) expect(byKey.get(event.dedupeKey)).toEqual(event);
+  });
+
+  it("repeats no dedupe key and writes only valid, declared events", () => {
+    const more = events(scaled);
+    expect(new Set(more.map((event) => event.dedupeKey)).size).toBe(more.length);
+    expect(validateAdapterEvents(REAL[id].eventTypes, more).ok).toBe(true);
+  });
+
+  it("dates every added event inside the slots its sync covered", () => {
+    const defaultKeys = new Set(events(base).map((event) => event.dedupeKey));
+    for (const { result, fromMs, toMs } of scaled) {
+      for (const event of result.events.filter((candidate) => !defaultKeys.has(candidate.dedupeKey))) {
+        expect(Number.isNaN(event.occurredAt.getTime()), event.dedupeKey).toBe(false);
+        expect(event.occurredAt.getTime(), event.dedupeKey).toBeGreaterThanOrEqual(fromMs);
+        expect(event.occurredAt.getTime(), event.dedupeKey).toBeLessThan(toMs);
+      }
+    }
+  });
+
+  it("leaves metrics and cursors exactly as the default volume reads them", () => {
+    expect(scaled.map(({ result }) => [result.metrics, result.cursor])).toEqual(base.map(({ result }) => [result.metrics, result.cursor]));
+  });
+
+  it("is deterministic for the same account, slot, seed, and volume", async () => {
+    const again = await chainAt(simulatedAdaptersAtVolume(VOLUME)[id]);
+    expect(events(again)).toEqual(events(scaled));
+  });
+});
+
+describe("simulated event volume bounds", () => {
+  it.each([DEFAULT_EVENT_VOLUME, MAX_EVENT_VOLUME])("builds an adapter at volume %d", (volume) => {
+    expect(isSimulatedAdapter(createSimulatedAdapter(vercelProfile, "vercel", { volume }))).toBe(true);
+  });
+
+  it.each([
+    ["zero", 0],
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["one past the maximum", MAX_EVENT_VOLUME + 1],
+    ["not a number", Number.NaN],
+  ])("refuses a %s volume", (_title, volume) => {
+    expect(() => createSimulatedAdapter(vercelProfile, "vercel", { volume })).toThrow(RangeError);
+  });
 });
 
 describe("simulated numbers", () => {

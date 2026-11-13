@@ -9,6 +9,8 @@ import {
   chance,
   HOUR_MS,
   instantInSlot,
+  laneParts,
+  lanesAt,
   simulatedEndpoint,
   utcMonthStart,
   utcNextMonthStart,
@@ -21,6 +23,8 @@ import {
  * crashes, and each success removing the deployment it replaced. Resource usage accrues hour by
  * hour through a calendar month billing period. Events and metrics go through the real adapter's
  * `deploymentEvents` and `billingMetrics`, so titles, dedupe keys, and metric keys match a real sync.
+ * Deploy counts are at the default event volume; a higher volume (#383) multiplies them and leaves
+ * resource usage alone.
  *
  * The event mix is richer than a real sync's. The simulator emits every transition in the slot it
  * happens, while the real adapter polls hourly and sees only each deployment's latest status: a
@@ -30,7 +34,7 @@ import {
 
 const PROJECT = "shop";
 const SERVICES = ["web", "api", "worker"] as const;
-// About 50 deployments a day (8,640 slots).
+// About 50 deployments a day (8,640 slots) at the default volume.
 const DEPLOY_CHANCE = 0.006;
 const MIN_BUILD_SLOTS = 3;
 const MAX_BUILD_SLOTS = 18;
@@ -39,15 +43,19 @@ const CREDIT_BALANCE_USD = 3.17;
 
 type Started = Readonly<{ slot: number; id: string; service: string; environment: string; buildSlots: number }>;
 
-function startedIn(accountId: string, slot: number): Started | undefined {
-  if (!chance(DEPLOY_CHANCE, accountId, "deploy", slot)) return undefined;
-  return {
+/**
+ * The deployments that start in `slot`, one per lane whose chance came up. Each lane draws its own
+ * service, environment, and build time, and a lane past the first suffixes its id, so a deployment's
+ * start and its outcome, found later from the same lane, always describe the same deployment.
+ */
+function startedIn(accountId: string, slot: number, volume: number): Started[] {
+  return lanesAt(DEPLOY_CHANCE, volume, accountId, "deploy", slot).map((lane) => ({
     slot,
-    id: `sim-${accountId}-${slot.toString(36)}`,
-    service: SERVICES[between(0, SERVICES.length - 1, accountId, "service", slot)] ?? SERVICES[0],
-    environment: chance(0.6, accountId, "production", slot) ? "production" : "staging",
-    buildSlots: between(MIN_BUILD_SLOTS, MAX_BUILD_SLOTS, accountId, "build", slot),
-  };
+    id: `sim-${accountId}-${slot.toString(36)}${lane === 0 ? "" : `-${lane}`}`,
+    service: SERVICES[between(0, SERVICES.length - 1, ...laneParts(lane, accountId, "service", slot))] ?? SERVICES[0],
+    environment: chance(0.6, ...laneParts(lane, accountId, "production", slot)) ? "production" : "staging",
+    buildSlots: between(MIN_BUILD_SLOTS, MAX_BUILD_SLOTS, ...laneParts(lane, accountId, "build", slot)),
+  }));
 }
 
 function deployment(started: Started, status: Deployment["status"], statusAt: Date): Deployment {
@@ -65,27 +73,27 @@ function deployment(started: Started, status: Deployment["status"], statusAt: Da
   };
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  const begun = startedIn(accountId, slot);
-  if (begun !== undefined) {
+  for (const begun of startedIn(accountId, slot, volume)) {
     const building = deployment(begun, "BUILDING", instantInSlot(slot, begun.id, "created"));
     events.push(...deploymentEvents(building, PROJECT, accountId));
   }
   // Deployments that started earlier and finish in this slot. Their "building" event was already
   // seen in their first slot, so only the final one (and the replaced deployment) is new here.
   for (let start = slot - MAX_BUILD_SLOTS; start < slot; start += 1) {
-    const started = startedIn(accountId, start);
-    if (started === undefined || start + started.buildSlots !== slot) continue;
-    const roll = between(0, 99, started.id, "outcome");
-    const status = roll < 80 ? "SUCCESS" : roll < 92 ? "FAILED" : "CRASHED";
-    const finishedAt = instantInSlot(slot, started.id, "finished");
-    const final = deploymentEvents(deployment(started, status, finishedAt), PROJECT, accountId);
-    events.push(...final.filter((event) => event.typeId !== "railway.deployment.building"));
-    if (status === "SUCCESS") {
-      // The replaced deployment's own start is not simulated, so only its removal is new here.
-      const replaced = deployment({ ...started, id: `${started.id}-previous` }, "REMOVED", finishedAt);
-      events.push(...deploymentEvents(replaced, PROJECT, accountId).filter((event) => event.typeId !== "railway.deployment.building"));
+    for (const started of startedIn(accountId, start, volume)) {
+      if (start + started.buildSlots !== slot) continue;
+      const roll = between(0, 99, started.id, "outcome");
+      const status = roll < 80 ? "SUCCESS" : roll < 92 ? "FAILED" : "CRASHED";
+      const finishedAt = instantInSlot(slot, started.id, "finished");
+      const final = deploymentEvents(deployment(started, status, finishedAt), PROJECT, accountId);
+      events.push(...final.filter((event) => event.typeId !== "railway.deployment.building"));
+      if (status === "SUCCESS") {
+        // The replaced deployment's own start is not simulated, so only its removal is new here.
+        const replaced = deployment({ ...started, id: `${started.id}-previous` }, "REMOVED", finishedAt);
+        events.push(...deploymentEvents(replaced, PROJECT, accountId).filter((event) => event.typeId !== "railway.deployment.building"));
+      }
     }
   }
   return events.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());

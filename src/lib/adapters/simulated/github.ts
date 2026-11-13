@@ -7,10 +7,12 @@ import type { AdapterMetric } from "@/lib/adapters/metrics";
 import {
   accrued,
   between,
-  chance,
   DAY_MS,
   instantInSlot,
   isWeekend,
+  laneParts,
+  lanesAt,
+  MAX_EVENT_VOLUME,
   SLOT_MS,
   simulatedEndpoint,
   utcDayStart,
@@ -24,7 +26,8 @@ import {
  * repository (so the 100, 500, and 1,000 milestones are crossed now and then), forks trickle in
  * (about 65 a day across the three), and a daily stars event lands at UTC midnight for the day
  * before. Actions minutes and spend accrue hour by hour, at under a third of the pace on weekends
- * (#166). Keys and milestones come from the real adapter's modules.
+ * (#166). Keys and milestones come from the real adapter's modules. Fork counts are at the default
+ * event volume; a higher volume (#383) multiplies them and leaves stars alone.
  */
 
 const ORGANIZATION = "example-org";
@@ -109,9 +112,11 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
   return result;
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const startMs = slot * SLOT_MS;
   const events: ActivityEvent[] = [];
+  // The daily and milestone star events follow the star counts the metrics report, so they do not
+  // scale with the volume: more of them would contradict the stars count beside them.
   for (const repo of repositories(accountId)) {
     // The day that just ended, reported at UTC midnight like the real adapter's first poll of a day.
     if (startMs % DAY_MS === 0) {
@@ -142,11 +147,16 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
       });
     }
 
-    if (chance(repo.forkChance, accountId, repo.id, "fork", slot)) {
-      const forkId = between(100_000_000, 999_999_999, accountId, repo.id, "fork-id", slot);
+    for (const lane of lanesAt(repo.forkChance, volume, accountId, repo.id, "fork", slot)) {
+      // Later lanes number their forks past the first lane's nine digit ids, one number per slot and
+      // lane, so a higher volume never repeats a fork's dedupe key.
+      const forkId =
+        lane === 0
+          ? between(100_000_000, 999_999_999, accountId, repo.id, "fork-id", slot)
+          : 1_000_000_000 + slot * MAX_EVENT_VOLUME + lane;
       events.push({
         typeId: eventTypeIds.forksNew,
-        occurredAt: instantInSlot(slot, accountId, repo.id, "fork-at"),
+        occurredAt: instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "fork-at")),
         severity: "info",
         title: `New fork of ${repo.full_name}`,
         externalAccountId: accountId,

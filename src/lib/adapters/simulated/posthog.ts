@@ -16,6 +16,8 @@ import {
   chance,
   DAY_MS,
   instantInSlot,
+  laneParts,
+  lanesAt,
   SLOT_MS,
   utcMonthStart,
   utcNextMonthStart,
@@ -137,12 +139,12 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
 
 /**
  * A usage limit warning for session replay, built by the real adapter from usage at 85 percent or
- * at 100 percent of its limit. The slot joins the dedupe key, since the simulator raises the same
- * level more than once a period.
+ * at 100 percent of its limit. The slot and, above lane 0, the volume lane join the dedupe key,
+ * since the simulator raises the same level more than once a period, and sometimes in one slot.
  */
-function limitWarning(accountId: string, slot: number): ActivityEvent[] {
-  const detectedAt = instantInSlot(slot, accountId, "limit-at");
-  const reached = chance(0.3, accountId, "limit-reached", slot);
+function limitWarning(accountId: string, slot: number, lane: number): ActivityEvent[] {
+  const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "limit-at"));
+  const reached = chance(0.3, ...laneParts(lane, accountId, "limit-reached", slot));
   const limit = 7_000;
   const billing: BillingResponse = {
     billing_period: { current_period_start: utcMonthStart(detectedAt), current_period_end: utcNextMonthStart(detectedAt) },
@@ -158,17 +160,18 @@ function limitWarning(accountId: string, slot: number): ActivityEvent[] {
   };
   return usageLimitEvents(billing, accountId, detectedAt, REGION).map((event) => ({
     ...event,
-    dedupeKey: `${event.dedupeKey}:${slot}`,
+    dedupeKey: `${event.dedupeKey}:${laneParts(lane, slot).join(":")}`,
   }));
 }
 
-function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
+function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const slotStart = slot * SLOT_MS;
   const events: ActivityEvent[] = [];
-  // The day before is complete at UTC midnight, the moment the real adapter dates its signups.
+  // The day before is complete at UTC midnight, the moment the real adapter dates its signups. A
+  // calendar event, so the volume does not scale it.
   if (slotStart % DAY_MS === 0) events.push(...signupEvents(signupsOn(accountId, slotStart - DAY_MS), accountId, REGION));
-  // About 4 usage limit warnings a day (8,640 slots).
-  if (chance(0.0005, accountId, "limit", slot)) events.push(...limitWarning(accountId, slot));
+  // About 4 usage limit warnings a day (8,640 slots), times the volume.
+  for (const lane of lanesAt(0.0005, volume, accountId, "limit", slot)) events.push(...limitWarning(accountId, slot, lane));
   return events;
 }
 
