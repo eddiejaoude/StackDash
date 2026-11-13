@@ -84,6 +84,14 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
 
   function select(id: string, from: HTMLAnchorElement | null) {
     opener.current = from;
+    // A second activation (a double-click, a held Enter) can land before the dialog opens, and
+    // closing goes back one entry, so never stack a second selection entry. Read the URL rather
+    // than `pushed`: a click between Escape and its popstate would leave `pushed` set on an entry
+    // `select` did not push, and the next close would go back out of the timeline.
+    if (new URL(window.location.href).searchParams.has("event")) {
+      window.history.replaceState(null, "", eventHref(baseHref, id));
+      return;
+    }
     pushed.current = true;
     window.history.pushState(null, "", eventHref(baseHref, id));
   }
