@@ -65,6 +65,7 @@ export function ScopeFilter({
   scope,
   options,
   status,
+  statusId,
   extraActiveCount = 0,
   hidden,
   resetKey,
@@ -75,6 +76,8 @@ export function ScopeFilter({
   options: ScopeOptions;
   /** The result in words, such as "Showing 3 events for provider GitHub". */
   status: string;
+  /** Gives the status sentence this id and makes it focusable from script, as a place to send focus. */
+  statusId?: string | undefined;
   /** Active screen-specific filters (the timeline's types, severities, and dates). */
   extraActiveCount?: number | undefined;
   /**
@@ -106,6 +109,8 @@ export function ScopeFilter({
       <LiveRegion
         tone="status"
         as="p"
+        id={statusId}
+        tabIndex={statusId === undefined ? undefined : -1}
         className="col-start-1 row-start-1 flex min-h-12 items-center break-words px-4 py-2 text-sm text-muted"
       >
         {status}

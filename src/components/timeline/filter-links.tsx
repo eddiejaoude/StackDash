@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from "react";
 
 /*
  * The client leaves of `timeline-filters.tsx`, which stays a Server Component. Each wraps the
@@ -50,5 +50,60 @@ export function SeverityLinkRow({
     <nav ref={ref} aria-label={label} className={className}>
       {children}
     </nav>
+  );
+}
+
+/**
+ * The list of active filter chips. A chip links to the view without its filter, so activating it
+ * unmounts it, and Next leaves focus alone on a navigation (`ScrollAndFocusHandler` in
+ * `next/dist/client/components/layout-router.js`), so focus would fall to the page. Once the new
+ * list renders, focus goes to the chip that took the removed one's place, to the last chip when the
+ * removed one was last, or to `emptyFocusId` when no chip is left. It moves only after a chip's own
+ * client navigation and only when focus is on nothing, so it never takes focus from where someone
+ * put it. Rendered even with no chips, so it is still mounted when the last one goes.
+ */
+export function ActiveFilterList({
+  chipKeys,
+  emptyFocusId,
+  label,
+  className,
+  children,
+}: {
+  /** One key per chip, in order. */
+  chipKeys: readonly string[];
+  emptyFocusId: string;
+  label: string;
+  className: string;
+  children: ReactNode;
+}) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const removedIndex = useRef<number | null>(null);
+  // A string, so a re-render with the same chips (a live refresh) does not run the effect.
+  const chipKeyList = chipKeys.join("\n");
+  useEffect(() => {
+    const index = removedIndex.current;
+    removedIndex.current = null;
+    if (index === null) return;
+    const focused = document.activeElement;
+    if (focused !== null && focused !== document.body) return;
+    const chips = listRef.current === null ? [] : [...listRef.current.querySelectorAll<HTMLElement>(":scope > li > a")];
+    (chips[Math.min(index, chips.length - 1)] ?? document.getElementById(emptyFocusId))?.focus();
+  }, [chipKeyList, emptyFocusId]);
+
+  const remember = (event: MouseEvent<HTMLUListElement>) => {
+    // `Link` cancels the browser's navigation exactly when it navigates on the client, so a click
+    // that opens a new tab, which removes nothing here, is left alone.
+    if (!event.defaultPrevented || !(event.target instanceof Element)) return;
+    const item = event.target.closest("li");
+    const index = item === null ? -1 : [...event.currentTarget.children].indexOf(item);
+    if (index >= 0) removedIndex.current = index;
+  };
+
+  if (chipKeys.length === 0) return null;
+  return (
+    // The click handler only notes which chip navigated; each chip is a link with its own name.
+    <ul ref={listRef} aria-label={label} className={className} onClick={remember}>
+      {children}
+    </ul>
   );
 }

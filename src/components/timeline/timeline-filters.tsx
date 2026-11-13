@@ -10,7 +10,6 @@ import { typeOwnerName } from "@/lib/providers";
 import {
   activeFilters,
   EVENT_SEVERITIES,
-  hasActiveFilters,
   MAX_SEARCH_LENGTH,
   severityBadge,
   timelineHref,
@@ -18,7 +17,7 @@ import {
   type TimelineQuery,
 } from "@/lib/timeline/query";
 
-import { SeverityLinkRow } from "./filter-links";
+import { ActiveFilterList, SeverityLinkRow } from "./filter-links";
 
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
 const CHECKBOX = "size-4 shrink-0 accent-accent";
@@ -26,6 +25,9 @@ const TEXT_INPUT =
   "mt-1 block min-h-10 w-full rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-sm text-foreground [color-scheme:dark]";
 
 const SEVERITY_LINK = "inline-flex min-h-10 shrink-0 items-center rounded-md border px-4 py-2 text-sm transition-colors";
+
+// The "Showing ..." sentence in the filter bar, where focus goes once the last filter chip is removed.
+const STATUS_ID = "timeline-status";
 
 /**
  * One-click severity views, so the commonest filter needs no form. Each link keeps every other
@@ -119,7 +121,8 @@ export function TimelineToolbar({ action, query }: { action: string; query: Time
 /**
  * One removable chip per active filter value, under the filter bar, so a filter is named without
  * opening the form. Each chip is a link to the same view without that one value, starting from the
- * newest events; its name says what it does. Renders nothing when no filter is active.
+ * newest events; its name says what it does. `ActiveFilterList` moves focus on from a removed
+ * chip, and renders nothing when no filter is active.
  */
 export function ActiveFilterChips({
   action,
@@ -130,10 +133,15 @@ export function ActiveFilterChips({
   query: TimelineQuery;
   scopeOptions: ScopeOptions;
 }) {
-  if (!hasActiveFilters(query)) return null;
+  const filters = activeFilters(query, scopeOptions, eventTypeName);
   return (
-    <ul aria-label="Active filters" className="mt-3 flex flex-wrap gap-2">
-      {activeFilters(query, scopeOptions, eventTypeName).map((filter) => (
+    <ActiveFilterList
+      chipKeys={filters.map((filter) => filter.key)}
+      emptyFocusId={STATUS_ID}
+      label="Active filters"
+      className="mt-3 flex flex-wrap gap-2"
+    >
+      {filters.map((filter) => (
         <li key={filter.key} className="min-w-0">
           <Link
             href={timelineHref(action, filter.query, null)}
@@ -148,7 +156,7 @@ export function ActiveFilterChips({
           </Link>
         </li>
       ))}
-    </ul>
+    </ActiveFilterList>
   );
 }
 
@@ -187,6 +195,7 @@ export function TimelineFilters({
       scope={query.scope}
       options={scopeOptions}
       status={status}
+      statusId={STATUS_ID}
       extraActiveCount={extraActiveCount}
       hidden={{
         ...(query.timeRange === null ? {} : { start: query.timeRange.from, until: query.timeRange.toExclusive }),

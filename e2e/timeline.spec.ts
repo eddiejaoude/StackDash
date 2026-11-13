@@ -1070,7 +1070,8 @@ ownerTest.describe("timeline active filters", () => {
       for (const [index, name] of names.entries()) await expect(chips.nth(index)).toHaveAccessibleName(name);
       await expect(chips.first()).toHaveText("Search “Synthetic”");
 
-      // Keyboard only: removing the provider keeps every other filter.
+      // Keyboard only: removing the provider keeps every other filter, and focus moves to the chip
+      // that took its place rather than falling to the page.
       const provider = activeFilterChips(page).getByRole("link", { name: "Remove filter: provider Vercel", exact: true });
       await provider.focus();
       await page.keyboard.press("Enter");
@@ -1080,6 +1081,7 @@ ownerTest.describe("timeline active filters", () => {
       params.delete("provider");
       expect([...kept].sort()).toEqual([...params].sort());
       await expect(chips).toHaveCount(8);
+      await expect(activeFilterChips(page).getByRole("link", { name: "Remove filter: project Unassigned", exact: true })).toBeFocused();
 
       // Removing the period gives a total again: events 10 to 50 in the dated range.
       await activeFilterChips(page).getByRole("link", { name: /^Remove filter: period / }).click();
@@ -1094,14 +1096,26 @@ ownerTest.describe("timeline active filters", () => {
       await expect(page.getByRole("searchbox", { name: "Search event titles" })).toHaveValue("");
       await expect(chips).toHaveCount(6);
 
-      // Removing the rest one by one ends with no chip row and the bare timeline.
-      for (let remaining = 6; remaining > 0; remaining -= 1) {
+      // Keyboard only: removing the last chip moves focus to the chip before it.
+      await activeFilterChips(page).getByRole("link", { name: /^Remove filter: account / }).focus();
+      await page.keyboard.press("Enter");
+      await expect(chips).toHaveCount(5);
+      await expect(chips.last()).toHaveAccessibleName("Remove filter: project Unassigned");
+      await expect(chips.last()).toBeFocused();
+
+      // Removing the rest one by one from the first chip, from the keyboard, ends with no chip row and
+      // the bare timeline. Each removal focuses the chip that took its place, and the last one the
+      // result sentence.
+      await chips.first().focus();
+      for (let remaining = 5; remaining > 0; remaining -= 1) {
         await expect(chips).toHaveCount(remaining);
-        await chips.first().click();
+        await expect(chips.first()).toBeFocused();
+        await page.keyboard.press("Enter");
       }
       await expect(activeFilterChips(page)).toHaveCount(0);
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
       await expect(status).toHaveText("Showing 50 of 63 events");
+      await expect(status).toBeFocused();
     } finally {
       await deleteTestWorkspace(workspace);
     }
