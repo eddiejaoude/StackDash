@@ -7,7 +7,7 @@ import { newEventIds } from "@/lib/realtime/arrivals";
 
 /**
  * Timeline events that arrived in a live refresh (#171). The list compares its ids with the
- * previous render; a new row slides into its day group, its card shows a severity-colored edge and
+ * previous render; a new row slides into its day group, the row shows a severity-colored edge and
  * wash that fade, and it says "New" while highlighted. Rows already on screen never move or animate.
  * The provider chips in the title row glow when their provider's count grows (#403).
  */
