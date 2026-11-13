@@ -11,7 +11,15 @@
  * provenance (recurring revenue), never by position, so a card that moves in the list is not
  * mistaken for a changed one.
  */
-import type { Allowance, CurrencyAmounts, MoneyValue, Provenance, RecurringRevenue } from "@/lib/dashboard/aggregate";
+import type {
+  Allowance,
+  ConnectionInput,
+  ConnectionStatus,
+  CurrencyAmounts,
+  MoneyValue,
+  Provenance,
+  RecurringRevenue,
+} from "@/lib/dashboard/aggregate";
 import type { TrendMeasure } from "@/lib/dashboard/trends";
 import { formatMoney, formatPercent, formatQuantity } from "@/lib/format";
 
@@ -134,6 +142,68 @@ export function liveStatusText(status: LiveStatus): Readonly<{ word: string; nam
       return { word: "Offline", name: "Live updates, offline" };
   }
 }
+
+/** A connection as the live indicator lists it (#392). */
+export type LiveConnection = Readonly<Pick<ConnectionInput, "id" | "provider" | "display_name" | "status">>;
+
+/** Connections the live indicator's tooltip names; the rest are counted, so a big workspace keeps a small tooltip. */
+export const LIVE_CONNECTIONS_LISTED = 8;
+
+// Problems first, so a connection that needs a look is never the one past the cap.
+const LISTING_ORDER: Record<ConnectionStatus, number> = {
+  failed: 0,
+  needs_attention: 1,
+  pending: 2,
+  active: 3,
+  revoked: 4,
+};
+
+export type LiveConnectionSummary = Readonly<{
+  /** Active connections. */
+  connected: number;
+  /** Connections a member has to fix: needs attention or failed. */
+  attention: number;
+  /** At most LIVE_CONNECTIONS_LISTED, problems first, otherwise in the order given. */
+  listed: readonly LiveConnection[];
+  /** Connections past the cap, counted rather than named. */
+  unlisted: number;
+}>;
+
+/**
+ * What the live indicator says about the workspace's connections (#392). A disconnected (revoked)
+ * connection is neither counted nor listed: it no longer syncs anything.
+ */
+export function summarizeLiveConnections(connections: readonly LiveConnection[]): LiveConnectionSummary {
+  const current = connections
+    .filter((connection) => connection.status !== "revoked")
+    .toSorted((a, b) => LISTING_ORDER[a.status] - LISTING_ORDER[b.status]);
+  return {
+    connected: current.filter((connection) => connection.status === "active").length,
+    attention: current.filter((connection) => connection.status === "needs_attention" || connection.status === "failed").length,
+    listed: current.slice(0, LIVE_CONNECTIONS_LISTED),
+    unlisted: Math.max(0, current.length - LIVE_CONNECTIONS_LISTED),
+  };
+}
+
+/**
+ * The connection count beside "Live": the visible words, and the words the indicator's name adds.
+ * The name keeps the visible words, in the same order (WCAG 2.5.3, label in name), and says what
+ * the attention mark beside them shows.
+ */
+export function liveConnectionsText(summary: Pick<LiveConnectionSummary, "connected" | "attention">): Readonly<{
+  word: string;
+  name: string;
+}> {
+  const word = `${summary.connected} connected`;
+  if (summary.attention === 0) return { word, name: word };
+  return { word, name: `${word}, ${summary.attention} ${summary.attention === 1 ? "needs" : "need"} attention` };
+}
+
+/** The header's read of the workspace's connections, for the live indicator. */
+export type LiveConnectionsRead =
+  | Readonly<{ state: "loading" }>
+  | Readonly<{ state: "loaded"; summary: LiveConnectionSummary }>
+  | Readonly<{ state: "failed"; reference: string }>;
 
 /** How a counted number prints: a trend measure, or a percentage on a 0 to 100 scale. */
 export type CountFormat = TrendMeasure | Readonly<{ type: "percent" }>;

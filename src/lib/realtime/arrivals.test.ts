@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Allowance, CurrencyAmounts, MoneyValue, QuantityValue } from "@/lib/dashboard/aggregate";
+import type { Allowance, ConnectionStatus, CurrencyAmounts, MoneyValue, QuantityValue } from "@/lib/dashboard/aggregate";
 
 import {
   allowanceValues,
@@ -12,9 +12,13 @@ import {
   creditValues,
   describeArrivals,
   formatCount,
+  LIVE_CONNECTIONS_LISTED,
+  liveConnectionsText,
   liveStatusText,
+  type LiveConnection,
   newEventIds,
   recurringValues,
+  summarizeLiveConnections,
   usageBarClass,
 } from "./arrivals";
 
@@ -200,6 +204,67 @@ describe("liveStatusText", () => {
     const { word, name } = liveStatusText(status);
     expect(name.startsWith("Live updates")).toBe(true);
     expect(name.toLowerCase()).toContain(word.toLowerCase());
+  });
+});
+
+function liveConnection(id: string, status: ConnectionStatus): LiveConnection {
+  return { id, provider: "vercel", display_name: `Connection ${id}`, status };
+}
+
+describe("summarizeLiveConnections", () => {
+  it("counts active as connected and needs attention or failed as attention, problems listed first", () => {
+    const summary = summarizeLiveConnections([
+      liveConnection("a", "active"),
+      liveConnection("b", "pending"),
+      liveConnection("c", "needs_attention"),
+      liveConnection("d", "active"),
+      liveConnection("e", "failed"),
+    ]);
+    expect(summary.connected).toBe(2);
+    expect(summary.attention).toBe(2);
+    expect(summary.listed.map(({ id }) => id)).toEqual(["e", "c", "b", "a", "d"]);
+    expect(summary.unlisted).toBe(0);
+  });
+
+  it("neither counts nor lists a disconnected connection", () => {
+    const summary = summarizeLiveConnections([liveConnection("a", "revoked"), liveConnection("b", "active")]);
+    expect(summary).toEqual({ connected: 1, attention: 0, listed: [liveConnection("b", "active")], unlisted: 0 });
+  });
+
+  it("is empty with no connections, or only disconnected ones", () => {
+    const empty = { connected: 0, attention: 0, listed: [], unlisted: 0 };
+    expect(summarizeLiveConnections([])).toEqual(empty);
+    expect(summarizeLiveConnections([liveConnection("a", "revoked")])).toEqual(empty);
+  });
+
+  it.each([
+    [LIVE_CONNECTIONS_LISTED, 0],
+    [LIVE_CONNECTIONS_LISTED + 1, 1],
+  ])("lists at most the cap: %i connections leave %i unlisted, still all counted", (total, unlisted) => {
+    const connections = Array.from({ length: total }, (_, index) => liveConnection(String(index), "active"));
+    const summary = summarizeLiveConnections(connections);
+    expect(summary.listed).toHaveLength(LIVE_CONNECTIONS_LISTED);
+    expect(summary.unlisted).toBe(unlisted);
+    expect(summary.connected).toBe(total);
+  });
+
+  it("keeps a problem past the cap in the list", () => {
+    const connections = [
+      ...Array.from({ length: LIVE_CONNECTIONS_LISTED }, (_, index) => liveConnection(String(index), "active")),
+      liveConnection("broken", "failed"),
+    ];
+    expect(summarizeLiveConnections(connections).listed[0]?.id).toBe("broken");
+  });
+});
+
+describe("liveConnectionsText", () => {
+  it.each([
+    [0, 0, "0 connected", "0 connected"],
+    [3, 0, "3 connected", "3 connected"],
+    [3, 1, "3 connected", "3 connected, 1 needs attention"],
+    [0, 2, "0 connected", "0 connected, 2 need attention"],
+  ])("%i connected and %i needing attention reads %j, named %j", (connected, attention, word, name) => {
+    expect(liveConnectionsText({ connected, attention })).toEqual({ word, name });
   });
 });
 
