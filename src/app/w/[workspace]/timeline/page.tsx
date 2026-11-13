@@ -172,7 +172,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         id={HEADING_ID}
         title="Timeline"
         description={DESCRIPTION}
-        titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
+        titleAside={
+          // The chips count every page, so the page cursor is not part of what they show: only a
+          // filter change resets their comparison (#403).
+          <ArrivalScope scope={timelineHref(basePath, query, null)}>
+            <ProviderBadges counts={connectionCounts} action={basePath} query={query} />
+          </ArrivalScope>
+        }
       />
       {rawQuery[SAMPLE_DATA_ADDED_PARAM] === "added" ? (
         <FeedbackBanner tone="success" title="Sample data added">
