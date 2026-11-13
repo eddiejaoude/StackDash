@@ -61,16 +61,21 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
 }) {
   const searchParams = useSearchParams();
   const selectedId = parseTimelineEventId(searchParams.get("event") ?? undefined);
+  const open = selectedId !== null;
   const selected = events.find((event) => event.id === selectedId)
     ?? (linkedEvent?.id === selectedId ? linkedEvent : null);
-  const selectedIndex = events.findIndex((event) => event.id === selectedId);
+  // The panel fades out after closing (#399), by which time the URL no longer names the event, so
+  // it keeps showing the event it showed rather than "Event unavailable" until it opens again.
+  const [shown, setShown] = useState(selected);
+  if (open && shown !== selected) setShown(selected);
+  const current = open ? selected : shown;
+  const selectedIndex = current === null ? -1 : events.findIndex((event) => event.id === current.id);
   const newer = selectedIndex > 0 ? events[selectedIndex - 1] : undefined;
   const older = selectedIndex >= 0 ? events[selectedIndex + 1] : undefined;
   const dialog = useModalDialog({ fallbackFocusId });
   const opener = useRef<HTMLAnchorElement | null>(null);
   // True while the open inspector is the history entry `select` pushed, so closing goes back to it.
   const pushed = useRef(false);
-  const open = selectedId !== null;
 
   const syncDialog = useEffectEvent(() => {
     if (open && !dialog.ref.current?.open) {
@@ -151,7 +156,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
         size="inspector"
         onClose={closeSelection}
       >
-        {selected === null ? (
+        {current === null ? (
           <div className="mt-6 space-y-3">
             <h3 className="text-lg font-semibold">Event unavailable</h3>
             <p className="text-sm leading-6 text-muted">
@@ -160,7 +165,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
           </div>
         ) : (
           <>
-            <EventDetails key={selected.id} event={selected} href={eventHref(baseHref, selected.id)} />
+            <EventDetails key={current.id} event={current} href={eventHref(baseHref, current.id)} />
             <nav aria-label="Events on this page" className="mt-6 flex flex-wrap gap-2 border-t border-line pt-4">
               <GuardedButton type="button" unavailable={newer === undefined} onClick={() => moveTo(newer)} className={buttonClass("secondary", "sm")}>
                 Newer event
@@ -170,7 +175,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
               </GuardedButton>
             </nav>
             <p className="mt-2 text-xs text-muted">Navigation follows the events on this page.</p>
-            <LiveRegion tone="status" className="sr-only">Viewing {selected.title}</LiveRegion>
+            <LiveRegion tone="status" className="sr-only">Viewing {current.title}</LiveRegion>
           </>
         )}
       </ModalDialog>
