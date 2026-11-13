@@ -901,7 +901,21 @@ ownerTest.describe("arriving data", () => {
         .select("id")
         .single();
       if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
-      const github: SeededConnection = { workspaceId: workspace.id, connectionId: connection.id, accountId: account.id };
+      // insertEvent writes the Example provider; the provider filter below reads the event's own.
+      const insertGitHubEvent = async (title: string) => {
+        const { error: eventError } = await admin.from("activity_events").insert({
+          workspace_id: workspace.id,
+          connection_id: connection.id,
+          external_account_id: account.id,
+          provider: "github",
+          type_id: "github.push",
+          severity: "info",
+          title,
+          occurred_at: new Date().toISOString(),
+          dedupe_key: `e2e-live-${randomUUID()}`,
+        });
+        if (eventError) throw new Error(`Inserting a live event failed (code ${eventError.code}).`);
+      };
       await insertEvent(example, "Earlier event");
 
       const live = watchLiveChannel(page, workspace.id);
@@ -914,7 +928,7 @@ ownerTest.describe("arriving data", () => {
       await expect(glowing).toHaveCount(0);
 
       // GitHub's first event: its new chip glows, the Example provider's does not.
-      await insertEvent(github, "Push to main");
+      await insertGitHubEvent("Push to main");
       await expect(chip("GitHub")).toHaveAttribute("data-arrived", "true", { timeout: LIVE_TIMEOUT_MS });
       expect(await chip("Example provider").getAttribute("data-arrived")).toBeNull();
       await expectNoAxeViolations(page);
