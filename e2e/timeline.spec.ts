@@ -881,6 +881,12 @@ ownerTest.describe("timeline event inspector", () => {
         await expect(source).toHaveAttribute("href", "https://example.com/deployments/0");
         await expect(source).toHaveAttribute("rel", "noopener noreferrer");
         await expect(page).toHaveURL(new RegExp(`event=${new URL(href, page.url()).searchParams.get("event")}$`));
+        // The open event's row is marked in the feed, for sight as well as for assistive tech.
+        const currentRow = page.locator('a[aria-haspopup="dialog"][aria-current="location"]');
+        await expect(currentRow).toHaveText(["Synthetic event 0"]);
+        const otherColor = await page.locator('a[aria-haspopup="dialog"]:not([aria-current])').first()
+          .evaluate((element) => getComputedStyle(element).color);
+        await expect(currentRow).not.toHaveCSS("color", otherColor);
 
         const box = await inspector.boundingBox();
         if (box === null) throw new Error("The inspector is not rendered.");
@@ -908,6 +914,7 @@ ownerTest.describe("timeline event inspector", () => {
         await inspector.getByRole("button", { name: "Older event" }).focus();
         await page.keyboard.press("Enter");
         await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await expect(currentRow).toHaveText(["Synthetic event 1"]);
         await inspector.getByRole("button", { name: "Newer event" }).focus();
         await page.keyboard.press("Enter");
         await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
@@ -954,9 +961,59 @@ ownerTest.describe("timeline event inspector", () => {
       await page.reload();
       await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
       await page.keyboard.press("Escape");
+      // A shared link has no opener and its event is not on this page, so focus goes to the page's heading.
+      await expect(page.getByRole("heading", { level: 1, name: "Timeline", exact: true })).toBeFocused();
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
       await expect(page.getByRole("status").filter({ hasText: "Showing 6 events" })).toBeVisible();
       await expect(eventItems(page)).toHaveCount(6);
+
+      // When the shared event is on the loaded page, focus returns to its row.
+      const { data: onPage, error: onPageError } = await adminClient().from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-10").single();
+      if (onPageError) throw new Error(`Finding the synthetic event failed (code ${onPageError.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&event=${onPage.id}`);
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 10", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
+      await expect(page.getByRole("link", { name: "Synthetic event 10", exact: true })).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a winter event in GMT as its row does, and closing leaves no extra Back entry", async ({ page }) => {
+    const workspace = await createTestWorkspace("Inspector winter event");
+    try {
+      const { connectionId, accountId } = await seedAccount(workspace, {
+        provider: "vercel",
+        connectionName: "Vercel e2e connection",
+        externalId: "team_e2e",
+        accountName: "Acme e2e team",
+        kind: "team",
+      });
+      // 11:59 UTC on November 12 is 11:59 in London, which is on Greenwich Mean Time in winter.
+      const { error } = await adminClient().from("activity_events").insert({
+        ...syntheticEvent(workspace, connectionId, accountId, 0),
+        title: "Winter deployment",
+        occurred_at: "2026-11-12T11:59:00.000Z",
+        dedupe_key: "e2e-timeline-winter",
+      });
+      if (error) throw new Error(`Seeding the winter event failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/connections`);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(page.locator('time[title="2026-11-12 11:59 GMT"]')).toHaveCount(1);
+      await page.getByRole("link", { name: "Winter deployment", exact: true }).click();
+
+      // Written on the server like the row's time: a browser would name the zone "GMT+0".
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByText("2026-11-12 11:59 GMT", { exact: true })).toBeVisible();
+
+      // Closing goes back to the entry opening pushed, so Back then leaves the timeline.
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -1027,7 +1084,22 @@ function activityOverview(page: Page) {
 }
 
 function bucketLinks(page: Page) {
-  return activityOverview(page).getByRole("link", { name: /^Show \d+ events from / });
+  return activityOverview(page).getByRole("link", { name: /^Show [\d,]+ events? from / });
+}
+
+/** "1 event" or "60 events", the way the overview counts a bucket. */
+function eventCount(count: number): string {
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
+}
+
+/** The London start and exclusive end a bucket link names, as the page prints them. */
+async function bucketPeriod(link: Locator): Promise<Readonly<{ from: string; until: string }>> {
+  const name = await link.getAttribute("aria-label");
+  const match = name?.match(new RegExp(` from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
+  const from = match?.[1];
+  const until = match?.[2];
+  if (from === undefined || until === undefined) throw new Error(`The bucket link names no period: ${name}`);
+  return { from, until };
 }
 
 /** A bucket link, its position among the bucket links, and the half-open range its URL selects. */
@@ -1087,7 +1159,7 @@ async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly num
       expect(next.start).toBe(bucket.until);
     }
     // The seeded week is summer, so London times carry British Summer Time.
-    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${countIn(times, bucket)} events from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
+    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${eventCount(countIn(times, bucket))} from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
   }
 }
 
@@ -1105,16 +1177,25 @@ async function expectFeedHolds(page: Page, indexes: readonly number[], extra = 0
   for (const index of outside) await expect(eventHeading(page, index)).toHaveCount(0);
 }
 
+/**
+ * Which bucket is current, and the selection's live region: mounted and empty with nothing
+ * selected, and naming the selected period otherwise.
+ */
 async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> {
   const selected = activityOverview(page).locator('[aria-current="true"]');
   const clear = activityOverview(page).getByRole("link", { name: "Clear time selection", exact: true });
+  const status = activityOverview(page).getByRole("status");
   if (bucket === null) {
     await expect(selected).toHaveCount(0);
     await expect(clear).toHaveCount(0);
+    await expect(status).toBeEmpty();
     return;
   }
   await expect(selected).toHaveCount(1);
-  await expect(bucketLinks(page).nth(bucket.position)).toHaveAttribute("aria-current", "true");
+  const link = bucketLinks(page).nth(bucket.position);
+  await expect(link).toHaveAttribute("aria-current", "true");
+  const { from, until } = await bucketPeriod(link);
+  await expect(status).toHaveText(`Selected: ${from} to before ${until}`);
   await expect(clear).toBeVisible();
 }
 
@@ -1200,13 +1281,19 @@ ownerTest.describe("timeline activity overview", () => {
       expect(newestReleases).toBeGreaterThan(0);
       expect(newestIndexes.length).toBeGreaterThan(newestReleases);
 
-      // Keyboard only: the oldest bucket shows exactly its events, on the first page.
+      // Keyboard only: the oldest bucket shows exactly its events, on the first page. The
+      // selection's live region is already mounted, so selecting only changes its text.
+      const selection = overview.getByRole("status");
+      await selection.evaluate((element) => {
+        element.dataset.e2eMounted = "true";
+      });
       await oldest.link.focus();
       await page.keyboard.press("Enter");
       const oldestUrl = new URL(oldest.href, page.url()).href;
       await expect(page).toHaveURL(oldestUrl);
       await expectFeedHolds(page, oldestIndexes);
       await expectSelected(page, oldest);
+      await expect(selection).toHaveAttribute("data-e2e-mounted", "true");
       // The overview keeps its full context; the badges count only the selected range.
       await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
       await expect(bucketLinks(page)).toHaveCount(buckets.length);
@@ -1348,14 +1435,28 @@ ownerTest.describe("timeline activity overview", () => {
           await page.screenshot({ path: `pr-evidence/after/overview-${width}.png`, animations: "disabled" });
         }
 
-        // Tab to the newest bucket: the chart scrolls it into view, and Enter selects it.
+        // Tab to the newest bucket: the chart scrolls it into view, its period shows in the
+        // caption row, and Enter selects it.
         const buckets = await readBuckets(page);
         const [, newest] = firstAndLast(buckets, "buckets");
+        const { from, until } = await bucketPeriod(newest.link);
+        const periodStart = newest.link.getByText(from, { exact: true });
+        const periodEnd = newest.link.getByText(`Before ${until}`, { exact: true });
+        await expect(periodStart).toBeHidden();
+        await expect(periodEnd).toBeHidden();
         await tabTo(page, newest.link, 120);
         const focused = await newest.link.boundingBox();
         if (focused === null) throw new Error("The focused bucket is not rendered.");
         expect(focused.x).toBeGreaterThanOrEqual(0);
         expect(focused.x + focused.width).toBeLessThanOrEqual(width);
+        for (const shown of [periodStart, periodEnd]) {
+          await expect(shown).toBeVisible();
+          const box = await shown.boundingBox();
+          if (box === null) throw new Error("The focused bucket's period is not rendered.");
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+        }
+        await expectOverviewFits(page, width);
         await page.keyboard.press("Enter");
         await expect(page).toHaveURL(new URL(newest.href, page.url()).href);
         await expectSelected(page, newest);
