@@ -14,6 +14,9 @@
  *   empty state) has moved it on.
  * - Nowhere, when the close handed off to another modal (the palette opening its shortcut list),
  *   whose own close restores focus.
+ *
+ * It also decides when a click on a light-dismiss dialog's backdrop closes it (#407):
+ * `dismissedByClick`.
  */
 
 export type FocusTarget = Readonly<{ focus: () => void; isConnected: boolean }>;
@@ -28,6 +31,21 @@ export function focusAfterClose(
 ): FocusTarget | null {
   const order = reason === "completed" ? [fallback] : [opener, fallback];
   return order.find((target): target is FocusTarget => target !== null && target.isConnected) ?? null;
+}
+
+export type Point = Readonly<{ x: number; y: number }>;
+/** A `DOMRect`, as far as `dismissedByClick` needs one. */
+export type Box = Readonly<{ left: number; top: number; right: number; bottom: number }>;
+
+/**
+ * True when a click both started and ended outside the dialog's box, on its backdrop. A point on
+ * the box's edge is inside, so the dialog's own padding and border never close it. A press inside
+ * released outside is a text selection or a drag, not a dismissal, and a click with no press
+ * (`pressedAt` null: a keyboard activation) is never one either.
+ */
+export function dismissedByClick(box: Box, pressedAt: Point | null, releasedAt: Point): boolean {
+  const outside = ({ x, y }: Point) => x < box.left || x > box.right || y < box.top || y > box.bottom;
+  return pressedAt !== null && outside(pressedAt) && outside(releasedAt);
 }
 
 export type DialogController = Readonly<{

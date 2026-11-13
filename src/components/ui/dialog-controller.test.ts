@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createDialogController,
+  dismissedByClick,
   focusAfterClose,
   type ClosedDialog,
   type CloseReason,
@@ -96,6 +97,30 @@ describe("focusAfterClose", () => {
     fallback.isConnected = false;
     expect(focusAfterClose("dismissed", opener, fallback)).toBeNull();
     expect(focusAfterClose("completed", null, null)).toBeNull();
+  });
+});
+
+describe("dismissedByClick", () => {
+  // The event details panel at 1280 by 900: a right-hand column, the dimmed timeline to its left.
+  const panel = { left: 832, top: 0, right: 1280, bottom: 900 };
+  const beside = { x: 400, y: 450 };
+  const inside = { x: 1000, y: 450 };
+
+  it.each([
+    ["pressed and released beside the panel", true, beside, beside],
+    ["pressed and released at different points beside the panel", true, beside, { x: 10, y: 890 }],
+    ["pressed and released one pixel left of the panel's edge", true, { x: 831, y: 450 }, { x: 831, y: 450 }],
+    ["pressed and released inside the panel", false, inside, inside],
+    ["pressed and released on the panel's left edge, its padding", false, { x: 832, y: 450 }, { x: 832, y: 450 }],
+    ["pressed and released on the panel's corners", false, { x: 1280, y: 0 }, { x: 832, y: 900 }],
+    ["pressed inside and released beside, selecting text", false, inside, beside],
+    ["pressed beside and released inside", false, beside, inside],
+  ] as const)("%s: closes %s", (_case, closes, pressedAt, releasedAt) => {
+    expect(dismissedByClick(panel, pressedAt, releasedAt)).toBe(closes);
+  });
+
+  it("never closes on a click with no press, as a keyboard activation fires", () => {
+    expect(dismissedByClick(panel, null, beside)).toBe(false);
   });
 });
 
