@@ -26,6 +26,7 @@ import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { formatDateTime } from "@/lib/format";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
 import {
+  eventFilterHrefs,
   hasActiveFilters,
   parseTimelineEventId,
   parseTimelineSearchParams,
@@ -47,9 +48,15 @@ const HEADING_ID = "timeline-title";
 const HIDDEN_TYPE_IDS: readonly string[] = [];
 
 // Written on the server, as the row's own time is: browsers name the London zone differently. The
-// type's declared name comes from the adapter registry, which is server-only (#294).
-function inspected(event: TimelineEvent): InspectorEvent {
-  return { ...event, londonTime: formatDateTime(event.occurred_at), typeName: eventTypeName(event.type_id) };
+// type's declared name comes from the adapter registry, which is server-only (#294), and the filter
+// links from `timelineHref`, so the client panel never builds a query string of its own.
+function inspected(event: TimelineEvent, basePath: string): InspectorEvent {
+  return {
+    ...event,
+    londonTime: formatDateTime(event.occurred_at),
+    typeName: eventTypeName(event.type_id),
+    filterHrefs: eventFilterHrefs(basePath, event),
+  };
 }
 
 // Every section renders inside its own Suspense boundary so navigating between sections
@@ -82,8 +89,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
   const inspectorProps = {
-    events: page.events.map(inspected),
-    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent),
+    events: page.events.map((event) => inspected(event, basePath)),
+    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent, basePath),
     baseHref: timelineHref(basePath, query, query.cursor),
     fallbackFocusId: HEADING_ID,
   };

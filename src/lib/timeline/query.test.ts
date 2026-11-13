@@ -5,9 +5,11 @@ import { EMPTY_SCOPE, type ScopeOptions } from "@/lib/filters/scope";
 
 import {
   activeFilters,
+  AROUND_EVENT_WINDOW_MINUTES,
   decodeCursor,
   EVENT_SEVERITIES,
   encodeCursor,
+  eventFilterHrefs,
   eventTypeLabel,
   hasActiveFilters,
   isEventTypeId,
@@ -373,6 +375,52 @@ describe("timelineParams", () => {
   it("leaves the search out when the search form writes every other filter", () => {
     const query = parseTimelineSearchParams({ q: "deploy", severity: "critical" });
     expect([...timelineParams({ ...query, search: null }, null)]).toEqual([["severity", "critical"]]);
+  });
+});
+
+/** The filters an app-relative href carries, read the way the page reads them. */
+function queryOf(href: string): TimelineQuery {
+  const params = new URL(href, "https://example.com").searchParams;
+  const raw: Record<string, string[]> = {};
+  for (const [key, value] of params) raw[key] = [...(raw[key] ?? []), value];
+  return parseTimelineSearchParams(raw);
+}
+
+describe("eventFilterHrefs", () => {
+  const empty = parseTimelineSearchParams({});
+  const event = { type_id: "stripe.charge.succeeded", external_account_id: ACCOUNT_ID, occurred_at: "2026-06-15T10:00:00+00:00" };
+
+  it("links to the event's type, account, and the hour either side of it, each as the only filter", () => {
+    const hrefs = eventFilterHrefs("/w/abc/timeline", event);
+    expect(queryOf(hrefs.type)).toEqual({ ...empty, types: ["stripe.charge.succeeded"] });
+    expect(queryOf(hrefs.account ?? "")).toEqual({ ...empty, scope: { ...EMPTY_SCOPE, accounts: [ACCOUNT_ID] } });
+    expect(queryOf(hrefs.around)).toEqual({
+      ...empty,
+      timeRange: { from: "2026-06-15T09:00:00.000Z", toExclusive: "2026-06-15T11:00:00.000Z" },
+    });
+    expect(hrefs.around).toBe("/w/abc/timeline?start=2026-06-15T09%3A00%3A00.000Z&until=2026-06-15T11%3A00%3A00.000Z");
+  });
+
+  it("offers no account link for an event with no account", () => {
+    expect(eventFilterHrefs("/w/abc/timeline", { ...event, external_account_id: null }).account).toBeNull();
+  });
+
+  it.each([
+    ["microseconds, as Postgres stores them", "2026-06-15T10:00:00.123456+00:00", "2026-06-15T10:00:00.123Z"],
+    ["the last microsecond of a second", "2026-06-15T10:00:00.999999+00:00", "2026-06-15T10:00:00.999Z"],
+    ["milliseconds", "2026-06-15T10:00:00.5Z", "2026-06-15T10:00:00.500Z"],
+    ["a London summer offset", "2026-06-15T11:00:00.000001+01:00", "2026-06-15T10:00:00.000Z"],
+  ])("writes a start and until pair the URL accepts from %s, with the event inside it", (_, occurredAt, instant) => {
+    const { timeRange } = queryOf(eventFilterHrefs("/w/abc/timeline", { ...event, occurred_at: occurredAt }).around);
+    const occurredMs = Date.parse(instant);
+    const windowMs = AROUND_EVENT_WINDOW_MINUTES * 60_000;
+    expect(timeRange).toEqual({
+      from: new Date(occurredMs - windowMs).toISOString(),
+      toExclusive: new Date(occurredMs + windowMs).toISOString(),
+    });
+    // The window is half open: the event's true instant, microseconds and all, is inside it.
+    expect(Date.parse(timeRange?.from ?? "")).toBeLessThanOrEqual(occurredMs);
+    expect(Date.parse(timeRange?.toExclusive ?? "")).toBeGreaterThan(occurredMs + 1);
   });
 });
 

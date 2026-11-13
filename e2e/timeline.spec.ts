@@ -1276,6 +1276,127 @@ ownerTest.describe("timeline event inspector", () => {
     }
   });
 
+  // #394: the details offer the timeline narrowed to the event's type, account, or time.
+  ownerTest("links from the details to the timeline for the event's type, account, and time, and Back reopens them", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector filter links");
+    try {
+      await seedGitHubProject(workspace);
+      const admin = adminClient();
+      const { data: github, error: githubError } = await admin.from("external_accounts").select("id")
+        .eq("workspace_id", workspace.id).eq("external_id", "org_e2e").single();
+      if (githubError) throw new Error(`Finding the synthetic account failed (code ${githubError.code}).`);
+      // DevMacro's own event: no connection and no account, and microseconds, as Postgres keeps them.
+      const { data: summary, error: summaryError } = await admin.from("activity_events").insert({
+        workspace_id: workspace.id,
+        connection_id: null,
+        external_account_id: null,
+        provider: null,
+        type_id: "devmacro.daily_summary",
+        severity: "info",
+        title: "Microsecond summary",
+        occurred_at: "2026-06-15T12:00:00.123456Z",
+        dedupe_key: "e2e-timeline-microsecond",
+      }).select("id").single();
+      if (summaryError) throw new Error(`Seeding the summary failed (code ${summaryError.code}).`);
+      const { data: oldest, error: oldestError } = await admin.from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-59").single();
+      if (oldestError) throw new Error(`Finding the synthetic event failed (code ${oldestError.code}).`);
+
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      const related = inspector.getByRole("region", { name: "Related events" });
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+
+      // Keyboard only, from a filtered timeline: the type link drops the other filters.
+      await page.goto(`/w/${workspace.slug}/connections`);
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical`);
+      const trigger = page.getByRole("link", { name: "Synthetic event 10", exact: true });
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 10", exact: true })).toBeVisible();
+      await expect(related.getByRole("link")).toHaveText([
+        "Show only this event type",
+        "Show only this account",
+        "Show events around this time",
+      ]);
+      const byType = related.getByRole("link", { name: "Show only this event type", exact: true });
+      await tabTo(page, byType, 10);
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?type=vercel.deployment_ready`);
+      await expect(inspector).toBeHidden();
+      await expect(status).toHaveText("Showing 50 of 60 events");
+      await expect(activeFilterChips(page).getByRole("link")).toHaveAccessibleName("Remove filter: event type Vercel: Deployment ready");
+
+      // Back returns to the open details; closing them then adds no entry, so Back leaves the timeline.
+      await page.goBack();
+      await expect(page).toHaveURL(new RegExp(`/timeline\\?severity=critical&event=`));
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 10", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+
+      // The account link narrows to that account alone.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.getByRole("link", { name: "GitHub release 0", exact: true }).click();
+      await related.getByRole("link", { name: "Show only this account", exact: true }).click();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?account=${github.id}`);
+      await expect(inspector).toBeHidden();
+      await expect(status).toHaveText("Showing 3 of 3 events for account Acme e2e organization (GitHub e2e connection)");
+
+      // An event with no account has no account link, and its window keeps it despite microseconds:
+      // 11:00:00.123 to before 13:00:00.123 UTC holds it and events 11 and 12.
+      await page.goto(`/w/${workspace.slug}/timeline?event=${summary.id}`);
+      await expect(inspector.getByRole("heading", { name: "Microsecond summary", exact: true })).toBeVisible();
+      await expect(related.getByRole("link")).toHaveText(["Show only this event type", "Show events around this time"]);
+      await related.getByRole("link", { name: "Show events around this time", exact: true }).click();
+      await expect(page).toHaveURL(
+        `/w/${workspace.slug}/timeline?start=2026-06-15T11%3A00%3A00.123Z&until=2026-06-15T13%3A00%3A00.123Z`,
+      );
+      await expect(inspector).toBeHidden();
+      await expect(eventItems(page)).toHaveCount(3);
+      await expect(page.getByRole("heading", { name: "Microsecond summary", exact: true })).toBeVisible();
+      await expect(activeFilterChips(page).getByRole("link")).toHaveAccessibleName(
+        "Remove filter: period 2026-06-15 12:00 BST to before 2026-06-15 14:00 BST",
+      );
+
+      // A shared event outside the loaded page and the current filters: its links still show it.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&event=${oldest.id}`);
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
+      await related.getByRole("link", { name: "Show events around this time", exact: true }).click();
+      await expect(inspector).toBeHidden();
+      await expect(eventItems(page)).toHaveCount(1);
+      await expect(eventHeading(page, 59)).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps the details' related event links usable at every width", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector related widths");
+    try {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      const links = inspector.getByRole("region", { name: "Related events" }).getByRole("link");
+      await expect(links).toHaveCount(3);
+      for (const width of [1280, 375, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const link of await links.all()) {
+          const box = await link.boundingBox();
+          if (box === null) throw new Error("A related event link is not rendered.");
+          expect(box.height).toBeGreaterThanOrEqual(24);
+          expect(box.width).toBeGreaterThanOrEqual(24);
+        }
+        expect(await inspector.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      }
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("shows a winter event in GMT as its row does, and closing leaves no extra Back entry", async ({ page }) => {
     const workspace = await createTestWorkspace("Inspector winter event");
     try {
