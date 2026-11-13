@@ -45,9 +45,10 @@ const LiveChangeSchema = z
   })
   .transform(({ data }) => data);
 
-// A seeded connection with no next_sync_at is due for a sync, and the job tick (pg_cron locally,
-// or a watcher) would sync it mid-test and write sync-failed events into the workspace. Every
-// connection a test seeds is scheduled a month out instead, as the other fixtures do.
+// A seeded connection with no next_sync_at is due for a sync, so a job tick run against the same
+// database (`npm run jobs:tick`, its watcher, or an instance-wide spec) would sync it mid-test and
+// write sync-failed events into the workspace. `seedConnection` and the provider chip test's GitHub
+// connection are scheduled a month out, as the fixtures do; the seeds still due are #408.
 const notDueForAMonth = () => new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
 
 // The static highlight of `.arrival-pulse` under reduced motion: --accent-soft (src/app/globals.css).
@@ -961,6 +962,8 @@ ownerTest.describe("arriving data", () => {
 
       const animations = await recordArrivalAnimations(page);
       const glows = async () => (await animations()).filter((name) => name === "alert-glow").length;
+      // The header's receiving ring is keyed by batch, so one starts each time a batch is announced.
+      const batches = async () => (await animations()).filter((name) => name === "live-receive").length;
       const live = watchLiveChannel(page, workspace.id);
       const chipList = page.getByRole("list", { name: "Events by provider" });
       const chips = chipList.getByRole("listitem");
@@ -975,6 +978,8 @@ ownerTest.describe("arriving data", () => {
       await insertGitHubEvent("Push to main");
       await expect(chip("GitHub").getByTestId("chip-glow")).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect.poll(glows).toBe(1);
+      // Scanned while the chip glows.
+      await expectNoAxeViolations(page);
       await expect(page.getByTestId("chip-glow")).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
 
       // Every provider, freshly loaded: nothing glows on load.
@@ -997,8 +1002,11 @@ ownerTest.describe("arriving data", () => {
       await chip("GitHub").getByRole("link").click();
       await expect(page).toHaveURL(/provider=github/);
       await expect(chips).toHaveCount(1);
+      // Waits for the batch to be announced, not just delivered: the announcement comes after the
+      // refresh debounce, and clearing the filter before it would let any chip code pass.
+      const announced = await batches();
       await insertEvent(example, "Unseen event");
-      await expect.poll(() => deliveredEvent(live, "Unseen event"), { timeout: LIVE_TIMEOUT_MS }).toBe(true);
+      await expect.poll(batches, { timeout: LIVE_TIMEOUT_MS }).toBeGreaterThan(announced);
       await chip("GitHub").getByRole("link").click();
       await expect(chip("Example provider").getByRole("link")).toHaveAccessibleName(/3 events/);
       expect(await page.getByTestId("chip-glow").count()).toBe(0);
@@ -1026,6 +1034,7 @@ ownerTest.describe("arriving data", () => {
       await expect(glow).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(glow).toHaveCSS("background-color", CORAL_TINT);
       await expect(glow).toHaveCSS("animation-name", "none");
+      await expectNoAxeViolations(page);
       if (process.env.PW_PR_EVIDENCE === "1") {
         await page.screenshot({ path: "pr-evidence/after/chips-reduced-motion.png", clip: { x: 0, y: 56, width: 1280, height: 344 } });
       }
