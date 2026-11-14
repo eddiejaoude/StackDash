@@ -47,6 +47,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261112212026_timeline_activity_buckets.sql` | `timeline_activity_buckets` (security invoker): how many events match the timeline's filters across all of its pages, in at most 12 equal slices of time, for the timeline's activity overview |
 | `20261113100000_timeline_activity_bucket_severities.sql` | `timeline_activity_buckets` also returns `critical_events` and `warning_events` per slice, after its original columns, so the activity overview can stack severity in each bar |
 | `20261114090000_activity_heatmap.sql` | `activity_heatmap` (security invoker): events per weekday and hour of day in a given time zone since a given instant, with the timeline's filters, for the dashboard's activity heatmap |
+| `20261114120000_project_achievements.sql` | `project_achievements`, `project_achievement_publications`, `achievement_date_precision`, `achievement_evidence`, and the record, publish, unpublish, and public read functions for permanent project achievements (#413) |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -84,6 +85,8 @@ erDiagram
   alert_rules ||--o{ triggered_alerts : "fires once per cycle"
   projects ||--o{ published_metrics : "publishes"
   projects ||--o{ published_metric_views : "counts serves"
+  projects ||--o{ project_achievements : "earns"
+  project_achievements ||--o| project_achievement_publications : "published"
   projects ||--o| project_pages : "public page"
   connections |o--o{ sync_jobs : "syncs"
   workspace_members ||--o| notification_preferences : "email setting"
@@ -155,6 +158,7 @@ Every table in `public` has RLS enabled. Policies read the caller's role from `w
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
 | `activity_event_daily_counts` | viewer | none, not even the service role: only the `activity_events` triggers and `rebuild_activity_event_daily_counts` (service role) write it |
 | `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
+| `project_achievements`, `project_achievement_publications` | viewer | none (service role functions; publishing after an owner or admin check) |
 | `published_metric_views` | viewer | none (service role function) |
 | `public_rate_limit_counters` | none | none (service role function) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
@@ -321,6 +325,8 @@ The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticate
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
 | `anomaly_mutes` | until a person unmutes the metric (cascade on workspace delete) | not applicable |
 | `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
+| `project_achievements` | permanently while the project exists, even after the events and snapshots that proved them are purged | not applicable |
+| `project_achievement_publications` | while the achievement exists; unpublishing deletes the row, and so does deleting the account that published it | not applicable |
 | `project_pages` | while the project exists; turning a page off keeps the row so its address stays reserved | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
 | `api_keys` | while the workspace exists; revoked keys stay listed in settings | not applicable |
@@ -360,6 +366,18 @@ Badges and cards read published values through the engine and add two tables. Ho
 - Members read it as viewers. Nobody writes through the Data API: `save_project_page` (turn on, or change the slug or the indexing choice) and `disable_project_page` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.project_page_enabled`, `devmacro.project_page_updated`, or `devmacro.project_page_disabled` timeline event in the same transaction.
 - `public_project_page(workspace_slug, page_slug)` returns the page an address answers with: on, and with at least one live row in `published_metrics`. Its first argument is the address's workspace part, a handle or a slug, and the row carries the workspace's slug and handle so the proxy can send a slug address to the handle address. An unknown address, a released handle, another workspace's handle, a page that is off, and a page with nothing published all return nothing, so the route answers the same 404. `public_project_page_sitemap(limit)` lists the pages that pass the same rule and are `indexable`, newest change first, with each workspace's handle. Both are service role only.
 - Workspace and project deletes cascade; `updated_by` is set to null when that user's account is deleted.
+
+## Project achievements
+
+`project_achievements` holds what a project has earned (#413). What each adapter declares and how the rules are counted is in [Public metrics](public-metrics.md) and `docs/adapters.md`, "Achievements".
+
+- The database stores earned rows, never definitions. The private title, public title, and description are copied from the adapter's definition when earned, so an achievement removed from its adapter later stays earned with its stored titles.
+- `project_achievements_project_achievement_key` makes `(project_id, achievement_id)` unique. The only write path, `record_project_achievements(workspace_id, project_id, achievements)`, inserts with `on conflict do nothing`, so a repeated sync, a backfill, or two evaluators at once can neither duplicate an achievement nor move its `earned_at`. It returns the ids it newly earned, and nothing for a project outside the workspace.
+- `earned_precision` is `instant` (an event or a snapshot) or `day` (a provider's daily total, stored at 00:00 UTC of its day, which `project_achievements_day_start` checks). `evidence` is `crossed` when the stored data holds the event or reading that reached the threshold, or `at_least` when the first stored reading was already past it; `threshold` is then required, for "Recorded at least <threshold>".
+- Each newly earned row writes one `devmacro.achievement_earned` event in the same statement: severity `success`, the private title, `occurred_at` set to `earned_at` (so a backfill lands in history), no provider, connection, or account, and the dedupe key `achievement:<project id>:<achievement id>` (`achievement_event_dedupe_key`). The `project_achievements_delete_event` trigger deletes that event when the achievement is deleted, so deleting a project or workspace removes it. Unpublishing keeps it, because the timeline is private.
+- Private by default. A row in `project_achievement_publications` means published. `publish_achievement` returns `published`, `unchanged`, or `not_found`, and `unpublish_achievement` returns `unpublished`, `unchanged`, or `not_found`. Both are service role functions the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`, and both check the actor's role again (owner or admin, `42501` otherwise). `published_by` cascades on user delete, so deleting an account unpublishes what it published.
+- `public_published_achievements(project_id)` returns only what a public surface may show: id, provider, public title, earned date and precision, evidence, threshold, and when it was published. It is service role only and is the one definition of "currently published" for the public page, badges, and cards. It does not make a project page public: `public_project_page` still needs a live published metric.
+- Members read both tables as viewers. Workspace and project deletes cascade.
 
 ## Review against later plans
 
