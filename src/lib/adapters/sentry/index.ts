@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError } from "../errors";
 import type { ActivityEvent, EventSeverity, EventType } from "../events";
 import type { AdapterMetric, Timeframe } from "../metrics";
@@ -117,6 +118,45 @@ export const eventTypes = [
     shownByDefault: true,
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413), evaluated per project from stored events (docs/adapters.md, "Achievements").
+const achievements: readonly Achievement[] = [
+  {
+    id: "sentry.issues.resolved_first",
+    title: "First Sentry issue resolved",
+    publicTitle: "First Sentry issue resolved",
+    description: "Earned when DevMacro records the first resolved Sentry issue.",
+    rule: { kind: "event_count", typeIds: ["sentry.issue.resolved"], count: 1 },
+  },
+  {
+    id: "sentry.issues.resolved_100",
+    title: "100 Sentry issues resolved",
+    publicTitle: "100 Sentry issues resolved",
+    description: "Earned when DevMacro records the 100th resolved Sentry issue.",
+    rule: { kind: "event_count", typeIds: ["sentry.issue.resolved"], count: 100 },
+  },
+  {
+    id: "sentry.issues.bug_squasher",
+    title: "Bug squasher: 10 issues resolved in one day",
+    publicTitle: "Bug squasher: 10 issues resolved in one day",
+    description: "Earned when DevMacro records 10 resolved Sentry issues on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["sentry.issue.resolved"], count: 10, window: "day" },
+  },
+  {
+    id: "sentry.releases.first",
+    title: "First Sentry release recorded",
+    publicTitle: "First Sentry release recorded",
+    description: "Earned when DevMacro records the first new Sentry release.",
+    rule: { kind: "event_count", typeIds: ["sentry.release.created"], count: 1 },
+  },
+  {
+    id: "sentry.releases.10",
+    title: "10 Sentry releases recorded",
+    publicTitle: "10 Sentry releases recorded",
+    description: "Earned when DevMacro records the 10th new Sentry release.",
+    rule: { kind: "event_count", typeIds: ["sentry.release.created"], count: 10 },
+  },
+];
 
 export const errorOutcomes = [
   { outcome: "accepted", metricKey: "sentry.errors.accepted", label: "Errors accepted, last 24 hours" },
@@ -632,6 +672,7 @@ export const sentryAdapter: ProviderAdapter = {
     "New releases per project (version and time)",
   ],
   eventTypes,
+  achievements,
   oauth: {
     authorizeUrl: `${API_ORIGIN}/sentry-apps/{slug}/external-install/`,
     tokenUrl: `${API_BASE}/sentry-app-installations/{installationId}/authorizations/`,

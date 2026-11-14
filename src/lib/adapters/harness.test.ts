@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Achievement, AchievementRule } from "./achievements";
 import { PermissionMissingError } from "./errors";
 import { eventTypes, exampleAdapter, metricKeys } from "./example";
 import { fakeAdapter } from "./fake";
@@ -146,6 +147,88 @@ describe("checkAdapterDeclaration", () => {
     const problems = checkAdapterDeclaration(adapterWith({ eventTypes: [{ ...eventTypes[0], label: "" }] }));
     // The message ends with zod's wording, so only its start is pinned.
     expect(problems).toContainEqual(expect.stringMatching(/^event type example\.signup is invalid: \S/));
+  });
+
+  describe("achievements", () => {
+    const deployments: Achievement = {
+      id: "example.deployments.first",
+      title: "First Example Cloud deployment recorded",
+      publicTitle: "First Example Cloud deployment recorded",
+      description: "Earned when DevMacro records the first successful Example Cloud deployment.",
+      rule: { kind: "event_count", typeIds: ["example.deploy.succeeded"], count: 1 },
+    };
+    const withRule = (rule: AchievementRule): Achievement => ({ ...deployments, rule });
+    const uncategorized = {
+      id: "example.domain.verified",
+      label: "Domain verified",
+      description: "A custom domain passed verification.",
+      shownByDefault: true,
+    } as const;
+
+    it.each<[string, Partial<ProviderAdapter<string>>]>([
+      ["a rule on an event type with no category", { eventTypes: [...eventTypes, uncategorized], achievements: [withRule({ kind: "event_count", typeIds: [uncategorized.id], count: 3 })] }],
+      [
+        "a daily total declared in signupDailyTotals",
+        {
+          signupDailyTotals: ["example.signups.daily"],
+          achievements: [withRule({ kind: "daily_total_threshold", metricKey: "example.signups.daily", value: 10, sum: "cumulative" })],
+        },
+      ],
+      ["a metric threshold on the adapter's own key", { achievements: [withRule({ kind: "metric_threshold", metricKey: metricKeys.requestsUsed, value: 1000 })] }],
+    ])("passes %s (boundary)", (_case, change) => {
+      expect(checkAdapterDeclaration(adapterWith(change))).toEqual([]);
+    });
+
+    it.each<[string, readonly Achievement[], string]>([
+      ["a duplicate id", [deployments, { ...deployments, title: "Another title" }], "achievement example.deployments.first is declared twice"],
+      [
+        "an id scoped to another provider",
+        [{ ...deployments, id: "vercel.deployments.first" }],
+        "achievement vercel.deployments.first must start with example.",
+      ],
+      [
+        "an undeclared event type",
+        [withRule({ kind: "events_in_window", typeIds: ["example.deploy.canceled"], count: 10, window: "day" })],
+        "achievement example.deployments.first reads event type example.deploy.canceled, which the adapter does not declare",
+      ],
+      [
+        "an undeclared failure type in a streak",
+        [
+          withRule({
+            kind: "event_streak",
+            successTypeIds: ["example.deploy.succeeded"],
+            failureTypeIds: ["vercel.deployment.failed"],
+            count: 10,
+          }),
+        ],
+        "achievement example.deployments.first reads event type vercel.deployment.failed, which the adapter does not declare",
+      ],
+      [
+        "a metric key owned by another provider",
+        [withRule({ kind: "metric_threshold", metricKey: "github.stars.total", value: 10 })],
+        "achievement example.deployments.first reads metric github.stars.total, which must start with example.",
+      ],
+      [
+        "a daily total missing from signupDailyTotals",
+        [withRule({ kind: "daily_total_threshold", metricKey: "example.signups.daily", value: 10, sum: "cumulative" })],
+        "achievement example.deployments.first sums example.signups.daily, which is not declared in signupDailyTotals",
+      ],
+    ])("reports %s (boundary)", (_case, achievements, problem) => {
+      expect(checkAdapterDeclaration(adapterWith({ achievements }))).toContain(problem);
+    });
+
+    // The messages end with zod's wording, so only the achievement and the field are pinned.
+    it.each<[string, Achievement, string]>([
+      ["an event count of 0", withRule({ kind: "event_count", typeIds: ["example.deploy.succeeded"], count: 0 }), "rule.count"],
+      ["a metric threshold of 0", withRule({ kind: "metric_threshold", metricKey: metricKeys.requestsUsed, value: 0 }), "rule.value"],
+      ["a negative daily gain", withRule({ kind: "metric_daily_gain", metricKey: metricKeys.requestsUsed, gain: -5 }), "rule.gain"],
+      ["a run of 0 days", withRule({ kind: "consecutive_days", typeIds: ["example.deploy.succeeded"], days: 0 }), "rule.days"],
+      ["a title too long for the card", { ...deployments, title: "x".repeat(81) }, "title"],
+    ])("reports %s as invalid (boundary)", (_case, achievement, field) => {
+      const problems = checkAdapterDeclaration(adapterWith({ achievements: [achievement] }));
+      const prefix = `achievement example.deployments.first is invalid: ${field}: `;
+      expect(problems).toContainEqual(expect.stringMatching(new RegExp(`^${prefix.replaceAll(".", "\\.")}\\S`)));
+    });
   });
 });
 

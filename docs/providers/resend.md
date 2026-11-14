@@ -143,6 +143,17 @@ Resend has no event feed that DevMacro can poll for account activity. The adapte
 | Bounce rate high | `/emails/metrics` | `bounce_rate` at or above 4% (Resend may pause sending above 4%) |
 | Complaint rate high | `/emails/metrics` | `complaint_rate` at or above 0.08% (Resend may pause sending above 0.08%) |
 
+## Achievements
+
+DevMacro evaluates these for each project the Resend accounts are assigned to, from the Resend data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+Both count `resend.domain.verified` events.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `resend.domains.first` | First Resend domain verified | Earned when DevMacro records the first verified Resend domain. |
+| `resend.domains.collector` | Domain collector: 3 domains verified | Earned when DevMacro records the 3rd verified Resend domain. |
+
 ## Verified, estimated, unavailable
 
 | Data | Status | Source |

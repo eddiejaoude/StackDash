@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
   fetchJson,
@@ -85,6 +86,24 @@ export const eventTypes = [
     shownByDefault: true,
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413), evaluated per project from stored events (docs/adapters.md, "Achievements").
+const achievements: readonly Achievement[] = [
+  {
+    id: "resend.domains.first",
+    title: "First Resend domain verified",
+    publicTitle: "First Resend domain verified",
+    description: "Earned when DevMacro records the first verified Resend domain.",
+    rule: { kind: "event_count", typeIds: ["resend.domain.verified"], count: 1 },
+  },
+  {
+    id: "resend.domains.collector",
+    title: "Domain collector: 3 domains verified",
+    publicTitle: "Domain collector: 3 domains verified",
+    description: "Earned when DevMacro records the 3rd verified Resend domain.",
+    rule: { kind: "event_count", typeIds: ["resend.domain.verified"], count: 3 },
+  },
+];
 
 // Domain statuses that produce an event when a domain moves into them. Threshold alerts such as
 // quota near its limit are DevMacro's job, not adapter events.
@@ -414,6 +433,7 @@ export const resendAdapter: ProviderAdapter = {
     "Domain names and their verification status",
   ],
   eventTypes,
+  achievements,
   // In beta until #241 settles whether a live Resend callback carries `iss`: once #228 lands,
   // `exchangeCode` refuses a callback without it, which would fail every Resend connection. Remove
   // this declaration to drop the catalog's "Beta" badge.

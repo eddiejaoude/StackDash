@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { Achievement } from "@/lib/adapters/achievements";
 import {
   AdapterError,
   AuthRevokedError,
@@ -119,6 +120,82 @@ const eventTypes: readonly EventType[] = timelineEvents.map((event) => ({
   description: event.description,
   shownByDefault: true,
 }));
+
+// Achievements (#413): counts only, never amounts. The payment and subscription ids are shared
+// with Polar: keep the ids, thresholds, and wording in step with Polar's (docs/adapters.md,
+// "Achievements"). Polar has no customer event, so the customer ones are Stripe's own.
+const achievements: readonly Achievement[] = [
+  {
+    id: "stripe.payments.first",
+    title: "First Stripe payment recorded",
+    publicTitle: "First Stripe payment recorded",
+    description: "Earned when DevMacro records the first successful Stripe payment.",
+    rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 1 },
+  },
+  {
+    id: "stripe.payments.10",
+    title: "10 Stripe payments recorded",
+    publicTitle: "10 Stripe payments recorded",
+    description: "Earned when DevMacro records the 10th successful Stripe payment.",
+    rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 10 },
+  },
+  {
+    id: "stripe.payments.100",
+    title: "100 Stripe payments recorded",
+    publicTitle: "100 Stripe payments recorded",
+    description: "Earned when DevMacro records the 100th successful Stripe payment.",
+    rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 100 },
+  },
+  {
+    id: "stripe.payments.1000",
+    title: "1,000 Stripe payments recorded",
+    publicTitle: "1,000 Stripe payments recorded",
+    description: "Earned when DevMacro records the 1,000th successful Stripe payment.",
+    rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 1000 },
+  },
+  {
+    id: "stripe.payments.payday",
+    title: "Payday: 10 payments in one day",
+    publicTitle: "Payday: 10 payments in one day",
+    description: "Earned when DevMacro records 10 successful Stripe payments on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["stripe.charge.succeeded"], count: 10, window: "day" },
+  },
+  {
+    id: "stripe.payments.while_you_slept",
+    title: "While you slept: a payment between midnight and 5 am",
+    publicTitle: "While you slept: a payment between midnight and 5 am",
+    description: "Earned when DevMacro records a successful Stripe payment between midnight and 5 am London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["stripe.charge.succeeded"], fromHour: 0, toHour: 5 },
+  },
+  {
+    id: "stripe.subscriptions.first",
+    title: "First Stripe subscription recorded",
+    publicTitle: "First Stripe subscription recorded",
+    description: "Earned when DevMacro records the first new Stripe subscription.",
+    rule: { kind: "event_count", typeIds: ["stripe.customer.subscription.created"], count: 1 },
+  },
+  {
+    id: "stripe.subscriptions.10",
+    title: "10 Stripe subscriptions recorded",
+    publicTitle: "10 Stripe subscriptions recorded",
+    description: "Earned when DevMacro records the 10th new Stripe subscription.",
+    rule: { kind: "event_count", typeIds: ["stripe.customer.subscription.created"], count: 10 },
+  },
+  {
+    id: "stripe.customers.first",
+    title: "First Stripe customer recorded",
+    publicTitle: "First Stripe customer recorded",
+    description: "Earned when DevMacro records the first new Stripe customer.",
+    rule: { kind: "event_count", typeIds: ["stripe.customer.created"], count: 1 },
+  },
+  {
+    id: "stripe.customers.100",
+    title: "100 Stripe customers recorded",
+    publicTitle: "100 Stripe customers recorded",
+    description: "Earned when DevMacro records the 100th new Stripe customer.",
+    rule: { kind: "event_count", typeIds: ["stripe.customer.created"], count: 100 },
+  },
+];
 
 // "Stripe fees" per docs/providers/stripe.md (Fees). `application_fee` goes to a Connect platform, not Stripe.
 // Whether these cover every processing fee is Unverified #11.
@@ -565,6 +642,7 @@ export const stripeAdapter: ProviderAdapter = {
     "Never customer names, emails, addresses, or card details",
   ],
   eventTypes,
+  achievements,
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

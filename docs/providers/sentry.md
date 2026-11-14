@@ -136,6 +136,20 @@ Titles carry the short id or the release version, never the issue title: "New is
 
 None of these events counts in the dashboard headline's signups or deploys: a release is a version Sentry was told about, not a deployment of it.
 
+## Achievements
+
+DevMacro evaluates these for each project the Sentry accounts are assigned to, from the Sentry data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The issue achievements count `sentry.issue.resolved` events and the release ones `sentry.release.created`. Days are London calendar days.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `sentry.issues.resolved_first` | First Sentry issue resolved | Earned when DevMacro records the first resolved Sentry issue. |
+| `sentry.issues.resolved_100` | 100 Sentry issues resolved | Earned when DevMacro records the 100th resolved Sentry issue. |
+| `sentry.issues.bug_squasher` | Bug squasher: 10 issues resolved in one day | Earned when DevMacro records 10 resolved Sentry issues on one London calendar day. |
+| `sentry.releases.first` | First Sentry release recorded | Earned when DevMacro records the first new Sentry release. |
+| `sentry.releases.10` | 10 Sentry releases recorded | Earned when DevMacro records the 10th new Sentry release. |
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

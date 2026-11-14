@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import type { Achievement } from "@/lib/adapters/achievements";
 import {
   AuthRevokedError,
   InvalidResponseError,
@@ -160,6 +161,68 @@ export const eventTypes = [
     shownByDefault: true,
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413): counts only, never amounts. Shared with Stripe: keep the ids, thresholds,
+// and wording in step with Stripe's (docs/adapters.md, "Achievements"). Polar has no customer
+// event, so it has no customer ones.
+const achievements: readonly Achievement[] = [
+  {
+    id: "polar.payments.first",
+    title: "First Polar payment recorded",
+    publicTitle: "First Polar payment recorded",
+    description: "Earned when DevMacro records the first successful Polar payment.",
+    rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 1 },
+  },
+  {
+    id: "polar.payments.10",
+    title: "10 Polar payments recorded",
+    publicTitle: "10 Polar payments recorded",
+    description: "Earned when DevMacro records the 10th successful Polar payment.",
+    rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 10 },
+  },
+  {
+    id: "polar.payments.100",
+    title: "100 Polar payments recorded",
+    publicTitle: "100 Polar payments recorded",
+    description: "Earned when DevMacro records the 100th successful Polar payment.",
+    rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 100 },
+  },
+  {
+    id: "polar.payments.1000",
+    title: "1,000 Polar payments recorded",
+    publicTitle: "1,000 Polar payments recorded",
+    description: "Earned when DevMacro records the 1,000th successful Polar payment.",
+    rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 1000 },
+  },
+  {
+    id: "polar.payments.payday",
+    title: "Payday: 10 payments in one day",
+    publicTitle: "Payday: 10 payments in one day",
+    description: "Earned when DevMacro records 10 successful Polar payments on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["polar.order.paid"], count: 10, window: "day" },
+  },
+  {
+    id: "polar.payments.while_you_slept",
+    title: "While you slept: a payment between midnight and 5 am",
+    publicTitle: "While you slept: a payment between midnight and 5 am",
+    description: "Earned when DevMacro records a successful Polar payment between midnight and 5 am London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["polar.order.paid"], fromHour: 0, toHour: 5 },
+  },
+  {
+    id: "polar.subscriptions.first",
+    title: "First Polar subscription recorded",
+    publicTitle: "First Polar subscription recorded",
+    description: "Earned when DevMacro records the first new Polar subscription.",
+    rule: { kind: "event_count", typeIds: ["polar.subscription.started"], count: 1 },
+  },
+  {
+    id: "polar.subscriptions.10",
+    title: "10 Polar subscriptions recorded",
+    publicTitle: "10 Polar subscriptions recorded",
+    description: "Earned when DevMacro records the 10th new Polar subscription.",
+    rule: { kind: "event_count", typeIds: ["polar.subscription.started"], count: 10 },
+  },
+];
 
 type EventTypeId = (typeof eventTypes)[number]["id"];
 
@@ -753,6 +816,7 @@ export const polarAdapter: ProviderAdapter = {
     "Never customer names, emails, addresses, tax ids, or payment details",
   ],
   eventTypes,
+  achievements,
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

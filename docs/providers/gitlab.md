@@ -108,6 +108,30 @@ Each sync reads the 10 most recently active, non-archived projects of the namesp
 
 The dashboard headline's deploys count `gitlab.deployment.succeeded` as a succeeded deploy and `gitlab.deployment.failed` as a failed one. Pipelines are CI runs that may deploy nothing, and releases and merges are not deployments, so none of them counts. GitLab reports no spend, so it declares no projected spend.
 
+## Achievements
+
+DevMacro evaluates these for each project the GitLab accounts are assigned to, from the GitLab data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The deployment ladder is the same on Vercel, Railway, and DigitalOcean. It counts `gitlab.deployment.succeeded` events, and a `gitlab.deployment.failed` event breaks a run of deployments in a row. The pipeline achievements count `gitlab.pipeline.succeeded` events, broken by `gitlab.pipeline.failed`; the merge request ones count `gitlab.merge_request.merged`, and the release ones `gitlab.release.published`. Days, hours, and weekdays are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `gitlab.deployments.first` | First GitLab deployment recorded | Earned when DevMacro records the first successful GitLab deployment. |
+| `gitlab.deployments.10` | 10 GitLab deployments recorded | Earned when DevMacro records the 10th successful GitLab deployment. |
+| `gitlab.deployments.100` | 100 GitLab deployments recorded | Earned when DevMacro records the 100th successful GitLab deployment. |
+| `gitlab.deployments.streak_10` | 10 GitLab deployments in a row | Earned when DevMacro records 10 successful GitLab deployments in a row, with no failed deployment between them. |
+| `gitlab.deployments.night_owl` | Night owl: a GitLab deployment between midnight and 5 am | Earned when DevMacro records a successful GitLab deployment between midnight and 5 am London time. |
+| `gitlab.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful GitLab deployment on a Friday between 4 pm and midnight London time. |
+| `gitlab.deployments.busy_day` | Busy day: 10 GitLab deployments in one day | Earned when DevMacro records 10 successful GitLab deployments on one London calendar day. |
+| `gitlab.deployments.weekly_rhythm` | Weekly rhythm: a GitLab deployment on 7 days in a row | Earned when DevMacro records a successful GitLab deployment on each of 7 consecutive London calendar days. |
+| `gitlab.pipelines.100` | 100 GitLab pipelines passed | Earned when DevMacro records the 100th successful GitLab pipeline. |
+| `gitlab.pipelines.green_streak` | Green streak: 25 pipelines passed in a row | Earned when DevMacro records 25 successful GitLab pipelines in a row, with no failed pipeline between them. |
+| `gitlab.merge_requests.first` | First merge request merged | Earned when DevMacro records the first merged GitLab merge request. |
+| `gitlab.merge_requests.100` | 100 merge requests merged | Earned when DevMacro records the 100th merged GitLab merge request. |
+| `gitlab.merge_requests.marathon` | Merge marathon: 10 merge requests in one day | Earned when DevMacro records 10 merged GitLab merge requests on one London calendar day. |
+| `gitlab.releases.first` | First GitLab release published | Earned when DevMacro records the first published GitLab release. |
+| `gitlab.releases.10` | 10 GitLab releases published | Earned when DevMacro records the 10th published GitLab release. |
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

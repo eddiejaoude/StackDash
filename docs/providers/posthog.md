@@ -143,6 +143,20 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 
 80 and 100 percent are PostHog's own alert levels (Billing limits and alerts). Each level fires once per organization, product, and billing period, dated when a sync first saw it. A product with no billing limit set produces no limit events. Event types that would need a write scope: none; every event above comes from the four read scopes.
 
+## Achievements
+
+DevMacro evaluates these for each project the PostHog accounts are assigned to, from the PostHog data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The signup ladder is the same on Supabase, but PostHog reports signups as one total per UTC day (`posthog.signups.daily`), so these add up the daily totals, are dated to the day they were reached rather than to a time, and none is based on the hour. Big day needs one day's total of 100 or more.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `posthog.signups.first` | First PostHog signup recorded | Earned when DevMacro records the first PostHog signup, counted from daily signup totals. |
+| `posthog.signups.10` | 10 PostHog signups recorded | Earned when DevMacro records the 10th PostHog signup, counted from daily signup totals. |
+| `posthog.signups.100` | 100 PostHog signups recorded | Earned when DevMacro records the 100th PostHog signup, counted from daily signup totals. |
+| `posthog.signups.1000` | 1,000 PostHog signups recorded | Earned when DevMacro records the 1,000th PostHog signup, counted from daily signup totals. |
+| `posthog.signups.big_day` | Big day: 100 signups in one day | Earned when DevMacro records a PostHog daily signup total of 100 or more. |
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

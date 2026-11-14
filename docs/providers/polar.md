@@ -128,6 +128,23 @@ Every event type here needs only a read scope; none was left out for needing a w
 - Freshness: not documented. DevMacro polls hourly.
 - Retention: the metrics endpoint has a minimum date per organization (`GET /v1/metrics/limits`, `min_date`); a month to date is always inside it.
 
+## Achievements
+
+DevMacro evaluates these for each project the Polar accounts are assigned to, from the Polar data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+Counts only, never amounts. The payment and subscription ladder is the same on Stripe, except for Stripe's customer achievements: Polar has no customer event. Payments count `polar.order.paid` events and subscriptions `polar.subscription.started`. Days and hours are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `polar.payments.first` | First Polar payment recorded | Earned when DevMacro records the first successful Polar payment. |
+| `polar.payments.10` | 10 Polar payments recorded | Earned when DevMacro records the 10th successful Polar payment. |
+| `polar.payments.100` | 100 Polar payments recorded | Earned when DevMacro records the 100th successful Polar payment. |
+| `polar.payments.1000` | 1,000 Polar payments recorded | Earned when DevMacro records the 1,000th successful Polar payment. |
+| `polar.payments.payday` | Payday: 10 payments in one day | Earned when DevMacro records 10 successful Polar payments on one London calendar day. |
+| `polar.payments.while_you_slept` | While you slept: a payment between midnight and 5 am | Earned when DevMacro records a successful Polar payment between midnight and 5 am London time. |
+| `polar.subscriptions.first` | First Polar subscription recorded | Earned when DevMacro records the first new Polar subscription. |
+| `polar.subscriptions.10` | 10 Polar subscriptions recorded | Earned when DevMacro records the 10th new Polar subscription. |
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

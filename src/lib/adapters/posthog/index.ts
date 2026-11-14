@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { decimalToMinorUnits } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import {
   AdapterError,
   AuthRevokedError,
@@ -476,6 +477,47 @@ export function signupEvents(days: readonly SignupDay[], externalAccountId: stri
 /** The usage metric holding the organization's signups for one UTC day, which the headline counts. */
 const SIGNUP_METRIC_KEY = "posthog.signups.daily";
 
+// Achievements (#413). The signup ladder is shared with Supabase: keep the ids, thresholds, and
+// wording in step with Supabase's (docs/adapters.md, "Achievements"). PostHog reports one signup
+// total per UTC day, so these sum the daily totals, are dated to the day, and none is hour based.
+const achievements: readonly Achievement[] = [
+  {
+    id: "posthog.signups.first",
+    title: "First PostHog signup recorded",
+    publicTitle: "First PostHog signup recorded",
+    description: "Earned when DevMacro records the first PostHog signup, counted from daily signup totals.",
+    rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 1, sum: "cumulative" },
+  },
+  {
+    id: "posthog.signups.10",
+    title: "10 PostHog signups recorded",
+    publicTitle: "10 PostHog signups recorded",
+    description: "Earned when DevMacro records the 10th PostHog signup, counted from daily signup totals.",
+    rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 10, sum: "cumulative" },
+  },
+  {
+    id: "posthog.signups.100",
+    title: "100 PostHog signups recorded",
+    publicTitle: "100 PostHog signups recorded",
+    description: "Earned when DevMacro records the 100th PostHog signup, counted from daily signup totals.",
+    rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 100, sum: "cumulative" },
+  },
+  {
+    id: "posthog.signups.1000",
+    title: "1,000 PostHog signups recorded",
+    publicTitle: "1,000 PostHog signups recorded",
+    description: "Earned when DevMacro records the 1,000th PostHog signup, counted from daily signup totals.",
+    rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 1000, sum: "cumulative" },
+  },
+  {
+    id: "posthog.signups.big_day",
+    title: "Big day: 100 signups in one day",
+    publicTitle: "Big day: 100 signups in one day",
+    description: "Earned when DevMacro records a PostHog daily signup total of 100 or more.",
+    rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 100, sum: "single_day" },
+  },
+];
+
 /** The organization's signups on its latest reported day, summed across the queried projects. */
 export function signupMetric(
   days: readonly SignupDay[],
@@ -616,6 +658,7 @@ export const postHogAdapter: ProviderAdapter = {
     "Organization and project names",
   ],
   eventTypes,
+  achievements,
   signupDailyTotals: [SIGNUP_METRIC_KEY],
   projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {

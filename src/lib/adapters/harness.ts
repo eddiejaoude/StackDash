@@ -1,4 +1,5 @@
 import type { LogFields } from "@/lib/log/logger";
+import { AchievementSchema, achievementRuleMetricKey, achievementRuleTypeIds } from "./achievements";
 import { EventTypeSchema, validateAdapterEvents } from "./events";
 import { validateAdapterMetrics, type AdapterMetric } from "./metrics";
 import {
@@ -209,6 +210,33 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
   }
   if ((adapter.signupDailyTotals ?? []).length > 0 && !adapter.capabilities.usage) {
     problems.push("signupDailyTotals is declared but capabilities.usage is false");
+  }
+
+  // Achievement ids are stored on every earned row, so each must be the adapter's own and unique,
+  // and every rule must read evidence this adapter writes: one of its event types (with or
+  // without a category), or one of its metric keys.
+  const achievementIds = new Set<string>();
+  const dailyTotals = new Set(adapter.signupDailyTotals ?? []);
+  for (const achievement of adapter.achievements ?? []) {
+    const label = `achievement ${achievement.id}`;
+    if (!ownKey(achievement.id)) problems.push(`${label} must start with ${prefix}`);
+    if (achievementIds.has(achievement.id)) problems.push(`${label} is declared twice`);
+    achievementIds.add(achievement.id);
+
+    const parsed = AchievementSchema.safeParse(achievement);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) problems.push(`${label} is invalid: ${issue.path.join(".")}: ${issue.message}`);
+      continue;
+    }
+    const { rule } = parsed.data;
+    for (const typeId of achievementRuleTypeIds(rule)) {
+      if (!eventTypeIds.has(typeId)) problems.push(`${label} reads event type ${typeId}, which the adapter does not declare`);
+    }
+    const metricKey = achievementRuleMetricKey(rule);
+    if (metricKey !== undefined && !ownKey(metricKey)) problems.push(`${label} reads metric ${metricKey}, which must start with ${prefix}`);
+    if (rule.kind === "daily_total_threshold" && !dailyTotals.has(rule.metricKey)) {
+      problems.push(`${label} sums ${rule.metricKey}, which is not declared in signupDailyTotals`);
+    }
   }
 
   if (adapter.beta !== undefined && blank(adapter.beta.reason)) problems.push("beta is set without a reason");

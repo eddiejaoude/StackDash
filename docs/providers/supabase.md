@@ -244,6 +244,22 @@ The metrics endpoint is the only documented path to database size with these sco
 | Database size | MB, at scrape time | Estimated, unverified |
 | Spend | | Unavailable |
 
+## Achievements
+
+DevMacro evaluates these for each project the Supabase accounts are assigned to, from the Supabase data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The signup ladder is the same on PostHog. It counts `supabase.auth.signup` events. Rush hour and Night owls are Supabase's own, because PostHog reports only a total per day. Days and hours are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `supabase.signups.first` | First Supabase signup recorded | Earned when DevMacro records the first Supabase signup. |
+| `supabase.signups.10` | 10 Supabase signups recorded | Earned when DevMacro records the 10th Supabase signup. |
+| `supabase.signups.100` | 100 Supabase signups recorded | Earned when DevMacro records the 100th Supabase signup. |
+| `supabase.signups.1000` | 1,000 Supabase signups recorded | Earned when DevMacro records the 1,000th Supabase signup. |
+| `supabase.signups.big_day` | Big day: 100 signups in one day | Earned when DevMacro records 100 Supabase signups on one London calendar day. |
+| `supabase.signups.rush_hour` | Rush hour: 10 signups in one hour | Earned when DevMacro records 10 Supabase signups in one London clock hour. |
+| `supabase.signups.night_owls` | Night owls: a signup between midnight and 5 am | Earned when DevMacro records a Supabase signup between midnight and 5 am London time. |
+
 ## Polling
 
 - Webhooks: none. Supabase has no webhook for auth events or project changes reachable by an OAuth app. Log drains exist but are paid, per project, and push to a destination the customer configures, so they are out of scope.

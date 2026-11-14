@@ -289,6 +289,25 @@ Polling algorithm:
 - Granularity: per object. DevMacro aggregates by UTC day.
 - Freshness: the API reflects objects as soon as they exist. A balance transaction has `status` `pending` until its `available_on`, but its `fee` is already set. Freshness on the dashboard equals the sync interval.
 
+## Achievements
+
+DevMacro evaluates these for each project the Stripe accounts are assigned to, from the Stripe data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+Counts only, never amounts. The payment and subscription ladder is the same on Polar. Payments count `stripe.charge.succeeded` events, subscriptions `stripe.customer.subscription.created`, and customers `stripe.customer.created`. Days and hours are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `stripe.payments.first` | First Stripe payment recorded | Earned when DevMacro records the first successful Stripe payment. |
+| `stripe.payments.10` | 10 Stripe payments recorded | Earned when DevMacro records the 10th successful Stripe payment. |
+| `stripe.payments.100` | 100 Stripe payments recorded | Earned when DevMacro records the 100th successful Stripe payment. |
+| `stripe.payments.1000` | 1,000 Stripe payments recorded | Earned when DevMacro records the 1,000th successful Stripe payment. |
+| `stripe.payments.payday` | Payday: 10 payments in one day | Earned when DevMacro records 10 successful Stripe payments on one London calendar day. |
+| `stripe.payments.while_you_slept` | While you slept: a payment between midnight and 5 am | Earned when DevMacro records a successful Stripe payment between midnight and 5 am London time. |
+| `stripe.subscriptions.first` | First Stripe subscription recorded | Earned when DevMacro records the first new Stripe subscription. |
+| `stripe.subscriptions.10` | 10 Stripe subscriptions recorded | Earned when DevMacro records the 10th new Stripe subscription. |
+| `stripe.customers.first` | First Stripe customer recorded | Earned when DevMacro records the first new Stripe customer. |
+| `stripe.customers.100` | 100 Stripe customers recorded | Earned when DevMacro records the 100th new Stripe customer. |
+
 ## Rate limits and request budget
 
 - Global: 100 requests per second per account in live mode, 25 in sandboxes. Most endpoints also have a limit of 25 requests per second each.

@@ -136,6 +136,25 @@ The first sync looks back 7 days for actions and deployments. Later syncs start 
 - Freshness: the balance carries `generated_at`. Billing Insights are nightly. Actions and deployments are near real time.
 - Retention: Billing Insights from 2025-12-01. How far back the action history goes is not documented.
 
+## Achievements
+
+DevMacro evaluates these for each project the DigitalOcean accounts are assigned to, from the DigitalOcean data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The deployment ladder is the same on Vercel, Railway, and GitLab. It counts `digitalocean.deployment.succeeded` events, and a `digitalocean.deployment.failed` event breaks a run of deployments in a row. The droplet achievements count `digitalocean.droplet.created` events. Days, hours, and weekdays are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `digitalocean.deployments.first` | First DigitalOcean deployment recorded | Earned when DevMacro records the first successful DigitalOcean deployment. |
+| `digitalocean.deployments.10` | 10 DigitalOcean deployments recorded | Earned when DevMacro records the 10th successful DigitalOcean deployment. |
+| `digitalocean.deployments.100` | 100 DigitalOcean deployments recorded | Earned when DevMacro records the 100th successful DigitalOcean deployment. |
+| `digitalocean.deployments.streak_10` | 10 DigitalOcean deployments in a row | Earned when DevMacro records 10 successful DigitalOcean deployments in a row, with no failed deployment between them. |
+| `digitalocean.deployments.night_owl` | Night owl: a DigitalOcean deployment between midnight and 5 am | Earned when DevMacro records a successful DigitalOcean deployment between midnight and 5 am London time. |
+| `digitalocean.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful DigitalOcean deployment on a Friday between 4 pm and midnight London time. |
+| `digitalocean.deployments.busy_day` | Busy day: 10 DigitalOcean deployments in one day | Earned when DevMacro records 10 successful DigitalOcean deployments on one London calendar day. |
+| `digitalocean.deployments.weekly_rhythm` | Weekly rhythm: a DigitalOcean deployment on 7 days in a row | Earned when DevMacro records a successful DigitalOcean deployment on each of 7 consecutive London calendar days. |
+| `digitalocean.droplets.first` | First droplet created | Earned when DevMacro records the first new DigitalOcean droplet. |
+| `digitalocean.droplets.fleet` | Fleet commander: 10 droplets created | Earned when DevMacro records the 10th new DigitalOcean droplet. |
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

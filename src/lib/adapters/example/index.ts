@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
   fetchJson,
@@ -112,6 +113,40 @@ export const eventTypes = [
     category: "deploy_failed",
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413). A provider of a kind that already has a ladder copies it: a deployment host
+// takes the deployment ladder of Vercel, Railway, DigitalOcean, and GitLab; a signup source takes
+// Supabase's signup ladder. Read theirs first and keep the ids, thresholds, and wording parallel
+// (docs/adapters.md, "Achievements"). Only a few are shown here, to show the shape.
+export const achievements: readonly Achievement[] = [
+  {
+    id: "example.deployments.first",
+    title: "First Example Cloud deployment recorded",
+    publicTitle: "First Example Cloud deployment recorded",
+    description: "Earned when DevMacro records the first successful Example Cloud deployment.",
+    rule: { kind: "event_count", typeIds: ["example.deploy.succeeded"], count: 1 },
+  },
+  {
+    id: "example.deployments.streak_10",
+    title: "10 Example Cloud deployments in a row",
+    publicTitle: "10 Example Cloud deployments in a row",
+    description:
+      "Earned when DevMacro records 10 successful Example Cloud deployments in a row, with no failed deployment between them.",
+    rule: {
+      kind: "event_streak",
+      successTypeIds: ["example.deploy.succeeded"],
+      failureTypeIds: ["example.deploy.failed"],
+      count: 10,
+    },
+  },
+  {
+    id: "example.signups.first",
+    title: "First Example Cloud signup recorded",
+    publicTitle: "First Example Cloud signup recorded",
+    description: "Earned when DevMacro records the first Example Cloud signup.",
+    rule: { kind: "event_count", typeIds: ["example.signup"], count: 1 },
+  },
+];
 
 type EventTypeId = (typeof eventTypes)[number]["id"];
 
@@ -490,6 +525,7 @@ export const exampleAdapter: ProviderAdapter<"example"> = {
     "Signups and deployments, without who signed up",
   ],
   eventTypes,
+  achievements,
   projectedSpend: [metricKeys.overageProjected],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,

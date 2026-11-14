@@ -191,6 +191,23 @@ Freshness: live API data. Poll with `since` set to the last seen `created` minus
 
 Use only the list endpoint. `GET /v9/projects/{idOrName}` returns an `env` array of environment variable records (`key`, `value`, `decrypted`, `target`, and more). DevMacro must never call it (see Permission risks).
 
+## Achievements
+
+DevMacro evaluates these for each project the Vercel accounts are assigned to, from the Vercel data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The deployment ladder is the same on Railway, DigitalOcean, and GitLab. It counts `vercel.deployment.succeeded` events, and a `vercel.deployment.failed` event breaks a run of deployments in a row. Days, hours, and weekdays are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `vercel.deployments.first` | First Vercel deployment recorded | Earned when DevMacro records the first successful Vercel deployment. |
+| `vercel.deployments.10` | 10 Vercel deployments recorded | Earned when DevMacro records the 10th successful Vercel deployment. |
+| `vercel.deployments.100` | 100 Vercel deployments recorded | Earned when DevMacro records the 100th successful Vercel deployment. |
+| `vercel.deployments.streak_10` | 10 Vercel deployments in a row | Earned when DevMacro records 10 successful Vercel deployments in a row, with no failed deployment between them. |
+| `vercel.deployments.night_owl` | Night owl: a Vercel deployment between midnight and 5 am | Earned when DevMacro records a successful Vercel deployment between midnight and 5 am London time. |
+| `vercel.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful Vercel deployment on a Friday between 4 pm and midnight London time. |
+| `vercel.deployments.busy_day` | Busy day: 10 Vercel deployments in one day | Earned when DevMacro records 10 successful Vercel deployments on one London calendar day. |
+| `vercel.deployments.weekly_rhythm` | Weekly rhythm: a Vercel deployment on 7 days in a row | Earned when DevMacro records a successful Vercel deployment on each of 7 consecutive London calendar days. |
+
 ## Verified vs estimated vs unavailable
 
 | Metric | Status | Notes |

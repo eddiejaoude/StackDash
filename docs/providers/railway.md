@@ -153,6 +153,23 @@ Titles name the service and environment (`Deployment of api to production failed
 
 The first sync looks back 7 days. The cursor is the latest status time seen; each later sync re-reads from an hour before it, so a status that changed just before the last poll is seen again. A deployment is kept or dropped as a whole, by when it entered its current status: one that sat queued for longer than the overlap still gets its building event alongside its final one.
 
+## Achievements
+
+DevMacro evaluates these for each project the Railway accounts are assigned to, from the Railway data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+
+The deployment ladder is the same on Vercel, DigitalOcean, and GitLab. It counts `railway.deployment.deployed` events, and a `railway.deployment.failed` event breaks a run of deployments in a row; a crash after a deployment does not. Days, hours, and weekdays are London time.
+
+| Id | Title | How it is earned |
+|---|---|---|
+| `railway.deployments.first` | First Railway deployment recorded | Earned when DevMacro records the first successful Railway deployment. |
+| `railway.deployments.10` | 10 Railway deployments recorded | Earned when DevMacro records the 10th successful Railway deployment. |
+| `railway.deployments.100` | 100 Railway deployments recorded | Earned when DevMacro records the 100th successful Railway deployment. |
+| `railway.deployments.streak_10` | 10 Railway deployments in a row | Earned when DevMacro records 10 successful Railway deployments in a row, with no failed deployment between them. |
+| `railway.deployments.night_owl` | Night owl: a Railway deployment between midnight and 5 am | Earned when DevMacro records a successful Railway deployment between midnight and 5 am London time. |
+| `railway.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful Railway deployment on a Friday between 4 pm and midnight London time. |
+| `railway.deployments.busy_day` | Busy day: 10 Railway deployments in one day | Earned when DevMacro records 10 successful Railway deployments on one London calendar day. |
+| `railway.deployments.weekly_rhythm` | Weekly rhythm: a Railway deployment on 7 days in a row | Earned when DevMacro records a successful Railway deployment on each of 7 consecutive London calendar days. |
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

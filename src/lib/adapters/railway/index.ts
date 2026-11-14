@@ -8,6 +8,7 @@ import {
   type Decimal,
 } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
   fetchJson,
@@ -175,6 +176,67 @@ export const eventTypes = [
     shownByDefault: true,
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413). The deployment ladder is shared with Vercel, DigitalOcean, and GitLab: keep the ids,
+// thresholds, and wording in step with theirs (docs/adapters.md, "Achievements").
+const achievements: readonly Achievement[] = [
+  {
+    id: "railway.deployments.first",
+    title: "First Railway deployment recorded",
+    publicTitle: "First Railway deployment recorded",
+    description: "Earned when DevMacro records the first successful Railway deployment.",
+    rule: { kind: "event_count", typeIds: ["railway.deployment.deployed"], count: 1 },
+  },
+  {
+    id: "railway.deployments.10",
+    title: "10 Railway deployments recorded",
+    publicTitle: "10 Railway deployments recorded",
+    description: "Earned when DevMacro records the 10th successful Railway deployment.",
+    rule: { kind: "event_count", typeIds: ["railway.deployment.deployed"], count: 10 },
+  },
+  {
+    id: "railway.deployments.100",
+    title: "100 Railway deployments recorded",
+    publicTitle: "100 Railway deployments recorded",
+    description: "Earned when DevMacro records the 100th successful Railway deployment.",
+    rule: { kind: "event_count", typeIds: ["railway.deployment.deployed"], count: 100 },
+  },
+  {
+    id: "railway.deployments.streak_10",
+    title: "10 Railway deployments in a row",
+    publicTitle: "10 Railway deployments in a row",
+    description: "Earned when DevMacro records 10 successful Railway deployments in a row, with no failed deployment between them.",
+    rule: { kind: "event_streak", successTypeIds: ["railway.deployment.deployed"], failureTypeIds: ["railway.deployment.failed"], count: 10 },
+  },
+  {
+    id: "railway.deployments.night_owl",
+    title: "Night owl: a Railway deployment between midnight and 5 am",
+    publicTitle: "Night owl: a Railway deployment between midnight and 5 am",
+    description: "Earned when DevMacro records a successful Railway deployment between midnight and 5 am London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["railway.deployment.deployed"], fromHour: 0, toHour: 5 },
+  },
+  {
+    id: "railway.deployments.friday_ship",
+    title: "Shipped on a Friday afternoon",
+    publicTitle: "Shipped on a Friday afternoon",
+    description: "Earned when DevMacro records a successful Railway deployment on a Friday between 4 pm and midnight London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["railway.deployment.deployed"], fromHour: 16, toHour: 24, weekdays: ["friday"] },
+  },
+  {
+    id: "railway.deployments.busy_day",
+    title: "Busy day: 10 Railway deployments in one day",
+    publicTitle: "Busy day: 10 Railway deployments in one day",
+    description: "Earned when DevMacro records 10 successful Railway deployments on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["railway.deployment.deployed"], count: 10, window: "day" },
+  },
+  {
+    id: "railway.deployments.weekly_rhythm",
+    title: "Weekly rhythm: a Railway deployment on 7 days in a row",
+    publicTitle: "Weekly rhythm: a Railway deployment on 7 days in a row",
+    description: "Earned when DevMacro records a successful Railway deployment on each of 7 consecutive London calendar days.",
+    rule: { kind: "consecutive_days", typeIds: ["railway.deployment.deployed"], days: 7 },
+  },
+];
 
 type EventKind = "building" | "deployed" | "failed" | "crashed" | "removed";
 
@@ -744,6 +806,7 @@ export const railwayAdapter: ProviderAdapter = {
     "Credit balance, billing period, plan, and plan limits per service",
   ],
   eventTypes,
+  achievements,
   projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,

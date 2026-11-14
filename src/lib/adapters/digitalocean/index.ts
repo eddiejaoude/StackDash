@@ -2,6 +2,7 @@ import { z } from "zod";
 import { formatMoney } from "@/lib/format";
 import { addDecimals, InvalidDecimalError, toMinorUnits, type Decimal } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError, readOAuthErrorCode } from "../errors";
 import { titleWithAmount, type ActivityEvent, type EventSeverity, type EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -158,6 +159,82 @@ export const eventTypes = [
     shownByDefault: true,
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413). The deployment ladder is shared with Vercel, Railway, and GitLab: keep the ids,
+// thresholds, and wording in step with theirs (docs/adapters.md, "Achievements").
+// The droplet ones are DigitalOcean's own.
+const achievements: readonly Achievement[] = [
+  {
+    id: "digitalocean.deployments.first",
+    title: "First DigitalOcean deployment recorded",
+    publicTitle: "First DigitalOcean deployment recorded",
+    description: "Earned when DevMacro records the first successful DigitalOcean deployment.",
+    rule: { kind: "event_count", typeIds: ["digitalocean.deployment.succeeded"], count: 1 },
+  },
+  {
+    id: "digitalocean.deployments.10",
+    title: "10 DigitalOcean deployments recorded",
+    publicTitle: "10 DigitalOcean deployments recorded",
+    description: "Earned when DevMacro records the 10th successful DigitalOcean deployment.",
+    rule: { kind: "event_count", typeIds: ["digitalocean.deployment.succeeded"], count: 10 },
+  },
+  {
+    id: "digitalocean.deployments.100",
+    title: "100 DigitalOcean deployments recorded",
+    publicTitle: "100 DigitalOcean deployments recorded",
+    description: "Earned when DevMacro records the 100th successful DigitalOcean deployment.",
+    rule: { kind: "event_count", typeIds: ["digitalocean.deployment.succeeded"], count: 100 },
+  },
+  {
+    id: "digitalocean.deployments.streak_10",
+    title: "10 DigitalOcean deployments in a row",
+    publicTitle: "10 DigitalOcean deployments in a row",
+    description: "Earned when DevMacro records 10 successful DigitalOcean deployments in a row, with no failed deployment between them.",
+    rule: { kind: "event_streak", successTypeIds: ["digitalocean.deployment.succeeded"], failureTypeIds: ["digitalocean.deployment.failed"], count: 10 },
+  },
+  {
+    id: "digitalocean.deployments.night_owl",
+    title: "Night owl: a DigitalOcean deployment between midnight and 5 am",
+    publicTitle: "Night owl: a DigitalOcean deployment between midnight and 5 am",
+    description: "Earned when DevMacro records a successful DigitalOcean deployment between midnight and 5 am London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["digitalocean.deployment.succeeded"], fromHour: 0, toHour: 5 },
+  },
+  {
+    id: "digitalocean.deployments.friday_ship",
+    title: "Shipped on a Friday afternoon",
+    publicTitle: "Shipped on a Friday afternoon",
+    description: "Earned when DevMacro records a successful DigitalOcean deployment on a Friday between 4 pm and midnight London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["digitalocean.deployment.succeeded"], fromHour: 16, toHour: 24, weekdays: ["friday"] },
+  },
+  {
+    id: "digitalocean.deployments.busy_day",
+    title: "Busy day: 10 DigitalOcean deployments in one day",
+    publicTitle: "Busy day: 10 DigitalOcean deployments in one day",
+    description: "Earned when DevMacro records 10 successful DigitalOcean deployments on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["digitalocean.deployment.succeeded"], count: 10, window: "day" },
+  },
+  {
+    id: "digitalocean.deployments.weekly_rhythm",
+    title: "Weekly rhythm: a DigitalOcean deployment on 7 days in a row",
+    publicTitle: "Weekly rhythm: a DigitalOcean deployment on 7 days in a row",
+    description: "Earned when DevMacro records a successful DigitalOcean deployment on each of 7 consecutive London calendar days.",
+    rule: { kind: "consecutive_days", typeIds: ["digitalocean.deployment.succeeded"], days: 7 },
+  },
+  {
+    id: "digitalocean.droplets.first",
+    title: "First droplet created",
+    publicTitle: "First droplet created",
+    description: "Earned when DevMacro records the first new DigitalOcean droplet.",
+    rule: { kind: "event_count", typeIds: ["digitalocean.droplet.created"], count: 1 },
+  },
+  {
+    id: "digitalocean.droplets.fleet",
+    title: "Fleet commander: 10 droplets created",
+    publicTitle: "Fleet commander: 10 droplets created",
+    description: "Earned when DevMacro records the 10th new DigitalOcean droplet.",
+    rule: { kind: "event_count", typeIds: ["digitalocean.droplet.created"], count: 10 },
+  },
+];
 
 type EventTypeId = (typeof eventTypes)[number]["id"];
 
@@ -923,6 +1000,7 @@ export const digitaloceanAdapter: ProviderAdapter = {
     "Droplet creates, resizes, power cycles, and deletes, with the Droplet name",
   ],
   eventTypes,
+  achievements,
   // No `projectedSpend`: its estimated spend is what each SKU cost on one UTC day, spent, not a
   // projection, and its month to date and invoice totals are verified.
   oauth: {
