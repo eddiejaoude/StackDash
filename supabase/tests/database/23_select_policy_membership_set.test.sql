@@ -128,6 +128,18 @@ select id, 'Key ' || ws, encode(sha256(convert_to('rls-283-key-' || ws, 'UTF8'))
        '{usage:read}', owner_id
 from rls283.ws;
 
+insert into public.project_achievements (
+  id, workspace_id, project_id, provider, achievement_id, title, public_title, description,
+  earned_at, earned_precision, evidence
+)
+select ('283000' || ws || 'd-0000-4000-8000-000000000000')::uuid, id, ('283000' || ws || '1-0000-4000-8000-000000000000')::uuid,
+       'fake', 'fake.deployments.first', 'First deployment', 'First deployment', 'Earned at the first deployment.',
+       timestamptz '2026-10-02 12:00:00+00', 'instant', 'crossed'
+from rls283.ws;
+
+insert into public.project_achievement_publications (project_achievement_id, workspace_id, published_by)
+select ('283000' || ws || 'd-0000-4000-8000-000000000000')::uuid, id, owner_id from rls283.ws;
+
 -- Every member keeps a notification setting; a caller reads only their own.
 insert into public.notification_preferences (workspace_id, user_id, email_frequency)
 select workspace_id, user_id, 'daily' from public.workspace_members
@@ -162,6 +174,8 @@ as $$
     union all select 'project_pages', (select count(*)::integer from public.project_pages where workspace_id in (select id from ab))
     union all select 'api_keys', (select count(*)::integer from public.api_keys where workspace_id in (select id from ab))
     union all select 'notification_preferences', (select count(*)::integer from public.notification_preferences where workspace_id in (select id from ab))
+    union all select 'project_achievements', (select count(*)::integer from public.project_achievements where workspace_id in (select id from ab))
+    union all select 'project_achievement_publications', (select count(*)::integer from public.project_achievement_publications where workspace_id in (select id from ab))
   ) as counts (tbl, row_count)
   order by tbl
 $$;
@@ -192,7 +206,8 @@ cross join unnest(array[
   'workspaces', 'workspace_members', 'projects', 'connections', 'external_accounts', 'usage_snapshots',
   'activity_events', 'activity_event_daily_counts', 'budgets', 'alert_rules', 'triggered_alerts', 'sync_jobs',
   'sync_jobs without a workspace', 'notification_destinations', 'alert_rule_destinations', 'anomaly_mutes',
-  'published_metrics', 'published_metric_views', 'project_pages', 'api_keys', 'notification_preferences'
+  'published_metrics', 'published_metric_views', 'project_pages', 'api_keys', 'notification_preferences',
+  'project_achievements', 'project_achievement_publications'
 ]) as t (tbl);
 grant select on rls283.expected to authenticated;
 
@@ -238,7 +253,8 @@ select results_eq(
       ('activity_event_daily_counts', 'viewer'), ('activity_events', 'viewer'), ('alert_rule_destinations', 'viewer'),
       ('alert_rules', 'viewer'), ('anomaly_mutes', 'viewer'), ('api_keys', 'admin'), ('budgets', 'viewer'),
       ('connections', 'viewer'), ('external_accounts', 'viewer'), ('notification_destinations', 'viewer'),
-      ('notification_preferences', 'viewer'), ('project_pages', 'viewer'), ('projects', 'viewer'),
+      ('notification_preferences', 'viewer'), ('project_achievement_publications', 'viewer'),
+      ('project_achievements', 'viewer'), ('project_pages', 'viewer'), ('projects', 'viewer'),
       ('published_metric_views', 'viewer'), ('published_metrics', 'viewer'), ('sync_jobs', 'viewer'),
       ('triggered_alerts', 'viewer'), ('usage_snapshots', 'viewer'), ('workspace_members', 'viewer'),
       ('workspaces', 'viewer')

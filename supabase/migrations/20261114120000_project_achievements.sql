@@ -81,10 +81,10 @@ grant select on table public.project_achievements to authenticated;
 grant select on table public.project_achievement_publications to authenticated;
 
 create policy project_achievements_select on public.project_achievements for select to authenticated
-  using (public.has_workspace_role(workspace_id, 'viewer'));
+  using (workspace_id = any (array(select public.current_user_workspace_ids('viewer'))));
 
 create policy project_achievement_publications_select on public.project_achievement_publications for select to authenticated
-  using (public.has_workspace_role(workspace_id, 'viewer'));
+  using (workspace_id = any (array(select public.current_user_workspace_ids('viewer'))));
 
 -- ── Timeline event ─────────────────────────────────────────────────────────────
 
