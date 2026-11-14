@@ -1,10 +1,35 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
 import { liveProviderIds } from "../src/lib/adapters/types";
 import { PROVIDER_NAMES } from "../src/lib/providers";
 
 const providerNames = liveProviderIds.map((id) => PROVIDER_NAMES[id]);
+
+const PICTURE_NAME = /^Events from .* flow into one DevMacro timeline\.$/;
+
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+async function boxes(locator: Locator): Promise<Box[]> {
+  return locator.evaluateAll((elements) =>
+    elements.map((element) => {
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x, y, width, height };
+    }),
+  );
+}
+
+// Borders that touch are fine; a pixel of real overlap is not.
+function overlaps(a: Box, b: Box): boolean {
+  const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return width > 1 && height > 1;
+}
 
 test.describe("hero data-flow constellation", () => {
   // The hero fades in; a scan mid-fade reports contrast the settled page has not. Reduced motion
@@ -23,8 +48,10 @@ test.describe("hero data-flow constellation", () => {
       // support.
       const picture = page
         .getByRole("region", { name: "One timeline and one alert for your whole developer stack." })
-        .getByRole("img", { name: /^Events from .* flow into one DevMacro timeline\.$/ });
+        .getByRole("img", { name: PICTURE_NAME });
       await expect(picture).toBeVisible();
+      // Reduced motion stops everything in the picture: the packets and the breathing glow.
+      expect(await picture.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(0);
       for (const name of providerNames) {
         await expect(picture).toHaveAccessibleName(new RegExp(`\\b${name}\\b`));
       }
@@ -51,4 +78,28 @@ test.describe("hero data-flow constellation", () => {
       expect(scan.violations).toEqual([]);
     });
   }
+
+  // The orbit is derived from liveProviderIds, so a new provider moves every slot. With the packets
+  // parked, every label has to stay readable: clear of every source's card and of every other label.
+  test("parked packet labels cover no source and no other label", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+
+    const picture = page.getByRole("img", { name: PICTURE_NAME });
+    const cards = await boxes(picture.getByTestId("flow-node"));
+    const labels = await boxes(picture.getByTestId("flow-label"));
+    expect(cards).toHaveLength(providerNames.length);
+    expect(labels.length).toBeGreaterThan(0);
+
+    const collisions: string[] = [];
+    labels.forEach((label, index) => {
+      cards.forEach((card, cardIndex) => {
+        if (overlaps(label, card)) collisions.push(`label ${index} covers card ${cardIndex}`);
+      });
+      labels.slice(index + 1).forEach((other, offset) => {
+        if (overlaps(label, other)) collisions.push(`label ${index} covers label ${index + offset + 1}`);
+      });
+    });
+    expect(collisions).toEqual([]);
+  });
 });

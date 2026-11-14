@@ -19,51 +19,52 @@ interface SourceDetail {
 }
 
 // Illustrative only. One entry per live adapter: a new provider in liveProviderIds fails the type
-// check here until it has a caption, and then joins the constellation, the heading count, and the
-// text alternative on its own. Packet wording is the hero feed's (feedEvents in
-// live-event-feed.tsx), shortened, so the hero tells one story.
+// check here until it has a caption, and then joins the constellation and the text alternative on
+// its own. Packet wording is the hero feed's (feedEvents in live-event-feed.tsx), shortened, so the
+// hero tells one story. Resend mirrors Vercel across the orbit and their labels point at each
+// other, so their delays sit a second apart.
 const sourceDetails: Record<LiveProviderId, SourceDetail> = {
   vercel: {
-    caption: "deploys · spend",
+    caption: "Deploys · spend",
     packets: [
-      { label: "deploy ready · acme-web", severity: "success", delay: 0.6 },
-      { label: "preview failed · acme-docs", severity: "danger", delay: 2.6 },
+      { label: "Deploy ready · acme-web", severity: "success", delay: 0.6 },
+      { label: "Preview failed · acme-docs", severity: "danger", delay: 2.6 },
     ],
   },
   github: {
-    caption: "billing · repos",
+    caption: "Billing · repos",
     packets: [
       { label: "PR #128 merged", severity: "success", delay: 0 },
       { label: "acme/cli hit 1,000 ★", severity: "success", delay: 2 },
     ],
   },
   resend: {
-    caption: "emails · quota",
+    caption: "Emails · quota",
     packets: [
-      { label: "emails at 75% of quota", severity: "warning", delay: 0.9 },
-      { label: "allowance reset", severity: "summary", delay: 2.9 },
+      { label: "Emails at 75% of quota", severity: "warning", delay: 1.6 },
+      { label: "Allowance reset", severity: "summary", delay: 3.6 },
     ],
   },
   stripe: {
-    caption: "payments · fees",
+    caption: "Payments · fees",
     packets: [
       { label: "$49.00 paid · Pro", severity: "success", delay: 1.2 },
-      { label: "renewal failed", severity: "danger", delay: 3.2 },
+      { label: "Renewal failed", severity: "danger", delay: 3.2 },
     ],
   },
   supabase: {
-    caption: "usage · signups",
+    caption: "Usage · signups",
     packets: [
-      { label: "new signup · acme-app", severity: "success", delay: 0.3 },
+      { label: "New signup · acme-app", severity: "success", delay: 0.3 },
       { label: "312 logins yesterday", severity: "summary", delay: 2.3 },
     ],
   },
-  digitalocean: { caption: "deploys · usage", packets: [] },
-  posthog: { caption: "signups · spend", packets: [] },
-  polar: { caption: "orders · fees", packets: [] },
-  sentry: { caption: "errors · releases", packets: [] },
-  railway: { caption: "deploys · usage", packets: [] },
-  gitlab: { caption: "pipelines · minutes", packets: [] },
+  digitalocean: { caption: "Deploys · usage", packets: [] },
+  posthog: { caption: "Signups · spend", packets: [] },
+  polar: { caption: "Orders · fees", packets: [] },
+  sentry: { caption: "Errors · releases", packets: [] },
+  railway: { caption: "Deploys · usage", packets: [] },
+  gitlab: { caption: "Pipelines · minutes", packets: [] },
 };
 
 const severityDot: Record<PacketSeverity, string> = {
@@ -103,20 +104,38 @@ interface SourceNode extends SourceDetail {
   name: string;
   x: number;
   y: number;
-  /** Which side of the dot a packet's label sits on: always toward the center, clear of its own node. */
+  /**
+   * Which side of the dot a packet's label sits on: the side facing the center. A line straight
+   * down from the top has no such side and takes the right; its labels only appear once they are
+   * below the neighboring cards' row (the fade-in in globals.css).
+   */
   labelSide: "left" | "right";
+  /**
+   * Under reduced motion a line's packets park 28% along it. A mostly vertical line parks at 32%,
+   * where its labels are below the neighboring cards' row. A line's second packet parks
+   * beside its first, one label higher or lower: a mostly vertical line stacks toward the center,
+   * along itself, and a mostly horizontal line stacks away from the center's row, so its label
+   * never reaches over the center circle.
+   */
+  axis: "vertical" | "horizontal";
+  stack: "up" | "down";
 }
 
 // Evenly spaced around the orbit, clockwise from the top.
 const nodes: readonly SourceNode[] = orbitOrder().map((id, slot) => {
   const angle = (slot / liveProviderIds.length) * 2 * Math.PI;
   const x = Math.round(CENTER.x + ORBIT.rx * Math.sin(angle));
+  const y = Math.round(CENTER.y - ORBIT.ry * Math.cos(angle));
+  const towardCenterIsDown = y < CENTER.y;
+  const mostlyVertical = Math.abs(CENTER.x - x) < Math.abs(CENTER.y - y);
   return {
     id,
     name: PROVIDER_NAMES[id],
     x,
-    y: Math.round(CENTER.y - ORBIT.ry * Math.cos(angle)),
+    y,
     labelSide: x > CENTER.x ? "left" : "right",
+    axis: mostlyVertical ? "vertical" : "horizontal",
+    stack: mostlyVertical === towardCenterIsDown ? "down" : "up",
     ...sourceDetails[id],
   };
 });
@@ -138,7 +157,7 @@ function Core() {
     <div className="flex flex-col items-center gap-1.5 text-center">
       <Wordmark loading="lazy" />
       <p className="font-mono text-xs text-foreground">{ILLUSTRATIVE_EVENT_COUNT} events</p>
-      <p className="font-mono text-[10px] text-muted">illustrative</p>
+      <p className="font-mono text-[10px] text-muted">Illustrative</p>
     </div>
   );
 }
@@ -176,6 +195,7 @@ function Stage() {
 
       {nodes.map((node) => (
         <div
+          data-testid="flow-node"
           key={node.id}
           className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-xl border border-line-strong bg-panel px-3 py-1.5"
           style={{ left: node.x, top: node.y }}
@@ -195,22 +215,26 @@ function Stage() {
         <Core />
       </div>
 
-      {/* Packets draw last so a label passing a node or the center circle stays readable. Under
-          reduced motion a line's two packets park apart (data-park) so they don't stack. */}
+      {/* Packets draw last, so a label that fades out over the center circle's edge sits on top of
+          it. Under reduced motion a line's second packet stacks beside its first (data-stack). */}
       {nodes.flatMap((node) =>
         node.packets.map((packet, index) => (
           <div
             key={`${node.id}-${packet.label}`}
             className="flow-packet flex items-center gap-2"
             data-label-side={node.labelSide}
-            data-park={index === 0 ? "near" : "far"}
+            data-axis={node.axis}
+            data-stack={index === 0 ? undefined : node.stack}
             style={{
               offsetPath: `path('M ${node.x} ${node.y} L ${CENTER.x} ${CENTER.y}')`,
               animationDelay: `${packet.delay}s`,
             }}
           >
             <span className={`flow-packet-dot size-2 shrink-0 rounded-full ${severityDot[packet.severity]}`} />
-            <span className="whitespace-nowrap rounded-full border border-line-strong bg-background/80 px-2 py-0.5 font-mono text-[10px] leading-4 text-foreground backdrop-blur-sm">
+            <span
+              data-testid="flow-label"
+              className="whitespace-nowrap rounded-full border border-line-strong bg-background/80 px-2 py-0.5 font-mono text-[10px] leading-4 text-foreground backdrop-blur-sm"
+            >
               {packet.label}
             </span>
           </div>

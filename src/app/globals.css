@@ -537,9 +537,14 @@ summary {
   scale: tan(atan2(100cqw, 700px));
 }
 
-/* A packet rides the line from its node to the center. The dot's center sits on the line and the
- * label sits beside it, upright, on the side facing the center so it clears its own node. It is
- * gone by 68%, before it would reach the center circle. */
+/* A packet rides the line from its node's center to the center circle's. The dot sits on the line
+ * and the label beside it, upright, on the side facing the center. The packet stays hidden until
+ * 24% and is fully shown at 32%: by then it is clear of its own card, and on the line straight
+ * down from the top it is below the neighboring cards' row. It fades out from 58% to 68%, so the
+ * dot is gone before it reaches the circle on the diagonal lines (about 70%). The label runs ahead
+ * of the dot, though, so on every line the label's leading end crosses the circle's edge while it
+ * fades, and on the shorter vertical line the dot does too (about 62%). Packets paint above the
+ * circle (data-flow.tsx), so the label stays legible as it goes. */
 .flow-packet {
   position: absolute;
   top: 0;
@@ -560,7 +565,10 @@ summary {
     offset-distance: 0%;
     opacity: 0;
   }
-  8% {
+  24% {
+    opacity: 0;
+  }
+  32% {
     opacity: 1;
   }
   58% {
@@ -586,7 +594,7 @@ summary {
 
 @keyframes flow-breathe {
   50% {
-    box-shadow: 0 0 48px 6px rgba(255, 93, 59, 0.28);
+    box-shadow: 0 0 48px 6px color-mix(in srgb, var(--accent) 28%, transparent);
   }
 }
 
@@ -618,21 +626,24 @@ summary {
   .flow-core {
     animation: none;
   }
-  /* Every packet parks with its label showing, so the picture still reads. A line's two packets
-   * would stack at one distance, so the first parks near its node with its label toward the
-   * center and the second parks halfway with its label turned back toward the node. */
+  /* Every packet parks with its label showing, so the picture still reads: 28% along its line, or
+   * 32% on a mostly vertical line. At 28% a label is clear of its own card and of the label coming
+   * the other way from the mirrored source; at 32% a vertical line's labels are below the
+   * neighboring cards' row. A line's second packet would stack on its first, so it moves one label
+   * up or down (data-stack, set from the line's angle in data-flow.tsx) and sits beside it.
+   * e2e/data-flow.spec.ts fails if a parked label covers a card or another label. */
   .flow-packet {
-    offset-distance: 22%;
+    offset-distance: 28%;
     opacity: 1;
   }
-  .flow-packet[data-park="far"] {
-    offset-distance: 50%;
-    flex-direction: row-reverse;
-    offset-anchor: calc(100% - 4px) 50%;
+  .flow-packet[data-axis="vertical"] {
+    offset-distance: 32%;
   }
-  .flow-packet[data-park="far"][data-label-side="left"] {
-    flex-direction: row;
-    offset-anchor: 4px 50%;
+  .flow-packet[data-stack="up"] {
+    translate: 0 -24px;
+  }
+  .flow-packet[data-stack="down"] {
+    translate: 0 24px;
   }
   /* The rings only exist while they animate; a list row's "Receiving" label stays without them. */
   .live-ready,
