@@ -12,21 +12,26 @@ interface FeedEvent {
 }
 
 // Illustrative events only, labeled as such in the UI. Every event is one a planned integration
-// can collect (issues #11, #46, #47, #51, #62, #111, #118). Ordered so neighbors come from
-// different platforms, because the point of the feed is many sources in one place.
+// can collect (issues #11, #46, #47, #51, #62, #111, #118, #413). Ordered so neighbors come from
+// different platforms, because the point of the feed is many sources in one place. Three
+// achievements sit among the rows shown at load, inside the COMPACT_ROWS a phone shows.
 const feedEvents: readonly FeedEvent[] = [
   { platform: "Vercel", severity: "Success", text: "Production deployment of acme-web is ready" },
   { platform: "Supabase", severity: "Success", text: "New signup on acme-app" },
   { platform: "Stripe", severity: "Success", text: "Payment of $49.00 received for the Pro plan" },
   { platform: "GitHub", severity: "Success", text: "acme/cli reached 1,000 stars" },
+  { platform: "Vercel", severity: "Achievement", text: "100 Vercel deployments recorded" },
   { platform: "Resend", severity: "Alert", text: "Monthly email allowance passed 75%" },
   { platform: "Supabase", severity: "Summary", text: "Yesterday: 312 logins from 148 active users" },
-  { platform: "Stripe", severity: "Success", text: "New customer subscribed to the Team plan" },
+  { platform: "Stripe", severity: "Achievement", text: "Payday: 10 payments in one day" },
   { platform: "Vercel", severity: "Failed", text: "Preview deployment failed for acme-docs" },
+  { platform: "Supabase", severity: "Achievement", text: "Rush hour: 10 signups in one hour" },
   { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 50%" },
-  { platform: "Supabase", severity: "Success", text: "New signup on acme-docs" },
+  { platform: "Stripe", severity: "Success", text: "New customer subscribed to the Team plan" },
   { platform: "GitHub", severity: "Success", text: "Pull request #128 merged in acme/api" },
+  { platform: "Supabase", severity: "Success", text: "New signup on acme-docs" },
   { platform: "Stripe", severity: "Failed", text: "Renewal payment failed for an annual plan" },
+  { platform: "GitHub", severity: "Achievement", text: "Kilostar: 1,024 GitHub stars" },
   { platform: "Vercel", severity: "Alert", text: "Spending passed 90% of your $25 budget" },
   { platform: "GitHub", severity: "Success", text: "New fork of acme/api" },
   { platform: "Resend", severity: "Event", text: "Monthly email allowance reset for the new period" },
@@ -38,7 +43,7 @@ const feedEvents: readonly FeedEvent[] = [
 // layout.
 const VISIBLE_ROWS = 10;
 const COMPACT_ROWS = 6;
-const TICK_SECONDS = 3;
+const TICK_SECONDS = 2;
 const EVENTS_TODAY_BEFORE_FEED = 1278;
 
 // The first render shows the first VISIBLE_ROWS events, newest on top. Server and client agree

@@ -143,7 +143,7 @@ test.describe("landing page", () => {
       const firstEvent = await newestEvent(rows);
 
       await expect(async () => {
-        await page.clock.runFor(3_000);
+        await page.clock.runFor(2_000);
         await expect(rows.first()).not.toHaveText(firstEvent, { timeout: 500 });
       }).toPass();
       await expect(rows, "the leaving row stays out of the accessibility tree").toHaveCount(10);
@@ -160,16 +160,30 @@ test.describe("landing page", () => {
       await page.goto("/");
       const rows = page.getByRole("list", { name: "Example live events" }).getByRole("listitem");
       await expect(page.getByRole("button", { name: "Resume live events" })).toBeVisible();
+      // #415 matches its center count to this starting figure.
+      const counter = page.getByText("1,287 events today", { exact: true });
+      await expect(counter).toBeVisible();
       const firstEvent = await newestEvent(rows);
 
       await page.clock.runFor(30_000);
       await expect(rows.first()).toHaveText(firstEvent);
+      await expect(counter).toBeVisible();
 
       await page.getByRole("button", { name: "Resume live events" }).click();
       await expect(async () => {
-        await page.clock.runFor(3_000);
+        await page.clock.runFor(2_000);
         await expect(rows.first()).not.toHaveText(firstEvent, { timeout: 500 });
       }).toPass();
+    });
+
+    test("shows project achievements among the events, each labeled in words", async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto("/");
+      const rows = page.getByRole("list", { name: "Example live events" }).getByRole("listitem");
+      const achievements = rows.filter({ has: page.getByText("Achievement", { exact: true }) });
+      await expect(rows).toHaveCount(10);
+      expect(await achievements.count()).toBeGreaterThanOrEqual(3);
+      await expect(achievements.filter({ hasText: "Payday: 10 payments in one day" })).toHaveCount(1);
     });
 
     // 64rem is the lg breakpoint: from it the feed sits beside the allowances and spend column and
@@ -186,7 +200,7 @@ test.describe("landing page", () => {
         await page.goto("/");
         // Jump the page clock a minute ahead and freeze it, so no real-time tick lands mid-measurement.
         // pauseAt fires each due timer at most once, so a feed tick already due can fire during the
-        // jump; settleAnimations below absorbs it before the controlled 3-second tick.
+        // jump; settleAnimations below absorbs it before the controlled 2-second tick.
         await page.clock.pauseAt(Date.now() + 60_000);
         const list = page.getByRole("list", { name: "Example live events" });
         const rows = list.getByRole("listitem");
@@ -202,7 +216,7 @@ test.describe("landing page", () => {
         });
 
         await expect(async () => {
-          await page.clock.runFor(3_000);
+          await page.clock.runFor(2_000);
           await expect(rows.first()).not.toHaveText(firstEvent, { timeout: 500 });
         }).toPass();
         await list.evaluate(settleAnimations);
