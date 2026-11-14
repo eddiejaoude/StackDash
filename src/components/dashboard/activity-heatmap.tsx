@@ -37,7 +37,7 @@ const GAP_PX = 4;
 const HOURS = Array.from({ length: HOURS_PER_DAY }, (_, hour) => hour);
 
 /**
- * "When things happen" (#414): events per London weekday and hour over the last 30 days, like
+ * "When things happen" (#414): events per London weekday and hour over the last four weeks, like
  * GitHub's contribution tiles. The grid is a real table, so every count is in the page as text:
  * each cell names its count to assistive tech (with its row and column headers) and to hover
  * (`title`), and color is never the only signal. The filter is URL state (`heat`), so the chips
@@ -64,7 +64,7 @@ export function ActivityHeatmapSection({
             <h2 id={titleId} className="text-[15px] font-semibold tracking-tight">
               When things happen
             </h2>
-            <p className="mt-1 font-mono text-xs text-muted">{`events by hour · last ${HEATMAP_DAYS} days`}</p>
+            <p className="mt-1 font-mono text-xs text-muted">{`events by hour, London time · last ${HEATMAP_DAYS} days`}</p>
           </div>
           <nav aria-label="Heatmap events" className="flex flex-wrap gap-2">
             {HEAT_FILTERS.map((option) => {
@@ -89,7 +89,7 @@ export function ActivityHeatmapSection({
         {/* Negative margins take back the border spacing outside the first and last columns. */}
         <table className="-mx-1 mt-4 w-[calc(100%+0.5rem)] table-fixed border-separate border-spacing-1">
           <caption className="sr-only">
-            {`Events per weekday and hour, Europe/London time, last ${HEATMAP_DAYS} days, ${filter === "all" ? "every event" : filter}`}
+            {`Events per weekday and hour, London time, last ${HEATMAP_DAYS} days, ${filter === "all" ? "every event" : filter}`}
           </caption>
           <colgroup>
             <col className="w-9" />

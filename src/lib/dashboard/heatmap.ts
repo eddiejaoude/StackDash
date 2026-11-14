@@ -1,25 +1,30 @@
 /**
- * The dashboard's activity heatmap (#414): events per weekday and hour of day over the last 30
- * days, on a five step color scale, with the busiest run of hours outlined and named. Pure: no
+ * The dashboard's activity heatmap (#414): events per weekday and hour of day over the last four
+ * weeks, on a five step color scale, with the busiest run of hours outlined and named. Pure: no
  * I/O and no clock; the caller passes `now` and the counts the database returned.
  *
  * Rules decided here, once:
  * - Weekday and hour are London's (`TIMELINE_TIME_ZONE`), counted by `occurred_at` in the database
  *   (`activity_heatmap`), so a cell agrees with the times the timeline shows.
+ * - The window is whole weeks, so every cell is sampled the same number of times (decided on #414).
  * - The filter groups are derived from the event types the adapters declare, never listed by hand:
- *   deploys and signups are the adapters' own categories (the headline strip counts the same ones),
- *   and failures are critical events plus every known type whose id ends in `failed`.
+ *   deploys and signups are the adapters' own categories (`typeIdsOfCategory`, as the headline
+ *   strip counts them), and failures are critical events plus every known type whose id ends in
+ *   `failed` or `crashed`.
  * - The scale ranks the distinct non-zero counts (`heatSteps`), so one spike takes the top step
  *   alone instead of pushing every other cell down to the first.
  */
-import type { EventCategory, EventSeverity, EventType } from "@/lib/adapters/events";
+import { typeIdsOfCategory, type EventSeverity, type EventType } from "@/lib/adapters/events";
 
 export const HEAT_FILTERS = ["all", "deploys", "signups", "failures"] as const;
 
 export type HeatFilter = (typeof HEAT_FILTERS)[number];
 
-/** How far back the heatmap counts, in days. */
-export const HEATMAP_DAYS = 30;
+/**
+ * How far back the heatmap counts, in days. Whole weeks: with 30 days, two weekdays would be
+ * sampled five times and the rest four, so even activity would read as a peak on those two.
+ */
+export const HEATMAP_DAYS = 28;
 
 const DAY_MS = 86_400_000;
 
@@ -40,22 +45,19 @@ export type HeatMatch =
   | Readonly<{ kind: "every" }>
   | Readonly<{ kind: "some"; typeIds: readonly string[]; severities: readonly EventSeverity[] }>;
 
-// The last segment of the id ends in "failed": `vercel.deployment.failed`, `stripe.charge.failed`,
-// `digitalocean.droplet.action_failed`, `devmacro.sync_failed`.
-const FAILED_TYPE_ID = /failed$/;
-
-function ofCategory(known: readonly KnownEventType[], categories: readonly EventCategory[]): string[] {
-  return [...new Set(known.filter((type) => type.category !== undefined && categories.includes(type.category)).map((type) => type.id))];
-}
+// The last segment of the id ends in "failed" or "crashed": `vercel.deployment.failed`,
+// `stripe.charge.failed`, `digitalocean.droplet.action_failed`, `devmacro.sync_failed`, and
+// `railway.deployment.crashed`, which is only critical in production.
+const FAILED_TYPE_ID = /(failed|crashed)$/;
 
 export function heatMatch(filter: HeatFilter, known: readonly KnownEventType[]): HeatMatch {
   switch (filter) {
     case "all":
       return { kind: "every" };
     case "deploys":
-      return { kind: "some", typeIds: ofCategory(known, ["deploy_succeeded", "deploy_failed"]), severities: [] };
+      return { kind: "some", typeIds: typeIdsOfCategory(known, ["deploy_succeeded", "deploy_failed"]), severities: [] };
     case "signups":
-      return { kind: "some", typeIds: ofCategory(known, ["signup"]), severities: [] };
+      return { kind: "some", typeIds: typeIdsOfCategory(known, ["signup"]), severities: [] };
     case "failures":
       return {
         kind: "some",
@@ -65,7 +67,7 @@ export function heatMatch(filter: HeatFilter, known: readonly KnownEventType[]):
   }
 }
 
-/** The noun a filter's empty state uses: "No deploy events in the last 30 days". */
+/** The noun a filter's empty state uses: "No deploy events in the last 28 days". */
 const FILTER_NOUNS: Readonly<Record<HeatFilter, string>> = {
   all: "events",
   deploys: "deploy events",
@@ -100,10 +102,6 @@ export function heatGrid(rows: readonly HeatCountRow[]): HeatGrid {
     day[hour] = (day[hour] ?? 0) + events;
   }
   return grid;
-}
-
-export function heatTotal(grid: HeatGrid): number {
-  return grid.reduce((sum, day) => sum + day.reduce((daySum, count) => daySum + count, 0), 0);
 }
 
 // The scale.

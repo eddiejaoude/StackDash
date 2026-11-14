@@ -65,7 +65,7 @@ describe("heatMatch", () => {
     expect(ids).not.toContain("posthog.signups.daily");
   });
 
-  it("counts critical events and every known type ending in failed, DevMacro's own included", () => {
+  it("counts critical events and every known type ending in failed or crashed, DevMacro's own included", () => {
     const match = heatMatch("failures", KNOWN);
     expect(match).toMatchObject({ kind: "some", severities: ["critical"] });
     const ids = typeIdsOf(match);
@@ -76,10 +76,12 @@ describe("heatMatch", () => {
         "resend.domain.failed",
         "gitlab.pipeline.failed",
         "digitalocean.droplet.action_failed",
+        "railway.deployment.crashed",
         SYNC_FAILED_TYPE_ID,
       ]),
     );
-    expect(ids.every((id) => id.endsWith("failed"))).toBe(true);
+    expect(ids).not.toContain("vercel.deployment.succeeded");
+    expect(ids).not.toContain("railway.deployment.removed");
   });
 
   it("boundary: a group no known type falls in stays a group of nothing, never every event", () => {
@@ -98,8 +100,8 @@ describe("heatMatch", () => {
 });
 
 describe("heatmapWindowStart", () => {
-  it("starts exactly 30 days of 24 hours before now", () => {
-    expect(heatmapWindowStart(new Date("2026-03-31T10:15:00.000Z"))).toBe("2026-03-01T10:15:00.000Z");
+  it("starts exactly 28 days of 24 hours before now, so every weekday is counted four times", () => {
+    expect(heatmapWindowStart(new Date("2026-03-29T10:15:00.000Z"))).toBe("2026-03-01T10:15:00.000Z");
   });
 });
 
@@ -252,7 +254,7 @@ describe("wording", () => {
   });
 
   it("says which events are missing in the empty state", () => {
-    expect(heatEmptyLabel("all")).toBe("No events in the last 30 days");
-    expect(heatEmptyLabel("failures")).toBe("No failure events in the last 30 days");
+    expect(heatEmptyLabel("all")).toBe("No events in the last 28 days");
+    expect(heatEmptyLabel("failures")).toBe("No failure events in the last 28 days");
   });
 });

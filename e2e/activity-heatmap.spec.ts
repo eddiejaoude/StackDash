@@ -156,13 +156,13 @@ ownerTest.describe("activity heatmap", () => {
       await waitForTrends(page);
       const heatmap = page.getByRole("region", { name: "When things happen" });
       const filters = heatmap.getByRole("navigation", { name: "Heatmap events" });
-      await expect(heatmap.getByRole("status")).toHaveText("No events in the last 30 days");
+      await expect(heatmap.getByRole("status")).toHaveText("No events in the last 28 days");
       await expect(heatmap.getByRole("cell", { name: "0 events" })).toHaveCount(7 * 24);
 
       // A chip keeps the scope filter.
       await filters.getByRole("link", { name: "failures", exact: true }).click();
       await expect(page).toHaveURL(/\?provider=github&heat=failures$/);
-      await expect(heatmap.getByRole("status")).toHaveText("No failure events in the last 30 days");
+      await expect(heatmap.getByRole("status")).toHaveText("No failure events in the last 28 days");
       await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
