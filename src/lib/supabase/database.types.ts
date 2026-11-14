@@ -696,6 +696,11 @@ isOneToOne: false
               "bucket_start": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
             }[]
                            },
+"activity_heatmap":
+{ Args: { "p_account_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_since": string,"p_time_zone": string,"p_type_ids"?: (string)[],"p_workspace_id": string }; Returns: {
+              "events": number,"hour": number,"isodow": number
+            }[]
+                           },
 "admin_instance_totals":
 { Args: Record<PropertyKey, never>; Returns: {
               "connections": number,"events": number,"memberships": number,"users": number,"users_new_30d": number,"users_new_7d": number,"users_signed_in_30d": number,"workspaces": number,"workspaces_new_30d": number,"workspaces_new_7d": number
