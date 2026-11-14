@@ -449,6 +449,58 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"project_achievement_publications": {
+                  Row: {
+                    "project_achievement_id": string,"published_at": string,"published_by": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "project_achievement_id": string,"published_at"?: string,"published_by": string,"workspace_id": string
+                  }
+                  Update: {
+                    "project_achievement_id"?: string,"published_at"?: string,"published_by"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "project_achievement_publications_project_achievement_id_fkey"
+      columns: ["project_achievement_id"]
+isOneToOne: true
+      referencedRelation: "project_achievements"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "project_achievement_publications_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"project_achievements": {
+                  Row: {
+                    "achievement_id": string,"created_at": string,"description": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"id": string,"project_id": string,"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"threshold": number | null,"title": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "achievement_id": string,"created_at"?: string,"description": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"id"?: string,"project_id": string,"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"threshold"?: number | null,"title": string,"workspace_id": string
+                  }
+                  Update: {
+                    "achievement_id"?: string,"created_at"?: string,"description"?: string,"earned_at"?: string,"earned_precision"?: Database["public"]['Enums']["achievement_date_precision"],"evidence"?: Database["public"]['Enums']["achievement_evidence"],"id"?: string,"project_id"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"public_title"?: string,"threshold"?: number | null,"title"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "project_achievements_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "project_achievements_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"project_pages": {
                   Row: {
                     "created_at": string,"enabled": boolean,"indexable": boolean,"project_id": string,"slug": string,"updated_at": string,"updated_by": string | null,"workspace_id": string
@@ -691,7 +743,10 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "activity_event_counts":
+            "achievement_event_dedupe_key":
+{ Args: { "p_achievement_id": string,"p_project_id": string }; Returns: string
+                           },
+"activity_event_counts":
 { Args: { "p_account_ids"?: (string)[],"p_bucket": string,"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
               "bucket_start": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
             }[]
@@ -875,10 +930,18 @@ isOneToOne: false
               "page_slug": string,"updated_at": string,"workspace_handle": string,"workspace_slug": string
             }[]
                            },
+"public_published_achievements":
+{ Args: { "p_project_id": string }; Returns: {
+              "achievement_id": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"published_at": string,"threshold": number
+            }[]
+                           },
 "public_published_metrics":
 { Args: { "p_project_id": string }; Returns: {
               "delay_days": number,"id": string,"metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"published_at": string,"rounding": Database["public"]['Enums']["published_metric_rounding"],"self_reported_label": string,"self_reported_unit": string,"self_reported_value": number,"workspace_id": string
             }[]
+                           },
+"publish_achievement":
+{ Args: { "p_achievement_id": string,"p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
 "publish_metric":
 { Args: { "p_actor_id": string,"p_body": string,"p_delay_days": number,"p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_rounding": Database["public"]['Enums']["published_metric_rounding"],"p_title": string,"p_workspace_id": string }; Returns: string
@@ -909,6 +972,9 @@ isOneToOne: false
                            },
 "rebuild_activity_event_daily_counts":
 { Args: { "p_workspace_id": string }; Returns: number
+                           },
+"record_project_achievements":
+{ Args: { "p_achievements": Json,"p_project_id": string,"p_workspace_id": string }; Returns: string[]
                            },
 "record_publication_event":
 { Args: { "p_body": string,"p_dedupe_key": string,"p_title": string,"p_type_id": string,"p_workspace_id": string }; Returns: undefined
@@ -963,6 +1029,9 @@ isOneToOne: false
 { Args: { "p_workspace_id": string }; Returns: {
               "type_id": string
             }[]
+                           },
+"unpublish_achievement":
+{ Args: { "p_achievement_id": string,"p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
 "unpublish_all_metrics":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: number
@@ -1045,7 +1114,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway"|"gitlab","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
+            "achievement_date_precision": "instant"|"day","achievement_evidence": "crossed"|"at_least","alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway"|"gitlab","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -1161,7 +1230,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
+            "achievement_date_precision": ["instant", "day"],"achievement_evidence": ["crossed", "at_least"],"alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const
