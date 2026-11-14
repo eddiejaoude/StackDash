@@ -2,8 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
-import type { ProviderId } from "@/lib/adapters/types";
+import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
 import { formatQuantity } from "@/lib/format";
+import { providerName } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 import {
@@ -45,6 +46,11 @@ import { computeTrend } from "./trend";
  *
  * The yearly card (#151) is private until shared and asks for its own window, so it calls
  * `computePublicMetrics` in engine.ts with `createSupabaseMetricStore` and a `from` instead.
+ *
+ * Achievements (#413) are read beside them: `loadPublishedAchievements(projectId)` and
+ * `loadPublishedAchievement(projectId, achievementId)` read `public_published_achievements()`, the
+ * one public read of earned achievements. It returns published ones only, and never a private
+ * title, a description, an account, a repository, or an amount.
  */
 
 // Generated types mark every column of a set-returning function as non-null, but a row is either
@@ -364,4 +370,63 @@ export async function loadPublishedProjectHistory(published: PublishedProjectMet
   });
   const milestones = [...firsts, ...stars].sort((a, b) => a.at.getTime() - b.at.getTime());
   return { histories, milestones };
+}
+
+// Generated types call every column of a set-returning function non-null; the threshold is null
+// for an achievement with no count behind it ("Night owl").
+const PublishedAchievementRowSchema = z.object({
+  achievement_id: z.string(),
+  provider: ProviderIdSchema,
+  public_title: z.string(),
+  earned_at: z.string(),
+  earned_precision: z.enum(["instant", "day"]),
+  evidence: z.enum(["crossed", "at_least"]),
+  threshold: z.number().nullable(),
+  published_at: z.string(),
+});
+
+/** A published achievement (#413) as public surfaces show it. Nothing private is in it. */
+export type PublishedAchievement = Readonly<{
+  achievementId: string;
+  provider: ProviderId;
+  /** The provider's display name, the badge's label ("Vercel"). */
+  providerName: string;
+  publicTitle: string;
+  earnedAt: Date;
+  /** `day`: earned on a whole UTC day (a daily total), stored at 00:00 UTC; show the date only. */
+  earnedPrecision: "instant" | "day";
+  /** `at_least`: DevMacro first saw the value at or above `threshold`, not the crossing itself. */
+  evidence: "crossed" | "at_least";
+  threshold: number | null;
+  publishedAt: Date;
+}>;
+
+/** Every published achievement of the project, oldest first; empty for an unknown project. */
+export async function loadPublishedAchievements(projectId: string): Promise<PublishedAchievement[]> {
+  const { data, error } = await createAdminClient().rpc("public_published_achievements", { p_project_id: projectId });
+  if (error) throw new Error("Failed to load published achievements", { cause: error });
+  return z
+    .array(PublishedAchievementRowSchema)
+    .parse(data)
+    .map((row) => ({
+      achievementId: row.achievement_id,
+      provider: row.provider,
+      providerName: providerName(row.provider),
+      publicTitle: row.public_title,
+      earnedAt: new Date(row.earned_at),
+      earnedPrecision: row.earned_precision,
+      evidence: row.evidence,
+      threshold: row.threshold,
+      publishedAt: new Date(row.published_at),
+    }));
+}
+
+/**
+ * One published achievement of the project, for its badge and card, or null when it is unknown,
+ * not earned, or not published, alike. A project has a few dozen achievements at most, so the
+ * project's published list is read and searched rather than adding a second database function.
+ */
+export async function loadPublishedAchievement(projectId: string, achievementId: string): Promise<PublishedAchievement | null> {
+  const achievements = await loadPublishedAchievements(projectId);
+  return achievements.find((achievement) => achievement.achievementId === achievementId) ?? null;
 }

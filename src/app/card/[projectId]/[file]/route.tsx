@@ -3,8 +3,8 @@ import { z } from "zod";
 
 import { loadPublicPageOfProject } from "@/lib/data/project-pages";
 import { logError } from "@/lib/log/logger";
-import { cardImageResponse, MetricCard, NoticeCard } from "@/lib/public-metrics/card-image";
-import { loadPublishedMetricCard } from "@/lib/public-metrics/published";
+import { AchievementCard, cardImageResponse, MetricCard, NoticeCard } from "@/lib/public-metrics/card-image";
+import { loadPublishedAchievement, loadPublishedMetricCard } from "@/lib/public-metrics/published";
 import {
   checkPublicRateLimit,
   countViewAfterResponse,
@@ -12,7 +12,7 @@ import {
   PUBLIC_CACHE_CONTROL,
   rateLimitedHeaders,
 } from "@/lib/public-metrics/requests";
-import { CARD_TREND_DAYS, metricIdFromFile } from "@/lib/public-metrics/share";
+import { achievementIdFromFile, CARD_TREND_DAYS, metricIdFromFile } from "@/lib/public-metrics/share";
 
 /*
  * GET /card/<project id>/<metric id>.png (#149): the 1200 by 630 milestone card of a published
@@ -22,6 +22,9 @@ import { CARD_TREND_DAYS, metricIdFromFile } from "@/lib/public-metrics/share";
  * (so a preview never breaks and never tells which projects exist), the same one minute cache and
  * per IP rate limit, and no session or cookie. While the project's page is public (#150), the card
  * names the project, which that page already shows to anyone (#255); otherwise it names nothing.
+ *
+ * GET /card/<project id>/achievement-<achievement id>.png (#413): the card of a published
+ * achievement, by the same rules, read through loadPublishedAchievement.
  *
  * A Route Handler rather than the opengraph-image file convention: the convention attaches an
  * image to a page segment, and this card has no page of its own. Rendered at request time
@@ -46,12 +49,22 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
       });
     }
 
-    const metricId = metricIdFromFile(file, "png");
-    const card =
-      metricId === null || !ProjectIdSchema.safeParse(projectId).success
-        ? null
-        : await loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS);
+    const validProject = ProjectIdSchema.safeParse(projectId).success;
     const headers = { ...IMAGE_HEADERS, "Cache-Control": PUBLIC_CACHE_CONTROL };
+
+    // Achievement cards are not counted: view counts are kept per published metric.
+    const achievementId = achievementIdFromFile(file, "png");
+    if (achievementId !== null) {
+      const achievement = validProject ? await loadPublishedAchievement(projectId, achievementId) : null;
+      if (achievement === null) {
+        return cardImageResponse(<NoticeCard title="Unpublished" body="This achievement is not public on DevMacro." />, { headers });
+      }
+      const page = await loadPublicPageOfProject(projectId);
+      return cardImageResponse(<AchievementCard achievement={achievement} projectName={page?.projectName ?? null} />, { headers });
+    }
+
+    const metricId = metricIdFromFile(file, "png");
+    const card = metricId === null || !validProject ? null : await loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS);
     if (card === null) {
       return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on DevMacro." />, { headers });
     }

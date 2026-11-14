@@ -54,7 +54,7 @@ export function PublicationAnnouncer({ children }: { children: ReactNode }) {
 }
 
 /** Runs an action, announcing success through the page's live region. */
-function useAnnouncedAction(
+export function useAnnouncedAction(
   action: (previous: PublicMetricActionResult | null, formData: FormData) => Promise<PublicMetricActionResult>,
   focusId: string,
 ) {
@@ -67,7 +67,7 @@ function useAnnouncedAction(
   }, null);
 }
 
-function Failure({ state }: { state: PublicMetricActionResult | null }) {
+export function Failure({ state }: { state: PublicMetricActionResult | null }) {
   return <FailureAnnouncement failure={state !== null && !state.ok ? state : null} className="text-sm" messageClassName="mt-2" />;
 }
 

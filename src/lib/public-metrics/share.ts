@@ -1,13 +1,14 @@
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatUtcDate } from "@/lib/format";
 
 import { isPublicMetricId, type PublicMetricId } from "./definitions";
-import type { PublishedEngineMetric } from "./published";
+import type { PublishedAchievement, PublishedEngineMetric } from "./published";
 
 /*
- * Share surfaces of a published metric (#149): the URLs of its badge and card, the text a share
- * carries, and the alt text of each image. Client-safe like `definitions.ts` and `display.ts` (no
- * data access, no adapter or Node module; `display.test.ts` walks the imports), so the share
- * dialog, the routes, and the public project page (#150) build the same URLs and words.
+ * Share surfaces of a published metric (#149) and a published achievement (#413): the URLs of its
+ * badge and card, the text a share carries, and the alt text of each image. Client-safe like
+ * `definitions.ts` and `display.ts` (no data access, no adapter or Node module; `display.test.ts`
+ * walks the imports), so the share dialog, the routes, and the public project page (#150) build
+ * the same URLs and words.
  *
  * Badges and cards are keyed by project id, like the public JSON route of #148: projects have no
  * slug, and the workspace slug is the private app URL, so neither belongs in a README (decision on
@@ -37,6 +38,34 @@ export function metricIdFromFile(file: string, extension: "svg" | "png"): Public
   if (!file.endsWith(suffix)) return null;
   const id = file.slice(0, -suffix.length);
   return isPublicMetricId(id) ? id : null;
+}
+
+// An achievement's file is `achievement-<achievement id>.<extension>`. No metric id starts with
+// "achievement-", so the two never collide. The id rule is the database's
+// (project_achievements_achievement_id_format) and AdapterScopedKeySchema's, repeated here
+// because this module may not import an adapter.
+const ACHIEVEMENT_FILE_PREFIX = "achievement-";
+const ACHIEVEMENT_ID = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
+const ACHIEVEMENT_ID_MAX = 100;
+
+export function achievementBadgePath(projectId: string, achievementId: string): string {
+  return `/badge/${projectId}/${ACHIEVEMENT_FILE_PREFIX}${achievementId}.svg`;
+}
+
+export function achievementCardPath(projectId: string, achievementId: string): string {
+  return `/card/${projectId}/${ACHIEVEMENT_FILE_PREFIX}${achievementId}.png`;
+}
+
+/**
+ * The achievement id in a route's last segment, `achievement-<achievement id>.<extension>`, or
+ * null for anything else, so a metric's file, the other surface's extension, and an id the
+ * database could never store are not achievements.
+ */
+export function achievementIdFromFile(file: string, extension: "svg" | "png"): string | null {
+  const suffix = `.${extension}`;
+  if (!file.startsWith(ACHIEVEMENT_FILE_PREFIX) || !file.endsWith(suffix)) return null;
+  const id = file.slice(ACHIEVEMENT_FILE_PREFIX.length, -suffix.length);
+  return id.length <= ACHIEVEMENT_ID_MAX && ACHIEVEMENT_ID.test(id) ? id : null;
 }
 
 /** What a share surface needs to know about one published value, already formatted. */
@@ -132,7 +161,7 @@ export function shareToLinkedInUrl(url: string): string {
  */
 export type ShareProjectPage = Readonly<{ path: string; projectName: string }>;
 
-export type MetricShareLinks = Readonly<{
+export type ShareLinks = Readonly<{
   badgeMarkdown: string;
   cardUrl: string;
   /** What a post links to: the project page while it is public, else the card itself. */
@@ -151,7 +180,7 @@ export function metricShareLinks(
     metric: ShareableMetric;
     projectPage: ShareProjectPage | null;
   }>,
-): MetricShareLinks {
+): ShareLinks {
   const { origin, projectId, metricId, metric, projectPage } = input;
   const badgeUrl = new URL(badgePath(projectId, metricId), origin).href;
   const cardUrl = new URL(cardPath(projectId, metricId), origin).href;
@@ -162,6 +191,72 @@ export function metricShareLinks(
     cardUrl,
     link,
     xIntentUrl: shareToXUrl(shareText(metric, projectPage?.projectName ?? null), link),
+    linkedInUrl: shareToLinkedInUrl(link),
+  };
+}
+
+/** What a share surface needs to know about a published achievement: public words only. */
+export type ShareableAchievement = Pick<PublishedAchievement, "providerName" | "publicTitle">;
+
+const ACHIEVEMENT_COUNT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+/**
+ * When an achievement was earned, in words: "Earned 2026-11-05 14:05 GMT"; "Earned 2026-11-05" for
+ * a daily total, which has a day but no time (stored at 00:00 UTC of that day); and "Recorded at
+ * least 1,000 on 2026-11-05 14:05 GMT" when DevMacro's first reading was already past the
+ * threshold, so it never claims the crossing happened then.
+ */
+export function achievementEarnedText(
+  achievement: Pick<PublishedAchievement, "earnedAt" | "earnedPrecision" | "evidence" | "threshold">,
+): string {
+  const when = achievement.earnedPrecision === "day" ? formatUtcDate(achievement.earnedAt) : formatDateTime(achievement.earnedAt);
+  if (achievement.evidence === "at_least" && achievement.threshold !== null) {
+    return `Recorded at least ${ACHIEVEMENT_COUNT_FORMAT.format(achievement.threshold)} on ${when}`;
+  }
+  return `Earned ${when}`;
+}
+
+/** "Vercel achievement on DevMacro: 10 Vercel deployments recorded." The badge's alt text. */
+export function achievementBadgeAltText(achievement: ShareableAchievement): string {
+  return `${achievement.providerName} achievement on DevMacro: ${achievement.publicTitle}.`;
+}
+
+/** Alt text for an achievement's card, naming the project only while the card shows it. */
+export function achievementCardAltText(achievement: ShareableAchievement, projectName: string | null): string {
+  const card = projectName === null ? "DevMacro achievement card." : `DevMacro achievement card for ${projectName}.`;
+  return `${card} ${achievement.providerName} achievement: ${achievement.publicTitle}.`;
+}
+
+/** The prefilled post for "Share to X", naming the project when its page is public. */
+export function achievementShareText(achievement: ShareableAchievement, projectName: string | null): string {
+  const subject = projectName === null ? "Achievement" : `Achievement for ${projectName}`;
+  return `${subject}: ${achievement.publicTitle}. Earned from ${achievement.providerName} data on DevMacro.`;
+}
+
+/**
+ * Every absolute link the share dialog of a published achievement offers, on the public `origin`.
+ * Like a metric's, except that the badge links to the site when the project page is not public,
+ * since an achievement has no formula to link to.
+ */
+export function achievementShareLinks(
+  input: Readonly<{
+    origin: string;
+    projectId: string;
+    achievementId: string;
+    achievement: ShareableAchievement;
+    projectPage: ShareProjectPage | null;
+  }>,
+): ShareLinks {
+  const { origin, projectId, achievementId, achievement, projectPage } = input;
+  const badgeUrl = new URL(achievementBadgePath(projectId, achievementId), origin).href;
+  const cardUrl = new URL(achievementCardPath(projectId, achievementId), origin).href;
+  const pageUrl = projectPage === null ? null : new URL(projectPage.path, origin).href;
+  const link = pageUrl ?? cardUrl;
+  return {
+    badgeMarkdown: badgeMarkdown({ badgeUrl, linkUrl: pageUrl ?? new URL("/", origin).href, label: achievement.publicTitle }),
+    cardUrl,
+    link,
+    xIntentUrl: shareToXUrl(achievementShareText(achievement, projectPage?.projectName ?? null), link),
     linkedInUrl: shareToLinkedInUrl(link),
   };
 }

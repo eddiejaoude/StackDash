@@ -6,8 +6,8 @@ import type { ReactNode } from "react";
 import { formatDateTime } from "@/lib/format";
 import { site } from "@/lib/site";
 
-import type { PublishedMetricCard } from "./published";
-import { CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
+import type { PublishedAchievement, PublishedMetricCard } from "./published";
+import { achievementEarnedText, CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
 import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSlide, type YearSummary } from "./yearly";
 
 /*
@@ -153,6 +153,23 @@ export function NoticeCard({ title, body }: { title: string; body: string }) {
     <Frame tag={<Tag text="No value shown" color={COLORS.muted} />} footer={["Public metrics, counted from stored data", ""]}>
       <div style={{ display: "flex", fontSize: 88, letterSpacing: -2 }}>{title}</div>
       <div style={{ display: "flex", fontSize: 36, marginTop: 24, color: COLORS.muted }}>{body}</div>
+    </Frame>
+  );
+}
+
+/**
+ * The card of one published achievement (#413): the project's name while its page is public, the
+ * provider, the public title (never the private one), and when it was earned, in the same words as
+ * the project page. The title is at most 80 characters (ACHIEVEMENT_TITLE_MAX), which wraps to at
+ * most three lines at this size.
+ */
+export function AchievementCard({ achievement, projectName }: { achievement: PublishedAchievement; projectName: string | null }) {
+  return (
+    <Frame tag={<Tag text="Achievement earned" color={COLORS.success} />} footer={["Earned from stored provider data", ""]}>
+      {projectName === null ? null : <div style={{ ...line(44), letterSpacing: -1, marginBottom: 4 }}>{projectName}</div>}
+      <div style={{ display: "flex", fontSize: 36, color: COLORS.muted }}>{`${achievement.providerName} achievement`}</div>
+      <div style={{ display: "flex", fontSize: 64, lineHeight: 1.15, marginTop: 12, letterSpacing: -1 }}>{achievement.publicTitle}</div>
+      <div style={{ display: "flex", fontSize: 32, marginTop: 24, color: COLORS.muted }}>{achievementEarnedText(achievement)}</div>
     </Frame>
   );
 }

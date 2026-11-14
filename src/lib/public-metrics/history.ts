@@ -1,7 +1,7 @@
 import { formatQuantity } from "@/lib/format";
 import { MAX_ROWS_PER_REQUEST, readAllPages } from "@/lib/supabase/paging";
 
-import { countsProvider, publicMetricDefinition, type PublicMetricId } from "./definitions";
+import { countsProvider, DEPLOYMENT_OUTCOMES, publicMetricDefinition, type PublicMetricId } from "./definitions";
 import {
   computePublicMetrics,
   snapshotsWholeFrom,
@@ -303,6 +303,39 @@ export function starMilestones(
       }
     }
     return [];
+  });
+}
+
+/**
+ * Achievements (#413) that state the same fact as a derived milestone. The milestones keep their
+ * own definitions; a page leaves one out while an achievement saying the same is published, so no
+ * fact is listed twice. A one-provider milestone is the same fact as its achievement whatever the
+ * dates (the milestone reads a rounded daily history, the achievement every stored reading). The
+ * first deployment counts every deployment provider, so it is the same fact as one provider's
+ * first deployment only when both are the same event, at the same moment.
+ */
+const MILESTONE_ACHIEVEMENTS: Readonly<Record<string, Readonly<{ achievementIds: readonly string[]; sameMoment: boolean }>>> = {
+  "first-deployment": { achievementIds: DEPLOYMENT_OUTCOMES.map((outcome) => `${outcome.provider}.deployments.first`), sameMoment: true },
+  "first-signup": { achievementIds: ["supabase.signups.first"], sameMoment: false },
+  "first-customer": { achievementIds: ["stripe.customers.first"], sameMoment: false },
+  "first-payment": { achievementIds: ["stripe.payments.first"], sameMoment: false },
+  ...Object.fromEntries(
+    STAR_MILESTONES.map((threshold) => [`github-stars-${threshold}`, { achievementIds: [`github.stars.${threshold}`], sameMoment: false }]),
+  ),
+};
+
+/** The milestones no published achievement already states, in their order. */
+export function milestonesBesideAchievements(
+  milestones: readonly Milestone[],
+  achievements: readonly Readonly<{ achievementId: string; earnedAt: Date }>[],
+): Milestone[] {
+  return milestones.filter((milestone) => {
+    const same = MILESTONE_ACHIEVEMENTS[milestone.id];
+    if (same === undefined) return true;
+    return !achievements.some(
+      (achievement) =>
+        same.achievementIds.includes(achievement.achievementId) && (!same.sameMoment || achievement.earnedAt.getTime() === milestone.at.getTime()),
+    );
   });
 }
 

@@ -123,6 +123,8 @@ Server code that shows published values (badges and cards, project pages, the le
 | `loadPublishedMetric(projectId, metricId, now)` | One published engine metric, or `null`. It takes a `PublicMetricId`, so a self-reported value can never become a badge |
 | `loadPublishedMetricCard(projectId, metricId, now, trendDays)` | The same, with its trend: the published value at the same time of day on each of the last `trendDays` days, rounded as the publication is, so a rounded metric's trend never reveals exact numbers |
 | `loadPublishedProjectHistory(published)` | The daily history of each published engine metric in what `loadPublishedProjectMetrics` returned, over 90 days ending at the publication's own `asOf` and rounded the same way, plus the milestones those publications reveal. It takes that result, not a project id, so it can only describe what is published |
+| `loadPublishedAchievements(projectId)` | Every published [achievement](#achievements) of the project, oldest first: id, provider and its display name, public title, earned date and precision, evidence, threshold, and when it was published. Empty for an unknown project |
+| `loadPublishedAchievement(projectId, achievementId)` | One published achievement, or `null` when it is unknown, not earned, or not published |
 
 The first three read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `share.ts` builds badge and card URLs (`badgePath`, `cardPath`), alt text, and share text, and `badge.ts` renders the SVG. `definitions.ts`, `display.ts`, `share.ts`, and `badge.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
 
@@ -136,6 +138,7 @@ Every published engine metric has a live badge and a card, keyed by project id l
 |---|---|
 | `GET /badge/<project id>/<metric id>.svg` | A two part SVG badge: the metric's label, then its value and provenance ("1,200+ verified", "1,204 simulated"). Its `<title>` says it all in words, with the last sync time. A value with no number says why ("Not enough history yet") |
 | `GET /card/<project id>/<metric id>.png` | A 1200 by 630 PNG for posts and link previews: the project's name while its [project page](#project-pages) is public, then label, value, provenance, the trend over the last 30 days, and the last sync time. The name is one line that ends in an ellipsis when it does not fit. Rendered by Next.js `ImageResponse`, no external image service |
+| `GET /badge/<project id>/achievement-<achievement id>.svg`, `GET /card/<project id>/achievement-<achievement id>.png` | The badge and card of a published achievement, by the same rules. See [Achievements](#achievements) |
 
 Both follow the same rules:
 
@@ -203,7 +206,8 @@ The page shows only what this engine publishes for the project:
 | Published metrics | Every live publication, with its provenance (Verified, Estimated, or Self-reported), when it was last synced or the moment a delayed value describes, a link to its formula, and Simulated when the provider simulator made it up |
 | Connected providers | An icon, named for screen readers, for each provider behind a published value that is still connected. Never an account name |
 | History | One chart per published engine metric over the last 90 days, each day's value published with the same rounding and delay as today's. The chart's accessible name summarizes it (start, end, highest, lowest, and days with no value, or "no value on any day" when the period has none, as for a metric that stopped syncing), a sentence beside it states the same figures for the last 30 days, and its values open as a table. Self-reported values have no history |
-| Milestones | "First deployment recorded", "First signup recorded", "First customer recorded", and "First successful payment recorded", from the oldest stored event, while a metric counting those events is published exactly (a rounded publication can show 0 while events exist, so it reveals no first-event milestone) and no later than that publication's `asOf`; and "Reached 100 GitHub stars" (also 1,000, 10,000, 100,000) when the published GitHub stars history crosses it, only for thresholds its rounding can show |
+| Achievements | Each published [achievement](#achievements), oldest first, with Share. Left out when none is published |
+| Milestones | "First deployment recorded", "First signup recorded", "First customer recorded", and "First successful payment recorded", from the oldest stored event, while a metric counting those events is published exactly (a rounded publication can show 0 while events exist, so it reveals no first-event milestone) and no later than that publication's `asOf`; and "Reached 100 GitHub stars" (also 1,000, 10,000, 100,000) when the published GitHub stars history crosses it, only for thresholds its rounding can show. A milestone a published achievement already states is left out (see [Achievements](#achievements)) |
 
 Choosing metrics, rounding to 10, 100, or 1,000, and showing values 7 days late are the publication options above; the page follows them. The page settings are the address, whether search engines may index it, and turning it on or off. Each change writes a DevMacro event to the timeline:
 
@@ -218,6 +222,53 @@ Each body names the address the page answered at when the event was written: the
 An address answers only while its page is on and the project has at least one live publication, so "Unpublish everything" takes every page offline too. An unknown address, a page that is off, and a page with nothing published answer the same 404. The page renders per request and is not cached, unlike badges and cards: the enforced nonce policy needs per request HTML, and a shared cache would hand one nonce to every reader. So turning a page off answers 404 from the next request, and the [rate limit](#rate-limit) bounds what the page costs instead. Within one request the page and its metadata share one read of the page (`loadPublicProjectPage`, a React `cache`). A page asks search engines not to index it unless its owner allows indexing; `/sitemap.xml` lists the pages that are public and indexable, at most 1,000, and is read per request too. The page always sets its own preview title and description. When `NEXT_PUBLIC_SITE_URL` is set, it also names its canonical address and previews with the card of its first published engine metric (`/card/<project id>/<metric id>.png`), or with the site image (`/opengraph-image`) when only self-reported values are published.
 
 `src/proxy.ts` rewrites `/@<workspace>/<page slug>` to the page route at `/p/<workspace>/<page slug>`, because a route folder starting with `@` is a parallel route slot, and answers every other path under `/@` or `/p` with the global 404, so a page has exactly one address. It reads the address with `parseProjectPagePath` (`src/lib/public-metrics/project-page.ts`), which applies the page's own slug and handle rules, length limits included, so a path no page can have answers that 404 without a database read or a rate limit count. For any other address it first counts the request against the public [rate limit](#rate-limit) and answers `429` past it, before any other read; the page cannot answer a `429` itself, for the same reason as the 404 below. Then it asks `public_project_page()` before rewriting and answers an address that is not public with that same 404: with Cache Components the page sends its shell with a `200` before its data loads, so a `notFound()` in the page could only stream a not-found page under a `200` ([Next.js, loading.js status codes](https://nextjs.org/docs/app/api-reference/file-conventions/loading#status-codes)). The page keeps its own check for a page turned off between the two reads. Each request for a well-formed address therefore costs one rate limit count and one `public_project_page()` read in the proxy before the page's own reads. The same read says whether the workspace has a handle: a workspace ID address of a workspace with one answers `307` to the handle address, query string kept. It is temporary rather than `308` because a handle can change and the old one is then free for another workspace, so no browser or crawler may keep the redirect. Only an address that answers a page redirects, so the redirect never reveals the handle of a workspace with nothing public. An unknown handle, a released one, and another workspace's handle with that page slug answer the same 404.
+
+## Achievements
+
+A project earns permanent achievements from its providers' data (#413), such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `ProviderAdapter.achievements`; the rule kinds and the wording rules are in [Adapters, Achievements](../adapters.md#achievements), and the tables and functions in [Database schema](schema.md#project-achievements).
+
+### Counting
+
+- After each successful sync of a connection, DevMacro evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and usage snapshots it has stored for the project's included accounts. Nothing calls a provider.
+- Achievements count per provider: a project that deploys through Vercel and Railway earns "10 Vercel deployments recorded" and "10 Railway deployments recorded" separately. Cross-provider metrics such as "Deployments shipped" are unchanged.
+- A project earns each achievement once, at the first moment its stored evidence supports. `(project_id, achievement_id)` is unique and recording never overwrites, so repeated syncs, backfills, and two evaluations at once can neither duplicate an achievement nor move its date.
+- Earned is permanent. The 10th recorded deployment stays earned after it leaves a 30 day window, after the events and snapshots behind it are purged, and after the achievement is removed from its adapter, with the titles stored when it was earned.
+- "In one day", "in one hour", "between midnight and 5 am", and "on 7 days in a row" are Europe/London calendar days and clock hours, the zone of the activity heatmap, never rolling windows.
+
+### Evidence limits
+
+- An event achievement says "recorded": providers backfill a limited history and some adapters set a baseline on the first sync, so the oldest event DevMacro stores may not be the very first. It is dated to the event that reached the count.
+- A snapshot threshold such as "1,000 GitHub stars" is dated to the first stored reading at or above it. When no earlier reading below it is stored, DevMacro did not see the crossing, so every surface says "Recorded at least 1,000 on" that reading's date instead of "Earned".
+- A daily total, such as PostHog's signups per day, is dated to its UTC day and shown as a date, never a time.
+- Nothing is inferred from before DevMacro's evidence, and revenue, spend, quota, email volume, failures, and logins have no achievements. Payment achievements count payments, never amounts.
+
+### Privacy and publishing
+
+- Private by default. Every member sees the project's earned achievements in its Achievements section, and only owners and admins publish or unpublish them, one at a time.
+- Each achievement has a private title and a public title. Public surfaces read only `public_published_achievements()`, through `loadPublishedAchievements` and `loadPublishedAchievement` in `published.ts`: the id, the provider, the public title, the earned date and its precision, the evidence and threshold, and when it was published. Never the private title, the description, an account or repository name, an amount, or an achievement that is not published.
+- A published achievement does not make a project page public on its own: the page still needs a live published metric.
+
+### Timeline entries
+
+- Earning an achievement writes one `devmacro.achievement_earned` event to the workspace timeline, with the visible label "Achievement earned", the private title, severity success, and the earned date as its time, so a backfill lands in its place in history rather than at the top. Its dedupe key `achievement:<project id>:<achievement id>` stops a repeated evaluation from writing it twice.
+- The entry links to the achievement in the project's Achievements section. Share opens the share dialog when the achievement is published; when it is not, owners and admins see Publish instead and other members see neither. Members can hide the event type like any other.
+- The timeline is private, so unpublishing keeps the entry. Deleting the project or its workspace deletes the achievements, their publications, and these entries.
+
+### Public surfaces
+
+| Surface | What it shows |
+|---|---|
+| Project page, Achievements | Each published achievement, oldest first: its public title, the provider's mark and name, "Earned 2026-11-05 14:05 GMT" (Europe/London), "Earned 2026-11-05" for a daily total, or "Recorded at least 1,000 on 2026-11-05 14:05 GMT", and Share |
+| `GET /badge/<project id>/achievement-<achievement id>.svg` | A two part SVG badge: the provider's name, then the public title. Its `<title>` adds when it was earned in the same words |
+| `GET /card/<project id>/achievement-<achievement id>.png` | A 1200 by 630 PNG: the project's name while its page is public, the provider, the public title, and when it was earned |
+
+- The badge and card follow the [metric badge rules](#badges-and-cards): an unknown, unpublished, or malformed id gets the same neutral "Unpublished" badge or card with a `200`; the same 60 second cache and [rate limit](#rate-limit); no session or cookie; `Cross-Origin-Resource-Policy: cross-origin`; and the badge's Content-Security-Policy from `next.config.ts`. `achievementIdFromFile` in `share.ts` accepts only an id the database can store. Achievement serves are not counted in [view counts](#view-counts), which are kept per published metric.
+- No fact is listed twice. While a published achievement states a derived milestone, the page leaves the milestone out (`milestonesBesideAchievements` in `history.ts`): "Reached 1,000 GitHub stars" while `github.stars.1000` is published (also 100 and 10,000), the first signup, customer, and payment while Supabase's first signup or Stripe's first customer or payment is, and "First deployment recorded" while one host's first deployment is published and is the same event. The milestones keep their own definitions.
+- The share dialog (`AchievementShareDialog` in `src/components/public-metrics/achievement-share-dialog.tsx`), on the project page and in the app, offers the badge with its Markdown for a README and "Copy badge Markdown", for example `[![10 Vercel deployments recorded](<site>/badge/<project id>/achievement-vercel.deployments.10.svg)](<project page>)`; the card with its URL and alt text; and "Copy link", "Share to X", and "Share to LinkedIn". Nothing is posted automatically. While the project page is off, the badge links to the site, posts link to the card, and nothing names the project (`achievementShareLinks` in `share.ts`).
+
+### Unpublishing
+
+Unpublishing deletes the achievement's publication row. The project page renders per request, so the achievement leaves it on the next request; the badge and card are cached for up to a minute and then show "Unpublished". The achievement stays earned and private, with its timeline entry, and publishing it again shows it with its original date.
 
 ## Metrics
 

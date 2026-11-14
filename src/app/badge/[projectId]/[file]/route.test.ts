@@ -1,20 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicMetricId } from "@/lib/public-metrics/definitions";
-import type { PublishedEngineMetric } from "@/lib/public-metrics/published";
+import type { PublishedAchievement, PublishedEngineMetric } from "@/lib/public-metrics/published";
 import type * as RequestsModule from "@/lib/public-metrics/requests";
 import type { RateLimitDecision, ShareSurface } from "@/lib/public-metrics/requests";
 
 import { GET } from "./route";
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
-const { loadPublishedMetric, checkPublicRateLimit, countViewAfterResponse } = vi.hoisted(() => ({
+const { loadPublishedMetric, loadPublishedAchievement, checkPublicRateLimit, countViewAfterResponse } = vi.hoisted(() => ({
   loadPublishedMetric: vi.fn<(projectId: string, metricId: PublicMetricId, now: Date) => Promise<PublishedEngineMetric | null>>(),
+  loadPublishedAchievement: vi.fn<(projectId: string, achievementId: string) => Promise<PublishedAchievement | null>>(),
   checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
   countViewAfterResponse: vi.fn<(projectId: string, metricId: PublicMetricId, surface: ShareSurface) => void>(),
 }));
 
-vi.mock("@/lib/public-metrics/published", () => ({ loadPublishedMetric }));
+vi.mock("@/lib/public-metrics/published", () => ({ loadPublishedMetric, loadPublishedAchievement }));
 vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
   ...(await importOriginal<typeof RequestsModule>()),
   checkPublicRateLimit,
@@ -109,5 +110,69 @@ describe("GET /badge/[projectId]/[file]", () => {
     const svg = await response.text();
     expect(svg).toContain("Temporarily unavailable");
     expect(svg).not.toContain("10.0.0.1");
+  });
+});
+
+describe("GET /badge/[projectId]/achievement-[id].svg (#413)", () => {
+  const DEPLOYMENTS: PublishedAchievement = {
+    achievementId: "vercel.deployments.10",
+    provider: "vercel",
+    providerName: "Vercel",
+    publicTitle: "10 Vercel deployments recorded",
+    earnedAt: AT,
+    earnedPrecision: "instant",
+    evidence: "crossed",
+    threshold: 10,
+    publishedAt: AT,
+  };
+
+  it("serves the published achievement's public title under the provider's name, with a metric badge's headers", async () => {
+    loadPublishedAchievement.mockResolvedValue(DEPLOYMENTS);
+    const response = await get(PROJECT_ID, "achievement-vercel.deployments.10.svg");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/svg+xml; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60, s-maxage=60");
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    const svg = await response.text();
+    expect(svg).toContain(">Vercel</text>");
+    expect(svg).toContain(">10 Vercel deployments recorded</text>");
+    expect(loadPublishedAchievement).toHaveBeenCalledWith(PROJECT_ID, "vercel.deployments.10");
+    expect(loadPublishedMetric).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an unpublished or unknown achievement", PROJECT_ID, "achievement-vercel.deployments.10.svg", true],
+    ["a malformed project id", "not-a-uuid", "achievement-vercel.deployments.10.svg", false],
+    ["a malformed achievement id", PROJECT_ID, "achievement-Vercel deployments.svg", false],
+    ["the card's extension", PROJECT_ID, "achievement-vercel.deployments.10.png", false],
+  ])("answers %s with the same cached Unpublished badge", async (_title, projectId, file, reachesDatabase) => {
+    loadPublishedAchievement.mockResolvedValue(null);
+    const response = await get(projectId, file);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60, s-maxage=60");
+    expect(await response.text()).toContain(">Unpublished</text>");
+    expect(loadPublishedAchievement).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
+    expect(countViewAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it("answers 429 over the rate limit before reading the achievement", async () => {
+    checkPublicRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 9 });
+    const response = await get(PROJECT_ID, "achievement-vercel.deployments.10.svg");
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(loadPublishedAchievement).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 with an uncached badge when the read fails", async () => {
+    loadPublishedAchievement.mockRejectedValue(new Error("connection refused at 10.0.0.1"));
+    const response = await get(PROJECT_ID, "achievement-vercel.deployments.10.svg");
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).not.toContain("10.0.0.1");
   });
 });

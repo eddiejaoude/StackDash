@@ -1,31 +1,34 @@
 import { formatPercent } from "@/lib/format";
 
-import type { PublishedEngineMetric } from "./published";
-import { badgeAltText, shareableMetric } from "./share";
+import type { PublishedAchievement, PublishedEngineMetric } from "./published";
+import { achievementBadgeAltText, achievementEarnedText, badgeAltText, shareableMetric } from "./share";
 
 /*
- * The SVG badge of a published metric (#149), in the two-part shields style a README expects:
- * the metric's label on the left, its value and provenance on the right. Pure, so it is tested
- * without a server, and the route only adds headers.
+ * The SVG badge of a published metric (#149) or a published achievement (#413), in the two-part
+ * shields style a README expects: the metric's label and its value and provenance, or the
+ * provider's name and the achievement's public title. Pure, so it is tested without a server, and
+ * the route only adds headers.
  *
  * The SVG is safe to embed anywhere: text only, every string XML-escaped, no script, no link, no
  * external reference, and `role="img"` with a `<title>` so assistive tech reads one sentence.
  */
 
-export type BadgeTone = "verified" | "estimated" | "simulated" | "neutral";
+export type BadgeTone = "verified" | "estimated" | "simulated" | "neutral" | "achievement";
 
 export type BadgeContent = Readonly<{ label: string; message: string; tone: BadgeTone; title: string }>;
 
 const NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 // Fills chosen for at least 4.5:1 contrast with the white text, so the badge reads on any README
-// background. Never color alone: the message says verified, estimated, or simulated in words.
+// background. Never color alone: the message says verified, estimated, or simulated in words, and
+// an achievement's says its title.
 const LABEL_FILL = "#3f3f46";
 const TONE_FILLS: Record<BadgeTone, string> = {
   verified: "#15803d",
   estimated: "#1d4ed8",
   simulated: "#a16207",
   neutral: "#52525b",
+  achievement: "#6d28d9",
 };
 
 const UNPUBLISHED: BadgeContent = {
@@ -46,7 +49,7 @@ export const UNAVAILABLE_BADGE: BadgeContent = {
   label: "DevMacro",
   message: "Temporarily unavailable",
   tone: "neutral",
-  title: "DevMacro could not read this metric. Try again in a moment.",
+  title: "DevMacro could not read this badge. Try again in a moment.",
 };
 
 /** What the badge of `metric` says; null is a metric that is not published (or never existed). */
@@ -62,6 +65,21 @@ export function badgeContent(metric: PublishedEngineMetric | null): BadgeContent
   const shown = value.atLeast ? `${number}+` : number;
   const tone: BadgeTone = value.simulated ? "simulated" : metric.provenance;
   return { label: metric.label, message: `${shown} ${tone}`, tone, title };
+}
+
+/**
+ * What the badge of a published achievement says: the provider's name, then the public title,
+ * never the private one. Null (unknown, not earned, not published, or a malformed id) is the same
+ * neutral Unpublished badge a metric gets, titled for an achievement.
+ */
+export function achievementBadgeContent(achievement: PublishedAchievement | null): BadgeContent {
+  if (achievement === null) return { ...UNPUBLISHED, title: "This achievement is not published on DevMacro." };
+  return {
+    label: achievement.providerName,
+    message: achievement.publicTitle,
+    tone: "achievement",
+    title: `${achievementBadgeAltText(achievement)} ${achievementEarnedText(achievement)}.`,
+  };
 }
 
 // Approximate advance widths of Verdana at 11px, the shields font. `textLength` below fits the

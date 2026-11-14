@@ -1,9 +1,9 @@
 import { isValidElement, type CSSProperties, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { MetricCard, trendPath, YearSlideCard } from "./card-image";
+import { AchievementCard, MetricCard, trendPath, YearSlideCard } from "./card-image";
 import { MemoryMetricStore } from "./memory-store";
-import type { PublishedMetricCard } from "./published";
+import type { PublishedAchievement, PublishedMetricCard } from "./published";
 import { computeYearReview, yearSlides } from "./yearly";
 
 describe("trendPath", () => {
@@ -111,6 +111,34 @@ describe("MetricCard", () => {
     expect(without).toContain("GitHub stars");
     expect(without).not.toContain("Acme web");
     expect(named.filter((text) => text !== "Acme web")).toEqual(without);
+  });
+});
+
+describe("AchievementCard (#413)", () => {
+  const achievement: PublishedAchievement = {
+    achievementId: "posthog.signups.100",
+    provider: "posthog",
+    providerName: "PostHog",
+    publicTitle: "100 PostHog signups recorded",
+    earnedAt: new Date("2026-11-04T00:00:00Z"),
+    earnedPrecision: "day",
+    evidence: "crossed",
+    threshold: 100,
+    publishedAt: AT,
+  };
+
+  it("draws the project, provider, public title, and earned day, every word at 4.5:1 contrast or more", () => {
+    const drawn = drawnText(AchievementCard({ achievement, projectName: "Acme web" }));
+    expect(drawn.map((entry) => entry.text)).toEqual(
+      expect.arrayContaining(["Acme web", "PostHog achievement", "100 PostHog signups recorded", "Earned 2026-11-04", "Achievement earned"]),
+    );
+    for (const entry of drawn) expect(contrastRatio(entry.color, entry.background)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("draws no project name while the project page is not public (boundary: null)", () => {
+    const without = drawnText(AchievementCard({ achievement, projectName: null })).map((entry) => entry.text);
+    expect(without).toContain("100 PostHog signups recorded");
+    expect(without).not.toContain("Acme web");
   });
 });
 

@@ -5,21 +5,25 @@ import { connection } from "next/server";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ProviderMark } from "@/components/ui/provider-mark";
+import { AchievementShareDialog } from "@/components/public-metrics/achievement-share-dialog";
 import { HistoryChart } from "@/components/public-metrics/history-chart";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteNav } from "@/components/site-nav";
+import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { loadPublicProjectPage } from "@/lib/data/project-pages";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatUtcDate } from "@/lib/format";
 import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
-import { HISTORY_DAYS } from "@/lib/public-metrics/history";
+import { HISTORY_DAYS, milestonesBesideAchievements } from "@/lib/public-metrics/history";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
+  loadPublishedAchievements,
   loadPublishedProjectHistory,
+  type PublishedAchievement,
   type PublishedEngineMetric,
   type PublishedMetric,
   type PublishedSelfReportedMetric,
 } from "@/lib/public-metrics/published";
-import { CARD_SIZE, cardPath } from "@/lib/public-metrics/share";
+import { achievementEarnedText, CARD_SIZE, cardPath, type ShareProjectPage } from "@/lib/public-metrics/share";
 import { site } from "@/lib/site";
 import { socialMetadata } from "@/lib/site-metadata";
 
@@ -28,7 +32,9 @@ import { socialMetadata } from "@/lib/site-metadata";
  * rewrites that address here, sends a slug address to the handle address while the workspace has a
  * handle (#258), and refuses this path when it is asked for directly). It shows only what the
  * metric engine publishes for the project: the published values, their history, the milestones
- * those values reveal, and the providers behind them as icons. No account names, no amounts.
+ * those values reveal, and the providers behind them as icons; and the achievements the project
+ * published (#413), each with its share dialog. No account names, no amounts. A milestone that a
+ * published achievement already states is left out, so no fact is listed twice.
  *
  * The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so it awaits
  * `connection()` before anything renders and allows an empty static shell (#125). That shell is
@@ -89,7 +95,14 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
   const { workspace, slug } = await params;
   const page = await loadPublicProjectPage(workspace, slug);
   if (page === null) notFound();
-  const history = await loadPublishedProjectHistory(page.published);
+  const projectPage: ShareProjectPage = { path: projectPagePath(page.workspace, page.pageSlug), projectName: page.projectName };
+  const [history, achievements, origin] = await Promise.all([
+    loadPublishedProjectHistory(page.published),
+    loadPublishedAchievements(page.published.projectId),
+    // Share links use the public origin, as the in-app share dialogs build theirs.
+    requestPublicOrigin(),
+  ]);
+  const milestones = milestonesBesideAchievements(history.milestones, achievements);
 
   const engine = page.published.metrics.filter(isEngine);
   const selfReported = page.published.metrics.filter((metric): metric is PublishedSelfReportedMetric => metric.kind === "self_reported");
@@ -144,6 +157,29 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
           </ul>
         </section>
 
+        {achievements.length === 0 ? null : (
+          <section aria-labelledby="achievements-title" className="mt-12">
+            <h2 id="achievements-title" className="text-lg font-semibold">
+              Achievements
+            </h2>
+            <p className="mt-2 text-sm text-muted">
+              Earned from what this project&apos;s providers report, and published by the project. Once earned, an achievement
+              stays earned.
+            </p>
+            <ul className="mt-4 space-y-3">
+              {achievements.map((achievement) => (
+                <AchievementItem
+                  key={achievement.achievementId}
+                  achievement={achievement}
+                  projectId={page.published.projectId}
+                  origin={origin}
+                  projectPage={projectPage}
+                />
+              ))}
+            </ul>
+          </section>
+        )}
+
         {history.histories.length === 0 ? null : (
           <section aria-labelledby="history-title" className="mt-12">
             <h2 id="history-title" className="text-lg font-semibold">
@@ -167,11 +203,11 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
           <h2 id="milestones-title" className="text-lg font-semibold">
             Milestones
           </h2>
-          {history.milestones.length === 0 ? (
+          {milestones.length === 0 ? (
             <p className="mt-2 text-sm text-muted">No milestones yet in what this project publishes.</p>
           ) : (
             <ol className="mt-4 space-y-3 border-l border-line pl-5">
-              {history.milestones.map((milestone) => (
+              {milestones.map((milestone) => (
                 <li key={milestone.id} className="text-sm">
                   <span className="font-medium">{milestone.title}</span>
                   <span className="text-muted">
@@ -229,6 +265,44 @@ function EngineMetricCard({ metric }: { metric: PublishedEngineMetric }) {
           How it is counted<span className="sr-only"> for {metric.label}</span>
         </Link>
       </p>
+    </li>
+  );
+}
+
+function AchievementItem({
+  achievement,
+  projectId,
+  origin,
+  projectPage,
+}: {
+  achievement: PublishedAchievement;
+  projectId: string;
+  origin: string;
+  projectPage: ShareProjectPage;
+}) {
+  // A daily total has a day and no time, so its machine-readable date is the day alone.
+  const dateTime = achievement.earnedPrecision === "day" ? formatUtcDate(achievement.earnedAt) : achievement.earnedAt.toISOString();
+  return (
+    <li className="flex flex-col gap-3 rounded-xl border border-line bg-panel p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <ProviderMark provider={achievement.provider} size="md" />
+        <div className="min-w-0">
+          <h3 className="font-medium break-words">{achievement.publicTitle}</h3>
+          <p className="mt-1 text-sm text-muted">
+            {achievement.providerName} achievement. <time dateTime={dateTime}>{achievementEarnedText(achievement)}</time>.
+          </p>
+        </div>
+      </div>
+      <div className="shrink-0">
+        <AchievementShareDialog
+          projectId={projectId}
+          achievementId={achievement.achievementId}
+          publicTitle={achievement.publicTitle}
+          providerName={achievement.providerName}
+          siteOrigin={origin}
+          projectPage={projectPage}
+        />
+      </div>
     </li>
   );
 }

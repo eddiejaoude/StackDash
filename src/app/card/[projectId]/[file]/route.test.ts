@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type * as CardImageModule from "@/lib/public-metrics/card-image";
 import type { PublicMetricId } from "@/lib/public-metrics/definitions";
-import type { PublishedMetricCard } from "@/lib/public-metrics/published";
+import type { PublishedAchievement, PublishedMetricCard } from "@/lib/public-metrics/published";
 import type { ShareProjectPage } from "@/lib/public-metrics/share";
 import type * as RequestsModule from "@/lib/public-metrics/requests";
 import type { RateLimitDecision, ShareSurface } from "@/lib/public-metrics/requests";
@@ -11,16 +11,18 @@ import type { RateLimitDecision, ShareSurface } from "@/lib/public-metrics/reque
 import { GET } from "./route";
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
-const { loadPublishedMetricCard, loadPublicPageOfProject, checkPublicRateLimit, countViewAfterResponse, cardImageResponse } = vi.hoisted(() => ({
-  loadPublishedMetricCard:
-    vi.fn<(projectId: string, metricId: PublicMetricId, now: Date, trendDays: number) => Promise<PublishedMetricCard | null>>(),
-  loadPublicPageOfProject: vi.fn<(projectId: string) => Promise<ShareProjectPage | null>>(),
-  checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
-  countViewAfterResponse: vi.fn<(projectId: string, metricId: PublicMetricId, surface: ShareSurface) => void>(),
-  cardImageResponse: vi.fn<(element: ReactNode, init: { status?: number; headers: Record<string, string> }) => Response>(),
-}));
+const { loadPublishedMetricCard, loadPublishedAchievement, loadPublicPageOfProject, checkPublicRateLimit, countViewAfterResponse, cardImageResponse } =
+  vi.hoisted(() => ({
+    loadPublishedMetricCard:
+      vi.fn<(projectId: string, metricId: PublicMetricId, now: Date, trendDays: number) => Promise<PublishedMetricCard | null>>(),
+    loadPublishedAchievement: vi.fn<(projectId: string, achievementId: string) => Promise<PublishedAchievement | null>>(),
+    loadPublicPageOfProject: vi.fn<(projectId: string) => Promise<ShareProjectPage | null>>(),
+    checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
+    countViewAfterResponse: vi.fn<(projectId: string, metricId: PublicMetricId, surface: ShareSurface) => void>(),
+    cardImageResponse: vi.fn<(element: ReactNode, init: { status?: number; headers: Record<string, string> }) => Response>(),
+  }));
 
-vi.mock("@/lib/public-metrics/published", () => ({ loadPublishedMetricCard }));
+vi.mock("@/lib/public-metrics/published", () => ({ loadPublishedMetricCard, loadPublishedAchievement }));
 vi.mock("@/lib/data/project-pages", () => ({ loadPublicPageOfProject }));
 vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
   ...(await importOriginal<typeof RequestsModule>()),
@@ -157,6 +159,71 @@ describe("GET /card/[projectId]/[file]", () => {
     loadPublishedMetricCard.mockResolvedValue(CARD);
     loadPublicPageOfProject.mockRejectedValue(new Error("timeout"));
     await get(PROJECT_ID, "github-stars.png");
+
+    const { props, status, headers } = rendered();
+    expect(props.title).toBe("Temporarily unavailable");
+    expect(status).toBe(503);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+});
+
+describe("GET /card/[projectId]/achievement-[id].png (#413)", () => {
+  const DEPLOYMENTS: PublishedAchievement = {
+    achievementId: "vercel.deployments.10",
+    provider: "vercel",
+    providerName: "Vercel",
+    publicTitle: "10 Vercel deployments recorded",
+    earnedAt: AT,
+    earnedPrecision: "instant",
+    evidence: "crossed",
+    threshold: 10,
+    publishedAt: AT,
+  };
+
+  it("renders the published achievement's card with a metric card's cache and headers", async () => {
+    loadPublishedAchievement.mockResolvedValue(DEPLOYMENTS);
+    await get(PROJECT_ID, "achievement-vercel.deployments.10.png");
+
+    expect(loadPublishedAchievement).toHaveBeenCalledWith(PROJECT_ID, "vercel.deployments.10");
+    const { card, props, status, headers } = rendered();
+    expect(card).toBe("AchievementCard");
+    expect(props.achievement).toBe(DEPLOYMENTS);
+    expect(props.projectName).toBeNull();
+    expect(status).toBe(200);
+    expect(headers).toEqual({ "Cross-Origin-Resource-Policy": "cross-origin", "Cache-Control": "public, max-age=60, s-maxage=60" });
+    expect(loadPublishedMetricCard).not.toHaveBeenCalled();
+  });
+
+  it("names the project while its page is public", async () => {
+    loadPublishedAchievement.mockResolvedValue(DEPLOYMENTS);
+    loadPublicPageOfProject.mockResolvedValue({ path: "/@k3j4h5g6f7/acme-web", projectName: "Acme web" });
+    await get(PROJECT_ID, "achievement-vercel.deployments.10.png");
+
+    expect(rendered().props.projectName).toBe("Acme web");
+  });
+
+  it.each([
+    ["an unpublished or unknown achievement", PROJECT_ID, "achievement-vercel.deployments.10.png", true],
+    ["a malformed project id", "../etc", "achievement-vercel.deployments.10.png", false],
+    ["a malformed achievement id", PROJECT_ID, "achievement-../etc.png", false],
+    ["the badge's extension", PROJECT_ID, "achievement-vercel.deployments.10.svg", false],
+  ])("answers %s with a cached Unpublished card", async (_title, projectId, file, reachesDatabase) => {
+    loadPublishedAchievement.mockResolvedValue(null);
+    loadPublicPageOfProject.mockRejectedValue(new Error("timeout"));
+    await get(projectId, file);
+
+    const { card, props, status, headers } = rendered();
+    expect(card).toBe("NoticeCard");
+    expect(props.title).toBe("Unpublished");
+    expect(status).toBe(200);
+    expect(headers["Cache-Control"]).toBe("public, max-age=60, s-maxage=60");
+    expect(loadPublishedAchievement).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
+    expect(loadPublicPageOfProject).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 with an uncached card when the read fails", async () => {
+    loadPublishedAchievement.mockRejectedValue(new Error("timeout"));
+    await get(PROJECT_ID, "achievement-vercel.deployments.10.png");
 
     const { props, status, headers } = rendered();
     expect(props.title).toBe("Temporarily unavailable");

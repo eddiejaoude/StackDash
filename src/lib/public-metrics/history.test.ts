@@ -11,6 +11,7 @@ import {
   HISTORY_EVENT_ROWS,
   historyMoments,
   historySummary,
+  milestonesBesideAchievements,
   preloadHistoryStore,
   starMilestones,
   type HistoryStore,
@@ -301,6 +302,46 @@ describe("starMilestones", () => {
   it("marks only thresholds the rounding can show (boundary)", () => {
     expect(starMilestones(series([0, 1000]), 1000).map((milestone) => milestone.id)).toEqual(["github-stars-1000"]);
     expect(starMilestones(series([0, 1000]), 1).map((milestone) => milestone.id)).toEqual(["github-stars-100", "github-stars-1000"]);
+  });
+});
+
+describe("milestonesBesideAchievements (#413)", () => {
+  const FIRST_DEPLOY = new Date("2026-10-01T09:00:00Z");
+  const milestones = [
+    { id: "first-deployment", title: "First deployment recorded", at: FIRST_DEPLOY },
+    { id: "first-signup", title: "First signup recorded", at: new Date("2026-10-02T09:00:00Z") },
+    { id: "github-stars-1000", title: "Reached 1,000 GitHub stars", at: new Date("2026-10-10T12:00:00Z") },
+    { id: "github-stars-100000", title: "Reached 100,000 GitHub stars", at: new Date("2026-10-20T12:00:00Z") },
+  ];
+  const ids = (achievements: { achievementId: string; earnedAt: Date }[]) =>
+    milestonesBesideAchievements(milestones, achievements).map((milestone) => milestone.id);
+
+  it("keeps every milestone while no achievement is published", () => {
+    expect(ids([])).toEqual(["first-deployment", "first-signup", "github-stars-1000", "github-stars-100000"]);
+  });
+
+  it("leaves out a milestone a published achievement states, even when the achievement is dated from a finer reading", () => {
+    expect(
+      ids([
+        { achievementId: "supabase.signups.first", earnedAt: new Date("2026-10-02T09:00:00Z") },
+        { achievementId: "github.stars.1000", earnedAt: new Date("2026-10-09T18:30:00Z") },
+      ]),
+    ).toEqual(["first-deployment", "github-stars-100000"]);
+  });
+
+  it("leaves out the first deployment only when one provider's first deployment is the same event", () => {
+    expect(ids([{ achievementId: "railway.deployments.first", earnedAt: FIRST_DEPLOY }])).not.toContain("first-deployment");
+    // Boundary: another provider's later first deployment is a different fact, so both stay.
+    expect(ids([{ achievementId: "vercel.deployments.first", earnedAt: new Date("2026-10-05T09:00:00Z") }])).toContain("first-deployment");
+  });
+
+  it("keeps a milestone when the published achievement is another provider's or another threshold's", () => {
+    expect(
+      ids([
+        { achievementId: "posthog.signups.first", earnedAt: new Date("2026-10-02T09:00:00Z") },
+        { achievementId: "github.stars.100", earnedAt: new Date("2026-10-03T09:00:00Z") },
+      ]),
+    ).toEqual(["first-deployment", "first-signup", "github-stars-1000", "github-stars-100000"]);
   });
 });
 
