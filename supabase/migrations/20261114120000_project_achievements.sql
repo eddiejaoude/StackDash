@@ -45,7 +45,10 @@ create table public.project_achievements (
   evidence public.achievement_evidence not null,
   -- The threshold an 'at_least' achievement was recorded at, for "Recorded at least 1,000".
   threshold bigint constraint project_achievements_threshold_positive check (threshold is null or threshold > 0),
+  -- Earned from a provider simulator's made-up data (#131), so every surface says simulated.
+  simulated boolean not null default false,
   created_at timestamptz not null default now(),
+  constraint project_achievements_workspace_id_id_key unique (workspace_id, id),
   constraint project_achievements_project_fkey foreign key (workspace_id, project_id)
     references public.projects (workspace_id, id) on delete cascade,
   constraint project_achievements_project_achievement_key unique (project_id, achievement_id),
@@ -60,10 +63,12 @@ create table public.project_achievements (
 create index project_achievements_workspace_project_idx on public.project_achievements (workspace_id, project_id, earned_at);
 
 create table public.project_achievement_publications (
-  project_achievement_id uuid primary key references public.project_achievements (id) on delete cascade,
+  project_achievement_id uuid primary key,
   workspace_id uuid not null references public.workspaces (id) on delete cascade,
   published_at timestamptz not null default now(),
-  published_by uuid not null references auth.users (id) on delete cascade
+  published_by uuid not null references auth.users (id) on delete cascade,
+  constraint project_achievement_publications_achievement_fkey foreign key (workspace_id, project_achievement_id)
+    references public.project_achievements (workspace_id, id) on delete cascade
 );
 
 create index project_achievement_publications_workspace_idx on public.project_achievement_publications (workspace_id);
@@ -97,6 +102,8 @@ as $$
   select 'achievement:' || p_project_id::text || ':' || p_achievement_id;
 $$;
 
+revoke execute on function public.achievement_event_dedupe_key(uuid, text) from public, anon, authenticated;
+
 -- The timeline is private, so unpublishing keeps the event; deleting the achievement removes it.
 create function public.delete_achievement_event()
   returns trigger
@@ -122,9 +129,9 @@ create trigger project_achievements_delete_event
 -- Stores what one evaluation found for one project and writes one timeline event for each
 -- achievement it newly earned. p_achievements is a JSON array of objects with the keys
 -- achievement_id, provider, title, public_title, description, earned_at, earned_precision,
--- evidence, and threshold (null unless evidence is 'at_least'). Already earned achievements are
--- left exactly as they are. Returns the ids newly earned; none when the project is not in the
--- workspace.
+-- evidence, threshold (null unless evidence is 'at_least'), and simulated. Already earned
+-- achievements are left exactly as they are. Returns the ids newly earned; none when the project
+-- is not in the workspace.
 
 create function public.record_project_achievements(p_workspace_id uuid, p_project_id uuid, p_achievements jsonb)
   returns setof text
@@ -155,17 +162,18 @@ begin
       earned_at timestamptz,
       earned_precision public.achievement_date_precision,
       evidence public.achievement_evidence,
-      threshold bigint
+      threshold bigint,
+      simulated boolean
     )
   ),
   earned as (
     insert into public.project_achievements (
       workspace_id, project_id, provider, achievement_id, title, public_title, description,
-      earned_at, earned_precision, evidence, threshold
+      earned_at, earned_precision, evidence, threshold, simulated
     )
     select
       p_workspace_id, p_project_id, i.provider, i.achievement_id, btrim(i.title), btrim(i.public_title),
-      btrim(i.description), i.earned_at, i.earned_precision, i.evidence, i.threshold
+      btrim(i.description), i.earned_at, i.earned_precision, i.evidence, i.threshold, coalesce(i.simulated, false)
     from incoming i
     on conflict (project_id, achievement_id) do nothing
     returning achievement_id, title, description, earned_at
@@ -191,7 +199,9 @@ grant execute on function public.record_project_achievements(uuid, uuid, jsonb) 
 -- Owner or admin only, checked again here because the functions run as the service role
 -- (require_published_metrics_admin, 20261105023129_published_metrics.sql). Publish returns
 -- 'published', 'unchanged' (already published), or 'not_found' (the project has not earned it).
--- Unpublish returns 'unpublished', 'unchanged' (not published), or 'not_found'.
+-- Unpublish returns 'unpublished', 'unchanged' (not published), or 'not_found'. A change writes
+-- the devmacro.achievement_published or devmacro.achievement_unpublished audit event in the same
+-- transaction, as publishing a metric does; an unchanged call writes none.
 
 create function public.publish_achievement(
   p_workspace_id uuid,
@@ -207,10 +217,11 @@ create function public.publish_achievement(
 as $$
 declare
   v_id uuid;
+  v_public_title text;
 begin
   perform public.require_published_metrics_admin(p_workspace_id, p_actor_id);
 
-  select a.id into v_id
+  select a.id, a.public_title into v_id, v_public_title
   from public.project_achievements a
   where a.workspace_id = p_workspace_id and a.project_id = p_project_id and a.achievement_id = p_achievement_id;
   if not found then
@@ -220,7 +231,15 @@ begin
   insert into public.project_achievement_publications (project_achievement_id, workspace_id, published_by)
   values (v_id, p_workspace_id, p_actor_id)
   on conflict (project_achievement_id) do nothing;
-  return case when found then 'published' else 'unchanged' end;
+  if not found then
+    return 'unchanged';
+  end if;
+
+  perform public.record_publication_event(
+    p_workspace_id, 'devmacro.achievement_published', 'Published ' || v_public_title, null,
+    'achievement_published:' || gen_random_uuid()::text
+  );
+  return 'published';
 end;
 $$;
 
@@ -241,10 +260,11 @@ create function public.unpublish_achievement(
 as $$
 declare
   v_id uuid;
+  v_public_title text;
 begin
   perform public.require_published_metrics_admin(p_workspace_id, p_actor_id);
 
-  select a.id into v_id
+  select a.id, a.public_title into v_id, v_public_title
   from public.project_achievements a
   where a.workspace_id = p_workspace_id and a.project_id = p_project_id and a.achievement_id = p_achievement_id;
   if not found then
@@ -252,7 +272,15 @@ begin
   end if;
 
   delete from public.project_achievement_publications p where p.project_achievement_id = v_id;
-  return case when found then 'unpublished' else 'unchanged' end;
+  if not found then
+    return 'unchanged';
+  end if;
+
+  perform public.record_publication_event(
+    p_workspace_id, 'devmacro.achievement_unpublished', 'Unpublished ' || v_public_title, null,
+    'achievement_unpublished:' || gen_random_uuid()::text
+  );
+  return 'unpublished';
 end;
 $$;
 
@@ -271,6 +299,7 @@ create function public.public_published_achievements(p_project_id uuid)
     earned_precision public.achievement_date_precision,
     evidence public.achievement_evidence,
     threshold bigint,
+    simulated boolean,
     published_at timestamptz
   )
   language sql
@@ -278,7 +307,9 @@ create function public.public_published_achievements(p_project_id uuid)
   security definer
   set search_path = ''
 as $$
-  select a.achievement_id, a.provider, a.public_title, a.earned_at, a.earned_precision, a.evidence, a.threshold, p.published_at
+  select
+    a.achievement_id, a.provider, a.public_title, a.earned_at, a.earned_precision, a.evidence, a.threshold, a.simulated,
+    p.published_at
   from public.project_achievements a
   join public.project_achievement_publications p on p.project_achievement_id = a.id
   where a.project_id = p_project_id
@@ -287,3 +318,52 @@ $$;
 
 revoke execute on function public.public_published_achievements(uuid) from public, anon, authenticated;
 grant execute on function public.public_published_achievements(uuid) to service_role;
+
+-- ── unpublish_all_metrics, now including achievements ──────────────────────────
+-- "Unpublish everything" must leave nothing public, so it also deletes every achievement
+-- publication in the workspace, in the same transaction. Returns one row with how many metrics and
+-- how many achievements it took down, so the page can name both; the audit event names both too.
+-- The return type changes, so the function is dropped and created again with its grants.
+
+drop function public.unpublish_all_metrics(uuid, uuid);
+
+create function public.unpublish_all_metrics(p_workspace_id uuid, p_actor_id uuid)
+  returns table (metrics int, achievements int)
+  language plpgsql
+  volatile
+  security definer
+  set search_path = ''
+as $$
+declare
+  v_metrics int;
+  v_achievements int;
+begin
+  perform public.require_published_metrics_admin(p_workspace_id, p_actor_id);
+
+  update public.published_metrics pm
+  set revoked_at = now(), revoked_by = p_actor_id
+  where pm.workspace_id = p_workspace_id and pm.revoked_at is null;
+  get diagnostics v_metrics = row_count;
+
+  delete from public.project_achievement_publications p where p.workspace_id = p_workspace_id;
+  get diagnostics v_achievements = row_count;
+
+  if v_metrics + v_achievements > 0 then
+    perform public.record_publication_event(
+      p_workspace_id,
+      'devmacro.metrics_unpublished_all',
+      'Unpublished everything',
+      concat_ws(
+        ' and ',
+        case when v_metrics = 1 then '1 metric' when v_metrics > 1 then v_metrics::text || ' metrics' end,
+        case when v_achievements = 1 then '1 achievement' when v_achievements > 1 then v_achievements::text || ' achievements' end
+      ) || case when v_metrics + v_achievements = 1 then ' is no longer public.' else ' are no longer public.' end,
+      'metrics_unpublished_all:' || gen_random_uuid()::text
+    );
+  end if;
+  return query select v_metrics, v_achievements;
+end;
+$$;
+
+revoke execute on function public.unpublish_all_metrics(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.unpublish_all_metrics(uuid, uuid) to service_role;

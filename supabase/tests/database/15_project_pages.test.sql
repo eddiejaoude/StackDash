@@ -216,9 +216,9 @@ select is_empty($$ select page_slug from public.public_project_page_sitemap(0) $
 reset role;
 
 -- Unpublishing everything takes the page offline with it.
-select is(
-  public.unpublish_all_metrics('a9000002-0000-4000-8000-000000000001', 'a9000001-0000-4000-8000-000000000001'),
-  1,
+select results_eq(
+  $$ select * from public.unpublish_all_metrics('a9000002-0000-4000-8000-000000000001', 'a9000001-0000-4000-8000-000000000001') $$,
+  $$ values (1, 0) $$,
   'unpublish everything: revokes the page''s only publication');
 set local role service_role;
 select is_empty($$ select project_id from public.public_project_page('pagetestaa', 'acme-web') $$,

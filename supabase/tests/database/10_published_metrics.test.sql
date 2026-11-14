@@ -332,9 +332,9 @@ select throws_ok(
   $$ select public.unpublish_all_metrics('a8000002-0000-4000-8000-000000000001', 'a8000001-0000-4000-8000-000000000003') $$,
   '42501', null,
   'unpublish_all_metrics: a viewer cannot unpublish everything');
-select is(
-  public.unpublish_all_metrics('a8000002-0000-4000-8000-000000000001', 'a8000001-0000-4000-8000-000000000001'),
-  2,
+select results_eq(
+  $$ select * from public.unpublish_all_metrics('a8000002-0000-4000-8000-000000000001', 'a8000001-0000-4000-8000-000000000001') $$,
+  $$ values (2, 0) $$,
   'unpublish_all_metrics: revokes every live row of every project in the workspace');
 select is(
   (select count(*)::int from public.published_metrics where workspace_id = 'a8000002-0000-4000-8000-000000000001' and revoked_at is null),
@@ -346,9 +346,9 @@ select is(
      and title = 'Unpublished everything'),
   '2 metrics are no longer public.',
   'unpublish_all_metrics: one "Unpublished everything" event says how many');
-select is(
-  public.unpublish_all_metrics('a8000002-0000-4000-8000-000000000001', 'a8000001-0000-4000-8000-000000000001'),
-  0,
+select results_eq(
+  $$ select * from public.unpublish_all_metrics('a8000002-0000-4000-8000-000000000001', 'a8000001-0000-4000-8000-000000000001') $$,
+  $$ values (0, 0) $$,
   'unpublish_all_metrics: running it again revokes nothing');
 
 -- ---------------------------------------------------------------------------

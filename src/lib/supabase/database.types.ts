@@ -462,11 +462,11 @@ isOneToOne: false
                   }
                   Relationships: [
                     {
-      foreignKeyName: "project_achievement_publications_project_achievement_id_fkey"
-      columns: ["project_achievement_id"]
-isOneToOne: true
+      foreignKeyName: "project_achievement_publications_achievement_fkey"
+      columns: ["workspace_id","project_achievement_id"]
+isOneToOne: false
       referencedRelation: "project_achievements"
-      referencedColumns: ["id"]
+      referencedColumns: ["workspace_id","id"]
     },{
       foreignKeyName: "project_achievement_publications_workspace_id_fkey"
       columns: ["workspace_id"]
@@ -477,14 +477,14 @@ isOneToOne: false
                   ]
                 },"project_achievements": {
                   Row: {
-                    "achievement_id": string,"created_at": string,"description": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"id": string,"project_id": string,"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"threshold": number | null,"title": string,"workspace_id": string
+                    "achievement_id": string,"created_at": string,"description": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"id": string,"project_id": string,"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"simulated": boolean,"threshold": number | null,"title": string,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "achievement_id": string,"created_at"?: string,"description": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"id"?: string,"project_id": string,"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"threshold"?: number | null,"title": string,"workspace_id": string
+                    "achievement_id": string,"created_at"?: string,"description": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"id"?: string,"project_id": string,"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"simulated"?: boolean,"threshold"?: number | null,"title": string,"workspace_id": string
                   }
                   Update: {
-                    "achievement_id"?: string,"created_at"?: string,"description"?: string,"earned_at"?: string,"earned_precision"?: Database["public"]['Enums']["achievement_date_precision"],"evidence"?: Database["public"]['Enums']["achievement_evidence"],"id"?: string,"project_id"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"public_title"?: string,"threshold"?: number | null,"title"?: string,"workspace_id"?: string
+                    "achievement_id"?: string,"created_at"?: string,"description"?: string,"earned_at"?: string,"earned_precision"?: Database["public"]['Enums']["achievement_date_precision"],"evidence"?: Database["public"]['Enums']["achievement_evidence"],"id"?: string,"project_id"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"public_title"?: string,"simulated"?: boolean,"threshold"?: number | null,"title"?: string,"workspace_id"?: string
                   }
                   Relationships: [
                     {
@@ -932,7 +932,7 @@ isOneToOne: false
                            },
 "public_published_achievements":
 { Args: { "p_project_id": string }; Returns: {
-              "achievement_id": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"published_at": string,"threshold": number
+              "achievement_id": string,"earned_at": string,"earned_precision": Database["public"]['Enums']["achievement_date_precision"],"evidence": Database["public"]['Enums']["achievement_evidence"],"provider": Database["public"]['Enums']["provider_id"],"public_title": string,"published_at": string,"simulated": boolean,"threshold": number
             }[]
                            },
 "public_published_metrics":
@@ -1034,7 +1034,9 @@ isOneToOne: false
 { Args: { "p_achievement_id": string,"p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
 "unpublish_all_metrics":
-{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: number
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: {
+              "achievements": number,"metrics": number
+            }[]
                            },
 "unpublish_metric":
 { Args: { "p_actor_id": string,"p_published_metric_id": string,"p_title": string,"p_workspace_id": string }; Returns: string

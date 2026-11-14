@@ -8,7 +8,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(39);
+select plan(46);
 
 -- Users: an owner, an admin, and a viewer of workspace A, and the owner of workspace B.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
@@ -85,6 +85,11 @@ select ok(
   and has_function_privilege('service_role', 'public.unpublish_achievement(uuid, uuid, uuid, text)', 'execute')
   and has_function_privilege('service_role', 'public.public_published_achievements(uuid)', 'execute'),
   'achievement functions: the service role can call every one the server uses');
+
+select ok(
+  not has_function_privilege('anon', 'public.achievement_event_dedupe_key(uuid, text)', 'execute')
+  and not has_function_privilege('authenticated', 'public.achievement_event_dedupe_key(uuid, text)', 'execute'),
+  'achievement_event_dedupe_key: closed to anon and authenticated');
 
 -- ---------------------------------------------------------------------------
 -- Recording
@@ -312,6 +317,60 @@ select ok(
               where dedupe_key = 'achievement:a9000003-0000-4000-8000-000000000001:vercel.deployments.10'),
   'unpublish_achievement: the achievement and its private timeline event stay');
 
+select results_eq(
+  $$
+    select type_id, title from public.activity_events
+    where workspace_id = 'a9000002-0000-4000-8000-000000000001'
+      and type_id in ('devmacro.achievement_published', 'devmacro.achievement_unpublished')
+    order by type_id, title
+  $$,
+  $$ values ('devmacro.achievement_published'::text, 'Published 1,000 GitHub stars'::text),
+            ('devmacro.achievement_published'::text, 'Published 10 Vercel deployments recorded'::text),
+            ('devmacro.achievement_unpublished'::text, 'Unpublished 10 Vercel deployments recorded'::text) $$,
+  'publish_achievement, unpublish_achievement: each change writes one audit event, an unchanged call none');
+
+select throws_ok(
+  $$ insert into public.project_achievement_publications (project_achievement_id, workspace_id, published_by)
+     select a.id, 'b9000002-0000-4000-8000-000000000001', 'b9000001-0000-4000-8000-000000000001'
+     from public.project_achievements a where a.achievement_id = 'vercel.deployments.10' $$,
+  '23503', null,
+  'project_achievement_publications: a publication cannot claim another workspace than its achievement''s');
+
+-- An achievement earned from a provider simulator's data says so wherever it is public.
+select public.record_project_achievements(
+  'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000002',
+  '[{"achievement_id": "github.stars.10", "provider": "github", "title": "10 GitHub stars", "public_title": "10 GitHub stars",
+     "description": "d", "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant", "evidence": "crossed",
+     "threshold": null, "simulated": true}]'::jsonb);
+select public.publish_achievement('a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000002',
+  'a9000001-0000-4000-8000-000000000001', 'github.stars.10');
+
+select results_eq(
+  $$ select achievement_id, simulated from public.public_published_achievements('a9000003-0000-4000-8000-000000000002') $$,
+  $$ values ('github.stars.10'::text, true) $$,
+  'public_published_achievements: says when an achievement was earned from simulated data');
+
+-- "Unpublish everything" leaves no achievement public either.
+select results_eq(
+  $$ select * from public.unpublish_all_metrics('a9000002-0000-4000-8000-000000000001', 'a9000001-0000-4000-8000-000000000001') $$,
+  $$ values (0, 2) $$,
+  'unpublish_all_metrics: counts the metrics and the achievements it unpublished, apart');
+
+select is(
+  (select count(*)::int from public.project_achievement_publications where workspace_id = 'a9000002-0000-4000-8000-000000000001'),
+  0,
+  'unpublish_all_metrics: deletes every achievement publication in the workspace');
+
+select is(
+  (select body from public.activity_events
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metrics_unpublished_all'),
+  '2 achievements are no longer public.',
+  'unpublish_all_metrics: the audit event names what it took down');
+
+-- Published again by the admin, for the account deletion below.
+select public.publish_achievement('a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
+  'a9000001-0000-4000-8000-000000000002', 'github.stars.1000');
+
 -- ---------------------------------------------------------------------------
 -- Deletion
 -- ---------------------------------------------------------------------------
@@ -341,11 +400,13 @@ select is(
    where workspace_id = 'a9000002-0000-4000-8000-000000000001'),
   0,
   'project deletion: deletes their publications');
-select is(
-  (select count(*)::int from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.achievement_earned'),
-  0,
-  'project deletion: deletes their timeline events');
+select results_eq(
+  $$
+    select split_part(dedupe_key, ':', 2) from public.activity_events
+    where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.achievement_earned'
+  $$,
+  $$ values ('a9000003-0000-4000-8000-000000000002'::text) $$,
+  'project deletion: deletes its timeline events and leaves the other project''s');
 
 -- Deleting a workspace leaves nothing behind.
 select public.record_project_achievements(
