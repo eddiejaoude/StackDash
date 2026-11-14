@@ -2,9 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import { afterCursorFilter } from "@/lib/data/cursor";
 import { log } from "@/lib/log/logger";
-import type { Database } from "@/lib/supabase/database.types";
-import { readAllPages } from "@/lib/supabase/paging";
+import type { Database, Tables } from "@/lib/supabase/database.types";
+import { MAX_ROWS_PER_REQUEST, readAllPages, type PagedRows } from "@/lib/supabase/paging";
 
 import type { AchievementEvent, EarnedAchievement, MetricReading } from "./evaluate";
 
@@ -16,8 +18,9 @@ import type { AchievementEvent, EarnedAchievement, MetricReading } from "./evalu
 type Db = SupabaseClient<Database>;
 export type ProviderId = Database["public"]["Enums"]["provider_id"];
 
-// Bounds for the small lists: a project has a handful of accounts and at most a few hundred
-// achievements, a connection a few hundred accounts.
+// Bounds for the small lists: a workspace has a handful of connections of one provider, a project
+// a handful of accounts and at most a few hundred achievements, a connection a few hundred accounts.
+const CONNECTIONS_MAX_ROWS = 500;
 const ACCOUNTS_MAX_ROWS = 2_000;
 const EARNED_MAX_ROWS = 5_000;
 // Evidence is read oldest first, so a read cut at the bound still proves only what happened:
@@ -27,42 +30,96 @@ const EVENTS_MAX_ROWS = 50_000;
 const READINGS_MAX_ROWS = 50_000;
 
 /**
- * The project's accounts per provider. Only included accounts count, as on the dashboard and in
- * alerts: an account the member stopped syncing no longer speaks for the project.
+ * Every row of one query in its keyset order, read in pages of at most MAX_ROWS_PER_REQUEST rows,
+ * up to `maxRows`. `readPage(after, limit)` returns at most `limit` rows that come after the row
+ * `after` (from the start when null), ordered by a key that ends with a unique column. Unlike an
+ * offset, each page starts where the last one ended, so the database never rescans the rows before
+ * it, and a row written or deleted between two requests cannot shift a later page.
  */
-export async function loadProjectAccounts(db: Db, workspaceId: string, projectId: string): Promise<Map<ProviderId, string[]>> {
-  const { rows: accounts, complete } = await readAllPages(async (from, to) => {
+async function readAllAfter<Row>(
+  readPage: (after: Row | null, limit: number) => PromiseLike<readonly Row[]>,
+  maxRows: number,
+): Promise<PagedRows<Row>> {
+  const rows: Row[] = [];
+  let after: Row | null = null;
+  while (rows.length < maxRows) {
+    const limit = Math.min(MAX_ROWS_PER_REQUEST, maxRows - rows.length);
+    const page = await readPage(after, limit);
+    rows.push(...page);
+    const last = page.at(-1);
+    if (page.length < limit || last === undefined) return { rows, complete: true };
+    after = last;
+  }
+  return { rows, complete: false };
+}
+
+/** The connection's provider, or null when the connection is gone from the workspace. */
+export async function loadConnectionProvider(db: Db, workspaceId: string, connectionId: string): Promise<ProviderId | null> {
+  const { data, error } = await db
+    .from("connections")
+    .select("provider")
+    .eq("workspace_id", workspaceId)
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (error) throw new Error("Failed to load the synced connection for achievements", { cause: error });
+  return data?.provider ?? null;
+}
+
+/**
+ * The workspace's connections of one provider, each mapped to whether the provider simulator made
+ * it (`isSimulatedConnection`, from its granted scopes), so an achievement earned from made-up data
+ * is recorded as simulated.
+ */
+export async function loadProviderConnections(db: Db, workspaceId: string, provider: ProviderId): Promise<Map<string, boolean>> {
+  const { rows, complete } = await readAllPages(async (from, to) => {
+    const { data, error } = await db
+      .from("connections")
+      .select("id, granted_scopes")
+      .eq("workspace_id", workspaceId)
+      .eq("provider", provider)
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw new Error("Failed to load the provider's connections for achievements", { cause: error });
+    return data;
+  }, CONNECTIONS_MAX_ROWS);
+  if (!complete) log.warn("achievements.connections_truncated", { workspaceId, provider, rows: rows.length });
+  return new Map(rows.map((connection) => [connection.id, isSimulatedConnection(connection)]));
+}
+
+export type ProjectAccounts = Readonly<{
+  accountIds: string[];
+  // True when any of the accounts is on a simulated connection.
+  simulated: boolean;
+}>;
+
+/**
+ * The project's accounts on `connections` (one provider's, from loadProviderConnections). Only
+ * included accounts count, as on the dashboard and in alerts: an account the member stopped
+ * syncing no longer speaks for the project.
+ */
+export async function loadProjectAccounts(
+  db: Db,
+  input: Readonly<{ workspaceId: string; projectId: string; connections: ReadonlyMap<string, boolean> }>,
+): Promise<ProjectAccounts> {
+  if (input.connections.size === 0) return { accountIds: [], simulated: false };
+  const { rows, complete } = await readAllPages(async (from, to) => {
     const { data, error } = await db
       .from("external_accounts")
       .select("id, connection_id")
-      .eq("workspace_id", workspaceId)
-      .eq("project_id", projectId)
+      .eq("workspace_id", input.workspaceId)
+      .eq("project_id", input.projectId)
       .eq("included", true)
+      .in("connection_id", [...input.connections.keys()])
       .order("id", { ascending: true })
       .range(from, to);
     if (error) throw new Error("Failed to load the project's accounts for achievements", { cause: error });
     return data;
   }, ACCOUNTS_MAX_ROWS);
-  if (!complete) log.warn("achievements.accounts_truncated", { workspaceId, projectId, rows: accounts.length });
-  if (accounts.length === 0) return new Map();
-
-  const connectionIds = [...new Set(accounts.map((account) => account.connection_id))];
-  const { data: connections, error } = await db
-    .from("connections")
-    .select("id, provider")
-    .eq("workspace_id", workspaceId)
-    .in("id", connectionIds)
-    .order("id", { ascending: true });
-  if (error) throw new Error("Failed to load the project's connections for achievements", { cause: error });
-  const providerOf = new Map(connections.map((connection) => [connection.id, connection.provider]));
-
-  const byProvider = new Map<ProviderId, string[]>();
-  for (const account of accounts) {
-    const provider = providerOf.get(account.connection_id);
-    if (provider === undefined) continue;
-    byProvider.set(provider, [...(byProvider.get(provider) ?? []), account.id]);
-  }
-  return byProvider;
+  if (!complete) log.warn("achievements.accounts_truncated", { workspaceId: input.workspaceId, projectId: input.projectId, rows: rows.length });
+  return {
+    accountIds: rows.map((row) => row.id),
+    simulated: rows.some((row) => input.connections.get(row.connection_id) === true),
+  };
 }
 
 /** The projects a connection's included accounts are assigned to. */
@@ -106,22 +163,27 @@ export async function loadEarnedIds(db: Db, workspaceId: string, projectId: stri
  * Every retained event of `typeIds` from the accounts, up to `now`, oldest first (occurred_at,
  * then id). All of them, not a rolling window, so a 10th event stays provable after it leaves any
  * 30 day metric.
+ *
+ * Index: activity_events_workspace_timeline_idx (workspace_id, occurred_at desc, id desc), scanned
+ * backward, so it yields rows in the (occurred_at, id) order a page needs and the scan stops after
+ * `limit` matches; the account, type, and keyset filters run on the rows it returns. Measured for
+ * #413 with 1M events across 31 workspaces: 0.35 ms a page.
  */
 export async function loadEvents(
   db: Db,
   input: Readonly<{ workspaceId: string; accountIds: readonly string[]; typeIds: readonly string[]; now: Date }>,
 ): Promise<AchievementEvent[]> {
-  const { rows, complete } = await readAllPages(async (from, to) => {
-    const { data, error } = await db
+  type EventRow = Pick<Tables<"activity_events">, "id" | "type_id" | "occurred_at">;
+  const { rows, complete } = await readAllAfter<EventRow>(async (after, limit) => {
+    let query = db
       .from("activity_events")
       .select("id, type_id, occurred_at")
       .eq("workspace_id", input.workspaceId)
       .in("external_account_id", [...input.accountIds])
       .in("type_id", [...input.typeIds])
-      .lte("occurred_at", input.now.toISOString())
-      .order("occurred_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to);
+      .lte("occurred_at", input.now.toISOString());
+    if (after !== null) query = query.or(afterCursorFilter("occurred_at", [after.occurred_at, after.id]));
+    const { data, error } = await query.order("occurred_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
     if (error) throw new Error("Failed to load events for achievements", { cause: error });
     return data;
   }, EVENTS_MAX_ROWS);
@@ -129,22 +191,32 @@ export async function loadEvents(
   return rows.map((row) => ({ typeId: row.type_id, occurredAt: new Date(row.occurred_at) }));
 }
 
-/** Every retained reading of `metricKeys` from the accounts, oldest day first. */
+/**
+ * Every retained reading of `metricKeys` from the accounts, oldest day first (snapshot_date, then
+ * id), so a read cut at the bound drops the newest days of every account rather than whole accounts.
+ *
+ * Index: usage_snapshots_account_metric_date_key (external_account_id, metric_key, snapshot_date),
+ * one range per account and metric. Its order is per account and metric, not across them, so the
+ * keyset filter and the sort by (snapshot_date, id) run on the rows it returns.
+ */
 export async function loadReadings(
   db: Db,
   input: Readonly<{ workspaceId: string; accountIds: readonly string[]; metricKeys: readonly string[] }>,
 ): Promise<MetricReading[]> {
-  const { rows, complete } = await readAllPages(async (from, to) => {
-    const { data, error } = await db
+  type ReadingRow = Pick<
+    Tables<"usage_snapshots">,
+    "id" | "external_account_id" | "metric_key" | "snapshot_date" | "value" | "retrieved_at" | "point_at" | "period_start"
+  >;
+  const { rows, complete } = await readAllAfter<ReadingRow>(async (after, limit) => {
+    let query = db
       .from("usage_snapshots")
       .select("id, external_account_id, metric_key, snapshot_date, value, retrieved_at, point_at, period_start")
       .eq("workspace_id", input.workspaceId)
       .in("external_account_id", [...input.accountIds])
       .in("metric_key", [...input.metricKeys])
-      .not("value", "is", null)
-      .order("snapshot_date", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to);
+      .not("value", "is", null);
+    if (after !== null) query = query.or(afterCursorFilter("snapshot_date", [after.snapshot_date, after.id]));
+    const { data, error } = await query.order("snapshot_date", { ascending: true }).order("id", { ascending: true }).limit(limit);
     if (error) throw new Error("Failed to load metric readings for achievements", { cause: error });
     return data;
   }, READINGS_MAX_ROWS);
@@ -166,25 +238,29 @@ export async function loadReadings(
   );
 }
 
-export type ProviderEarned = Readonly<{ provider: ProviderId; achievement: EarnedAchievement }>;
-
 /**
- * Records what one evaluation proved for one project through record_project_achievements(), which
- * inserts on conflict do nothing and writes one timeline event per newly earned achievement, so a
- * repeated or concurrent evaluation changes nothing. Returns the ids newly earned.
+ * Records what one evaluation of one provider proved for one project through
+ * record_project_achievements(), which inserts on conflict do nothing and writes one timeline
+ * event per newly earned achievement, so a repeated or concurrent evaluation changes nothing.
+ * Returns the ids newly earned.
  */
 export async function recordAchievements(
   db: Db,
-  workspaceId: string,
-  projectId: string,
-  earned: readonly ProviderEarned[],
+  input: Readonly<{
+    workspaceId: string;
+    projectId: string;
+    provider: ProviderId;
+    // True when any account the evidence came from is on a simulated connection.
+    simulated: boolean;
+    achievements: readonly EarnedAchievement[];
+  }>,
 ): Promise<string[]> {
   const { data, error } = await db.rpc("record_project_achievements", {
-    p_workspace_id: workspaceId,
-    p_project_id: projectId,
-    p_achievements: earned.map(({ provider, achievement }) => ({
+    p_workspace_id: input.workspaceId,
+    p_project_id: input.projectId,
+    p_achievements: input.achievements.map((achievement) => ({
       achievement_id: achievement.achievementId,
-      provider,
+      provider: input.provider,
       title: achievement.title,
       public_title: achievement.publicTitle,
       description: achievement.description,
@@ -192,6 +268,7 @@ export async function recordAchievements(
       earned_precision: achievement.earnedPrecision,
       evidence: achievement.evidence,
       threshold: achievement.threshold,
+      simulated: input.simulated,
     })),
   });
   if (error) throw new Error("Failed to record achievements", { cause: error });

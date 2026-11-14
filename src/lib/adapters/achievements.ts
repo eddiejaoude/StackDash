@@ -8,9 +8,11 @@ import { AdapterScopedKeySchema } from "./types";
  * (`src/lib/achievements/evaluate.ts`) reads only stored evidence: an adapter's events in
  * `activity_events` and its metric readings in `usage_snapshots`.
  *
- * Every day and hour here is a calendar day or a clock hour in Europe/London
+ * Every day and hour of an event rule here is a calendar day or a clock hour in Europe/London
  * (`TIMELINE_TIME_ZONE`, the activity heatmap's zone), never a rolling window: "10 deployments in
- * one day" means 10 on one date. Decided by Eddie on #413, 2026-11-14.
+ * one day" means 10 on one date. Decided by Eddie on #413, 2026-11-14. Metric readings are the
+ * exception: `usage_snapshots` stores one reading per account, metric, and UTC day, so a metric
+ * rule's day is that stored UTC day.
  */
 
 /** Longest title a card and an SVG badge can hold on one line without truncation. */
@@ -74,9 +76,11 @@ export const AchievementRuleSchema = z.discriminatedUnion("kind", [
     value: PositiveCount,
     sum: z.enum(["cumulative", "single_day"]),
   }),
-  // `metricKey` rising by at least `gain` within one London calendar day: the day's last reading
-  // minus the previous day's last reading. Needs both readings stored. Dated to the first reading
-  // that showed the gain.
+  // `metricKey` rising by at least `gain` between consecutive stored daily readings: per account,
+  // the reading of snapshot day D minus the reading of D-1, summed over the accounts read on both
+  // days. Snapshot days are UTC days, not London calendar days: one row per day can prove nothing
+  // finer, and keying by the London date of a late summer row (23:xx UTC) would compare it with
+  // the row two days back. A missed day never counts. Dated to day D's reading.
   z.strictObject({ kind: z.literal("metric_daily_gain"), metricKey: AdapterScopedKeySchema, gain: PositiveCount }),
 ]);
 

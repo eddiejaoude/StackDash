@@ -177,7 +177,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 DevMacro evaluates these for each project the GitHub accounts are assigned to, from the GitHub data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
-The star thresholds read the stored `github.stars.total` snapshots. When the first snapshot DevMacro stored is already at or above a threshold, the achievement says "Recorded at least" that many, because DevMacro did not see the crossing. Trending compares the last snapshot of a London day with the last of the day before. The fork achievements count `github.forks.new` events, and Steady glow and Weekend stargazers read `github.stars.daily`, which is emitted only for a repository whose star count rose over a UTC day (a day with no net gain has no event).
+The star thresholds read the stored `github.stars.total` snapshots. When the first snapshot DevMacro stored is already at or above a threshold, the achievement says "Recorded at least" that many, because DevMacro did not see the crossing. Trending compares each GitHub account's stored snapshot of one UTC day with its snapshot of the day before, and adds those rises across the accounts read on both days. DevMacro stores one snapshot per UTC day, so that is the finest day it can prove: the London day in winter, 01:00 to 01:00 London time in summer. A missed day never counts. The fork achievements count `github.forks.new` events, and Steady glow and Weekend stargazers read `github.stars.daily`, which is emitted only for a repository whose star count rose over a UTC day (a day with no net gain has no event).
 
 `github.stars.daily` is dated to the end of its UTC day: 00:00 UTC the next day, which is always the next London date. Saturday's and Sunday's stars therefore arrive as Sunday and Monday events, so Weekend stargazers looks for a two-day run that starts on a Sunday. Steady glow needs no such change: every day moves by one, so 7 consecutive days stay consecutive.
 
@@ -189,7 +189,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 | `github.stars.10000` | 10,000 GitHub stars | Earned when DevMacro records 10,000 or more stars across the connected GitHub repositories. |
 | `github.stars.777` | Lucky sevens: 777 GitHub stars | Earned when DevMacro records 777 or more stars across the connected GitHub repositories. |
 | `github.stars.1024` | Kilostar: 1,024 GitHub stars | Earned when DevMacro records 1,024 or more stars across the connected GitHub repositories. |
-| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when the stars across the connected GitHub repositories rise by 10 or more in one London calendar day. |
+| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when the stars across the connected GitHub repositories rise by 10 or more from one daily reading to the next. |
 | `github.stars.steady_glow` | Steady glow: new stars on 7 days in a row | Earned when DevMacro records new stars on a connected GitHub repository on each of 7 consecutive days. |
 | `github.stars.weekend` | Weekend stargazers: new stars on a Saturday and the Sunday after it | Earned when DevMacro records new stars on a connected GitHub repository on a Saturday and on the Sunday after it. |
 | `github.forks.first` | First fork recorded | Earned when DevMacro records the first new fork of a connected GitHub repository. |

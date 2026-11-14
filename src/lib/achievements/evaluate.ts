@@ -212,8 +212,6 @@ function consecutiveDays(
 type CombinedReading = Readonly<{
   observedAt: Date;
   value: number;
-  // Each account's value carried into this reading.
-  accounts: ReadonlyMap<string, number>;
   // Accounts whose first stored reading is part of this one.
   newAccounts: ReadonlySet<string>;
 }>;
@@ -246,7 +244,7 @@ function combinedReadings(readings: readonly MetricReading[], metricKey: string)
     }
     let value = 0;
     for (const accountValue of carried.values()) value += accountValue;
-    combined.push({ observedAt: new Date(observedAt), value, accounts: new Map(carried), newAccounts });
+    combined.push({ observedAt: new Date(observedAt), value, newAccounts });
   }
   return combined;
 }
@@ -269,27 +267,39 @@ function metricThreshold(readings: readonly MetricReading[], metricKey: string, 
 }
 
 /**
- * A rise of at least `gain` within one London day: a reading on day D minus the last reading of the
- * day before, both stored. Only accounts read on both days count toward the rise, so an account
- * added to the project never shows as a day's gain. Dated to the first reading of D that shows it.
+ * A rise of at least `gain` from one stored daily reading to the next: for each snapshot day D,
+ * the sum over the accounts with a row on both D and the day before of (D's value minus the day
+ * before's). `usage_snapshots` keeps one row per account, metric, and UTC `snapshot_date`, each
+ * sync overwriting it, so a stored day is a UTC day and the two rows bound one UTC day: London's
+ * day in winter, 01:00 to 01:00 London time in summer. Keying by snapshot date rather than by the
+ * London date of `observedAt` keeps a late evening row in summer (23:xx UTC, already the next
+ * London date) from being compared with the row two days back, and an account with a missed day
+ * never adds two days' rise together. Accounts read on only one of the two days (one added to the
+ * project) never count. Dated to the latest of D's contributing rows, the moment the rise was known.
  */
-function metricDailyGain(
-  readings: readonly MetricReading[],
-  metricKey: string,
-  gain: number,
-  clock: (at: Date) => LondonClock,
-): Proof | null {
-  const lastOfDay = new Map<string, CombinedReading>();
-  const combined = combinedReadings(readings, metricKey);
-  for (const reading of combined) {
-    const day = clock(reading.observedAt).date;
-    const previous = lastOfDay.get(addUtcDays(day, -1));
-    if (previous !== undefined) {
-      let rise = 0;
-      for (const [account, before] of previous.accounts) rise += (reading.accounts.get(account) ?? before) - before;
-      if (rise >= gain) return crossedAt(reading.observedAt);
+function metricDailyGain(readings: readonly MetricReading[], metricKey: string, gain: number): Proof | null {
+  const byAccount = new Map<string, Map<string, MetricReading>>();
+  for (const reading of readings) {
+    if (reading.metricKey !== metricKey) continue;
+    const days = byAccount.get(reading.accountId) ?? new Map<string, MetricReading>();
+    days.set(reading.snapshotDate, reading);
+    byAccount.set(reading.accountId, days);
+  }
+  const dates = [...new Set([...byAccount.values()].flatMap((days) => [...days.keys()]))].sort();
+  for (const date of dates) {
+    const before = addUtcDays(date, -1);
+    let rise = 0;
+    let observedAt = 0;
+    let compared = false;
+    for (const days of byAccount.values()) {
+      const current = days.get(date);
+      const previous = days.get(before);
+      if (current === undefined || previous === undefined) continue;
+      rise += current.value - previous.value;
+      observedAt = Math.max(observedAt, current.observedAt.getTime());
+      compared = true;
     }
-    lastOfDay.set(day, reading);
+    if (compared && rise >= gain) return crossedAt(new Date(observedAt));
   }
   return null;
 }
@@ -345,7 +355,7 @@ function prove(rule: AchievementRule, input: EvaluationInput, clock: (at: Date) 
     case "daily_total_threshold":
       return dailyTotalThreshold(input.readings, rule);
     case "metric_daily_gain":
-      return metricDailyGain(input.readings, rule.metricKey, rule.gain, clock);
+      return metricDailyGain(input.readings, rule.metricKey, rule.gain);
   }
 }
 

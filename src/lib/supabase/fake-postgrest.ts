@@ -7,13 +7,15 @@ import type { Database } from "@/lib/supabase/database.types";
  * on: it answers at most `max_rows` (1000, supabase/config.toml) rows per request, whatever
  * `limit` asks for, and says nothing about the rows it left out (#209). The client is the real
  * supabase-js client with `fetch` replaced, so a store's queries are the ones it sends in
- * production. It knows the filters `eq`, `neq`, `gte`, `lt`, `lte`, `in`, `is.null`, and
- * `not.is.null`, `order` (asc or desc per column), `offset`, `limit`, and `select` by column name;
- * any other query fails as PostgREST would rather than answer wrongly. A function call
- * (`.rpc(name, args)`) is answered by the test's handler for `name`, and its rows are then filtered,
- * ordered, paged, and selected like a table's, as PostgREST does with a set returning function. Each
- * answered request is recorded with its filters (and a call's arguments), so a test can check what a
- * read asked for, not only how many rows.
+ * production. It knows the filters `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is.null`, and
+ * `not.is.null`, the logic filters `or` and `and` over them (a keyset page's
+ * `or=(occurred_at.gt."x",and(occurred_at.eq."x",id.gt.y))`), `order` (asc or desc per column),
+ * `offset`, `limit`, and `select` by column name; any other query fails as PostgREST would rather
+ * than answer wrongly. A function call (`.rpc(name, args)`) is answered by the test's handler for
+ * `name`, and its rows are then filtered, ordered, paged, and selected like a table's, as PostgREST
+ * does with a set returning function; a handler that returns scalars (a `setof text` function) is
+ * answered as the JSON array of them. Each answered request is recorded with its filters (and a
+ * call's arguments), so a test can check what a read asked for, not only how many rows.
  */
 
 export const MAX_ROWS = 1000;
@@ -22,8 +24,8 @@ export type Cell = string | number | boolean | null | readonly string[];
 export type Row = Readonly<Record<string, Cell>>;
 /** One filter as sent: the column and its PostgREST operator and operand, such as `["snapshot_date", "gte.2026-09-27"]`. */
 export type Filter = readonly [column: string, filter: string];
-/** A set returning function's rows for one call's JSON arguments. */
-export type FunctionHandler = (args: Readonly<Record<string, unknown>>) => readonly Row[];
+/** A set returning function's rows, or a scalar function's values, for one call's JSON arguments. */
+export type FunctionHandler = (args: Readonly<Record<string, unknown>>) => readonly Row[] | readonly Cell[];
 /** `table` is the table name, or `rpc/<name>` for a function call, whose arguments are `args`. */
 export type PageRequest = Readonly<{
   table: string;
@@ -61,6 +63,8 @@ function predicate(filter: string): ((value: string | null) => boolean) | null {
       return (value) => value === operand;
     case "neq":
       return (value) => value !== null && value !== operand;
+    case "gt":
+      return (value) => value !== null && value > operand;
     case "gte":
       return (value) => value !== null && value >= operand;
     case "lt":
@@ -74,6 +78,67 @@ function predicate(filter: string): ((value: string | null) => boolean) | null {
     default:
       return null;
   }
+}
+
+type RowTest = (row: Row) => boolean;
+
+function columnTest(column: string, filter: string): RowTest | null {
+  const test = predicate(filter);
+  if (test === null) return null;
+  return (row) => {
+    const cell = row[column];
+    return test(cell === undefined || cell === null ? null : String(cell));
+  };
+}
+
+/** The terms of a logic filter's list, split at its top level commas; a quoted value stays whole. */
+function logicTerms(list: string): string[] {
+  const terms: string[] = [];
+  let depth = 0;
+  let quoted = false;
+  let start = 0;
+  for (let index = 0; index < list.length; index += 1) {
+    const char = list[index];
+    if (quoted) {
+      if (char === "\\") index += 1;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === "(") depth += 1;
+    else if (char === ")") depth -= 1;
+    else if (char === "," && depth === 0) {
+      terms.push(list.slice(start, index));
+      start = index + 1;
+    }
+  }
+  terms.push(list.slice(start));
+  return terms;
+}
+
+/** One term of a logic filter (`id.gt.x`, `occurred_at.eq."x"`, or a nested `and(...)`), or null when the fake does not know it. */
+function logicTermTest(term: string): RowTest | null {
+  for (const operator of ["and", "or"] as const) {
+    if (term.startsWith(`${operator}(`)) return logicTest(operator, term.slice(operator.length));
+  }
+  const [column = "", operator = "", ...rest] = term.split(".");
+  const operand = rest.join(".");
+  // A value postgrest-js quotes (a timestamp's `:` and `+`) is compared without its quotes.
+  const unquoted = /^".*"$/.test(operand) ? operand.slice(1, -1).replace(/\\(.)/g, "$1") : operand;
+  return columnTest(column, `${operator}.${unquoted}`);
+}
+
+/** A PostgREST `or` or `and` filter's parenthesized list as one row test, or null when the fake does not know a term. */
+function logicTest(operator: "and" | "or", list: string): RowTest | null {
+  const tests: RowTest[] = [];
+  for (const term of logicTerms(list.replace(/^\(/, "").replace(/\)$/, ""))) {
+    const test = logicTermTest(term);
+    if (test === null) return null;
+    tests.push(test);
+  }
+  return operator === "and" ? (row) => tests.every((test) => test(row)) : (row) => tests.some((test) => test(row));
+}
+
+function isRows(values: readonly Row[] | readonly Cell[]): values is readonly Row[] {
+  return values.every((value) => typeof value === "object" && value !== null && !Array.isArray(value));
 }
 
 function compareBy(order: string): (a: Row, b: Row) => number {
@@ -108,17 +173,23 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, f
     const args = isCall ? await callArgs(input, init) : null;
     const source = isCall ? functions[name]?.(args ?? {}) : tables[name];
     const sent = [...url.searchParams].flatMap(([column, filter]): Filter[] => (RESERVED[column] === true ? [] : [[column, filter]]));
-    const filters = sent.map(([column, filter]) => ({ column, test: predicate(filter) }));
+    const filters = sent.map(([column, filter]) =>
+      column === "and" || column === "or" ? logicTest(column, filter) : columnTest(column, filter),
+    );
     // A query the fake cannot answer fails as PostgREST would, rather than answer wrongly.
-    if (source === undefined || filters.some((filter) => filter.test === null)) {
+    if (source === undefined || filters.some((test) => test === null)) {
       return new Response(JSON.stringify({ message: `The fake PostgREST cannot answer ${url.search} on ${table}` }), { status: 400 });
     }
-    let rows = source.filter((row) =>
-      filters.every(({ column, test }) => {
-        const cell = row[column];
-        return test?.(cell === undefined || cell === null ? null : String(cell)) === true;
-      }),
-    );
+    if (!isRows(source)) {
+      // A scalar function's values have no columns to filter or order by.
+      if (sent.length > 0 || url.searchParams.has("order")) {
+        return new Response(JSON.stringify({ message: `The fake PostgREST cannot answer ${url.search} on ${table}` }), { status: 400 });
+      }
+      const values = source.slice(0, MAX_ROWS);
+      requests.push({ table, args, filters: sent, offset: 0, limit: null, returned: values.length });
+      return new Response(JSON.stringify(values), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    let rows = source.filter((row) => filters.every((test) => test?.(row) === true));
     const order = url.searchParams.get("order");
     const columns = (url.searchParams.get("select") ?? "*").split(",");
     // PostgREST orders a function's rows after selecting the columns, so it can order only by a

@@ -140,7 +140,7 @@ Read events with a cursor: an opaque string the adapter returns from one sync an
 
 ## Achievements
 
-An achievement is a permanent outcome a project earns from its providers' data, such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `achievements`, beside `eventTypes`. After each successful sync, DevMacro evaluates them for every project the connection's accounts are assigned to, from the events and metric snapshots it has stored. A project earns each achievement once, and members publish the ones they want to show.
+An achievement is a permanent outcome a project earns from its providers' data, such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `achievements`, beside `eventTypes`. After each successful sync, DevMacro evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and metric snapshots it has stored for all of the project's accounts of that provider. A project earns each achievement once, and members publish the ones they want to show. An achievement earned while any of those accounts is on a simulated connection is stored as simulated.
 
 Before you add or change achievements, read the achievements of adapters of the same kind and keep ids, thresholds, and wording parallel.
 
@@ -165,7 +165,7 @@ Rules are a closed set (`src/lib/adapters/achievements.ts`), so an adapter compo
 | `event_at_local_time` | An event of `typeIds` recorded from `fromHour` to before `toHour` London time (24 is midnight at the end of the day), on one of `weekdays` when given |
 | `consecutive_days` | Events of `typeIds` on `days` consecutive London calendar days, starting on `startWeekday` when given |
 | `daily_total_threshold` | A daily total declared in `signupDailyTotals` reaching `value`, summed day by day (`cumulative`) or in one day (`single_day`), dated to the day |
-| `metric_daily_gain` | `metricKey` rising by at least `gain` within one London calendar day, from stored snapshots |
+| `metric_daily_gain` | `metricKey` rising by at least `gain` from one stored daily reading to the next: each account's reading on a snapshot day minus its reading on the day before, summed over the accounts read on both days |
 
 The evidence decides the wording and the date:
 
@@ -176,6 +176,8 @@ The evidence decides the wording and the date:
 - Once earned, an achievement stays earned when a rolling window moves on, and keeps its stored title if its definition is later removed from the adapter.
 
 "In one day" and "in one hour" mean a Europe/London calendar day and clock hour (`TIMELINE_TIME_ZONE` in `src/lib/timeline/query.ts`, the activity heatmap's zone), never rolling windows: ten deployments from 23:30 to 00:30 do not earn a "one hour" achievement. This was decided on 2026-11-14, so they match the activity heatmap. Weekdays and local hours are read in the same zone. Check when your adapter dates an event: GitHub dates `github.stars.daily` to the end of its UTC day, which is always the next London date, so its weekend achievement starts its run on a Sunday.
+
+Metric rules are the exception. `usage_snapshots` keeps one reading per account, metric, and UTC day (`snapshot_date`), and each sync that day overwrites it, so a metric rule's day is that stored UTC day, not a London calendar day: one reading per day cannot prove anything finer. `metric_daily_gain` compares consecutive stored days, so it covers one UTC day, which is the London day in winter and 01:00 to 01:00 London time in summer. Comparing by the London date of a reading would be wrong in summer, when an hourly sync's last reading of a day lands at 00:xx on the next London date and would be compared with the reading from two days back. A missed day never counts, so a two day rise is never shown as one.
 
 `checkAdapterDeclaration` rejects an achievement whose id is not unique or not prefixed with the adapter id, whose rule names an event type the adapter does not declare (a type with no category is fine) or a metric key without the adapter's prefix, whose `daily_total_threshold` sums a key missing from `signupDailyTotals`, or whose threshold is not positive or title is too long.
 

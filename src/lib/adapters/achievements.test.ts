@@ -106,11 +106,28 @@ const KINDS: readonly { kind: string; ladder: readonly string[]; providers: read
   { kind: "signups", ladder: SIGNUP_LADDER, providers: ["supabase", "posthog"] },
 ];
 
+type Ladder = Readonly<{
+  // Ids without the adapter prefix.
+  ids: readonly string[];
+  achievements: readonly Achievement[];
+  // The entry for an id, or an error naming the provider and the missing id.
+  get: (id: string) => Achievement;
+}>;
+
 /** The adapter's entries for `ladder`, keyed by id without the adapter prefix. */
-function ladderOf(provider: LiveProviderId, ladder: readonly string[]): Map<string, Achievement> {
+function ladderOf(provider: LiveProviderId, ladder: readonly string[]): Ladder {
   const prefix = `${provider}.`;
   const entries = (ADAPTERS[provider].achievements ?? []).map((achievement) => [achievement.id.slice(prefix.length), achievement] as const);
-  return new Map(entries.filter(([id]) => ladder.includes(id)));
+  const byId = new Map(entries.filter(([id]) => ladder.includes(id)));
+  return {
+    ids: [...byId.keys()],
+    achievements: [...byId.values()],
+    get: (id) => {
+      const achievement = byId.get(id);
+      if (achievement === undefined) throw new Error(`${provider} declares no ${prefix}${id} achievement`);
+      return achievement;
+    },
+  };
 }
 
 /** The number a rule must reach, whatever its kind. */
@@ -159,9 +176,9 @@ describe.each(KINDS)("$kind share one ladder", ({ ladder, providers }) => {
   it.each(others)(`%s matches ${reference}'s ids and thresholds`, (provider) => {
     const mine = ladderOf(provider, ladder);
     const theirs = ladderOf(reference, ladder);
-    expect([...mine.keys()].toSorted()).toEqual([...ladder].toSorted());
+    expect(mine.ids.toSorted()).toEqual([...ladder].toSorted());
     for (const id of ladder) {
-      expect(threshold(mine.get(id)!.rule), id).toBe(threshold(theirs.get(id)!.rule));
+      expect(threshold(mine.get(id).rule), id).toBe(threshold(theirs.get(id).rule));
     }
   });
 
@@ -169,8 +186,8 @@ describe.each(KINDS)("$kind share one ladder", ({ ladder, providers }) => {
     const mine = ladderOf(provider, ladder);
     const theirs = ladderOf(reference, ladder);
     for (const id of ladder) {
-      expect(generic(provider, mine.get(id)!.title), id).toBe(generic(reference, theirs.get(id)!.title));
-      expect(generic(provider, mine.get(id)!.publicTitle), id).toBe(generic(reference, theirs.get(id)!.publicTitle));
+      expect(generic(provider, mine.get(id).title), id).toBe(generic(reference, theirs.get(id).title));
+      expect(generic(provider, mine.get(id).publicTitle), id).toBe(generic(reference, theirs.get(id).publicTitle));
     }
   });
 });
@@ -184,8 +201,8 @@ describe.each(KINDS.filter(({ kind }) => kind !== "signups"))("$kind share rule 
     const mine = ladderOf(provider, ladder);
     const theirs = ladderOf(reference, ladder);
     for (const id of ladder) {
-      expect(shape(mine.get(id)!.rule), id).toEqual(shape(theirs.get(id)!.rule));
-      expect(generic(provider, mine.get(id)!.description), id).toBe(generic(reference, theirs.get(id)!.description));
+      expect(shape(mine.get(id).rule), id).toEqual(shape(theirs.get(id).rule));
+      expect(generic(provider, mine.get(id).description), id).toBe(generic(reference, theirs.get(id).description));
     }
   });
 });
@@ -196,7 +213,7 @@ describe("deployment ladder evidence", () => {
     (provider) => {
       const succeeded = typeIdsOfCategory(ADAPTERS[provider].eventTypes, ["deploy_succeeded"]);
       const failed = typeIdsOfCategory(ADAPTERS[provider].eventTypes, ["deploy_failed"]);
-      for (const achievement of ladderOf(provider, DEPLOYMENT_LADDER).values()) {
+      for (const achievement of ladderOf(provider, DEPLOYMENT_LADDER).achievements) {
         const { rule } = achievement;
         if (rule.kind === "event_streak") {
           expect(rule.successTypeIds, achievement.id).toEqual(succeeded);

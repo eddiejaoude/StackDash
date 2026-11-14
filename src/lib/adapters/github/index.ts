@@ -230,7 +230,7 @@ const achievements: readonly Achievement[] = [
     id: "github.stars.hot_day",
     title: "Trending: 10 new stars in one day",
     publicTitle: "Trending: 10 new stars in one day",
-    description: "Earned when the stars across the connected GitHub repositories rise by 10 or more in one London calendar day.",
+    description: "Earned when the stars across the connected GitHub repositories rise by 10 or more from one daily reading to the next.",
     rule: { kind: "metric_daily_gain", metricKey: "github.stars.total", gain: 10 },
   },
   {

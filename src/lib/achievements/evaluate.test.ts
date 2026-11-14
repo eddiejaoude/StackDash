@@ -331,6 +331,37 @@ describe("metric_daily_gain", () => {
     ];
     expect(evaluate(trending, { readings })).toBeUndefined();
   });
+
+  it("compares consecutive snapshot days, so 6 stars a day in July is not a gain of 10", () => {
+    // 23:10 UTC in summer is 00:10 on the next London date. Each row is still its own UTC day.
+    const readings = [
+      reading({ snapshotDate: "2026-07-06", value: 100, observedAt: new Date("2026-07-06T23:10:00.000Z") }),
+      reading({ snapshotDate: "2026-07-07", value: 106, observedAt: new Date("2026-07-07T23:10:00.000Z") }),
+      reading({ snapshotDate: "2026-07-08", value: 112, observedAt: new Date("2026-07-08T21:10:00.000Z") }),
+    ];
+    expect(evaluate(trending, { readings })).toBeUndefined();
+  });
+
+  it("does not add two days together for an account that missed a day", () => {
+    const readings = [
+      reading({ snapshotDate: "2026-05-06", value: 100 }),
+      reading({ snapshotDate: "2026-05-08", value: 112 }),
+      reading({ snapshotDate: "2026-05-06", value: 50, accountId: "account-b" }),
+      reading({ snapshotDate: "2026-05-07", value: 51, accountId: "account-b" }),
+      reading({ snapshotDate: "2026-05-08", value: 52, accountId: "account-b" }),
+    ];
+    expect(evaluate(trending, { readings })).toBeUndefined();
+  });
+
+  it("adds the rises of every account read on both days, dated to the latest of the day's rows", () => {
+    const readings = [
+      reading({ snapshotDate: "2026-05-01", value: 100 }),
+      reading({ snapshotDate: "2026-05-02", value: 106, observedAt: new Date("2026-05-02T09:00:00.000Z") }),
+      reading({ snapshotDate: "2026-05-01", value: 40, accountId: "account-b" }),
+      reading({ snapshotDate: "2026-05-02", value: 44, accountId: "account-b", observedAt: new Date("2026-05-02T15:30:00.000Z") }),
+    ];
+    expect(evaluate(trending, { readings })).toMatchObject(instant("2026-05-02T15:30:00.000Z"));
+  });
 });
 
 describe("evaluateAchievements", () => {

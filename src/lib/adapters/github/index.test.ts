@@ -1,6 +1,7 @@
 import { createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "../errors";
 import { validateAdapterEvents } from "../events";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
@@ -460,6 +461,11 @@ describe("sync", () => {
     });
     expect(metric(result.metrics, "github.stars.repo_5000001")).toMatchObject({ value: 95, unit: "stars" });
     expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 95 });
+    // The harness checks only that an achievement's metric key has the adapter's prefix; this
+    // proves every key the achievements read is one a sync emits, so none waits on a misspelling.
+    const achievementKeys = new Set((githubAdapter.achievements ?? []).flatMap((achievement) => achievementRuleMetricKey(achievement.rule) ?? []));
+    expect([...achievementKeys]).toEqual(["github.stars.total"]);
+    for (const key of achievementKeys) expect(metric(result.metrics, key), key).toBeDefined();
 
     // First sync sets baselines without backfilling old forks or milestones.
     expect(result.events).toEqual([]);
