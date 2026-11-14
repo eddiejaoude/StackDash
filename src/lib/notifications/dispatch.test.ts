@@ -113,10 +113,10 @@ describe("runAlertDispatchJob: coalescing", () => {
     expect(first?.text).toContain("Spend passed $25");
     expect(first?.headers?.["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
     expect(first?.headers?.["List-Unsubscribe"]).toBe(
-      `<https://devmacro.test/api/notifications/unsubscribe?token=token-${WORKSPACE.id}-u-owner>`,
+      `<https://stackdash.test/api/notifications/unsubscribe?token=token-${WORKSPACE.id}-u-owner>`,
     );
     // The email setting lives on alert settings, not the alerts inbox (#343).
-    expect(first?.text).toContain(`Change your alert emails: https://devmacro.test/w/${WORKSPACE.slug}/alerts/settings#alert-emails`);
+    expect(first?.text).toContain(`Change your alert emails: https://stackdash.test/w/${WORKSPACE.slug}/alerts/settings#alert-emails`);
     expect(store.alerts.every((item) => item.dispatchedAt === NOW.toISOString())).toBe(true);
     expect(store.deliveries).toHaveLength(4);
   });
@@ -241,7 +241,7 @@ describe("runAlertDispatchJob: failures", () => {
     expect(event?.type_id).toBe(NOTIFICATION_FAILED_TYPE_ID);
     expect(event?.severity).toBe("warning");
     expect(event?.body).toContain(`Reference ${references[0]}.`);
-    expect(event?.body).toContain("DevMacro tries again shortly.");
+    expect(event?.body).toContain("StackDash tries again shortly.");
     // Never the address: the timeline is visible to every member.
     expect(event?.body).not.toContain("owner@example.com");
   });
@@ -262,7 +262,7 @@ describe("runAlertDispatchJob: failures", () => {
 
     expect(await runAlertDispatchJob(job({ attempts: 5, max_attempts: 5 }), deps)).toEqual({ status: "succeeded" });
     expect(store.alerts[0]?.dispatchedAt).toBe(NOW.toISOString());
-    expect(store.events[0]?.body).toContain("DevMacro will not try this message again.");
+    expect(store.events[0]?.body).toContain("StackDash will not try this message again.");
   });
 
   it("does not retry a permanent rejection", async () => {
@@ -341,7 +341,7 @@ describe("runAlertDispatchJob: channel needs attention", () => {
     });
     expect(store.events.map((event) => event.type_id).sort()).toEqual([CHANNEL_NEEDS_ATTENTION_TYPE_ID, NOTIFICATION_FAILED_TYPE_ID].sort());
     const attention = store.events.find((event) => event.type_id === CHANNEL_NEEDS_ATTENTION_TYPE_ID);
-    expect(attention?.body).toContain("The webhook URL can no longer be read, so DevMacro stopped posting alerts to #alerts-a.");
+    expect(attention?.body).toContain("The webhook URL can no longer be read, so StackDash stopped posting alerts to #alerts-a.");
     expect(attention?.body).toContain("Remove the channel in alert settings and add it again with its URL.");
     expect(attention?.body).toContain("Reference REF-TEST0000.");
   });

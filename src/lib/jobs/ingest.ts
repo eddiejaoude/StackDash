@@ -17,7 +17,7 @@ import type { EventRow, JobStore, SnapshotRow, SyncAccount, SyncConnection } fro
  *   the dedupe key then skips.
  */
 
-export const ALLOWANCE_RESET_TYPE_ID = "devmacro.allowance_reset";
+export const ALLOWANCE_RESET_TYPE_ID = "stackdash.allowance_reset";
 
 /** UTC calendar date (YYYY-MM-DD) of an instant: the snapshot day boundary. */
 export function utcDate(at: Date): string {

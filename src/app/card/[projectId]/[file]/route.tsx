@@ -57,7 +57,7 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
     if (achievementId !== null) {
       const achievement = validProject ? await loadPublishedAchievement(projectId, achievementId) : null;
       if (achievement === null) {
-        return cardImageResponse(<NoticeCard title="Unpublished" body="This achievement is not public on DevMacro." />, { headers });
+        return cardImageResponse(<NoticeCard title="Unpublished" body="This achievement is not public on StackDash." />, { headers });
       }
       const page = await loadPublicPageOfProject(projectId);
       return cardImageResponse(<AchievementCard achievement={achievement} projectName={page?.projectName ?? null} />, { headers });
@@ -66,7 +66,7 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
     const metricId = metricIdFromFile(file, "png");
     const card = metricId === null || !validProject ? null : await loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS);
     if (card === null) {
-      return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on DevMacro." />, { headers });
+      return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on StackDash." />, { headers });
     }
     // Read after the card, not beside it: an unknown or unpublished metric costs no page read, and a
     // failing page read can never turn the cached Unpublished card into a 503.

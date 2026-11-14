@@ -75,8 +75,8 @@ async function ConnectProviderContent({
               ? `${reconnect.display_name} cannot be reconnected on this instance.`
               : `Approve access again for ${reconnect.display_name}. The connection keeps its history and project assignments.`
             : simulated
-              ? `${adapter.displayName} is simulated on this instance. DevMacro approves at once and makes up example ${adapter.displayName} data on this computer; no ${adapter.displayName} account is connected.`
-              : `Review what DevMacro asks ${adapter.displayName} for. You approve it on ${adapter.displayName}'s own consent screen next.`
+              ? `${adapter.displayName} is simulated on this instance. StackDash approves at once and makes up example ${adapter.displayName} data on this computer; no ${adapter.displayName} account is connected.`
+              : `Review what StackDash asks ${adapter.displayName} for. You approve it on ${adapter.displayName}'s own consent screen next.`
         }
       />
 
@@ -173,7 +173,7 @@ async function ConnectProviderContent({
                 />
                 <div className="text-sm">
                   <label htmlFor="consent" className="font-medium">
-                    I understand DevMacro gets full access to my {adapter.displayName} account
+                    I understand StackDash gets full access to my {adapter.displayName} account
                   </label>
                   <p id="consent-hint" className="mt-1 leading-6 text-muted">
                     Required. {adapter.displayName} has no narrower permission for this data:{" "}

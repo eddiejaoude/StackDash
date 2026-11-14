@@ -88,7 +88,7 @@ export async function ensureDemoUser(admin: Admin): Promise<string> {
 export function memberEmails(emails: readonly string[]): string[] {
   const unique = [...new Set(emails)];
   if (unique.includes(DEMO_USER_EMAIL)) {
-    throw new Error(`${DEMO_USER_EMAIL} is the demo account, which already owns the demo workspace. Give --member the email you sign in to DevMacro with.`);
+    throw new Error(`${DEMO_USER_EMAIL} is the demo account, which already owns the demo workspace. Give --member the email you sign in to StackDash with.`);
   }
   return unique;
 }
@@ -99,7 +99,7 @@ export async function resolveMembers(admin: Admin, emails: readonly string[]): P
   for (const email of memberEmails(emails)) {
     const user = await findUserByEmail(admin, email);
     if (user === null) {
-      throw new Error(`No account uses ${email}. Sign in to DevMacro with GitHub once, then run the demo seed again.`);
+      throw new Error(`No account uses ${email}. Sign in to StackDash with GitHub once, then run the demo seed again.`);
     }
     members.push({ email, userId: user.id });
   }

@@ -11,7 +11,7 @@ import { readUnsubscribeToken } from "@/lib/notifications/unsubscribe";
  * POSTs `List-Unsubscribe=One-Click` (form encoded or multipart) to the URI, without cookies and
  * without user interaction, and the URI alone identifies the recipient. So the signed token in the
  * query string is the whole authorization, and there is no Origin check: the POST comes from the
- * mailbox provider's servers, not from a DevMacro page. The only thing a token can do is turn alert
+ * mailbox provider's servers, not from a StackDash page. The only thing a token can do is turn alert
  * email off for the one member and workspace it names, which is safe to repeat.
  *
  * The answer is never a redirect (section 3.2 forbids following one), and the body is plain text a
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const referenceId = logError("notifications.one_click_unsubscribe_failed", error, { workspaceId: target.workspaceId });
     return text(
       500,
-      `DevMacro could not unsubscribe you. Try again, or use the unsubscribe link in the email. Reference ${referenceId}.`,
+      `StackDash could not unsubscribe you. Try again, or use the unsubscribe link in the email. Reference ${referenceId}.`,
     );
   }
   // "not_member" is a success too: someone who left the workspace gets no alert email from it.

@@ -17,7 +17,7 @@ import { checkPublicRateLimit, NO_STORE, PUBLIC_CACHE_CONTROL, rateLimitedHeader
  * reads the database at request time.
  *
  * CORS: same-origin only. No `Access-Control-Allow-Origin` is sent, so a script on another site
- * cannot `fetch` this; badges and cards (#149) are rendered by DevMacro's own server, and anyone
+ * cannot `fetch` this; badges and cards (#149) are rendered by StackDash's own server, and anyone
  * else can still read the JSON server-side or with curl. Opening it to browsers elsewhere is a
  * separate decision, not a side effect of a new surface.
  *

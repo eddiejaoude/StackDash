@@ -11,11 +11,11 @@ import { CHANNEL_NEEDS_ATTENTION_TYPE_ID, NOTIFICATION_FAILED_TYPE_ID } from "@/
 
 /*
  * The emoji in the corner of a timeline row's logo: what happened, at a glance. Adapters declare
- * theirs on each event type (`EventType.emoji`); DevMacro's own types are named here, because they
+ * theirs on each event type (`EventType.emoji`); StackDash's own types are named here, because they
  * have no adapter. Decorative only: the row's title and type say it in words.
  */
 
-const DEVMACRO_EMOJI: ReadonlyMap<string, string> = new Map([
+const STACKDASH_EMOJI: ReadonlyMap<string, string> = new Map([
   [ACHIEVEMENT_EARNED_TYPE_ID, "🏆"],
   [ALERT_TRIGGERED_TYPE_ID, "🔔"],
   [ANOMALY_TYPE_ID, "📈"],
@@ -24,21 +24,21 @@ const DEVMACRO_EMOJI: ReadonlyMap<string, string> = new Map([
   [SYNC_FAILED_TYPE_ID, "⚠️"],
   [NOTIFICATION_FAILED_TYPE_ID, "📪"],
   [CHANNEL_NEEDS_ATTENTION_TYPE_ID, "⚠️"],
-  ["devmacro.metric_published", "📣"],
-  ["devmacro.metric_unpublished", "🙈"],
-  ["devmacro.metrics_unpublished_all", "🙈"],
-  ["devmacro.achievement_published", "📣"],
-  ["devmacro.achievement_unpublished", "🙈"],
-  ["devmacro.project_page_enabled", "🌐"],
-  ["devmacro.project_page_updated", "📝"],
-  ["devmacro.project_page_disabled", "🚫"],
+  ["stackdash.metric_published", "📣"],
+  ["stackdash.metric_unpublished", "🙈"],
+  ["stackdash.metrics_unpublished_all", "🙈"],
+  ["stackdash.achievement_published", "📣"],
+  ["stackdash.achievement_unpublished", "🙈"],
+  ["stackdash.project_page_enabled", "🌐"],
+  ["stackdash.project_page_updated", "📝"],
+  ["stackdash.project_page_disabled", "🚫"],
 ]);
 
-// A type no adapter declares any more, or a DevMacro type added without an entry above.
+// A type no adapter declares any more, or a StackDash type added without an entry above.
 const FALLBACK_EMOJI = "📌";
 
 const DECLARED_EMOJI: ReadonlyMap<string, string> = new Map(declaredEventTypes.map((type) => [type.id, type.emoji]));
 
 export function eventEmoji(typeId: string): string {
-  return DECLARED_EMOJI.get(typeId) ?? DEVMACRO_EMOJI.get(typeId) ?? FALLBACK_EMOJI;
+  return DECLARED_EMOJI.get(typeId) ?? STACKDASH_EMOJI.get(typeId) ?? FALLBACK_EMOJI;
 }

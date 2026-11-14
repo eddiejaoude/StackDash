@@ -32,8 +32,8 @@ const OTHER_ID = "9e7d6c5b-4a39-4281-b7a6-5f4e3d2c1b09";
 const AAD = credentialAad(WORKSPACE_ID, CONNECTION_ID);
 
 function useKeys(current: string, previous?: string): void {
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEY", current);
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEYS_PREVIOUS", previous ?? "");
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEY", current);
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEYS_PREVIOUS", previous ?? "");
 }
 
 function flipFirstByte(buffer: Buffer): Buffer {
@@ -120,12 +120,12 @@ describe("key configuration", () => {
   it.each(badCurrent)("rejects a current key of $name", ({ value }) => {
     useKeys(value);
     expect(() => encryptSecret("token-value", AAD)).toThrow(EncryptionKeyConfigError);
-    expect(() => encryptSecret("token-value", AAD)).toThrow(/DEVMACRO_ENCRYPTION_KEY/);
+    expect(() => encryptSecret("token-value", AAD)).toThrow(/STACKDASH_ENCRYPTION_KEY/);
   });
 
   it("names the variable when the key is not set", () => {
-    vi.stubEnv("DEVMACRO_ENCRYPTION_KEY", "");
-    expect(() => encryptSecret("token-value", AAD)).toThrow(/DEVMACRO_ENCRYPTION_KEY is not set/);
+    vi.stubEnv("STACKDASH_ENCRYPTION_KEY", "");
+    expect(() => encryptSecret("token-value", AAD)).toThrow(/STACKDASH_ENCRYPTION_KEY is not set/);
   });
 
   it("accepts a key with surrounding whitespace", () => {
@@ -213,14 +213,14 @@ describe("derivedKey", () => {
 
   it("is a 32 byte HKDF key in its own versioned namespace, one per purpose", () => {
     const key = derivedKey("public-rate-limit");
-    expect(key).toEqual(hkdf(KEY_A, "devmacro key v1:public-rate-limit"));
+    expect(key).toEqual(hkdf(KEY_A, "stackdash key v1:public-rate-limit"));
     expect(key).toHaveLength(32);
     expect(key).not.toEqual(KEY_A);
     expect(derivedKey("other")).not.toEqual(key);
   });
 
   it("never equals the signing key of the same purpose, whose namespace is unchanged (boundary: same purpose string)", () => {
-    const signingKey = hkdf(KEY_A, "devmacro signing v1:public-rate-limit");
+    const signingKey = hkdf(KEY_A, "stackdash signing v1:public-rate-limit");
     expect(derivedKey("public-rate-limit")).not.toEqual(signingKey);
     // Signatures already sent still verify: the signing derivation is byte for byte the old one.
     const signature = createHmac("sha256", signingKey).update("message", "utf8").digest("base64url");
@@ -229,7 +229,7 @@ describe("derivedKey", () => {
 
   it("follows the current key, never a previous one (boundary: rotation)", () => {
     useKeys(KEY_B_B64, `${keyIdFor(KEY_A)}:${KEY_A_B64}`);
-    expect(derivedKey("public-rate-limit")).toEqual(hkdf(KEY_B, "devmacro key v1:public-rate-limit"));
+    expect(derivedKey("public-rate-limit")).toEqual(hkdf(KEY_B, "stackdash key v1:public-rate-limit"));
   });
 });
 

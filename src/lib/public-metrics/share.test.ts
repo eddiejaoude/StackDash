@@ -61,12 +61,12 @@ describe("share text", () => {
   it("writes the badge Markdown as an image linking to the given page", () => {
     expect(
       badgeMarkdown({
-        badgeUrl: "https://devmacro.example.com/badge/p/github-stars.svg",
-        linkUrl: "https://devmacro.example.com/docs/architecture/public-metrics#github-stars",
+        badgeUrl: "https://stackdash.example.com/badge/p/github-stars.svg",
+        linkUrl: "https://stackdash.example.com/docs/architecture/public-metrics#github-stars",
         label: "GitHub stars",
       }),
     ).toBe(
-      "[![GitHub stars](https://devmacro.example.com/badge/p/github-stars.svg)](https://devmacro.example.com/docs/architecture/public-metrics#github-stars)",
+      "[![GitHub stars](https://stackdash.example.com/badge/p/github-stars.svg)](https://stackdash.example.com/docs/architecture/public-metrics#github-stars)",
     );
   });
 
@@ -76,51 +76,51 @@ describe("share text", () => {
 
   it("describes the card with its value, provenance, sync time, and trend", () => {
     expect(cardAltText(stars, null)).toBe(
-      "DevMacro card. GitHub stars: at least 1,200 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT. With its trend over the last 30 days.",
+      "StackDash card. GitHub stars: at least 1,200 stars. Verified by StackDash, last synced 2026-11-05 12:00 GMT. With its trend over the last 30 days.",
     );
   });
 
   it("names the project in the card's alt text when the card shows it", () => {
     expect(cardAltText(stars, "Acme web")).toBe(
-      "DevMacro card for Acme web. GitHub stars: at least 1,200 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT. With its trend over the last 30 days.",
+      "StackDash card for Acme web. GitHub stars: at least 1,200 stars. Verified by StackDash, last synced 2026-11-05 12:00 GMT. With its trend over the last 30 days.",
     );
   });
 
   it("describes a card with no number without a trend or a sync time", () => {
     expect(cardAltText({ ...stars, text: "Not connected", available: false, lastSyncedAt: null }, null)).toBe(
-      "DevMacro card. GitHub stars: Not connected.",
+      "StackDash card. GitHub stars: Not connected.",
     );
   });
 
   it("never calls simulated data verified in a post", () => {
     expect(shareText({ ...stars, simulated: true }, null)).toBe("GitHub stars: at least 1,200 stars. Simulated data, not verified.");
-    expect(shareText(stars, null)).toBe("GitHub stars: at least 1,200 stars. Verified by DevMacro.");
+    expect(shareText(stars, null)).toBe("GitHub stars: at least 1,200 stars. Verified by StackDash.");
   });
 
   it("names the project in a post when given one, with or without a number", () => {
-    expect(shareText(stars, "Acme web")).toBe("GitHub stars for Acme web: at least 1,200 stars. Verified by DevMacro.");
+    expect(shareText(stars, "Acme web")).toBe("GitHub stars for Acme web: at least 1,200 stars. Verified by StackDash.");
     expect(shareText({ ...stars, text: "Not connected", available: false, lastSyncedAt: null }, "Acme web")).toBe(
-      "GitHub stars for Acme web on DevMacro.",
+      "GitHub stars for Acme web on StackDash.",
     );
   });
 
   it("builds X's post intent with the text and link encoded, and no link when there is none", () => {
-    const url = new URL(shareToXUrl("1,200 stars & more", "https://devmacro.example.com/card/p/github-stars.png"));
+    const url = new URL(shareToXUrl("1,200 stars & more", "https://stackdash.example.com/card/p/github-stars.png"));
     expect(url.origin + url.pathname).toBe("https://x.com/intent/tweet");
     expect(url.searchParams.get("text")).toBe("1,200 stars & more");
-    expect(url.searchParams.get("url")).toBe("https://devmacro.example.com/card/p/github-stars.png");
+    expect(url.searchParams.get("url")).toBe("https://stackdash.example.com/card/p/github-stars.png");
     expect(new URL(shareToXUrl("text only")).searchParams.has("url")).toBe(false);
   });
 
   it("builds LinkedIn's share page with the link encoded", () => {
-    const url = new URL(shareToLinkedInUrl("https://devmacro.example.com/@k3j4h5g6f7/acme-web?a=1&b=2"));
+    const url = new URL(shareToLinkedInUrl("https://stackdash.example.com/@k3j4h5g6f7/acme-web?a=1&b=2"));
     expect(url.origin + url.pathname).toBe("https://www.linkedin.com/sharing/share-offsite/");
-    expect(url.searchParams.get("url")).toBe("https://devmacro.example.com/@k3j4h5g6f7/acme-web?a=1&b=2");
+    expect(url.searchParams.get("url")).toBe("https://stackdash.example.com/@k3j4h5g6f7/acme-web?a=1&b=2");
   });
 });
 
 describe("metricShareLinks", () => {
-  const ORIGIN = "https://devmacro.example.com";
+  const ORIGIN = "https://stackdash.example.com";
   const PAGE_URL = `${ORIGIN}/@k3j4h5g6f7/acme-web`;
   const CARD_URL = `${ORIGIN}/card/${PROJECT_ID}/github-stars.png`;
   const links = (projectPage: { path: string; projectName: string } | null) =>
@@ -138,7 +138,7 @@ describe("metricShareLinks", () => {
     expect(on.link).toBe(PAGE_URL);
     const x = new URL(on.xIntentUrl);
     expect(x.searchParams.get("url")).toBe(PAGE_URL);
-    expect(x.searchParams.get("text")).toBe("GitHub stars for Acme web: at least 1,200 stars. Verified by DevMacro.");
+    expect(x.searchParams.get("text")).toBe("GitHub stars for Acme web: at least 1,200 stars. Verified by StackDash.");
     expect(new URL(on.linkedInUrl).searchParams.get("url")).toBe(PAGE_URL);
     expect(on.badgeMarkdown).toBe(`[![GitHub stars](${ORIGIN}/badge/${PROJECT_ID}/github-stars.svg)](${PAGE_URL})`);
     expect(on.cardUrl).toBe(CARD_URL);
@@ -149,7 +149,7 @@ describe("metricShareLinks", () => {
     expect(off.link).toBe(CARD_URL);
     const x = new URL(off.xIntentUrl);
     expect(x.searchParams.get("url")).toBe(CARD_URL);
-    expect(x.searchParams.get("text")).toBe("GitHub stars: at least 1,200 stars. Verified by DevMacro.");
+    expect(x.searchParams.get("text")).toBe("GitHub stars: at least 1,200 stars. Verified by StackDash.");
     expect(new URL(off.linkedInUrl).searchParams.get("url")).toBe(CARD_URL);
     expect(off.badgeMarkdown).toBe(
       `[![GitHub stars](${ORIGIN}/badge/${PROJECT_ID}/github-stars.svg)](${ORIGIN}/docs/architecture/public-metrics#github-stars)`,
@@ -206,7 +206,7 @@ describe("achievementEarnedText", () => {
     expect(achievementEarnedText({ ...crossed, earnedAt: new Date("2026-06-20T00:00:00Z"), earnedPrecision: "day" })).toBe("Earned 2026-06-20");
   });
 
-  it("says recorded at least, not earned, when DevMacro never saw a reading below the threshold", () => {
+  it("says recorded at least, not earned, when StackDash never saw a reading below the threshold", () => {
     expect(achievementEarnedText({ ...crossed, evidence: "at_least", threshold: 1000 })).toBe("Recorded at least 1,000 on 2026-11-05 14:05 GMT");
   });
 
@@ -221,7 +221,7 @@ describe("achievementEarnedText", () => {
 });
 
 describe("achievementShareLinks", () => {
-  const ORIGIN = "https://devmacro.example.com";
+  const ORIGIN = "https://stackdash.example.com";
   const PAGE_URL = `${ORIGIN}/@k3j4h5g6f7/acme-web`;
   const BADGE_URL = `${ORIGIN}/badge/${PROJECT_ID}/achievement-vercel.deployments.10.svg`;
   const CARD_URL = `${ORIGIN}/card/${PROJECT_ID}/achievement-vercel.deployments.10.png`;
@@ -236,7 +236,7 @@ describe("achievementShareLinks", () => {
     expect(on.link).toBe(PAGE_URL);
     const x = new URL(on.xIntentUrl);
     expect(x.searchParams.get("url")).toBe(PAGE_URL);
-    expect(x.searchParams.get("text")).toBe("Achievement for Acme web: 10 Vercel deployments recorded. Earned from Vercel data on DevMacro.");
+    expect(x.searchParams.get("text")).toBe("Achievement for Acme web: 10 Vercel deployments recorded. Earned from Vercel data on StackDash.");
     expect(new URL(on.linkedInUrl).searchParams.get("url")).toBe(PAGE_URL);
   });
 
@@ -246,28 +246,28 @@ describe("achievementShareLinks", () => {
     expect(off.link).toBe(CARD_URL);
     const x = new URL(off.xIntentUrl);
     expect(x.searchParams.get("url")).toBe(CARD_URL);
-    expect(x.searchParams.get("text")).toBe("Achievement: 10 Vercel deployments recorded. Earned from Vercel data on DevMacro.");
+    expect(x.searchParams.get("text")).toBe("Achievement: 10 Vercel deployments recorded. Earned from Vercel data on StackDash.");
     expect(new URL(off.linkedInUrl).searchParams.get("url")).toBe(CARD_URL);
   });
 
   it("describes the card, naming the project only when the card shows it", () => {
-    expect(achievementCardAltText(achievement, null)).toBe("DevMacro achievement card. Vercel achievement: 10 Vercel deployments recorded.");
+    expect(achievementCardAltText(achievement, null)).toBe("StackDash achievement card. Vercel achievement: 10 Vercel deployments recorded.");
     expect(achievementCardAltText(achievement, "Acme web")).toBe(
-      "DevMacro achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded.",
+      "StackDash achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded.",
     );
   });
 
   it("says simulated, never earned from real data, in every word shared about a simulated achievement", () => {
     const simulated = { ...achievement, simulated: true };
     expect(achievementBadgeAltText(simulated)).toBe(
-      "Vercel achievement on DevMacro: 10 Vercel deployments recorded. Simulated data, not verified.",
+      "Vercel achievement on StackDash: 10 Vercel deployments recorded. Simulated data, not verified.",
     );
     expect(achievementCardAltText(simulated, "Acme web")).toBe(
-      "DevMacro achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded. Simulated data, not verified.",
+      "StackDash achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded. Simulated data, not verified.",
     );
     const post = achievementShareLinks({ origin: ORIGIN, projectId: PROJECT_ID, achievementId: "vercel.deployments.10", achievement: simulated, projectPage: null });
     expect(new URL(post.xIntentUrl).searchParams.get("text")).toBe(
-      "Achievement: 10 Vercel deployments recorded. Earned from simulated Vercel data on DevMacro, not verified.",
+      "Achievement: 10 Vercel deployments recorded. Earned from simulated Vercel data on StackDash, not verified.",
     );
   });
 });

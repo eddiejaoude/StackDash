@@ -117,7 +117,7 @@ ownerTest.describe("projection to the end of the period", () => {
 
       const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
       await expect(totals).toContainText(`On track for ${expected.spend} by ${expected.lastDay}`);
-      await expect(totals.getByText("Estimate by DevMacro", { exact: true })).toBeVisible();
+      await expect(totals.getByText("Estimate by StackDash", { exact: true })).toBeVisible();
       // How it was worked out sits behind the info button (#269): out of the way until asked for,
       // the button's description for a screen reader, and opened and closed from the keyboard.
       const totalsMethod = totals.getByRole("button", { name: "How this projection is worked out" });
@@ -138,7 +138,7 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(card).toContainText(`On track for ${expected.spend} by ${expected.lastDay}`);
       const allowance = card.getByRole("article", { name: "Requests included in the plan" });
       await expect(allowance).toContainText(`Runs out around ${expected.runsOut}`);
-      await expect(allowance.getByText("Estimate by DevMacro", { exact: true })).toBeVisible();
+      await expect(allowance.getByText("Estimate by StackDash", { exact: true })).toBeVisible();
       await expect(allowance.getByRole("button", { name: "How this projection is worked out" })).toHaveAccessibleDescription(/400 requests a day/);
 
       await waitForTrends(page);
@@ -196,13 +196,13 @@ ownerTest.describe("projection to the end of the period", () => {
       const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
       await expect(totals).toContainText("Projection unavailable");
       await expect(totals).toContainText(
-        "DevMacro cannot project 1 of the 2 amounts in this total (fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+        "StackDash cannot project 1 of the 2 amounts in this total (fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
       );
 
       const providers = page.getByRole("region", { name: "By provider" });
       await expect(providers.getByRole("article", { name: "Fake billing account" })).toContainText(`On track for ${expected.spend} by ${expected.lastDay}`);
       const second = providers.getByRole("article", { name: "Second fake account" });
-      await expect(second).toContainText("DevMacro needs at least 3 days of data in the current period to project it.");
+      await expect(second).toContainText("StackDash needs at least 3 days of data in the current period to project it.");
       const daily = second.getByRole("article", { name: "Daily email quota" });
       await expect(daily).toBeVisible();
       await expect(daily).not.toContainText("Projection");
@@ -269,7 +269,7 @@ ownerTest.describe("projection to the end of the period", () => {
       const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
       await expect(totals).toContainText("Projection unavailable");
       await expect(totals).toContainText(
-        "DevMacro cannot project any of the 2 amounts in this total (the period is shorter than 3 days, fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+        "StackDash cannot project any of the 2 amounts in this total (the period is shorter than 3 days, fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
       );
 
       const providers = page.getByRole("region", { name: "By provider" });
@@ -277,7 +277,7 @@ ownerTest.describe("projection to the end of the period", () => {
         "The period is shorter than 3 days, so there is nothing to project.",
       );
       const secondCard = providers.getByRole("article", { name: "Second fake account" });
-      await expect(secondCard).toContainText("DevMacro needs at least 3 days of data in the current period to project it.");
+      await expect(secondCard).toContainText("StackDash needs at least 3 days of data in the current period to project it.");
       const daily = secondCard.getByRole("article", { name: "Daily email quota" });
       await expect(daily).toBeVisible();
       await expect(daily).not.toContainText("Projection");
@@ -317,10 +317,10 @@ ownerTest.describe("projection to the end of the period", () => {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
       await expect(totals).toContainText("Projection unavailable");
-      await expect(totals).toContainText("DevMacro needs at least 3 days of data in the current period to project it.");
-      await expect(totals.getByText("Estimate by DevMacro", { exact: true })).toHaveCount(0);
+      await expect(totals).toContainText("StackDash needs at least 3 days of data in the current period to project it.");
+      await expect(totals.getByText("Estimate by StackDash", { exact: true })).toHaveCount(0);
       // The reason there is no projection is the whole note, so it stays in view, not in a tooltip.
-      await expect(totals.getByText("DevMacro needs at least 3 days of data in the current period to project it.")).toBeVisible();
+      await expect(totals.getByText("StackDash needs at least 3 days of data in the current period to project it.")).toBeVisible();
       await expect(totals.getByRole("button", { name: "How this projection is worked out" })).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);

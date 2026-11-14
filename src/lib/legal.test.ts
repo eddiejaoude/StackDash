@@ -12,9 +12,9 @@ import { legalLinks, legalPages, PRIVACY_UPDATED, requireOperator, TERMS_UPDATED
 
 // Synthetic, and deliberately not the hosted instance's values: the text must come from here.
 const OPERATOR = {
-  DEVMACRO_OPERATOR_NAME: "Example Operator Ltd",
-  DEVMACRO_OPERATOR_EMAIL: "privacy@example.com",
-  DEVMACRO_GOVERNING_LAW: "Scotland",
+  STACKDASH_OPERATOR_NAME: "Example Operator Ltd",
+  STACKDASH_OPERATOR_EMAIL: "privacy@example.com",
+  STACKDASH_GOVERNING_LAW: "Scotland",
 } as const;
 
 function stubOperator(values: Partial<Record<keyof typeof OPERATOR, string>>): void {
@@ -26,13 +26,13 @@ type Hosting = { vercel: boolean; email: false | { apiUrl: string } };
 
 /**
  * Stubs the variables that decide the processors the policy names. `email.apiUrl` is
- * DEVMACRO_RESEND_API_URL, where "" leaves it unset (Resend's own API).
+ * STACKDASH_RESEND_API_URL, where "" leaves it unset (Resend's own API).
  */
 function stubHosting({ vercel, email }: Hosting): void {
   vi.stubEnv("VERCEL", vercel ? "1" : "");
-  vi.stubEnv("DEVMACRO_RESEND_API_KEY", email ? "test-key" : "");
-  vi.stubEnv("DEVMACRO_RESEND_API_URL", email ? email.apiUrl : "");
-  vi.stubEnv("DEVMACRO_EMAIL_FROM", email ? "DevMacro <alerts@example.com>" : "");
+  vi.stubEnv("STACKDASH_RESEND_API_KEY", email ? "test-key" : "");
+  vi.stubEnv("STACKDASH_RESEND_API_URL", email ? email.apiUrl : "");
+  vi.stubEnv("STACKDASH_EMAIL_FROM", email ? "StackDash <alerts@example.com>" : "");
 }
 
 // Resend's own API, by default and spelled out; another server that answers like it; the local fake.
@@ -65,7 +65,7 @@ describe("with an operator configured", () => {
     const html = renderToStaticMarkup(createElement(PrivacyPage));
 
     expect(html).toContain("<h1");
-    expect(html).toContain("Example Operator Ltd runs DevMacro at this address");
+    expect(html).toContain("Example Operator Ltd runs StackDash at this address");
     expect(html).toContain('href="mailto:privacy@example.com"');
     expect(html).toContain('href="/docs/providers/stripe"');
     expect(html).toContain('href="/docs/providers/vercel"');
@@ -122,7 +122,7 @@ describe("with an operator configured", () => {
     ["the terms of use", () => termsMetadata(), "/terms", "Terms of use"],
   ])("%s has its own canonical address and preview cards", (_title, metadata, path, title) => {
     stubOperator(OPERATOR);
-    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://devmacro.example");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://stackdash.example");
 
     expect(metadata()).toMatchObject({
       title,
@@ -190,7 +190,7 @@ describe("with no operator configured", () => {
   });
 
   it("a partial configuration fails loudly instead of rendering a page with no contact", () => {
-    stubOperator({ DEVMACRO_OPERATOR_NAME: OPERATOR.DEVMACRO_OPERATOR_NAME });
-    expect(() => requireOperator()).toThrow(/DEVMACRO_OPERATOR_EMAIL is not set; DEVMACRO_GOVERNING_LAW is not set/);
+    stubOperator({ STACKDASH_OPERATOR_NAME: OPERATOR.STACKDASH_OPERATOR_NAME });
+    expect(() => requireOperator()).toThrow(/STACKDASH_OPERATOR_EMAIL is not set; STACKDASH_GOVERNING_LAW is not set/);
   });
 });

@@ -68,7 +68,7 @@ export function createSupabaseMetricStore(
 
       // Only the connections of the accounts just read, so this read holds at most as many rows as
       // that one and cannot be cut either. A disconnected (revoked) connection keeps its rows, but
-      // the user asked DevMacro to stop using them, so its accounts drop out and the metric reads
+      // the user asked StackDash to stop using them, so its accounts drop out and the metric reads
       // "not connected". The scheduler and the daily summary skip revoked connections the same way
       // (src/lib/jobs/store.ts).
       const connectionIds = [...new Set(accounts.data.map((account) => account.connection_id))];

@@ -12,7 +12,7 @@ export async function expectTopRowFits(
 ): Promise<void> {
   const header = page.getByRole("banner");
   const controls = [
-    header.getByRole("link", { name: "DevMacro", exact: true }),
+    header.getByRole("link", { name: "StackDash", exact: true }),
     header.getByRole("button", { name: /^Workspace: / }),
     header.getByRole("button").filter({ has: page.getByTestId("live-dot") }),
     ...(adminLink ? [header.getByRole("link", { name: "Admin", exact: true })] : []),

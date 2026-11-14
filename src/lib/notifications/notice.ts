@@ -105,8 +105,8 @@ export function alertNotice(input: {
     workspaceName,
     subject: single ? `Alert in ${workspaceName}: ${first.title}` : `${alerts.length} alerts in ${workspaceName}`,
     intro: single
-      ? `A threshold you set in DevMacro for ${workspaceName} was crossed.`
-      : `${alerts.length} thresholds you set in DevMacro for ${workspaceName} were crossed.`,
+      ? `A threshold you set in StackDash for ${workspaceName} was crossed.`
+      : `${alerts.length} thresholds you set in StackDash for ${workspaceName} were crossed.`,
     sections: [{ heading: single ? "What crossed" : "What crossed, most urgent first", items: alerts.map(alertItem) }, WHAT_TO_DO],
     links: [
       { label: "Open the alerts page", url: input.links.alerts },
@@ -169,7 +169,7 @@ function allowanceItem(allowance: DigestAllowance): NoticeItem {
 function spendItem(spend: DigestSpend): NoticeItem {
   const parts: string[] = [];
   if (spend.verifiedMinor !== null) parts.push(`${formatMoney(spend.verifiedMinor, spend.currency)} reported by the provider`);
-  if (spend.estimatedMinor !== null) parts.push(`${formatMoney(spend.estimatedMinor, spend.currency)} estimated by DevMacro`);
+  if (spend.estimatedMinor !== null) parts.push(`${formatMoney(spend.estimatedMinor, spend.currency)} estimated by StackDash`);
   return {
     title: `${spend.connectionName}: spend in ${spend.currency}`,
     body: parts.length === 0 ? "Spend unavailable." : `${parts.join(", and ")}.`,
@@ -244,7 +244,7 @@ export function testNotice(workspaceName: string, destinationName: string, links
   return {
     type: "test",
     workspaceName,
-    subject: `Test message from DevMacro for ${workspaceName}`,
+    subject: `Test message from StackDash for ${workspaceName}`,
     intro: `This is a test message for the channel ${destinationName}. Alerts and digests for ${workspaceName} will arrive here. Nothing needs doing.`,
     sections: [],
     links: [{ label: "Open the alerts page", url: links.alerts }],

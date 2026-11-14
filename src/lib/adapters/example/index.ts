@@ -126,7 +126,7 @@ export const achievements: readonly Achievement[] = [
     id: "example.deployments.first",
     title: "First Example Cloud deployment recorded",
     publicTitle: "First Example Cloud deployment recorded",
-    description: "Earned when DevMacro records the first successful Example Cloud deployment.",
+    description: "Earned when StackDash records the first successful Example Cloud deployment.",
     rule: { kind: "event_count", typeIds: ["example.deploy.succeeded"], count: 1 },
   },
   {
@@ -134,7 +134,7 @@ export const achievements: readonly Achievement[] = [
     title: "10 Example Cloud deployments in a row",
     publicTitle: "10 Example Cloud deployments in a row",
     description:
-      "Earned when DevMacro records 10 successful Example Cloud deployments in a row, with no failed deployment between them.",
+      "Earned when StackDash records 10 successful Example Cloud deployments in a row, with no failed deployment between them.",
     rule: {
       kind: "event_streak",
       successTypeIds: ["example.deploy.succeeded"],
@@ -146,7 +146,7 @@ export const achievements: readonly Achievement[] = [
     id: "example.signups.first",
     title: "First Example Cloud signup recorded",
     publicTitle: "First Example Cloud signup recorded",
-    description: "Earned when DevMacro records the first Example Cloud signup.",
+    description: "Earned when StackDash records the first Example Cloud signup.",
     rule: { kind: "event_count", typeIds: ["example.signup"], count: 1 },
   },
 ];
@@ -326,7 +326,7 @@ export function usageMetrics(usage: UsageResponse, externalAccountId: string, re
 
 /**
  * Overage the whole billing period is on course for: requests so far scaled to the full period,
- * less the allowance, at the price list's rate. It is an estimate DevMacro calculates, so it is
+ * less the allowance, at the price list's rate. It is an estimate StackDash calculates, so it is
  * `derived` and names its price list, and it is a projection for the whole period, so the adapter
  * declares its key in `projectedSpend` and no reading of spend counts it as spent so far.
  * Left out on a plan without an allowance, and in the period's first day, when a few hours of

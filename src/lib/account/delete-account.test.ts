@@ -95,7 +95,7 @@ describe("deletion outcome in the redirect", () => {
       manual: ["vercel", "stripe", "vercel"] as const,
       failed: [{ provider: "resend" as const, referenceId: "REF-ABCDEFGH" }],
     };
-    const url = new URL(accountDeletedPath(outcome), "https://devmacro.invalid");
+    const url = new URL(accountDeletedPath(outcome), "https://stackdash.invalid");
     expect(url.pathname).toBe("/account/deleted");
     expect(parseDeletionOutcome(Object.fromEntries(url.searchParams))).toEqual({
       manual: ["vercel", "stripe"],

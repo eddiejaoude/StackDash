@@ -186,18 +186,18 @@ describe("isProviderSimulationEnabled", () => {
     ["exactly 1", "1", true],
   ])("is %s -> %s", (_title, value, expected) => {
     vi.stubEnv("VERCEL_ENV", undefined);
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", value);
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", value);
     expect(isProviderSimulationEnabled()).toBe(expected);
   });
 
   it("refuses 1 on a Vercel production deployment", () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     vi.stubEnv("VERCEL_ENV", "production");
     expect(isProviderSimulationEnabled()).toBe(false);
   });
 
   it("allows 1 on a Vercel preview deployment", () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     vi.stubEnv("VERCEL_ENV", "preview");
     expect(isProviderSimulationEnabled()).toBe(true);
   });
@@ -275,9 +275,9 @@ describe("simulated connect", () => {
 
 describe("simulated markers", () => {
   it("marks a connection by its granted scopes, whatever the flag says", () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", undefined);
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", undefined);
     expect(isSimulatedConnection({ granted_scopes: [SIMULATED_SCOPE] })).toBe(true);
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     expect(isSimulatedConnection({ granted_scopes: ["read:project"] })).toBe(false);
     expect(isSimulatedConnection({ granted_scopes: [] })).toBe(false);
   });

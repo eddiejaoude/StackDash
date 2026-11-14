@@ -9,7 +9,7 @@ export const EVENT_RUN_GAP_MS = 5 * 60 * 1000;
 
 type RunnableEvent = {
   id: string;
-  /** Null for DevMacro's own events, such as a sync failure. */
+  /** Null for StackDash's own events, such as a sync failure. */
   provider: string | null;
   type_id: string;
   severity: string;

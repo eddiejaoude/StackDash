@@ -41,7 +41,7 @@ export type ProjectMetricStatus = Readonly<{
   formulaPath: string;
   current: PublishedValue;
   publication: PublishedEngineMetric | null;
-  /** Times DevMacro served the metric's badge and card in the last `VIEW_WINDOW_DAYS` UTC days. */
+  /** Times StackDash served the metric's badge and card in the last `VIEW_WINDOW_DAYS` UTC days. */
   views: Readonly<Record<ShareSurface, number>>;
 }>;
 

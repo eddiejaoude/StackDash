@@ -227,7 +227,7 @@ export async function watchUntilStopped(deps: Omit<WatchDeps, "signal">, options
 }
 
 const SIMULATION_OFF_HINT =
-  "Due means hourly for most providers and every 15 minutes for Supabase, and the Example provider adds two events a day. To stream data, add DEVMACRO_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher and npm run dev, then connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app.";
+  "Due means hourly for most providers and every 15 minutes for Supabase, and the Example provider adds two events a day. To stream data, add STACKDASH_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher and npm run dev, then connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app.";
 
 const NO_SIMULATED_CONNECTIONS_HINT =
   "No active simulated connection, so there is nothing to stream. Connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app (they show Simulated), or reconnect the ones that need attention from their connection pages. The Example provider is not simulated.";

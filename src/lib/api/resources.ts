@@ -239,7 +239,7 @@ export async function loadEvents(
       connection_id: row.connection_id,
       account_id: row.external_account_id,
       account_name: row.account_name,
-      // The same rule as the timeline: DevMacro's own events about a simulated connection count.
+      // The same rule as the timeline: StackDash's own events about a simulated connection count.
       simulated: row.connection_id !== null && isSimulatedConnection(row),
     }),
     (row) => [row.occurred_at, row.id],

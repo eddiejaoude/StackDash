@@ -25,8 +25,8 @@ function oneClickRequest(token: string | null, body: BodyInit | null, contentTyp
 
 beforeEach(() => {
   // A key generated per run, so no key material is committed.
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEY", randomBytes(32).toString("base64"));
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEYS_PREVIOUS", "");
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEY", randomBytes(32).toString("base64"));
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEYS_PREVIOUS", "");
   unsubscribeMember.mockReset();
   unsubscribeMember.mockResolvedValue("unsubscribed");
 });

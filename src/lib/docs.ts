@@ -20,8 +20,8 @@ const INTERNAL_FOLDER = "internal";
 // segment) is refused before a path is ever built from it.
 const SEGMENT = /^[a-z0-9-]+$/;
 
-// The top-level pages written for people using DevMacro, in reading order. They lead the index.
-// Any other top-level page is for people working on DevMacro's code and is listed under
+// The top-level pages written for people using StackDash, in reading order. They lead the index.
+// Any other top-level page is for people working on StackDash's code and is listed under
 // Developers.
 const GUIDE_PAGES = ["getting-started", "api", "mcp"];
 const GUIDES_GROUP = "guides";
@@ -31,7 +31,7 @@ const PROVIDERS_GROUP = "providers";
 // Index order and label of each group. A folder under docs/ that is not listed here still
 // publishes, after these, labeled from its name.
 const GROUPS: readonly { id: string; label: string }[] = [
-  { id: GUIDES_GROUP, label: "Using DevMacro" },
+  { id: GUIDES_GROUP, label: "Using StackDash" },
   { id: PROVIDERS_GROUP, label: "Providers" },
   { id: "operations", label: "Self-hosting and operations" },
   { id: "architecture", label: "Architecture" },

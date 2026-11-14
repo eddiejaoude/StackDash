@@ -47,7 +47,7 @@ function achievement(overrides: Partial<ProjectAchievement>): ProjectAchievement
     providerName: "Vercel",
     title: "10 Vercel deployments recorded",
     publicTitle: "10 Vercel deployments recorded",
-    description: "The 10th deployment DevMacro recorded.",
+    description: "The 10th deployment StackDash recorded.",
     earnedAt: "2026-07-01T23:30:00+00:00",
     earnedPrecision: "instant",
     evidence: "crossed",

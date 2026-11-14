@@ -35,12 +35,12 @@ const NOW = new Date("2026-11-05T12:00:00.000Z");
 const CLIENT_ID = "client-railway-1";
 const CLIENT_SECRET = "synthetic-client-secret";
 const WORKSPACE = "ws-synthetic-1";
-const REDIRECT_URI = "https://devmacro.example/api/connections/railway/callback";
+const REDIRECT_URI = "https://stackdash.example/api/connections/railway/callback";
 const VERIFIER = "v".repeat(43);
 
 type Call = { method: string; url: URL; headers: Headers; body: string };
 type Route = (call: Call) => Response;
-type Operation = "DevMacroWorkspaces" | "DevMacroProjects" | "DevMacroDeployments" | "DevMacroBilling";
+type Operation = "StackDashWorkspaces" | "StackDashProjects" | "StackDashDeployments" | "StackDashBilling";
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
@@ -69,7 +69,7 @@ function harness(routes: Partial<Record<Operation | "token", Route>>) {
       return routes.token?.(call) ?? json({ error: "unexpected" }, 500);
     }
     if (call.method === "POST" && call.url.href === GRAPHQL_URL) {
-      const operation = /query (DevMacro\w+)/.exec(graphqlBody(call).query)?.[1] ?? "";
+      const operation = /query (StackDash\w+)/.exec(graphqlBody(call).query)?.[1] ?? "";
       const route = operations[operation];
       return route === undefined ? json({ errors: [{ message: "unexpected operation" }] }, 400) : route(call);
     }
@@ -94,9 +94,9 @@ function harness(routes: Partial<Record<Operation | "token", Route>>) {
 }
 
 const syncRoutes = (overrides: Partial<Record<Operation, Route>> = {}): Partial<Record<Operation, Route>> => ({
-  DevMacroProjects: () => json(projectsFixture),
-  DevMacroDeployments: () => json(deploymentsFixture),
-  DevMacroBilling: () => json(billingFixture),
+  StackDashProjects: () => json(projectsFixture),
+  StackDashDeployments: () => json(deploymentsFixture),
+  StackDashBilling: () => json(billingFixture),
   ...overrides,
 });
 
@@ -365,7 +365,7 @@ describe("railwayAdapter.refreshTokens", () => {
 
 describe("railwayAdapter.listAccounts", () => {
   it("lists the workspaces picked at consent, without selecting any personal field", async () => {
-    const { ctx, calls } = harness({ DevMacroWorkspaces: () => json(workspacesFixture) });
+    const { ctx, calls } = harness({ StackDashWorkspaces: () => json(workspacesFixture) });
     const accounts = await railwayAdapter.listAccounts(credential, ctx);
     expect(accounts).toEqual([
       { externalId: "ws-synthetic-1", displayName: "My Workspace", kind: "workspace" },
@@ -386,12 +386,12 @@ describe("railwayAdapter.listAccounts", () => {
       [{ externalId: "ws-blank", displayName: "Railway workspace", kind: "workspace" }],
     ],
   ])("handles %s", async (_title, workspaces, expected) => {
-    const { ctx } = harness({ DevMacroWorkspaces: () => json({ data: { me: { workspaces } } }) });
+    const { ctx } = harness({ StackDashWorkspaces: () => json({ data: { me: { workspaces } } }) });
     expect(await railwayAdapter.listAccounts(credential, ctx)).toEqual(expected);
   });
 
   it("reports Railway's Not Authorized answer (HTTP 200) as a missing permission", async () => {
-    const { ctx } = harness({ DevMacroWorkspaces: () => json(notAuthorizedFixture) });
+    const { ctx } = harness({ StackDashWorkspaces: () => json(notAuthorizedFixture) });
     await expect(railwayAdapter.listAccounts(credential, ctx)).rejects.toMatchObject({
       code: "permission_missing",
       missingScopes: ["workspace:viewer"],
@@ -399,7 +399,7 @@ describe("railwayAdapter.listAccounts", () => {
   });
 
   it("reports a 401 as auth revoked", async () => {
-    const { ctx } = harness({ DevMacroWorkspaces: () => json({}, 401) });
+    const { ctx } = harness({ StackDashWorkspaces: () => json({}, 401) });
     await expect(railwayAdapter.listAccounts(credential, ctx)).rejects.toBeInstanceOf(AuthRevokedError);
   });
 });
@@ -455,15 +455,15 @@ describe("railwayAdapter.sync", () => {
 
     // One request each: projects, deployments for both projects, billing. Never a mutation. The
     // shop page reports more, but it already reaches deployments older than the window.
-    expect(graphqlCalls("DevMacroDeployments")).toHaveLength(1);
-    const [deployments] = graphqlCalls("DevMacroDeployments");
+    expect(graphqlCalls("StackDashDeployments")).toHaveLength(1);
+    const [deployments] = graphqlCalls("StackDashDeployments");
     if (deployments === undefined) throw new Error("expected a deployments call");
     expect(graphqlBody(deployments).variables).toEqual({ p0: "prj-shop", p1: "prj-docs" });
     expect(graphqlBody(deployments).query).toContain("includeDeleted: true");
-    for (const call of graphqlCalls("DevMacroProjects").concat(graphqlCalls("DevMacroBilling"), [deployments])) {
+    for (const call of graphqlCalls("StackDashProjects").concat(graphqlCalls("StackDashBilling"), [deployments])) {
       expect(graphqlBody(call).query).not.toMatch(/mutation|creator|meta|email/);
     }
-    expect(graphqlBody(graphqlCalls("DevMacroBilling")[0] ?? deployments).variables).toEqual({
+    expect(graphqlBody(graphqlCalls("StackDashBilling")[0] ?? deployments).variables).toEqual({
       workspaceId: WORKSPACE,
       measurements: ["CPU_USAGE", "MEMORY_USAGE_GB", "NETWORK_TX_GB", "DISK_USAGE_GB"],
     });
@@ -521,7 +521,7 @@ describe("railwayAdapter.sync", () => {
     ["Not Authorized", () => json(notAuthorizedFixture)],
     ["an HTTP 403", () => json({}, 403)],
   ])("leaves billing unavailable on %s while deployments still sync", async (_title, billingRoute) => {
-    const { ctx, warnings } = harness(syncRoutes({ DevMacroBilling: billingRoute }));
+    const { ctx, warnings } = harness(syncRoutes({ StackDashBilling: billingRoute }));
     const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
     expect(result.metrics).toEqual([]);
     expect(result.events).toHaveLength(11);
@@ -537,7 +537,7 @@ describe("railwayAdapter.sync", () => {
     ["an unknown plan", () => json({ data: { ...billingFixture.data, workspace: { ...billingFixture.data.workspace, plan: "ENTERPRISE" } } })],
     ["a GraphQL validation error", () => json({ data: null, errors: [{ message: "Cannot query field", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] })],
   ])("fails the sync as an invalid response on %s in billing, never as a missing permission", async (_title, billingRoute) => {
-    const { ctx, warnings } = harness(syncRoutes({ DevMacroBilling: billingRoute }));
+    const { ctx, warnings } = harness(syncRoutes({ StackDashBilling: billingRoute }));
     await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toMatchObject({
       code: "invalid_response",
     });
@@ -545,7 +545,7 @@ describe("railwayAdapter.sync", () => {
   });
 
   it("fails the whole sync on a billing rate limit, so the runner retries instead of losing billing", async () => {
-    const { ctx } = harness(syncRoutes({ DevMacroBilling: () => json({}, 429, { "Retry-After": "120" }) }));
+    const { ctx } = harness(syncRoutes({ StackDashBilling: () => json({}, 429, { "Retry-After": "120" }) }));
     await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toMatchObject({
       code: "rate_limited",
       retryAfterMs: 120_000,
@@ -554,7 +554,7 @@ describe("railwayAdapter.sync", () => {
   });
 
   it("fails as a missing permission when the grant no longer covers the workspace", async () => {
-    const { ctx } = harness(syncRoutes({ DevMacroProjects: () => json(notAuthorizedFixture) }));
+    const { ctx } = harness(syncRoutes({ StackDashProjects: () => json(notAuthorizedFixture) }));
     await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toMatchObject({
       code: "permission_missing",
       missingScopes: ["workspace:viewer"],
@@ -564,7 +564,7 @@ describe("railwayAdapter.sync", () => {
   it("fails as an invalid response on any other GraphQL error, without copying Railway's message", async () => {
     const { ctx } = harness(
       syncRoutes({
-        DevMacroDeployments: () =>
+        StackDashDeployments: () =>
           json({ data: null, errors: [{ message: "Problem with project prj-shop", extensions: { code: "BAD_USER_INPUT" } }] }),
       }),
     );
@@ -575,9 +575,9 @@ describe("railwayAdapter.sync", () => {
 
   it("skips the deployments request for a workspace with no projects and still reads billing", async () => {
     const empty = { data: { workspace: { projects: { edges: [], pageInfo: { hasNextPage: false } } } } };
-    const { ctx, graphqlCalls } = harness(syncRoutes({ DevMacroProjects: () => json(empty) }));
+    const { ctx, graphqlCalls } = harness(syncRoutes({ StackDashProjects: () => json(empty) }));
     const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
-    expect(graphqlCalls("DevMacroDeployments")).toHaveLength(0);
+    expect(graphqlCalls("StackDashDeployments")).toHaveLength(0);
     expect(result.events).toEqual([]);
     expect(result.cursor).toBeUndefined();
     expect(result.metrics.length).toBeGreaterThan(0);
@@ -588,8 +588,8 @@ describe("railwayAdapter.sync", () => {
     const page = { data: { workspace: { projects: { edges: projects, pageInfo: { hasNextPage: true } } } } };
     const { ctx, warnings, graphqlCalls } = harness(
       syncRoutes({
-        DevMacroProjects: () => json(page),
-        DevMacroDeployments: (call) =>
+        StackDashProjects: () => json(page),
+        StackDashDeployments: (call) =>
           json({
             data: Object.fromEntries(
               Object.keys(graphqlBody(call).variables).map((key) => [
@@ -601,7 +601,7 @@ describe("railwayAdapter.sync", () => {
       }),
     );
     await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
-    const requests = graphqlCalls("DevMacroDeployments").map((call) => Object.keys(graphqlBody(call).variables).length);
+    const requests = graphqlCalls("StackDashDeployments").map((call) => Object.keys(graphqlBody(call).variables).length);
     expect(requests).toEqual([10, 1]);
     expect(warnings).toContain("railway.projects.cap_reached");
   });
@@ -609,8 +609,8 @@ describe("railwayAdapter.sync", () => {
   it("pages through a project's history until a page reaches deployments older than the window", async () => {
     const { ctx, graphqlCalls } = harness(
       syncRoutes({
-        DevMacroProjects: () => json(oneProject),
-        DevMacroDeployments: (call) =>
+        StackDashProjects: () => json(oneProject),
+        StackDashDeployments: (call) =>
           graphqlBody(call).variables["a0"] === undefined
             ? json(deploymentsPage([node("dep-new", "SUCCESS", "2026-11-05T11:00:00.000Z", "2026-11-05T11:04:00.000Z")], "after-1"))
             : json(
@@ -625,7 +625,7 @@ describe("railwayAdapter.sync", () => {
       { credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T11:30:00.000Z" },
       ctx,
     );
-    expect(graphqlCalls("DevMacroDeployments").map((call) => graphqlBody(call).variables)).toEqual([
+    expect(graphqlCalls("StackDashDeployments").map((call) => graphqlBody(call).variables)).toEqual([
       { p0: "prj-shop" },
       { p0: "prj-shop", a0: "after-1" },
     ]);
@@ -643,8 +643,8 @@ describe("railwayAdapter.sync", () => {
     let served = 0;
     const { ctx, warnings, graphqlCalls } = harness(
       syncRoutes({
-        DevMacroProjects: () => json(oneProject),
-        DevMacroDeployments: () => {
+        StackDashProjects: () => json(oneProject),
+        StackDashDeployments: () => {
           served += 1;
           return json(
             deploymentsPage([node(`dep-${served}`, "SUCCESS", "2026-11-05T11:00:00.000Z", "2026-11-05T11:05:00.000Z")], `after-${served}`),
@@ -653,7 +653,7 @@ describe("railwayAdapter.sync", () => {
       }),
     );
     const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
-    expect(graphqlCalls("DevMacroDeployments")).toHaveLength(5);
+    expect(graphqlCalls("StackDashDeployments")).toHaveLength(5);
     expect(warnings).toContain("railway.deployments.page_cap_reached");
     expect(result.events).toHaveLength(10);
   });
@@ -661,8 +661,8 @@ describe("railwayAdapter.sync", () => {
   it("fails as an invalid response when a page reports more deployments without a cursor", async () => {
     const { ctx } = harness(
       syncRoutes({
-        DevMacroProjects: () => json(oneProject),
-        DevMacroDeployments: () =>
+        StackDashProjects: () => json(oneProject),
+        StackDashDeployments: () =>
           json(deploymentsPage([node("dep-new", "SUCCESS", "2026-11-05T11:00:00.000Z", "2026-11-05T11:04:00.000Z")], null)),
       }),
     );
@@ -673,7 +673,7 @@ describe("railwayAdapter.sync", () => {
     const route = (statusAt: string) => () =>
       json(deploymentsPage([node("dep-waited", "SUCCESS", "2026-11-05T08:00:00.000Z", statusAt)], undefined));
     const sync = async (statusAt: string) => {
-      const { ctx } = harness(syncRoutes({ DevMacroProjects: () => json(oneProject), DevMacroDeployments: route(statusAt) }));
+      const { ctx } = harness(syncRoutes({ StackDashProjects: () => json(oneProject), StackDashDeployments: route(statusAt) }));
       const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T11:30:00.000Z" }, ctx);
       return result.events.map((event) => event.dedupeKey).sort();
     };
@@ -686,7 +686,7 @@ describe("railwayAdapter.sync", () => {
   });
 
   it("fails as an invalid response when Railway leaves out a project's deployments", async () => {
-    const { ctx } = harness(syncRoutes({ DevMacroDeployments: () => json({ data: { d0: deploymentsFixture.data.d0 } }) }));
+    const { ctx } = harness(syncRoutes({ StackDashDeployments: () => json({ data: { d0: deploymentsFixture.data.d0 } }) }));
     await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
   });
 });

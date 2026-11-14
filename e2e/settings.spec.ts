@@ -123,7 +123,7 @@ viewerTest.describe("renaming a workspace as a viewer", () => {
 
 // The one-step assistant key in Settings, AI assistants (#254). Each test makes its own workspace.
 
-const KEY_PATTERN = /^dmk_[A-Za-z0-9_-]{43}$/;
+const KEY_PATTERN = /^sd_[A-Za-z0-9_-]{43}$/;
 const LIMIT_MESSAGE =
   "This workspace already has 20 keys that are not revoked. Revoke one you no longer use, then create the new one.";
 
@@ -170,7 +170,7 @@ ownerTest.describe("creating an assistant key as the owner", () => {
       await expect(section.getByRole("region", { name: "Other clients", exact: true })).toContainText(
         `Authorization: Bearer ${key}`,
       );
-      // These two read the key from DEVMACRO_API_KEY, so it never lands in their config.
+      // These two read the key from STACKDASH_API_KEY, so it never lands in their config.
       await expect(section.getByRole("region", { name: "Claude Code", exact: true })).not.toContainText(key);
       await expect(section.getByRole("region", { name: "Cursor", exact: true })).not.toContainText(key);
 

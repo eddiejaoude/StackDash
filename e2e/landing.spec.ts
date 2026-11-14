@@ -23,14 +23,14 @@ test.describe("landing page", () => {
     await page.goto("/");
 
     // The promise, not the brand tagline, in both the heading and the tab title (#305).
-    await expect(page).toHaveTitle("DevMacro · One timeline and one alert for your whole developer stack");
+    await expect(page).toHaveTitle("StackDash · One timeline and one alert for your whole developer stack");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("One timeline and one alert for your whole developer stack.");
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
     const ctas = page.getByRole("link", { name: "Follow on GitHub" });
     await expect(ctas).toHaveCount(3);
     for (const cta of await ctas.all()) {
-      await expect(cta).toHaveAttribute("href", "https://github.com/eddiejaoude/DevMacro");
+      await expect(cta).toHaveAttribute("href", "https://github.com/eddiejaoude/StackDash");
     }
   });
 
@@ -38,14 +38,14 @@ test.describe("landing page", () => {
     await page.goto("/");
 
     for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
-      await expect(region.getByRole("img", { name: "DevMacro", exact: true })).toBeVisible();
+      await expect(region.getByRole("img", { name: "StackDash", exact: true })).toBeVisible();
       await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
       await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
     }
-    // The footer wordmark is the header's image, so it reads "DevMacro" as one word (#127).
+    // The footer wordmark is the header's image, so it reads "StackDash" as one word (#127).
     const [headerSrc, footerSrc] = await Promise.all(
       [page.getByRole("banner"), page.getByRole("contentinfo")].map((region) =>
-        region.getByRole("img", { name: "DevMacro", exact: true }).getAttribute("src"),
+        region.getByRole("img", { name: "StackDash", exact: true }).getAttribute("src"),
       ),
     );
     expect(headerSrc).toBeTruthy();
@@ -60,7 +60,7 @@ test.describe("landing page", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
 
-    const brand = page.getByRole("banner").getByRole("img", { name: "DevMacro", exact: true });
+    const brand = page.getByRole("banner").getByRole("img", { name: "StackDash", exact: true });
     const signIn = page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true });
     await expect(brand).toBeVisible();
     await expect(signIn).toBeVisible();

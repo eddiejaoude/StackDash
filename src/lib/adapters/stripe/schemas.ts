@@ -11,7 +11,7 @@ const StripeIdSchema = z.string().min(1).max(255);
 const UnixSecondsSchema = z.int().nonnegative();
 // Integers in the smallest currency unit; negative for refunds and fees billed on their own.
 const AmountMinorSchema = z.int();
-// Stripe returns lowercase ISO 4217 codes; DevMacro stores uppercase.
+// Stripe returns lowercase ISO 4217 codes; StackDash stores uppercase.
 const StripeCurrencySchema = z
   .string()
   .regex(/^[a-z]{3}$/, "must be a lowercase three-letter currency code")

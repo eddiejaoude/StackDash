@@ -10,7 +10,7 @@ const SIZES = {
 } as const;
 
 /**
- * The app's one provider mark (#342): a brand logo in a framed square. `null` is DevMacro itself
+ * The app's one provider mark (#342): a brand logo in a framed square. `null` is StackDash itself
  * (its daily summaries and alerts), which has an empty frame; a provider without a brand, such as
  * the test-only fake one, gets the generic puzzle mark. `platform` marks a platform that is not a
  * provider, such as the landing page's GitHub Actions.

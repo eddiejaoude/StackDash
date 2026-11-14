@@ -156,14 +156,14 @@ ownerTest.describe("badges and cards", () => {
       const dialog = page.getByRole("dialog", { name: "Share GitHub stars" });
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
-      await expect(dialog).toContainText("In the last 7 days DevMacro served the badge");
+      await expect(dialog).toContainText("In the last 7 days StackDash served the badge");
 
       const markdown = dialog.getByLabel("Badge Markdown for a README");
       await expect(markdown).toHaveValue(new RegExp(`/badge/${projectId}/github-stars\\.svg`));
       const cardUrl = dialog.getByLabel("Card URL");
       await expect(cardUrl).toHaveValue(new RegExp(`/card/${projectId}/github-stars\\.png$`));
-      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/^DevMacro card\. GitHub stars/);
-      await expectImageLoaded(dialog.getByRole("img", { name: /^DevMacro card/ }), 1200);
+      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/^StackDash card\. GitHub stars/);
+      await expectImageLoaded(dialog.getByRole("img", { name: /^StackDash card/ }), 1200);
       const shareToX = dialog.getByRole("link", { name: "Share to X (opens in a new tab)" });
       const shareToLinkedIn = dialog.getByRole("link", { name: "Share to LinkedIn (opens in a new tab)" });
       await expect(shareToX).toHaveAttribute("href", /^https:\/\/x\.com\/intent\/tweet\?text=/);
@@ -204,7 +204,7 @@ ownerTest.describe("badges and cards", () => {
       await dialog.getByRole("button", { name: "Copy alt text" }).focus();
       await page.keyboard.press("Enter");
       await expect(dialog.getByRole("status")).toHaveText("Copied the alt text.");
-      expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^DevMacro card\. GitHub stars/);
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^StackDash card\. GitHub stars/);
 
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
@@ -238,13 +238,13 @@ ownerTest.describe("badges and cards", () => {
       const shareToX = dialog.getByRole("link", { name: "Share to X (opens in a new tab)" });
       expect(await sharedUrl(shareToX)).toBe(address);
       const xText = new URL((await shareToX.getAttribute("href")) ?? "").searchParams.get("text");
-      expect(xText).toBe(`GitHub stars for Acme web: ${STARS_TEXT} stars. Verified by DevMacro.`);
+      expect(xText).toBe(`GitHub stars for Acme web: ${STARS_TEXT} stars. Verified by StackDash.`);
       expect(await sharedUrl(dialog.getByRole("link", { name: "Share to LinkedIn (opens in a new tab)" }))).toBe(address);
       expect(await dialog.getByLabel("Badge Markdown for a README").inputValue()).toMatch(new RegExp(`/badge/${projectId}/github-stars\\.svg\\)\\]\\(`));
       expect((await dialog.getByLabel("Badge Markdown for a README").inputValue()).endsWith(`](${address})`)).toBe(true);
-      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/^DevMacro card for Acme web\. GitHub stars/);
+      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/^StackDash card for Acme web\. GitHub stars/);
       await expect(dialog).toContainText(`Posts and the badge link to the project page at /@${workspace.slug}/acme-web.`);
-      await expectImageLoaded(dialog.getByRole("img", { name: /^DevMacro card for Acme web\./ }), 1200);
+      await expectImageLoaded(dialog.getByRole("img", { name: /^StackDash card for Acme web\./ }), 1200);
 
       await dialog.getByRole("button", { name: "Copy link" }).click();
       await expect(dialog.getByRole("status")).toHaveText("Copied the link.");

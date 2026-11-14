@@ -88,7 +88,7 @@ async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   const headers = response?.headers() ?? {};
   expectAppPolicy(headers["content-security-policy"]);
   expect(headers["content-security-policy-report-only"]).toBeUndefined();
-  await expect(page).toHaveTitle("Page not found · DevMacro");
+  await expect(page).toHaveTitle("Page not found · StackDash");
   await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
   await expectHydrated(page);
 }
@@ -169,7 +169,7 @@ test.describe("signed out", () => {
     const response = await page.goto("/no-such-page");
     expect(response?.status()).toBe(404);
     expect(response?.headers()["content-security-policy"]).toBe(BASELINE_CSP);
-    await expect(page).toHaveTitle("Page not found · DevMacro");
+    await expect(page).toHaveTitle("Page not found · StackDash");
     await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
     await expectHydrated(page);
     expect(violations).toEqual([]);

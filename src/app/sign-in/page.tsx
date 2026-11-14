@@ -30,7 +30,7 @@ export const instant = false;
 const signInErrorSchema = z.enum(SIGN_IN_ERROR_CODES);
 
 const SIGN_IN_ERRORS: Record<SignInErrorCode, string> = {
-  not_invited: "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
+  not_invited: "This GitHub account's email has not been invited to StackDash. Ask for an invite, then try again.",
   cancelled: "GitHub sign-in was cancelled. Continue with GitHub to try again.",
   start_failed: "We could not start GitHub sign-in. Try again in a moment.",
   callback_failed: "GitHub sign-in did not finish. Try again in a moment.",
@@ -121,7 +121,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
         </Link>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-2 mb-6 text-sm leading-6 text-muted">
-          DevMacro is invite only during the test. Sign in with the GitHub account whose email was invited.
+          StackDash is invite only during the test. Sign in with the GitHub account whose email was invited.
         </p>
         <Suspense fallback={<div className="min-h-11 rounded-lg bg-panel-raised" aria-hidden="true" />}>
           <SignInPanel searchParams={searchParams} />

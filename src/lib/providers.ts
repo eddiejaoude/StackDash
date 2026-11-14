@@ -39,9 +39,9 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   fake: null,
 };
 
-/** Who produced an event: a provider, or DevMacro itself (daily summaries, alerts) when null. */
+/** Who produced an event: a provider, or StackDash itself (daily summaries, alerts) when null. */
 export function providerName(provider: ProviderId | null): string {
-  return provider === null ? "DevMacro" : PROVIDER_NAMES[provider];
+  return provider === null ? "StackDash" : PROVIDER_NAMES[provider];
 }
 
 export function providerPlatform(provider: ProviderId | null): Platform | null {
@@ -51,7 +51,7 @@ export function providerPlatform(provider: ProviderId | null): Platform | null {
 /** Provider name for a type id's prefix (`vercel.deployment_failed` is Vercel's). */
 export function typeOwnerName(typeId: string): string {
   const prefix = typeId.split(".")[0] ?? "";
-  if (prefix === "devmacro") return "DevMacro";
+  if (prefix === "stackdash") return "StackDash";
   const provider = Object.keys(PROVIDER_NAMES).find((id): id is ProviderId => id === prefix);
   return provider === undefined ? prefix : PROVIDER_NAMES[provider];
 }

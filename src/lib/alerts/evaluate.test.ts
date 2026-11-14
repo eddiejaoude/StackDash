@@ -430,7 +430,7 @@ describe("spend_amount", () => {
       thresholdLabel: "$25.00",
       title: "Workspace spend passed $25.00",
     });
-    expect(trigger?.message).toContain("estimated by DevMacro");
+    expect(trigger?.message).toContain("estimated by StackDash");
   });
 
   it("adds verified spend from one account to estimated spend from an account that has no verified spend", () => {

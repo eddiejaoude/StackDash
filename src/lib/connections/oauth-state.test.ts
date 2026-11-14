@@ -37,7 +37,7 @@ describe("connectOrigin and callbackRedirectUri", () => {
   });
 
   it("prefers the site URL origin, dropping any path", () => {
-    expect(connectOrigin(request, "https://devmacro.example.com/some/path")).toBe("https://devmacro.example.com");
+    expect(connectOrigin(request, "https://stackdash.example.com/some/path")).toBe("https://stackdash.example.com");
   });
 
   it("ignores a site URL that is not http or https", () => {
@@ -49,8 +49,8 @@ describe("connectOrigin and callbackRedirectUri", () => {
   });
 
   it("builds the provider callback URL on that origin", () => {
-    expect(callbackRedirectUri("https://devmacro.example.com", "resend")).toBe(
-      "https://devmacro.example.com/api/connections/resend/callback",
+    expect(callbackRedirectUri("https://stackdash.example.com", "resend")).toBe(
+      "https://stackdash.example.com/api/connections/resend/callback",
     );
   });
 });
@@ -65,8 +65,8 @@ describe("requestPublicOrigin", () => {
   });
 
   it("uses the forwarded host and protocol a proxy sets", async () => {
-    requestHeaders.current = new Headers({ host: "10.0.0.5:3000", "x-forwarded-host": "devmacro.example.com", "x-forwarded-proto": "https" });
-    expect(await requestPublicOrigin()).toBe("https://devmacro.example.com");
+    requestHeaders.current = new Headers({ host: "10.0.0.5:3000", "x-forwarded-host": "stackdash.example.com", "x-forwarded-proto": "https" });
+    expect(await requestPublicOrigin()).toBe("https://stackdash.example.com");
   });
 
   it("uses the Host header over http without a proxy", async () => {
@@ -80,9 +80,9 @@ describe("requestPublicOrigin", () => {
   });
 
   it("prefers NEXT_PUBLIC_SITE_URL, without its trailing slash, over the request", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://devmacro.example.com/");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://stackdash.example.com/");
     requestHeaders.current = new Headers({ host: "10.0.0.5:3000" });
-    expect(await requestPublicOrigin()).toBe("https://devmacro.example.com");
+    expect(await requestPublicOrigin()).toBe("https://stackdash.example.com");
   });
 });
 
@@ -166,7 +166,7 @@ describe("connect feedback", () => {
 
   it("asks for the instance operator when the provider is not set up", () => {
     expect(connectErrorMessage("not_configured", "Resend")).toContain(
-      "Ask the person who runs this DevMacro instance to register the Resend app.",
+      "Ask the person who runs this StackDash instance to register the Resend app.",
     );
   });
 

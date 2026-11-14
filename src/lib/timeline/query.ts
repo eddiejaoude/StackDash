@@ -35,7 +35,7 @@ export const TIMELINE_PAGE_SIZE = 50;
 /**
  * Most type ids one URL may filter on, and most the type picker offers (`listTimelineTypeIds`),
  * so every offered type can be ticked at once. Every type comes from an adapter's declared types or
- * DevMacro's own, about 60 today. The ids travel in the event list's PostgREST query string
+ * StackDash's own, about 60 today. The ids travel in the event list's PostgREST query string
  * (`type_id=in.(...)`), so the bound also keeps that URL a few kilobytes long.
  */
 export const MAX_TYPE_FILTERS = 100;
@@ -66,18 +66,18 @@ export function isEventTypeId(value: string): value is string {
   return value.length <= MAX_TYPE_ID_LENGTH && TYPE_ID_PATTERN.test(value);
 }
 
-// DevMacro's own types whose id reads differently from the product's name for them (#345): alert
+// StackDash's own types whose id reads differently from the product's name for them (#345): alert
 // settings calls these "unusual spend and usage", so the timeline must not say "anomaly". An
 // achievement entry (#413) is named by its label, which the type filter repeats so a member can
 // find and hide it by the same words.
-const DEVMACRO_TYPE_LABELS: ReadonlyMap<string, string> = new Map([
+const STACKDASH_TYPE_LABELS: ReadonlyMap<string, string> = new Map([
   [ANOMALY_TYPE_ID, "Unusual spend or usage"],
   [ACHIEVEMENT_EARNED_TYPE_ID, "Achievement earned"],
 ]);
 
 /** `vercel.deployment_failed` reads as "Deployment failed". The provider is shown beside it. */
 export function eventTypeLabel(typeId: string): string {
-  const named = DEVMACRO_TYPE_LABELS.get(typeId);
+  const named = STACKDASH_TYPE_LABELS.get(typeId);
   if (named !== undefined) return named;
   const rest = typeId.split(".").slice(1).join(" ").replaceAll("_", " ").trim();
   if (rest === "") return typeId;
@@ -362,7 +362,7 @@ const NO_FILTERS: TimelineQuery = {
 /** Links from an event's details to the timeline narrowed by one of the event's own values. */
 export type EventFilterHrefs = Readonly<{
   type: string;
-  /** null for an event with no account, such as DevMacro's own. */
+  /** null for an event with no account, such as StackDash's own. */
   account: string | null;
   /** The half-open period `AROUND_EVENT_WINDOW_MINUTES` either side of the event, as `start` and `until`. */
   around: string;

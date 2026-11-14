@@ -33,7 +33,7 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     provider: "vercel",
     title: "First Vercel deployment recorded",
     public_title: "First Vercel deployment recorded",
-    description: "The first deployment DevMacro recorded.",
+    description: "The first deployment StackDash recorded.",
     earned_at: "2026-06-01T08:15:00Z",
     earned_precision: "instant",
     evidence: "crossed",
@@ -57,7 +57,7 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     provider: "posthog",
     title: "100 PostHog signups recorded",
     public_title: "100 PostHog signups recorded",
-    description: "The day the daily signup totals DevMacro stored reached 100.",
+    description: "The day the daily signup totals StackDash stored reached 100.",
     // A daily total is stored at the start of its UTC day and shown as the day alone.
     earned_at: "2026-06-15T00:00:00Z",
     earned_precision: "day",
@@ -71,7 +71,7 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     provider: "vercel",
     title: "10 Vercel deployments recorded",
     public_title: "10 Vercel deployments recorded",
-    description: "The 10th deployment DevMacro recorded.",
+    description: "The 10th deployment StackDash recorded.",
     earned_at: "2026-06-20T22:30:00Z",
     earned_precision: "instant",
     evidence: "crossed",
@@ -164,7 +164,7 @@ ownerTest.describe("achievements as the owner", () => {
 
       // An event is dated in London time, which can be the day after in UTC.
       await expect(item(page, "vercel.deployments.10")).toContainText("Earned 2026-06-20 23:30 BST");
-      await expect(item(page, "vercel.deployments.10")).toContainText("The 10th deployment DevMacro recorded.");
+      await expect(item(page, "vercel.deployments.10")).toContainText("The 10th deployment StackDash recorded.");
       await expect(item(page, "vercel.deployments.10").getByText("Simulated", { exact: true })).toHaveCount(0);
       // A daily total is dated to its day, never a time.
       const signups = item(page, "posthog.signups.100");
@@ -172,7 +172,7 @@ ownerTest.describe("achievements as the owner", () => {
       await expect(signups.locator("time")).toHaveAttribute("datetime", "2026-06-15");
       // Earned from simulator data, so it says so in words.
       await expect(signups.getByText("Simulated", { exact: true })).toBeVisible();
-      // A threshold DevMacro first saw already passed says what it saw, in the public page's words,
+      // A threshold StackDash first saw already passed says what it saw, in the public page's words,
       // never that it was earned then.
       const stars = item(page, "github.stars.1024");
       await expect(stars.locator("time")).toHaveText("Recorded at least 1,024 on 2026-06-10 13:00 BST");
@@ -224,7 +224,7 @@ ownerTest.describe("achievements as the owner", () => {
         .from("activity_events")
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspace.id)
-        .eq("type_id", "devmacro.achievement_earned");
+        .eq("type_id", "stackdash.achievement_earned");
       if (error) throw new Error(`Counting entries failed (code ${error.code}).`);
       expect(count).toBe(ACHIEVEMENTS.length);
     } finally {
@@ -299,7 +299,7 @@ ownerTest.describe("achievements as the owner", () => {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openFilters(page);
       await expect(
-        page.getByRole("group", { name: "Event type" }).getByRole("checkbox", { name: "DevMacro: Achievement earned" }),
+        page.getByRole("group", { name: "Event type" }).getByRole("checkbox", { name: "StackDash: Achievement earned" }),
       ).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);

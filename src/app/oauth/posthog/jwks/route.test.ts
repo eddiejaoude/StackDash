@@ -14,7 +14,7 @@ vi.mock("next/server", async (importOriginal) => ({
 const KEY = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 
 beforeEach(() => {
-  vi.stubEnv("POSTHOG_OAUTH_CLIENT_ID", "https://devmacro.example.com/oauth/posthog/client-metadata");
+  vi.stubEnv("POSTHOG_OAUTH_CLIENT_ID", "https://stackdash.example.com/oauth/posthog/client-metadata");
   vi.stubEnv("POSTHOG_OAUTH_PRIVATE_KEY", KEY);
 });
 
@@ -43,7 +43,7 @@ describe("GET /oauth/posthog/jwks", () => {
     const response = await GET();
     expect(response.status).toBe(500);
     const text = await response.text();
-    expect(text).toMatch(/^PostHog is not set up correctly on this DevMacro instance\. Reference: /);
+    expect(text).toMatch(/^PostHog is not set up correctly on this StackDash instance\. Reference: /);
     expect(text).not.toContain("not a key");
   });
 });

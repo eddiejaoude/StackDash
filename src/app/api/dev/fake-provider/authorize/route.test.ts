@@ -35,8 +35,8 @@ describe("GET /api/dev/fake-provider/authorize guard", () => {
     ["0", "0"],
     ["true", "true"],
     ["padded 1", " 1"],
-  ])("answers 404 when DEVMACRO_ENABLE_FAKE_PROVIDER is %s", (_title, value) => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", value);
+  ])("answers 404 when STACKDASH_ENABLE_FAKE_PROVIDER is %s", (_title, value) => {
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", value);
     const response = GET(authorizeRequest(validParams));
     expect(response.status).toBe(404);
     expect(response.headers.get("location")).toBeNull();
@@ -45,7 +45,7 @@ describe("GET /api/dev/fake-provider/authorize guard", () => {
 
 describe("GET /api/dev/fake-provider/authorize when enabled", () => {
   it("redirects to the fake callback with a fake code, the state, and every requested scope", () => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const response = GET(authorizeRequest(validParams));
     expect(response.status).toBe(302);
     const target = location(response);
@@ -57,20 +57,20 @@ describe("GET /api/dev/fake-provider/authorize when enabled", () => {
   });
 
   it("issues a different code on each approval", () => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const first = location(GET(authorizeRequest(validParams))).searchParams.get("code");
     const second = location(GET(authorizeRequest(validParams))).searchParams.get("code");
     expect(first).not.toBe(second);
   });
 
   it("omits a declined scope from granted_scope", () => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const target = location(GET(authorizeRequest({ ...validParams, decline: "usage:read" })));
     expect(target.searchParams.get("granted_scope")).toBe("admin");
   });
 
   it("simulates cancel with error=access_denied and no code", () => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const target = location(GET(authorizeRequest({ ...validParams, error: "access_denied" })));
     expect(target.searchParams.get("error")).toBe("access_denied");
     expect(target.searchParams.get("state")).toBe("state-123");
@@ -78,7 +78,7 @@ describe("GET /api/dev/fake-provider/authorize when enabled", () => {
   });
 
   it("forwards a valid mode to the callback", () => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const target = location(GET(authorizeRequest({ ...validParams, mode: "unavailable" })));
     expect(target.searchParams.get("mode")).toBe("unavailable");
   });
@@ -97,7 +97,7 @@ describe("GET /api/dev/fake-provider/authorize when enabled", () => {
     ["unsupported error", { ...validParams, error: "server_error" }],
     ["unknown mode", { ...validParams, mode: "explode" }],
   ])("answers 400 without redirecting when %s", (_title, params) => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const response = GET(authorizeRequest(params));
     expect(response.status).toBe(400);
     expect(response.headers.get("location")).toBeNull();
@@ -106,7 +106,7 @@ describe("GET /api/dev/fake-provider/authorize when enabled", () => {
 
 describe("connect round trip through the route", () => {
   it("buildAuthorizeUrl -> route -> exchangeCode yields a credential with the granted scopes", async () => {
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const authorizeUrl = fakeAdapter.buildAuthorizeUrl({
       client: { clientId: "fake-client", clientSecret: new Secret("fake-client-secret"), extra: {} },
       state: "state-xyz",
@@ -145,26 +145,26 @@ describe("GET /api/dev/fake-provider/authorize?provider=<live id> guard", () => 
     ["true", "true", undefined],
     ["padded 1", " 1", undefined],
     ["1 on Vercel production", "1", "production"],
-  ])("answers 404 when DEVMACRO_SIMULATE_PROVIDERS is %s", (_title, value, vercelEnv) => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", value);
+  ])("answers 404 when STACKDASH_SIMULATE_PROVIDERS is %s", (_title, value, vercelEnv) => {
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", value);
     vi.stubEnv("VERCEL_ENV", vercelEnv);
     // The fake provider's flag does not open the simulated screen.
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "1");
     const response = GET(authorizeRequest(simulatedParams));
     expect(response.status).toBe(404);
     expect(response.headers.get("location")).toBeNull();
   });
 
   it("does not open the fake provider's screen with only the simulation flag", () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
-    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "");
     expect(GET(authorizeRequest(validParams)).status).toBe(404);
   });
 });
 
 describe("GET /api/dev/fake-provider/authorize?provider=<live id> when simulating", () => {
   it("redirects to that provider's callback with a simulated code and the simulated scope", () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     vi.stubEnv("VERCEL_ENV", undefined);
     const target = location(GET(authorizeRequest(simulatedParams)));
     expect(`${target.origin}${target.pathname}`).toBe(STRIPE_CALLBACK);
@@ -174,7 +174,7 @@ describe("GET /api/dev/fake-provider/authorize?provider=<live id> when simulatin
   });
 
   it("simulates cancel with error=access_denied and no code", () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     const target = location(GET(authorizeRequest({ ...simulatedParams, error: "access_denied" })));
     expect(target.searchParams.get("error")).toBe("access_denied");
     expect(target.searchParams.has("code")).toBe(false);
@@ -193,14 +193,14 @@ describe("GET /api/dev/fake-provider/authorize?provider=<live id> when simulatin
     ["a mode switch", { ...simulatedParams, mode: "revoked" }],
     ["an unsupported error", { ...simulatedParams, error: "server_error" }],
   ])("answers 400 without redirecting for %s", (_title, params) => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     const response = GET(authorizeRequest(params));
     expect(response.status).toBe(400);
     expect(response.headers.get("location")).toBeNull();
   });
 
   it("round trips buildAuthorizeUrl -> route -> exchangeCode -> listAccounts for every live provider", async () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     const client = { clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} };
     for (const adapter of Object.values(simulatedAdapters)) {
       const redirectUri = `${ORIGIN}/api/connections/${adapter.id}/callback`;

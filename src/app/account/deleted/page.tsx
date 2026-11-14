@@ -32,7 +32,7 @@ export default function AccountDeletedPage({ searchParams }: PageProps<"/account
         </Suspense>
         <p className="mt-8 text-sm">
           <Link href="/" className="underline underline-offset-4">
-            Go to the DevMacro home page
+            Go to the StackDash home page
           </Link>
         </p>
       </div>
@@ -46,7 +46,7 @@ async function StillToRevoke({ searchParams }: { searchParams: PageProps<"/accou
     ...failed.map(({ provider, referenceId }) => ({
       key: `${provider}:${referenceId}`,
       providerName: PROVIDER_NAMES[provider],
-      reason: `DevMacro could not revoke its access at ${PROVIDER_NAMES[provider]}.`,
+      reason: `StackDash could not revoke its access at ${PROVIDER_NAMES[provider]}.`,
       steps: manualRevokeStep(provider),
       referenceId,
     })),
@@ -55,7 +55,7 @@ async function StillToRevoke({ searchParams }: { searchParams: PageProps<"/accou
       providerName: PROVIDER_NAMES[provider],
       // A provider that supports revoking lands here only when it is no longer set up on this instance.
       reason: supportsRevoke(provider)
-        ? `DevMacro could not revoke its access at ${PROVIDER_NAMES[provider]}.`
+        ? `StackDash could not revoke its access at ${PROVIDER_NAMES[provider]}.`
         : `${PROVIDER_NAMES[provider]} does not let apps revoke their own access.`,
       steps: manualRevokeStep(provider),
     })),
@@ -64,10 +64,10 @@ async function StillToRevoke({ searchParams }: { searchParams: PageProps<"/accou
   return (
     <section aria-labelledby="still-to-revoke-title" className="mt-6">
       <h2 id="still-to-revoke-title" className="text-sm font-semibold">
-        Remove DevMacro&apos;s access at these providers
+        Remove StackDash&apos;s access at these providers
       </h2>
       <p className="mt-1 text-sm leading-6 text-muted">
-        The stored credentials are deleted, so DevMacro can no longer use them, but the access you granted still
+        The stored credentials are deleted, so StackDash can no longer use them, but the access you granted still
         exists at the provider until you remove it.
       </p>
       <div className="mt-3">

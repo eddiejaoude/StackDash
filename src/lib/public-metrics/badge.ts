@@ -32,24 +32,24 @@ const TONE_FILLS: Record<BadgeTone, string> = {
 };
 
 const UNPUBLISHED: BadgeContent = {
-  label: "DevMacro",
+  label: "StackDash",
   message: "Unpublished",
   tone: "neutral",
-  title: "This metric is not published on DevMacro.",
+  title: "This metric is not published on StackDash.",
 };
 
 export const RATE_LIMITED_BADGE: BadgeContent = {
-  label: "DevMacro",
+  label: "StackDash",
   message: "Try again in a minute",
   tone: "neutral",
   title: "Too many requests from this address. Try again in a minute.",
 };
 
 export const UNAVAILABLE_BADGE: BadgeContent = {
-  label: "DevMacro",
+  label: "StackDash",
   message: "Temporarily unavailable",
   tone: "neutral",
-  title: "DevMacro could not read this badge. Try again in a moment.",
+  title: "StackDash could not read this badge. Try again in a moment.",
 };
 
 /** What the badge of `metric` says; null is a metric that is not published (or never existed). */
@@ -75,7 +75,7 @@ export function badgeContent(metric: PublishedEngineMetric | null): BadgeContent
  * metric gets, titled for an achievement.
  */
 export function achievementBadgeContent(achievement: PublishedAchievement | null): BadgeContent {
-  if (achievement === null) return { ...UNPUBLISHED, title: "This achievement is not published on DevMacro." };
+  if (achievement === null) return { ...UNPUBLISHED, title: "This achievement is not published on StackDash." };
   return {
     label: `🏆 ${achievement.providerName}`,
     message: achievement.simulated ? `${achievement.publicTitle} (simulated)` : achievement.publicTitle,

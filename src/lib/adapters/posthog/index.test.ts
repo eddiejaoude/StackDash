@@ -25,7 +25,7 @@ import billingFixture from "./fixtures/billing.json";
 import querySignupsFixture from "./fixtures/query-signups.json";
 
 const NOW = new Date("2026-11-05T09:00:00.000Z");
-const CLIENT_ID = "https://devmacro.example.com/oauth/posthog/client-metadata";
+const CLIENT_ID = "https://stackdash.example.com/oauth/posthog/client-metadata";
 const ORG_ID = "0191c2d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d";
 const US = "https://us.posthog.com";
 const EU = "https://eu.posthog.com";
@@ -137,14 +137,14 @@ describe("buildAuthorizeUrl", () => {
     const url = postHogAdapter.buildAuthorizeUrl({
       client,
       state: "state-1",
-      redirectUri: "https://devmacro.example.com/api/connections/posthog/callback",
+      redirectUri: "https://stackdash.example.com/api/connections/posthog/callback",
       codeChallenge: "challenge-1",
     });
     expect(`${url.origin}${url.pathname}`).toBe(`${OAUTH}/oauth/authorize/`);
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: CLIENT_ID,
       response_type: "code",
-      redirect_uri: "https://devmacro.example.com/api/connections/posthog/callback",
+      redirect_uri: "https://stackdash.example.com/api/connections/posthog/callback",
       scope: "billing:read organization:read project:read query:read",
       state: "state-1",
       code_challenge: "challenge-1",
@@ -162,7 +162,7 @@ describe("buildAuthorizeUrl", () => {
 });
 
 describe("exchangeCode", () => {
-  const input = { code: "code-1", redirectUri: "https://devmacro.example.com/cb", codeVerifier: verifier, callbackParams: {} };
+  const input = { code: "code-1", redirectUri: "https://stackdash.example.com/cb", codeVerifier: verifier, callbackParams: {} };
 
   it("signs a fresh client assertion and stores the region that accepts the token", async () => {
     const { ctx, calls } = harness({
@@ -572,7 +572,7 @@ describe("billingMetrics", () => {
     ["no unit", null, "units"],
     ["a unit the metric model cannot store", "rows!", "units"],
     ["a unit too long to store", "a".repeat(40), "units"],
-  ])("stores %s as a unit DevMacro can show", (_title, unit, expected) => {
+  ])("stores %s as a unit StackDash can show", (_title, unit, expected) => {
     expect(byKey(metricsFor(product({ unit })), "posthog.data_warehouse.usage")).toMatchObject({ unit: expected });
   });
 

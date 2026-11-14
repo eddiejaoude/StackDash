@@ -1,5 +1,5 @@
 {
-  "name": "devmacro",
+  "name": "stackdash",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -15,7 +15,7 @@
     "test:e2e": "playwright test",
     "test:db": "supabase test db",
     "db:types": "supabase gen types typescript --local --schema public > src/lib/supabase/database.types.ts",
-    "db:types:check": "supabase gen types typescript --local --schema public > \"${TMPDIR:-/tmp}/devmacro-database.types.ts\" && diff -u src/lib/supabase/database.types.ts \"${TMPDIR:-/tmp}/devmacro-database.types.ts\"",
+    "db:types:check": "supabase gen types typescript --local --schema public > \"${TMPDIR:-/tmp}/stackdash-database.types.ts\" && diff -u src/lib/supabase/database.types.ts \"${TMPDIR:-/tmp}/stackdash-database.types.ts\"",
     "keys:rotate": "tsx --conditions=react-server scripts/rotate-encryption-key.ts",
     "invite": "tsx --conditions=react-server scripts/invite.ts",
     "jobs:tick": "tsx --conditions=react-server scripts/tick.ts",

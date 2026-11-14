@@ -42,7 +42,7 @@ export class ApiError extends Error {
 export function unauthorized(reason: string, logFields: LogFields = {}): ApiError {
   return new ApiError("unauthorized", "The API key is missing or no longer works. Send a working key as a bearer token.", {
     // RFC 6750, section 3: a 401 names the scheme the client should use.
-    headers: { "WWW-Authenticate": 'Bearer realm="devmacro"' },
+    headers: { "WWW-Authenticate": 'Bearer realm="stackdash"' },
     logFields: { ...logFields, reason },
   });
 }

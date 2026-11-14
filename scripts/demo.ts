@@ -11,7 +11,7 @@
  * needed: the link signs in through `/auth/confirm`, which accepts it only on a local stack with
  * provider simulation on.
  *
- * Refuses to run, and writes nothing, unless DEVMACRO_SIMULATE_PROVIDERS=1 and
+ * Refuses to run, and writes nothing, unless STACKDASH_SIMULATE_PROVIDERS=1 and
  * NEXT_PUBLIC_SUPABASE_URL points at this computer. Rerunning replaces the demo workspace and
  * prints a new link. Stop any `npm run jobs:tick -- --watch` first, as for the demo seed: this
  * command runs its own once the history is built. Reads `.env.local` when present.

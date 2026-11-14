@@ -34,13 +34,13 @@ describe("showsAdminLink", () => {
     ["anyone, when the list is empty", "", "ops@example.com", false],
     ["anyone, when the list is blank", " , ", "ops@example.com", false],
   ])("%s", (_title, list, email, expected) => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", list);
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", list);
     expect(showsAdminLink(email)).toBe(expected);
     expect(logError).not.toHaveBeenCalled();
   });
 
   it("hides the link and logs the reason when the list is invalid, rather than failing the page", () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
     expect(showsAdminLink("ops@example.com")).toBe(false);
     expect(logError).toHaveBeenCalledOnce();
     expect(logError).toHaveBeenCalledWith("admin.link_check_failed", expect.any(Error));
@@ -60,7 +60,7 @@ describe("admitsToAdminRoute", () => {
     ["admits the listed address", "ops@example.com,second@example.com", "second@example.com"],
     ["admits the listed address in another case", "ops@example.com", "OPS@example.com"],
   ])("%s, logging nothing", (_title, list, email) => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", list);
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", list);
     expect(admitsToAdminRoute({ id: USER_ID, email })).toBe(true);
     expect(warn).not.toHaveBeenCalled();
     expect(logError).not.toHaveBeenCalled();
@@ -71,14 +71,14 @@ describe("admitsToAdminRoute", () => {
     ["refuses a user with no email", "ops@example.com", null],
     ["refuses anyone when the list is empty", "", "ops@example.com"],
   ])("%s and logs the refusal as the page does", (_title, list, email) => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", list);
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", list);
     expect(admitsToAdminRoute({ id: USER_ID, email })).toBe(false);
     expect(warn).toHaveBeenCalledExactlyOnceWith("admin.access_refused", { userId: USER_ID });
     expect(logError).not.toHaveBeenCalled();
   });
 
   it("sends an invalid list on to the page, so its error page still shows, and logs the reason", () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
     expect(admitsToAdminRoute({ id: USER_ID, email: "someone@example.com" })).toBe(true);
     expect(logError).toHaveBeenCalledExactlyOnceWith("admin.proxy_check_failed", expect.any(Error));
     expect(warn).not.toHaveBeenCalled();

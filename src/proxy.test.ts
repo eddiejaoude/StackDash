@@ -144,7 +144,7 @@ describe("proxy for public project pages", () => {
 
 describe("proxy for the super admin page", () => {
   beforeEach(() => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com");
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", "ops@example.com");
   });
 
   const USER_ID = "10000000-0000-4000-8000-000000000001";
@@ -183,7 +183,7 @@ describe("proxy for the super admin page", () => {
   });
 
   it("sends an invalid list on to the page, whose error page reports it", async () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
     signedInAs("someone@example.com");
 
     const response = await proxy(request("/app/admin"));

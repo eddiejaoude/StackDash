@@ -106,14 +106,14 @@ describe("resendAdapter.buildAuthorizeUrl", () => {
     const url = resendAdapter.buildAuthorizeUrl({
       client: { clientId: CLIENT_ID, clientSecret: new Secret(CLIENT_SECRET), extra: {} },
       state: "state-abc",
-      redirectUri: "https://devmacro.example/api/connections/resend/callback",
+      redirectUri: "https://stackdash.example/api/connections/resend/callback",
       codeChallenge: "challenge-xyz",
     });
     expect(`${url.origin}${url.pathname}`).toBe("https://api.resend.com/oauth/authorize");
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: CLIENT_ID,
       response_type: "code",
-      redirect_uri: "https://devmacro.example/api/connections/resend/callback",
+      redirect_uri: "https://stackdash.example/api/connections/resend/callback",
       scope: "full_access",
       state: "state-abc",
       code_challenge: "challenge-xyz",
@@ -130,7 +130,7 @@ describe("resendAdapter.buildAuthorizeUrl", () => {
     expect(() =>
       resendAdapter.buildAuthorizeUrl({
         client: { clientId: CLIENT_ID, clientSecret: new Secret(CLIENT_SECRET), extra: {} },
-        redirectUri: "https://devmacro.example/cb",
+        redirectUri: "https://stackdash.example/cb",
         ...params,
       }),
     ).toThrow();
@@ -153,7 +153,7 @@ describe("resendAdapter.exchangeCode", () => {
     const result = await resendAdapter.exchangeCode(
       {
         code: "code-1",
-        redirectUri: "https://devmacro.example/cb",
+        redirectUri: "https://stackdash.example/cb",
         codeVerifier: verifier,
         callbackParams: { code: "code-1", state: "s", iss: RESEND_ISSUER },
       },
@@ -169,7 +169,7 @@ describe("resendAdapter.exchangeCode", () => {
     expect(Object.fromEntries(form)).toEqual({
       grant_type: "authorization_code",
       code: "code-1",
-      redirect_uri: "https://devmacro.example/cb",
+      redirect_uri: "https://stackdash.example/cb",
       code_verifier: verifier,
     });
     // Basic header plus a body secret fails with invalid_request at Resend.
@@ -187,7 +187,7 @@ describe("resendAdapter.exchangeCode", () => {
     const { scope: _omitted, ...withoutScope } = tokenFixture;
     const { ctx } = harness({ "POST /oauth/token": () => json(withoutScope) });
     const result = await resendAdapter.exchangeCode(
-      { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
+      { code: "c", redirectUri: "https://stackdash.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
       ctx,
     );
     expect(result.scopes).toEqual(["full_access"]);
@@ -201,7 +201,7 @@ describe("resendAdapter.exchangeCode", () => {
     const { ctx, calls } = harness({ "POST /oauth/token": () => json(tokenFixture) });
     await expect(
       resendAdapter.exchangeCode(
-        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams },
+        { code: "c", redirectUri: "https://stackdash.example/cb", codeVerifier: verifier, callbackParams },
         ctx,
       ),
     ).rejects.toBeInstanceOf(InvalidResponseError);
@@ -218,7 +218,7 @@ describe("resendAdapter.exchangeCode", () => {
       resendAdapter.exchangeCode(
         {
           code: "c",
-          redirectUri: "https://devmacro.example/cb",
+          redirectUri: "https://stackdash.example/cb",
           callbackParams: { iss: RESEND_ISSUER },
           ...(codeVerifier === undefined ? {} : { codeVerifier }),
         },
@@ -233,7 +233,7 @@ describe("resendAdapter.exchangeCode", () => {
     });
     await expect(
       resendAdapter.exchangeCode(
-        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
+        { code: "c", redirectUri: "https://stackdash.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
         ctx,
       ),
     ).rejects.toBeInstanceOf(AuthRevokedError);
@@ -244,7 +244,7 @@ describe("resendAdapter.exchangeCode", () => {
     const { ctx } = harness({ "POST /oauth/token": () => json(withoutRefresh) });
     await expect(
       resendAdapter.exchangeCode(
-        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
+        { code: "c", redirectUri: "https://stackdash.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
         ctx,
       ),
     ).rejects.toMatchObject({ code: "invalid_response" });

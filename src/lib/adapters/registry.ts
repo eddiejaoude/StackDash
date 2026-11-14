@@ -60,8 +60,8 @@ export function isFakeProviderEnabled(): boolean {
 }
 
 /**
- * The adapter for `id`. The fake provider exists only when DEVMACRO_ENABLE_FAKE_PROVIDER is "1";
- * the live providers are replaced by their simulated twins while DEVMACRO_SIMULATE_PROVIDERS is.
+ * The adapter for `id`. The fake provider exists only when STACKDASH_ENABLE_FAKE_PROVIDER is "1";
+ * the live providers are replaced by their simulated twins while STACKDASH_SIMULATE_PROVIDERS is.
  */
 export function getAdapter(id: ProviderId): ProviderAdapter {
   if (id === "fake") {

@@ -11,9 +11,9 @@
  * It prints a one-time sign-in link for the demo account (#260), which opens the dashboard.
  * `--member` also adds an account that has signed in with GitHub before as an admin of the demo
  * workspace. `--seed` picks the simulated accounts, so the same seed rehearses the same demo
- * (default "devmacro-demo"). `npm run demo` does the same and then keeps the history going live.
+ * (default "stackdash-demo"). `npm run demo` does the same and then keeps the history going live.
  *
- * Refuses to run unless DEVMACRO_SIMULATE_PROVIDERS=1 and NEXT_PUBLIC_SUPABASE_URL points at this
+ * Refuses to run unless STACKDASH_SIMULATE_PROVIDERS=1 and NEXT_PUBLIC_SUPABASE_URL points at this
  * computer. Rerunning replaces the demo workspace; nothing outside it is touched. Stop
  * `npm run jobs:tick -- --watch` while it runs, then start it again to continue the history live.
  * The replayed alerts count as already sent, so only alerts that trigger live are emailed or

@@ -98,7 +98,7 @@ function harness(overrides: Record<string, Route> = {}) {
     client: {
       clientId: CLIENT_ID,
       clientSecret: new Secret(CLIENT_SECRET),
-      extra: { integrationSlug: new Secret("devmacro-local") },
+      extra: { integrationSlug: new Secret("stackdash-local") },
     },
   };
   const callsTo = (method: string, pathname: string) =>
@@ -117,7 +117,7 @@ const credential: OAuthCredential = {
 
 const exchangeInput = {
   code: "doc-sample-grant-code",
-  redirectUri: "https://devmacro.example/api/connections/sentry/callback",
+  redirectUri: "https://stackdash.example/api/connections/sentry/callback",
   callbackParams: { code: "doc-sample-grant-code", installationId: INSTALLATION_ID, orgSlug: ORG_SLUG, state: "s" },
 };
 
@@ -170,15 +170,15 @@ describe("sentryAdapter.buildAuthorizeUrl", () => {
   it("builds the external install URL from the slug with state only", () => {
     const { ctx } = harness();
     const url = sentryAdapter.buildAuthorizeUrl({ client: ctx.client, state: "xyzABC123", redirectUri: exchangeInput.redirectUri });
-    expect(url.origin + url.pathname).toBe("https://sentry.io/sentry-apps/devmacro-local/external-install/");
+    expect(url.origin + url.pathname).toBe("https://sentry.io/sentry-apps/stackdash-local/external-install/");
     expect([...url.searchParams.entries()]).toEqual([["state", "xyzABC123"]]);
   });
 
   it.each([
     ["missing", undefined],
     ["only whitespace", "   "],
-    ["a path", "devmacro/../admin"],
-    ["uppercase", "DevMacro"],
+    ["a path", "stackdash/../admin"],
+    ["uppercase", "StackDash"],
     ["longer than 64 characters", "a".repeat(65)],
   ])("refuses the slug when it is %s", (_title, slug) => {
     const { ctx } = harness();

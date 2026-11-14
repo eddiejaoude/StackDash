@@ -74,9 +74,9 @@ export function confirmationMatches(input: string, identity: AccountIdentity): b
 export type RevocationFailure = Readonly<{ provider: ProviderId; referenceId: string }>;
 
 export type DeletionOutcome = Readonly<{
-  // Providers that cannot revoke DevMacro's access from DevMacro's side.
+  // Providers that cannot revoke StackDash's access from StackDash's side.
   manual: readonly ProviderId[];
-  // Revocations DevMacro attempted that failed.
+  // Revocations StackDash attempted that failed.
   failed: readonly RevocationFailure[];
 }>;
 

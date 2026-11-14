@@ -39,7 +39,7 @@ export type TimelineEvent = Pick<
   accountName: string | null;
   connectionName: string | null;
   // True when the event's connection was made by the provider simulator (#131), so the event is
-  // made up. DevMacro's own events about such a connection, such as a sync failure, count too.
+  // made up. StackDash's own events about such a connection, such as a sync failure, count too.
   simulated: boolean;
   /**
    * For an "Achievement earned" entry (#413), the project and achievement it is about, read from
@@ -48,7 +48,7 @@ export type TimelineEvent = Pick<
   achievement: AchievementRef | null;
   /**
    * The logo the row shows: the event's provider, or for an achievement the provider that earned it
-   * (its id is adapter-scoped, `vercel.deployments.10`). Null is DevMacro's own empty frame.
+   * (its id is adapter-scoped, `vercel.deployments.10`). Null is StackDash's own empty frame.
    */
   markProvider: ProviderId | null;
   /** The emoji in the corner of that logo (`eventEmoji`). */
@@ -87,7 +87,7 @@ type EventRow = Pick<ActivityEventRow, Exclude<keyof TimelineEvent, "accountName
   }>;
 
 function timelineEvent({ external_accounts, connections, dedupe_key, ...event }: EventRow): TimelineEvent {
-  // Only DevMacro writes this type, so a provider's event can never pass for an achievement.
+  // Only StackDash writes this type, so a provider's event can never pass for an achievement.
   const achievement = event.type_id === ACHIEVEMENT_EARNED_TYPE_ID && event.provider === null ? parseAchievementEventDedupeKey(dedupe_key) : null;
   return {
     ...event,

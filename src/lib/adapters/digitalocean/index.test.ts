@@ -163,13 +163,13 @@ describe("buildAuthorizeUrl", () => {
     const url = digitaloceanAdapter.buildAuthorizeUrl({
       client,
       state: "state-1",
-      redirectUri: "https://devmacro.example/api/connections/digitalocean/callback",
+      redirectUri: "https://stackdash.example/api/connections/digitalocean/callback",
       codeChallenge: "challenge-1",
     });
     expect(`${url.origin}${url.pathname}`).toBe("https://cloud.digitalocean.com/v1/oauth/authorize");
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: "do-client-id",
-      redirect_uri: "https://devmacro.example/api/connections/digitalocean/callback",
+      redirect_uri: "https://stackdash.example/api/connections/digitalocean/callback",
       response_type: "code",
       scope: "billing:read actions:read app:read droplet:read account:read",
       state: "state-1",
@@ -180,7 +180,7 @@ describe("buildAuthorizeUrl", () => {
 
   it("refuses to build a URL without a code challenge", () => {
     expect(() =>
-      digitaloceanAdapter.buildAuthorizeUrl({ client, state: "state-1", redirectUri: "https://devmacro.example/cb" }),
+      digitaloceanAdapter.buildAuthorizeUrl({ client, state: "state-1", redirectUri: "https://stackdash.example/cb" }),
     ).toThrow(TypeError);
   });
 });
@@ -188,7 +188,7 @@ describe("buildAuthorizeUrl", () => {
 describe("exchangeCode", () => {
   const input = {
     code: "code-1",
-    redirectUri: "https://devmacro.example/api/connections/digitalocean/callback",
+    redirectUri: "https://stackdash.example/api/connections/digitalocean/callback",
     codeVerifier: "v".repeat(43),
     callbackParams: {},
   };

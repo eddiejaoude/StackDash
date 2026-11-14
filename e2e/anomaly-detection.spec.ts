@@ -60,7 +60,7 @@ async function seedAnomaly(workspace: TestWorkspace): Promise<void> {
     connection_id: connection.id,
     external_account_id: account.id,
     provider: "fake",
-    type_id: "devmacro.anomaly_detected",
+    type_id: "stackdash.anomaly_detected",
     severity: "warning",
     title: ANOMALY_TITLE,
     body: `${ANOMALY_BODY}\nWhat to do next: open Example provider to see what drove it, check the timeline for deploys on 2026-11-03, or mute this metric in alert settings if it was expected.`,
@@ -90,12 +90,12 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await expectNoAxeViolations(page);
 
       await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();
-      await expect(page).toHaveURL(/\/timeline\?type=devmacro\.anomaly_detected$/);
+      await expect(page).toHaveURL(/\/timeline\?type=stackdash\.anomaly_detected$/);
       await expect(page.getByRole("heading", { name: ANOMALY_TITLE })).toBeVisible();
       // The page the link lands on names the type the way alert settings names the feature (#345).
       await openFilters(page, "keyboard");
       const types = page.getByRole("group", { name: "Event type" });
-      await expect(types.getByRole("checkbox", { name: "DevMacro: Unusual spend or usage" })).toBeChecked();
+      await expect(types.getByRole("checkbox", { name: "StackDash: Unusual spend or usage" })).toBeChecked();
       await expect(types).not.toContainText(/anomal/i);
       await expectNoAxeViolations(page);
 

@@ -172,7 +172,7 @@ export function NewKeyPanel({
         Copy the key for {name} now
       </h3>
       <p id={warningId} className="mt-1 text-sm">
-        This is the only time DevMacro shows it. Store it somewhere safe, such as a password manager or your
+        This is the only time StackDash shows it. Store it somewhere safe, such as a password manager or your
         deployment&apos;s secret settings. If you lose it, revoke it and create another.
       </p>
       <label htmlFor={inputId} className="mt-3 block text-sm font-medium">

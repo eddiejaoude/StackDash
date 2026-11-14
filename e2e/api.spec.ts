@@ -17,7 +17,7 @@ import {
 // The REST API with scoped keys (#162), and the MCP server on the same keys (#163). Each test creates
 // its own workspace and seeds only inside it.
 
-const KEY_PATTERN = /^dmk_[A-Za-z0-9_-]{43}$/;
+const KEY_PATTERN = /^sd_[A-Za-z0-9_-]{43}$/;
 const REFERENCE_PATTERN = /^REF-[0-9A-Z]{8}$/;
 // The order the create form lists them in (the database enum's order).
 const SCOPES = ["usage:read", "events:read", "alerts:read", "connections:read"] as const;
@@ -142,7 +142,7 @@ ownerTest.describe("API keys as the owner", () => {
 
       const row = section.getByRole("listitem").filter({ hasText: "Reporting script" });
       await expect(row).toContainText("Active");
-      await expect(row).toContainText(key.slice(0, "dmk_".length + 8));
+      await expect(row).toContainText(key.slice(0, "sd_".length + 8));
       await expect(row).toContainText("Never used.");
 
       // Every endpoint answers with the seeded workspace's data.
@@ -374,7 +374,7 @@ async function insertKey(workspace: TestWorkspace, name: string, scopes: readonl
 
 /** The MCP SDK's own client, connected over HTTP to the running app with this key. */
 async function mcpClient(baseURL: string | undefined, key: string): Promise<Client> {
-  const client = new Client({ name: "devmacro-e2e", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
+  const client = new Client({ name: "stackdash-e2e", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
   await client.connect(
     new StreamableHTTPClientTransport(new URL("/api/mcp", baseURL), { authProvider: { token: async () => key } }),
   );
@@ -425,7 +425,7 @@ ownerTest.describe("MCP server", () => {
         const connections = await client.callTool({ name: "get_connection_status", arguments: {} });
         expect(connections.structuredContent).toMatchObject({ data: [{ id: seeded.connectionId, status: "active" }] });
 
-        const { contents } = await client.readResource({ uri: "devmacro://docs/providers/resend" });
+        const { contents } = await client.readResource({ uri: "stackdash://docs/providers/resend" });
         expect(contents[0]).toMatchObject({ mimeType: "text/markdown", text: expect.stringContaining("# Resend") });
       } finally {
         await client.close();
@@ -483,7 +483,7 @@ ownerTest.describe("MCP server", () => {
       }
       await expect(section.getByText("Create a key for the assistant.", { exact: false })).toBeVisible();
       await expect(section.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
-        `claude mcp add --transport http devmacro ${endpoint}`,
+        `claude mcp add --transport http stackdash ${endpoint}`,
       );
 
       // Keyboard: the guide link, the create button, then each snippet in turn, which takes focus so it can scroll.

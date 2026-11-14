@@ -30,7 +30,7 @@ export function SignInLink() {
   return (
     <p className="mt-6 text-sm">
       <Link href="/sign-in" className="underline underline-offset-4">
-        Sign in to DevMacro
+        Sign in to StackDash
       </Link>
     </p>
   );
@@ -58,11 +58,11 @@ export function EmailsOffNotice({ workspaceName, focusOnMount = false }: { works
   return (
     <>
       <LiveRegion ref={ref} tone="status" as="p" tabIndex={-1} className="text-sm leading-6">
-        Alert emails for <strong className="font-semibold">{workspaceName}</strong> are off. DevMacro sends you no more
+        Alert emails for <strong className="font-semibold">{workspaceName}</strong> are off. StackDash sends you no more
         alert emails or digests for this workspace.
       </LiveRegion>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Alerts still show in DevMacro. To get emails again, sign in and choose how often in alert settings.
+        Alerts still show in StackDash. To get emails again, sign in and choose how often in alert settings.
       </p>
       <SignInLink />
     </>
@@ -90,7 +90,7 @@ export function UnsubscribeForm({
     <>
       {state?.ok === false && state.reason === "failed" ? (
         <LiveRegion tone="error" className="mb-4 text-sm leading-6 text-danger">
-          <p>DevMacro could not turn off your alert emails. Try again in a moment.</p>
+          <p>StackDash could not turn off your alert emails. Try again in a moment.</p>
           <p className="mt-2 text-muted">
             If it keeps happening, share reference <span className="font-mono text-foreground">{state.referenceId}</span>.
           </p>
@@ -98,7 +98,7 @@ export function UnsubscribeForm({
       ) : null}
       <p className="text-sm leading-6">
         Your alert emails for <strong className="font-semibold">{workspaceName}</strong> are set to {frequencyLabel}.
-        Turning them off stops every alert email and digest for this workspace. Alerts still show in DevMacro.
+        Turning them off stops every alert email and digest for this workspace. Alerts still show in StackDash.
       </p>
       <form action={formAction} className="mt-6">
         <input type="hidden" name="token" value={token} />

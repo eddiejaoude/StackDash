@@ -103,7 +103,7 @@ test("npm run demo refuses with simulation off and writes nothing", async () => 
 
   let refused: z.infer<typeof FAILED_RUN>;
   try {
-    await run("npm", ["run", "-s", "demo"], { env: { ...process.env, DEVMACRO_SIMULATE_PROVIDERS: "0" }, timeout: 60_000 });
+    await run("npm", ["run", "-s", "demo"], { env: { ...process.env, STACKDASH_SIMULATE_PROVIDERS: "0" }, timeout: 60_000 });
     throw new Error("npm run demo ran with simulation off.");
   } catch (error) {
     // execFile rejects on a non-zero exit, with the exit code and both streams on the error.

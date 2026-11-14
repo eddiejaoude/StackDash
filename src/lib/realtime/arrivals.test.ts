@@ -293,7 +293,7 @@ describe("changedConnectionId", () => {
     ["usage_snapshots", { id: "s1", connection_id: "c3" }, "c3"],
     // A connection's own row changes on a sync request or a failed retry: not data received.
     ["connections", { id: "c1", workspace_id: "w1" }, null],
-    // DevMacro's sync-failed event names the connection but no provider sent it.
+    // StackDash's sync-failed event names the connection but no provider sent it.
     ["activity_events", { id: "e3", connection_id: "c2", provider: null }, null],
     ["triggered_alerts", { id: "a1", workspace_id: "w1" }, null],
     ["activity_events", { id: "e2", connection_id: null, provider: "github" }, null],

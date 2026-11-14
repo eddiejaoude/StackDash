@@ -56,7 +56,7 @@ function find(commands: readonly PaletteCommand[], kind: PaletteKind, label: str
 
 /** The search params of an app-relative href, as a page's `searchParams` would hold them. */
 function searchParamsOf(href: string): Record<string, string[]> {
-  const params = new URL(href, "https://devmacro.example").searchParams;
+  const params = new URL(href, "https://stackdash.example").searchParams;
   const result: Record<string, string[]> = {};
   for (const [key, value] of params) result[key] = [...(result[key] ?? []), value];
   return result;

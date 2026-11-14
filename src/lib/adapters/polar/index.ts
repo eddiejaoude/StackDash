@@ -118,13 +118,13 @@ const permissions: readonly (Permission & { scope: Scope })[] = [
   {
     scope: "orders:read",
     access: "read",
-    description: "Read paid orders to show them on your DevMacro timeline. DevMacro does not store customer names or emails",
+    description: "Read paid orders to show them on your StackDash timeline. StackDash does not store customer names or emails",
   },
   { scope: "subscriptions:read", access: "read", description: "Read new and canceled subscriptions to show them on your timeline" },
   {
     scope: "customers:read",
     access: "read",
-    description: "Count new customers. DevMacro does not store customer names, emails, or addresses",
+    description: "Count new customers. StackDash does not store customer names, emails, or addresses",
   },
   { scope: "refunds:read", access: "read", description: "Read refunds to show them on your timeline" },
 ];
@@ -174,56 +174,56 @@ const achievements: readonly Achievement[] = [
     id: "polar.payments.first",
     title: "First Polar payment recorded",
     publicTitle: "First Polar payment recorded",
-    description: "Earned when DevMacro records the first successful Polar payment.",
+    description: "Earned when StackDash records the first successful Polar payment.",
     rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 1 },
   },
   {
     id: "polar.payments.10",
     title: "10 Polar payments recorded",
     publicTitle: "10 Polar payments recorded",
-    description: "Earned when DevMacro records the 10th successful Polar payment.",
+    description: "Earned when StackDash records the 10th successful Polar payment.",
     rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 10 },
   },
   {
     id: "polar.payments.100",
     title: "100 Polar payments recorded",
     publicTitle: "100 Polar payments recorded",
-    description: "Earned when DevMacro records the 100th successful Polar payment.",
+    description: "Earned when StackDash records the 100th successful Polar payment.",
     rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 100 },
   },
   {
     id: "polar.payments.1000",
     title: "1,000 Polar payments recorded",
     publicTitle: "1,000 Polar payments recorded",
-    description: "Earned when DevMacro records the 1,000th successful Polar payment.",
+    description: "Earned when StackDash records the 1,000th successful Polar payment.",
     rule: { kind: "event_count", typeIds: ["polar.order.paid"], count: 1000 },
   },
   {
     id: "polar.payments.payday",
     title: "Payday: 10 payments in one day",
     publicTitle: "Payday: 10 payments in one day",
-    description: "Earned when DevMacro records 10 successful Polar payments on one London calendar day.",
+    description: "Earned when StackDash records 10 successful Polar payments on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["polar.order.paid"], count: 10, window: "day" },
   },
   {
     id: "polar.payments.while_you_slept",
     title: "While you slept: a payment between midnight and 5 am",
     publicTitle: "While you slept: a payment between midnight and 5 am",
-    description: "Earned when DevMacro records a successful Polar payment between midnight and 5 am London time.",
+    description: "Earned when StackDash records a successful Polar payment between midnight and 5 am London time.",
     rule: { kind: "event_at_local_time", typeIds: ["polar.order.paid"], fromHour: 0, toHour: 5 },
   },
   {
     id: "polar.subscriptions.first",
     title: "First Polar subscription recorded",
     publicTitle: "First Polar subscription recorded",
-    description: "Earned when DevMacro records the first new Polar subscription.",
+    description: "Earned when StackDash records the first new Polar subscription.",
     rule: { kind: "event_count", typeIds: ["polar.subscription.started"], count: 1 },
   },
   {
     id: "polar.subscriptions.10",
     title: "10 Polar subscriptions recorded",
     publicTitle: "10 Polar subscriptions recorded",
-    description: "Earned when DevMacro records the 10th new Polar subscription.",
+    description: "Earned when StackDash records the 10th new Polar subscription.",
     rule: { kind: "event_count", typeIds: ["polar.subscription.started"], count: 10 },
   },
 ];
@@ -410,7 +410,7 @@ function toUsdMinor(values: readonly Decimal[]): number {
     return toMinorUnits(addDecimals(values), METRICS_CURRENCY);
   } catch (error) {
     if (!(error instanceof InvalidDecimalError)) throw error;
-    throw new InvalidResponseError("Polar metrics hold an amount DevMacro cannot store", {
+    throw new InvalidResponseError("Polar metrics hold an amount StackDash cannot store", {
       cause: error,
       endpoint: METRICS_URL,
     });

@@ -155,7 +155,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
       <EmptyState
         icon={<MailIcon width={20} height={20} />}
         title="No teammates invited"
-        description="DevMacro does not invite teammates by email yet. Each workspace is used by the people already in it."
+        description="StackDash does not invite teammates by email yet. Each workspace is used by the people already in it."
       />
     </>
   );

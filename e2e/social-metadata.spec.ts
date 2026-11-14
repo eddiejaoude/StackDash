@@ -44,7 +44,7 @@ test.describe("social metadata", () => {
       const projectAddress = `/@${workspace.slug}/acme-web`;
 
       const expected = [
-        { path: "/", ogTitle: "DevMacro · One timeline and one alert for your whole developer stack" },
+        { path: "/", ogTitle: "StackDash · One timeline and one alert for your whole developer stack" },
         { path: "/docs", ogTitle: "Documentation" },
         { path: "/docs/providers/vercel", ogTitle: "Vercel" },
         // Published because playwright.config.ts gives the app a synthetic operator (#339).
@@ -78,7 +78,7 @@ test.describe("social metadata", () => {
         expect(head.ogImage, path).not.toBeNull();
         await expect(page.locator('meta[property="og:image:alt"]')).toHaveAttribute(
           "content",
-          "DevMacro: One timeline and one alert for your whole developer stack",
+          "StackDash: One timeline and one alert for your whole developer stack",
         );
         await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
         await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute("content", head.ogImage ?? "");

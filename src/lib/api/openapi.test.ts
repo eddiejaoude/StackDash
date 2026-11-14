@@ -57,7 +57,7 @@ describe("buildOpenApiDocument", () => {
 
 describe("docs/api.md", () => {
   const guide = fs.readFileSync(path.join(process.cwd(), "docs", "api.md"), "utf8");
-  const examples = [...guide.matchAll(/"\$DEVMACRO_URL(\/api\/v1\/[a-z-]+)(\?[^"]*)?"/g)].map((match) => ({
+  const examples = [...guide.matchAll(/"\$STACKDASH_URL(\/api\/v1\/[a-z-]+)(\?[^"]*)?"/g)].map((match) => ({
     path: match[1] ?? "",
     query: match[2] ?? "",
   }));

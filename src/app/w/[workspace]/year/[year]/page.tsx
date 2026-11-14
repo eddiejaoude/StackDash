@@ -60,7 +60,7 @@ async function YearInReviewContent({ params }: PageProps<"/w/[workspace]/year/[y
     <>
       <PageHeader
         title={`Your stack in ${yearLabel(year, now)}`}
-        description={`What your connected providers did ${complete ? `in ${year}` : "this year up to today"}, counted from the data DevMacro stored. Only members of this workspace can see it.`}
+        description={`What your connected providers did ${complete ? `in ${year}` : "this year up to today"}, counted from the data StackDash stored. Only members of this workspace can see it.`}
       />
       <nav aria-label="Years" className="mt-4 flex flex-wrap gap-4 text-sm">
         <Link href={yearInReviewPath(workspace.slug, year - 1)} className="text-muted underline underline-offset-4 hover:text-foreground">

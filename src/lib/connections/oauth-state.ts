@@ -247,13 +247,13 @@ export function connectErrorMessage(code: ConnectErrorCode, providerName: string
     case "invalid":
       return `That request to connect ${providerName} could not be checked, so nothing was saved. Start connecting again from this page.`;
     case "not_configured":
-      return `${providerName} is not set up on this instance. Ask the person who runs this DevMacro instance to register the ${providerName} app.`;
+      return `${providerName} is not set up on this instance. Ask the person who runs this StackDash instance to register the ${providerName} app.`;
     case "consent_required":
       return `Confirm that you understand the full access ${providerName} grants before continuing.`;
     case "forbidden":
       return "Only owners and admins can connect providers. Ask one of them to connect it.";
     case "approval_pending":
-      return `Waiting for an organization owner to approve the DevMacro ${providerName} App. Connect again once they approve it.`;
+      return `Waiting for an organization owner to approve the StackDash ${providerName} App. Connect again once they approve it.`;
     case "provider_error":
       return `${providerName} did not finish connecting, so nothing was saved. Try again, and if it keeps failing, check the app registration.`;
     case "failed":

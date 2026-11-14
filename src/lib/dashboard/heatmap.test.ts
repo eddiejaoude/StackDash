@@ -65,7 +65,7 @@ describe("heatMatch", () => {
     expect(ids).not.toContain("posthog.signups.daily");
   });
 
-  it("counts critical events and every known type ending in failed or crashed, DevMacro's own included", () => {
+  it("counts critical events and every known type ending in failed or crashed, StackDash's own included", () => {
     const match = heatMatch("failures", KNOWN);
     expect(match).toMatchObject({ kind: "some", severities: ["critical"] });
     const ids = typeIdsOf(match);

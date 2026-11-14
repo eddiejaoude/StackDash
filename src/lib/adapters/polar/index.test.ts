@@ -118,14 +118,14 @@ describe("polarAdapter.buildAuthorizeUrl", () => {
     const url = polarAdapter.buildAuthorizeUrl({
       client: { clientId: "polar_ci_fixture_client", clientSecret: new Secret(clientSecret), extra: {} },
       state: "state-123",
-      redirectUri: "https://devmacro.example.com/api/connections/polar/callback",
+      redirectUri: "https://stackdash.example.com/api/connections/polar/callback",
       codeChallenge: "challenge-abc",
     });
     expect(`${url.origin}${url.pathname}`).toBe("https://polar.sh/oauth2/authorize");
     expect(Object.fromEntries(url.searchParams)).toEqual({
       response_type: "code",
       client_id: "polar_ci_fixture_client",
-      redirect_uri: "https://devmacro.example.com/api/connections/polar/callback",
+      redirect_uri: "https://stackdash.example.com/api/connections/polar/callback",
       scope: ALL_SCOPES.join(" "),
       state: "state-123",
       code_challenge: "challenge-abc",
@@ -139,7 +139,7 @@ describe("polarAdapter.buildAuthorizeUrl", () => {
       polarAdapter.buildAuthorizeUrl({
         client: { clientId: "c", clientSecret: new Secret("s"), extra: {} },
         state: "s",
-        redirectUri: "https://devmacro.example.com/cb",
+        redirectUri: "https://stackdash.example.com/cb",
       }),
     ).toThrow(TypeError);
   });
@@ -153,7 +153,7 @@ describe("polarAdapter.exchangeCode", () => {
     const result = await polarAdapter.exchangeCode(
       {
         code: "polar_ac_fixture",
-        redirectUri: "https://devmacro.example.com/cb",
+        redirectUri: "https://stackdash.example.com/cb",
         codeVerifier: verifier,
         callbackParams: { code: "polar_ac_fixture", state: "s", iss: "https://api.polar.sh" },
       },
@@ -167,7 +167,7 @@ describe("polarAdapter.exchangeCode", () => {
     expect(formBody(calls[0])).toEqual({
       grant_type: "authorization_code",
       code: "polar_ac_fixture",
-      redirect_uri: "https://devmacro.example.com/cb",
+      redirect_uri: "https://stackdash.example.com/cb",
       code_verifier: verifier,
       client_id: "polar_ci_fixture_client",
       client_secret: clientSecret,
@@ -192,7 +192,7 @@ describe("polarAdapter.exchangeCode", () => {
       polarAdapter.exchangeCode(
         {
           code: "polar_ac_fixture",
-          redirectUri: "https://devmacro.example.com/cb",
+          redirectUri: "https://stackdash.example.com/cb",
           ...(verifierValue === undefined ? {} : { codeVerifier: verifierValue }),
           callbackParams: iss === undefined ? {} : { iss },
         },

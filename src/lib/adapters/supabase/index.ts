@@ -43,7 +43,7 @@ const DASHBOARD_ORIGIN = "https://supabase.com/dashboard/project";
 /**
  * Configured on the OAuth app, not sent per request. Never `database:read`: it unlocks
  * `POST /v1/projects/{ref}/database/query/read-only`, which runs as a `bypassrls` role with
- * `pg_read_all_data` and so reads every row, `auth.users` emails included. DevMacro needs counts,
+ * `pg_read_all_data` and so reads every row, `auth.users` emails included. StackDash needs counts,
  * not rows (page, "Why never database:read").
  */
 const SCOPES = ["organizations:read", "projects:read", "analytics:read"] as const;
@@ -181,49 +181,49 @@ const achievements: readonly Achievement[] = [
     id: "supabase.signups.first",
     title: "First Supabase signup recorded",
     publicTitle: "First Supabase signup recorded",
-    description: "Earned when DevMacro records the first Supabase signup.",
+    description: "Earned when StackDash records the first Supabase signup.",
     rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 1 },
   },
   {
     id: "supabase.signups.10",
     title: "10 Supabase signups recorded",
     publicTitle: "10 Supabase signups recorded",
-    description: "Earned when DevMacro records the 10th Supabase signup.",
+    description: "Earned when StackDash records the 10th Supabase signup.",
     rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 10 },
   },
   {
     id: "supabase.signups.100",
     title: "100 Supabase signups recorded",
     publicTitle: "100 Supabase signups recorded",
-    description: "Earned when DevMacro records the 100th Supabase signup.",
+    description: "Earned when StackDash records the 100th Supabase signup.",
     rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 100 },
   },
   {
     id: "supabase.signups.1000",
     title: "1,000 Supabase signups recorded",
     publicTitle: "1,000 Supabase signups recorded",
-    description: "Earned when DevMacro records the 1,000th Supabase signup.",
+    description: "Earned when StackDash records the 1,000th Supabase signup.",
     rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 1000 },
   },
   {
     id: "supabase.signups.big_day",
     title: "Big day: 100 signups in one day",
     publicTitle: "Big day: 100 signups in one day",
-    description: "Earned when DevMacro records 100 Supabase signups on one London calendar day.",
+    description: "Earned when StackDash records 100 Supabase signups on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["supabase.auth.signup"], count: 100, window: "day" },
   },
   {
     id: "supabase.signups.rush_hour",
     title: "Rush hour: 10 signups in one hour",
     publicTitle: "Rush hour: 10 signups in one hour",
-    description: "Earned when DevMacro records 10 Supabase signups in one London clock hour.",
+    description: "Earned when StackDash records 10 Supabase signups in one London clock hour.",
     rule: { kind: "events_in_window", typeIds: ["supabase.auth.signup"], count: 10, window: "hour" },
   },
   {
     id: "supabase.signups.night_owls",
     title: "Night owls: a signup between midnight and 5 am",
     publicTitle: "Night owls: a signup between midnight and 5 am",
-    description: "Earned when DevMacro records a Supabase signup between midnight and 5 am London time.",
+    description: "Earned when StackDash records a Supabase signup between midnight and 5 am London time.",
     rule: { kind: "event_at_local_time", typeIds: ["supabase.auth.signup"], fromHour: 0, toHour: 5 },
   },
 ];
@@ -620,7 +620,7 @@ async function finishDay(
     unavailableReason =
       plan.plan === "free"
         ? "Supabase keeps auth logs for 1 hour on the Free plan."
-        : "DevMacro could not read how long this organization keeps auth logs.";
+        : "StackDash could not read how long this organization keeps auth logs.";
   } else if (!withinRetention) {
     unavailableReason = "this day is past Supabase's auth log retention.";
   } else {
@@ -647,7 +647,7 @@ async function finishDay(
     `${counted(tally.signups, "new signup", "new signups")}, ${counted(tally.logouts, "logout", "logouts")}, ${counted(tally.deletedUsers, "deleted user", "deleted users")}.`,
   ];
   if (unavailableReason !== undefined) lines.push(`Daily active users unavailable: ${unavailableReason}`);
-  if (!tally.complete) lines.push("Partial day: part of this day was outside Supabase's auth log retention when DevMacro polled.");
+  if (!tally.complete) lines.push("Partial day: part of this day was outside Supabase's auth log retention when StackDash polled.");
 
   const event: ActivityEvent = {
     typeId: "supabase.auth.daily_summary",
@@ -699,7 +699,7 @@ export const supabaseAdapter: ProviderAdapter = {
       scope: "analytics:read",
       access: "read",
       description:
-        "Read your projects' logs, including auth logs, to count signups, logins, and active users. DevMacro keeps only counts and timestamps, never emails, IP addresses, or user ids.",
+        "Read your projects' logs, including auth logs, to count signups, logins, and active users. StackDash keeps only counts and timestamps, never emails, IP addresses, or user ids.",
     },
   ],
   dataCollected: [

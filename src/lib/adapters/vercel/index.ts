@@ -86,56 +86,56 @@ const achievements: readonly Achievement[] = [
     id: "vercel.deployments.first",
     title: "First Vercel deployment recorded",
     publicTitle: "First Vercel deployment recorded",
-    description: "Earned when DevMacro records the first successful Vercel deployment.",
+    description: "Earned when StackDash records the first successful Vercel deployment.",
     rule: { kind: "event_count", typeIds: ["vercel.deployment.succeeded"], count: 1 },
   },
   {
     id: "vercel.deployments.10",
     title: "10 Vercel deployments recorded",
     publicTitle: "10 Vercel deployments recorded",
-    description: "Earned when DevMacro records the 10th successful Vercel deployment.",
+    description: "Earned when StackDash records the 10th successful Vercel deployment.",
     rule: { kind: "event_count", typeIds: ["vercel.deployment.succeeded"], count: 10 },
   },
   {
     id: "vercel.deployments.100",
     title: "100 Vercel deployments recorded",
     publicTitle: "100 Vercel deployments recorded",
-    description: "Earned when DevMacro records the 100th successful Vercel deployment.",
+    description: "Earned when StackDash records the 100th successful Vercel deployment.",
     rule: { kind: "event_count", typeIds: ["vercel.deployment.succeeded"], count: 100 },
   },
   {
     id: "vercel.deployments.streak_10",
     title: "10 Vercel deployments in a row",
     publicTitle: "10 Vercel deployments in a row",
-    description: "Earned when DevMacro records 10 successful Vercel deployments in a row, with no failed deployment between them.",
+    description: "Earned when StackDash records 10 successful Vercel deployments in a row, with no failed deployment between them.",
     rule: { kind: "event_streak", successTypeIds: ["vercel.deployment.succeeded"], failureTypeIds: ["vercel.deployment.failed"], count: 10 },
   },
   {
     id: "vercel.deployments.night_owl",
     title: "Night owl: a Vercel deployment between midnight and 5 am",
     publicTitle: "Night owl: a Vercel deployment between midnight and 5 am",
-    description: "Earned when DevMacro records a successful Vercel deployment between midnight and 5 am London time.",
+    description: "Earned when StackDash records a successful Vercel deployment between midnight and 5 am London time.",
     rule: { kind: "event_at_local_time", typeIds: ["vercel.deployment.succeeded"], fromHour: 0, toHour: 5 },
   },
   {
     id: "vercel.deployments.friday_ship",
     title: "Shipped on a Friday afternoon",
     publicTitle: "Shipped on a Friday afternoon",
-    description: "Earned when DevMacro records a successful Vercel deployment on a Friday between 4 pm and midnight London time.",
+    description: "Earned when StackDash records a successful Vercel deployment on a Friday between 4 pm and midnight London time.",
     rule: { kind: "event_at_local_time", typeIds: ["vercel.deployment.succeeded"], fromHour: 16, toHour: 24, weekdays: ["friday"] },
   },
   {
     id: "vercel.deployments.busy_day",
     title: "Busy day: 10 Vercel deployments in one day",
     publicTitle: "Busy day: 10 Vercel deployments in one day",
-    description: "Earned when DevMacro records 10 successful Vercel deployments on one London calendar day.",
+    description: "Earned when StackDash records 10 successful Vercel deployments on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["vercel.deployment.succeeded"], count: 10, window: "day" },
   },
   {
     id: "vercel.deployments.weekly_rhythm",
     title: "Weekly rhythm: a Vercel deployment on 7 days in a row",
     publicTitle: "Weekly rhythm: a Vercel deployment on 7 days in a row",
-    description: "Earned when DevMacro records a successful Vercel deployment on each of 7 consecutive London calendar days.",
+    description: "Earned when StackDash records a successful Vercel deployment on each of 7 consecutive London calendar days.",
     rule: { kind: "consecutive_days", typeIds: ["vercel.deployment.succeeded"], days: 7 },
   },
 ];
@@ -426,19 +426,19 @@ export const vercelAdapter: ProviderAdapter = {
       scope: "deployment:read",
       access: "read",
       description:
-        "Deployments, which on Vercel also includes build logs, file lists, and the file structure of each deployment. Build logs can contain secrets. DevMacro only lists deployments.",
+        "Deployments, which on Vercel also includes build logs, file lists, and the file structure of each deployment. Build logs can contain secrets. StackDash only lists deployments.",
     },
     {
       scope: "project:read",
       access: "read",
       description:
-        "Projects, which on Vercel also includes project details with environment variable records. DevMacro never reads project details or environment variables.",
+        "Projects, which on Vercel also includes project details with environment variable records. StackDash never reads project details or environment variables.",
     },
     {
       scope: "team:read",
       access: "read",
       description:
-        "Team name and plan. Also allows listing team members; DevMacro never reads the member list.",
+        "Team name and plan. Also allows listing team members; StackDash never reads the member list.",
     },
   ],
   dataCollected: [
@@ -522,7 +522,7 @@ export const vercelAdapter: ProviderAdapter = {
   async listAccounts(credential, ctx): Promise<ExternalAccount[]> {
     const scope = readScope(credential);
     if (scope.teamId === undefined) {
-      // Hobby install: DevMacro does not request the `user` scope, so there is no name to read.
+      // Hobby install: StackDash does not request the `user` scope, so there is no name to read.
       return [{ externalId: scope.userId, displayName: "Vercel personal account", kind: "user" }];
     }
     const team = await fetchJson(

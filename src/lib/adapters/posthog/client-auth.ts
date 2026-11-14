@@ -1,11 +1,11 @@
 import { createHash, createPrivateKey, createPublicKey, sign, type KeyObject } from "node:crypto";
 
 /**
- * How DevMacro identifies itself to PostHog (docs/providers/posthog.md, Connection; decision on #115).
+ * How StackDash identifies itself to PostHog (docs/providers/posthog.md, Connection; decision on #115).
  *
  * PostHog registers third-party apps by client ID metadata document (CIMD): the `client_id` is the
  * URL of a JSON document this deployment serves, so there is nothing to register and no client
- * secret. DevMacro is a confidential client all the same: the document names
+ * secret. StackDash is a confidential client all the same: the document names
  * `token_endpoint_auth_method: private_key_jwt` and a JWKS, and every token request carries a
  * client assertion signed with the deployment's private key (RFC 7523). The key sits in the slot the
  * adapter contract calls the client secret, so a stolen refresh token alone cannot mint tokens.
@@ -126,7 +126,7 @@ export type ClientMetadataInput = Readonly<{
 export function clientMetadataDocument({ clientId, origin, redirectUri, scopes }: ClientMetadataInput) {
   return {
     client_id: clientId,
-    client_name: "DevMacro",
+    client_name: "StackDash",
     client_uri: origin,
     redirect_uris: [redirectUri],
     grant_types: ["authorization_code", "refresh_token"],

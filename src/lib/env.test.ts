@@ -6,22 +6,22 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const EMAIL_VARIABLES = ["DEVMACRO_EMAIL_FROM", "DEVMACRO_RESEND_API_KEY", "DEVMACRO_RESEND_API_URL"] as const;
+const EMAIL_VARIABLES = ["STACKDASH_EMAIL_FROM", "STACKDASH_RESEND_API_KEY", "STACKDASH_RESEND_API_URL"] as const;
 
 function stubEmailEnv(values: Partial<Record<(typeof EMAIL_VARIABLES)[number], string>>): void {
   for (const name of EMAIL_VARIABLES) vi.stubEnv(name, values[name] ?? "");
 }
 
-const FROM = "DevMacro <alerts@example.com>";
+const FROM = "StackDash <alerts@example.com>";
 
 describe("emailEnv", () => {
   it("is off when neither the Resend key nor URL is set, even with a sender", () => {
-    stubEmailEnv({ DEVMACRO_EMAIL_FROM: FROM });
+    stubEmailEnv({ STACKDASH_EMAIL_FROM: FROM });
     expect(emailEnv()).toBeNull();
   });
 
   it("sends to Resend itself when no URL is set", () => {
-    stubEmailEnv({ DEVMACRO_EMAIL_FROM: FROM, DEVMACRO_RESEND_API_KEY: "test-key" });
+    stubEmailEnv({ STACKDASH_EMAIL_FROM: FROM, STACKDASH_RESEND_API_KEY: "test-key" });
     expect(emailEnv()).toEqual({ from: FROM, apiKey: "test-key", apiUrl: "https://api.resend.com" });
   });
 
@@ -31,7 +31,7 @@ describe("emailEnv", () => {
     ["IPv6 loopback", "http://[::1]:55430", "http://[::1]:55430"],
     ["another https host", "https://mail-proxy.example.com", "https://mail-proxy.example.com"],
   ])("accepts %s as the URL, as an origin", (_title, url, origin) => {
-    stubEmailEnv({ DEVMACRO_EMAIL_FROM: FROM, DEVMACRO_RESEND_API_KEY: "test-key", DEVMACRO_RESEND_API_URL: url });
+    stubEmailEnv({ STACKDASH_EMAIL_FROM: FROM, STACKDASH_RESEND_API_KEY: "test-key", STACKDASH_RESEND_API_URL: url });
     expect(emailEnv()?.apiUrl).toBe(origin);
   });
 
@@ -45,32 +45,32 @@ describe("emailEnv", () => {
     ["user info", "https://user:hunter2@api.resend.com"],
     ["text that is not a URL", "api.resend.com"],
   ])("refuses %s as the URL, without echoing it", (_title, url) => {
-    stubEmailEnv({ DEVMACRO_EMAIL_FROM: FROM, DEVMACRO_RESEND_API_KEY: "test-key", DEVMACRO_RESEND_API_URL: url });
-    expect(() => emailEnv()).toThrow(/DEVMACRO_RESEND_API_URL is invalid/);
+    stubEmailEnv({ STACKDASH_EMAIL_FROM: FROM, STACKDASH_RESEND_API_KEY: "test-key", STACKDASH_RESEND_API_URL: url });
+    expect(() => emailEnv()).toThrow(/STACKDASH_RESEND_API_URL is invalid/);
     expect(() => emailEnv()).not.toThrow(url);
   });
 
   it("refuses a key without a sender", () => {
-    stubEmailEnv({ DEVMACRO_RESEND_API_KEY: "test-key" });
-    expect(() => emailEnv()).toThrow(/DEVMACRO_EMAIL_FROM is not set/);
+    stubEmailEnv({ STACKDASH_RESEND_API_KEY: "test-key" });
+    expect(() => emailEnv()).toThrow(/STACKDASH_EMAIL_FROM is not set/);
   });
 
   it("refuses a URL without a key rather than turning email off", () => {
-    stubEmailEnv({ DEVMACRO_EMAIL_FROM: FROM, DEVMACRO_RESEND_API_URL: "http://127.0.0.1:55430" });
-    expect(() => emailEnv()).toThrow(/DEVMACRO_RESEND_API_KEY is not set/);
+    stubEmailEnv({ STACKDASH_EMAIL_FROM: FROM, STACKDASH_RESEND_API_URL: "http://127.0.0.1:55430" });
+    expect(() => emailEnv()).toThrow(/STACKDASH_RESEND_API_KEY is not set/);
   });
 });
 
-const OPERATOR_VARIABLES = ["DEVMACRO_OPERATOR_NAME", "DEVMACRO_OPERATOR_EMAIL", "DEVMACRO_GOVERNING_LAW"] as const;
+const OPERATOR_VARIABLES = ["STACKDASH_OPERATOR_NAME", "STACKDASH_OPERATOR_EMAIL", "STACKDASH_GOVERNING_LAW"] as const;
 
 function stubOperatorEnv(values: Partial<Record<(typeof OPERATOR_VARIABLES)[number], string>>): void {
   for (const name of OPERATOR_VARIABLES) vi.stubEnv(name, values[name] ?? "");
 }
 
 const OPERATOR = {
-  DEVMACRO_OPERATOR_NAME: "Example Operator Ltd",
-  DEVMACRO_OPERATOR_EMAIL: "privacy@example.com",
-  DEVMACRO_GOVERNING_LAW: "England and Wales",
+  STACKDASH_OPERATOR_NAME: "Example Operator Ltd",
+  STACKDASH_OPERATOR_EMAIL: "privacy@example.com",
+  STACKDASH_GOVERNING_LAW: "England and Wales",
 };
 
 describe("operatorEnv", () => {
@@ -80,7 +80,7 @@ describe("operatorEnv", () => {
   });
 
   it("reads all three, trimming the outer spaces of the name and the law", () => {
-    stubOperatorEnv({ ...OPERATOR, DEVMACRO_OPERATOR_NAME: "  Example Operator Ltd ", DEVMACRO_GOVERNING_LAW: " England and Wales" });
+    stubOperatorEnv({ ...OPERATOR, STACKDASH_OPERATOR_NAME: "  Example Operator Ltd ", STACKDASH_GOVERNING_LAW: " England and Wales" });
     expect(operatorEnv()).toEqual({ name: "Example Operator Ltd", email: "privacy@example.com", governingLaw: "England and Wales" });
   });
 
@@ -90,11 +90,11 @@ describe("operatorEnv", () => {
   });
 
   it.each([
-    ["a name of spaces only", { DEVMACRO_OPERATOR_NAME: "   " }, "DEVMACRO_OPERATOR_NAME is invalid"],
-    ["a name longer than 200 characters", { DEVMACRO_OPERATOR_NAME: "a".repeat(201) }, "DEVMACRO_OPERATOR_NAME is invalid"],
-    ["text that is not an email address", { DEVMACRO_OPERATOR_EMAIL: "privacy at example.com" }, "DEVMACRO_OPERATOR_EMAIL is invalid"],
-    ["two email addresses", { DEVMACRO_OPERATOR_EMAIL: "a@example.com, b@example.com" }, "DEVMACRO_OPERATOR_EMAIL is invalid"],
-    ["a governing law of spaces only", { DEVMACRO_GOVERNING_LAW: " " }, "DEVMACRO_GOVERNING_LAW is invalid"],
+    ["a name of spaces only", { STACKDASH_OPERATOR_NAME: "   " }, "STACKDASH_OPERATOR_NAME is invalid"],
+    ["a name longer than 200 characters", { STACKDASH_OPERATOR_NAME: "a".repeat(201) }, "STACKDASH_OPERATOR_NAME is invalid"],
+    ["text that is not an email address", { STACKDASH_OPERATOR_EMAIL: "privacy at example.com" }, "STACKDASH_OPERATOR_EMAIL is invalid"],
+    ["two email addresses", { STACKDASH_OPERATOR_EMAIL: "a@example.com, b@example.com" }, "STACKDASH_OPERATOR_EMAIL is invalid"],
+    ["a governing law of spaces only", { STACKDASH_GOVERNING_LAW: " " }, "STACKDASH_GOVERNING_LAW is invalid"],
   ])("refuses %s", (_title, override, message) => {
     stubOperatorEnv({ ...OPERATOR, ...override });
     expect(() => operatorEnv()).toThrow(message);
@@ -154,17 +154,17 @@ describe("superAdminEmails", () => {
     ["empty", ""],
     ["only separators and spaces", " , ,"],
   ])("names nobody when %s", (_title, value) => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", value);
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", value);
     expect(superAdminEmails().size).toBe(0);
   });
 
   it("reads a comma separated list, trimmed and lowercased, without duplicates", () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", " Ops@Example.com,second@example.com ,ops@example.com,");
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", " Ops@Example.com,second@example.com ,ops@example.com,");
     expect([...superAdminEmails()]).toEqual(["ops@example.com", "second@example.com"]);
   });
 
   it("refuses an entry that is not an email address, naming its position but never the entry", () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
     expect(() => superAdminEmails()).toThrow("entry 2 is not an email address");
     expect(() => superAdminEmails()).not.toThrow("not-an-address");
   });

@@ -109,7 +109,7 @@ export function AssistantSetup({
             Add the server to your assistant with one of the snippets below.
             {created === null
               ? null
-              : " The Claude Desktop and other clients snippets hold the new key. Claude Code and Cursor read it from DEVMACRO_API_KEY."}
+              : " The Claude Desktop and other clients snippets hold the new key. Claude Code and Cursor read it from STACKDASH_API_KEY."}
           </li>
         </ol>
         {mcpClientSetups(endpointUrl, created?.key ?? null).map((setup) => (

@@ -131,7 +131,7 @@ const SEED_ROWS: Record<string, Record<string, unknown>[]> = {
       occurred_at: "2026-11-05T05:00:00+00:00",
     }),
     event("70000000-0000-4000-8000-000000000004", {
-      type_id: "devmacro.daily_summary",
+      type_id: "stackdash.daily_summary",
       severity: "info",
       title: "Daily summary",
       body: "Spend so far this month: 10.75 USD.",
@@ -253,7 +253,7 @@ async function connect(key: string, mode: (typeof ERAS)[number]["mode"] = "auto"
     authProvider: { token: async () => key },
     fetch: (url, init) => POST(new Request(url, init)),
   });
-  const client = new Client({ name: "devmacro-test", version: "1.0.0" }, { versionNegotiation: { mode } });
+  const client = new Client({ name: "stackdash-test", version: "1.0.0" }, { versionNegotiation: { mode } });
   await client.connect(transport);
   clients.push(client);
   return client;
@@ -494,7 +494,7 @@ describe("prompts", () => {
     const client = await connect(generateApiKey().key);
     const prompt = await client.getPrompt({ name: WHY_DID_SPEND_CHANGE, arguments: args });
     expect(promptTextOf(prompt)).toContain(
-      `spend changed in this DevMacro workspace over ${period} ending ${TODAY}, starting from the ${from} reading (UTC days).`,
+      `spend changed in this StackDash workspace over ${period} ending ${TODAY}, starting from the ${from} reading (UTC days).`,
     );
     expect(toolCallsOf(prompt)[0]?.arguments).toEqual({ kind: "verified_spend", from, to: TODAY, limit: 100 });
   });
@@ -504,7 +504,7 @@ describe("prompts", () => {
     ["91 days, one over the maximum", { days: "91" }],
     ["a fraction of a day", { days: "7.5" }],
     ["an empty number of days", { days: "" }],
-    ["a provider DevMacro does not have", { provider: "not-a-provider" }],
+    ["a provider StackDash does not have", { provider: "not-a-provider" }],
     ["an unknown argument", { workspace_id: WORKSPACE_ID }],
   ])("why_did_spend_change refuses %s with an invalid params error and reads nothing", async (_case, args) => {
     const client = await connect(generateApiKey().key);
@@ -562,7 +562,7 @@ describe("scopes", () => {
       data: [
         { type: "fake.deployment_succeeded", severity: "success", title: null, body: null },
         { type: "fake.usage_warning", title: null, body: null },
-        { type: "devmacro.daily_summary", title: null, body: null },
+        { type: "stackdash.daily_summary", title: null, body: null },
         { type: "fake.deployment_failed", severity: "critical", title: null, body: null },
       ],
     });
@@ -644,7 +644,7 @@ function rawPost(headers: Record<string, string>): Promise<Response> {
 describe("the HTTP endpoint", () => {
   it.each<[string, KeySetup, (key: string) => Record<string, string>]>([
     ["no Authorization header", { status: "valid", scopes: API_KEY_SCOPES }, () => ({})],
-    ["a header that is not a DevMacro key", { status: "valid", scopes: API_KEY_SCOPES }, () => ({ authorization: "Bearer sk_test_abc" })],
+    ["a header that is not a StackDash key", { status: "valid", scopes: API_KEY_SCOPES }, () => ({ authorization: "Bearer sk_test_abc" })],
     ["a key no row has", { status: "unknown" }, (key) => ({ authorization: `Bearer ${key}` })],
     ["a revoked key", { status: "revoked" }, (key) => ({ authorization: `Bearer ${key}` })],
   ])("answers 401 with the API error envelope to %s", async (_case, setup, headers) => {

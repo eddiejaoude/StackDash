@@ -15,18 +15,18 @@ test.describe("docs", () => {
     await page.getByRole("banner").getByRole("link", { name: "Docs", exact: true }).click();
 
     await expect(page).toHaveURL("/docs");
-    await expect(page).toHaveTitle("Docs · DevMacro");
+    await expect(page).toHaveTitle("Docs · StackDash");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documentation");
 
     const main = page.getByRole("main");
     // The leading four only: any other top-level page adds a Developers group after Architecture.
     const groupHeadings = main.getByRole("heading", { level: 2 });
-    const leadingGroups = ["Using DevMacro", "Providers", "Self-hosting and operations", "Architecture"];
+    const leadingGroups = ["Using StackDash", "Providers", "Self-hosting and operations", "Architecture"];
     for (const [index, name] of leadingGroups.entries()) {
       await expect(groupHeadings.nth(index)).toHaveText(name);
     }
     await expect(main.getByRole("link").first()).toHaveText("Getting started");
-    await expect(page.getByRole("region", { name: "Using DevMacro" }).getByRole("link")).toHaveText([
+    await expect(page.getByRole("region", { name: "Using StackDash" }).getByRole("link")).toHaveText([
       "Getting started",
       "REST API",
       "MCP server",
@@ -53,14 +53,14 @@ test.describe("docs", () => {
     await expect(main.getByText("Hosted instance runbook")).toHaveCount(0);
   });
 
-  test("each provider card says what DevMacro reads and how far it was tested", async ({ page }) => {
+  test("each provider card says what StackDash reads and how far it was tested", async ({ page }) => {
     await page.goto("/docs");
     const providers = page.getByRole("region", { name: "Providers" });
     const cards = providers.getByRole("listitem");
     await expect(cards).toHaveCount(11);
 
     for (const card of await cards.all()) {
-      await expect(card.getByRole("paragraph")).toHaveText(/^DevMacro reads /);
+      await expect(card.getByRole("paragraph")).toHaveText(/^StackDash reads /);
       await expect(card.getByText(/^(Not yet tested|Tested) with a real account$/)).toHaveCount(1);
     }
     // Only provider pages carry a status.
@@ -148,7 +148,7 @@ test.describe("docs", () => {
     await page.getByRole("link", { name: "Vercel", exact: true }).click();
 
     await expect(page).toHaveURL("/docs/providers/vercel");
-    await expect(page).toHaveTitle("Vercel · DevMacro");
+    await expect(page).toHaveTitle("Vercel · StackDash");
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1 })).toHaveText("Vercel");
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);

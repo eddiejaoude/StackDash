@@ -31,7 +31,7 @@ import { computePublicMetrics, historyStart, STALE_AFTER_MS, type PublicMetricSt
  * The year in review (#262) turns the card into four slides, each downloadable as an image: the
  * busiest day, the longest run of successful deployments, the most active provider, and the totals
  * above. The figures safe to show were decided before coding:
- * https://github.com/eddiejaoude/DevMacro/issues/262#issuecomment-6790096177. No spend, no revenue,
+ * https://github.com/eddiejaoude/StackDash/issues/262#issuecomment-6790096177. No spend, no revenue,
  * no account names, no repository names: a provider is named by its product name only, and the
  * event counts leave out payments, because a payment count hints at revenue.
  *
@@ -231,7 +231,7 @@ export function yearSummaryLabel(summary: YearSummary): string {
 }
 
 export function yearProvenance(summary: YearSummary): string {
-  return summary.simulated ? "Simulated data, not verified" : "Counted by DevMacro from stored data";
+  return summary.simulated ? "Simulated data, not verified" : "Counted by StackDash from stored data";
 }
 
 /** Alt text for the yearly card: every figure in words. */
@@ -242,7 +242,7 @@ export function yearCardAltText(summary: YearSummary): string {
       return `${figure.label}: ${figure.value}${note === null ? "" : `, ${note}`}.`;
     })
     .join(" ");
-  return `DevMacro card: your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${figures} ${yearProvenance(summary)}.`;
+  return `StackDash card: your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${figures} ${yearProvenance(summary)}.`;
 }
 
 /** The prefilled post for "Share to X": the figures that have a number. */
@@ -254,7 +254,7 @@ export function yearShareText(summary: YearSummary): string {
     return [`${NUMBER_FORMAT.format(stat.value)} ${nouns[stat.value === 1 ? 0 : 1]}`];
   });
   const figures = counted.length === 0 ? "" : `: ${counted.join(", ")}`;
-  return `My stack in ${yearSummaryLabel(summary)} on DevMacro${figures}.${summary.simulated ? " Simulated data." : ""}`;
+  return `My stack in ${yearSummaryLabel(summary)} on StackDash${figures}.${summary.simulated ? " Simulated data." : ""}`;
 }
 
 // ── The year in review (#262) ────────────────────────────────────────────────────
@@ -508,7 +508,7 @@ function tiedNames(tiedWith: readonly ProviderId[]): string {
 export function yearSlideAltText(review: YearReview, slide: YearSlide): string {
   if (slide.id === "totals") return yearCardAltText(review.summary);
   const { summary } = review;
-  return `DevMacro slide for your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${slide.title}: ${slide.value}. ${slide.detail} ${yearProvenance(summary)}.`;
+  return `StackDash slide for your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${slide.title}: ${slide.value}. ${slide.detail} ${yearProvenance(summary)}.`;
 }
 
 /** The prefilled post for "Share to X" of one slide; a slide with nothing to count names the year only. */
@@ -518,15 +518,15 @@ export function yearSlideShareText(review: YearReview, slide: YearSlide): string
   const label = yearSummaryLabel(summary);
   const simulated = summary.simulated ? " Simulated data." : "";
   if (slide.id === "busiest-day" && day !== null) {
-    return `My busiest day of ${label} on DevMacro: ${counted(day.events, "event", "events")} on ${day.day}.${simulated}`;
+    return `My busiest day of ${label} on StackDash: ${counted(day.events, "event", "events")} on ${day.day}.${simulated}`;
   }
   if (slide.id === "deployment-run" && run.status === "available" && run.longest !== null) {
-    return `My longest run of successful deployments in ${label} on DevMacro: ${NUMBER_FORMAT.format(run.longest.events)} in a row on ${PROVIDER_NAMES[run.longest.provider]}.${simulated}`;
+    return `My longest run of successful deployments in ${label} on StackDash: ${NUMBER_FORMAT.format(run.longest.events)} in a row on ${PROVIDER_NAMES[run.longest.provider]}.${simulated}`;
   }
   if (slide.id === "top-provider" && top !== null) {
-    return `My most active provider in ${label} on DevMacro: ${PROVIDER_NAMES[top.provider]}.${simulated}`;
+    return `My most active provider in ${label} on StackDash: ${PROVIDER_NAMES[top.provider]}.${simulated}`;
   }
-  return `My stack in ${label} on DevMacro.${simulated}`;
+  return `My stack in ${label} on StackDash.${simulated}`;
 }
 
 /** A slide's image under the year page. The totals keep the yearly card's address, `card.png`. */
@@ -539,9 +539,9 @@ export function parseYearSlideFile(segment: string): YearSlideId | null {
   return YEAR_SLIDE_IDS.find((id) => yearSlideFile(id) === segment) ?? null;
 }
 
-/** "devmacro-2025-busiest-day.png", "devmacro-2026-so-far.png" for the totals of the year to date. */
+/** "stackdash-2025-busiest-day.png", "stackdash-2026-so-far.png" for the totals of the year to date. */
 export function yearSlideDownloadName(summary: YearSummary, id: YearSlideId): string {
-  const base = isYearComplete(summary.year, summary.asOf) ? `devmacro-${summary.year}` : `devmacro-${summary.year}-so-far`;
+  const base = isYearComplete(summary.year, summary.asOf) ? `stackdash-${summary.year}` : `stackdash-${summary.year}-so-far`;
   return id === "totals" ? `${base}.png` : `${base}-${id}.png`;
 }
 

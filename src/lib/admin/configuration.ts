@@ -71,7 +71,7 @@ function siteUrlCheck(): ConfigCheck {
   }
   return URL.canParse(value.trim())
     ? { ...base, status: "ok", summary: "Set", detail: "Used for links in emails, page metadata, and provider callbacks." }
-    : { ...base, status: "attention", summary: "Invalid", detail: "Set the full origin, such as https://devmacro.example.com." };
+    : { ...base, status: "attention", summary: "Invalid", detail: "Set the full origin, such as https://stackdash.example.com." };
 }
 
 // An invalid list never reaches this check: requireSuperAdmin() fails first and the page shows its
@@ -80,7 +80,7 @@ function superAdminCheck(): ConfigCheck {
   const count = superAdminEmails().size;
   return {
     name: "Super admins",
-    variables: ["DEVMACRO_SUPER_ADMIN_EMAILS"],
+    variables: ["STACKDASH_SUPER_ADMIN_EMAILS"],
     status: "ok",
     summary: `${count} ${count === 1 ? "address" : "addresses"}`,
     detail: "Who can open this page.",
@@ -88,8 +88,8 @@ function superAdminCheck(): ConfigCheck {
 }
 
 function encryptionKeyCheck(): ConfigCheck {
-  const base = { name: "Encryption key", variables: ["DEVMACRO_ENCRYPTION_KEY"] };
-  if (isBlank(process.env.DEVMACRO_ENCRYPTION_KEY)) {
+  const base = { name: "Encryption key", variables: ["STACKDASH_ENCRYPTION_KEY"] };
+  if (isBlank(process.env.STACKDASH_ENCRYPTION_KEY)) {
     return {
       ...base,
       status: "attention",
@@ -106,8 +106,8 @@ function encryptionKeyCheck(): ConfigCheck {
 }
 
 function previousKeysCheck(): ConfigCheck {
-  const base = { name: "Previous encryption keys", variables: ["DEVMACRO_ENCRYPTION_KEYS_PREVIOUS"] };
-  return isBlank(process.env.DEVMACRO_ENCRYPTION_KEYS_PREVIOUS)
+  const base = { name: "Previous encryption keys", variables: ["STACKDASH_ENCRYPTION_KEYS_PREVIOUS"] };
+  return isBlank(process.env.STACKDASH_ENCRYPTION_KEYS_PREVIOUS)
     ? { ...base, status: "info", summary: "Not set", detail: "No key rotation in progress." }
     : {
         ...base,
@@ -135,7 +135,7 @@ function cronSecretCheck(): ConfigCheck {
 }
 
 function alertEmailCheck(): ConfigCheck {
-  const base = { name: "Alert email", variables: ["DEVMACRO_RESEND_API_KEY", "DEVMACRO_EMAIL_FROM", "DEVMACRO_RESEND_API_URL"] };
+  const base = { name: "Alert email", variables: ["STACKDASH_RESEND_API_KEY", "STACKDASH_EMAIL_FROM", "STACKDASH_RESEND_API_URL"] };
   try {
     return emailEnv() === null
       ? { ...base, status: "info", summary: "Not set", detail: "Alerts still show in the app and reach channels, but no email is sent." }
@@ -180,13 +180,13 @@ export function providerSetup(): ProviderSetup[] {
 }
 
 function trustedProxyCheck(): ConfigCheck {
-  const base = { name: "Trusted proxies", variables: ["DEVMACRO_TRUSTED_PROXY_COUNT"] };
+  const base = { name: "Trusted proxies", variables: ["STACKDASH_TRUSTED_PROXY_COUNT"] };
   try {
     const { header, trustedProxies } = clientIpEnv();
     if (header === "x-vercel-forwarded-for") {
       return { ...base, status: "info", summary: "Not used", detail: "On Vercel the client address comes from Vercel's own header." };
     }
-    return isBlank(process.env.DEVMACRO_TRUSTED_PROXY_COUNT)
+    return isBlank(process.env.STACKDASH_TRUSTED_PROXY_COUNT)
       ? { ...base, status: "info", summary: "Not set", detail: "One proxy in front of the app is assumed for the public rate limit." }
       : { ...base, status: "ok", summary: "Set", detail: `${trustedProxies} ${trustedProxies === 1 ? "proxy" : "proxies"} in front of the app.` };
   } catch (error) {
@@ -195,7 +195,7 @@ function trustedProxyCheck(): ConfigCheck {
 }
 
 function privateWebhooksCheck(): ConfigCheck {
-  const base = { name: "Private network webhooks", variables: ["DEVMACRO_ALLOW_PRIVATE_WEBHOOKS"] };
+  const base = { name: "Private network webhooks", variables: ["STACKDASH_ALLOW_PRIVATE_WEBHOOKS"] };
   if (!urlPolicyFromEnv().allowPrivate) {
     return { ...base, status: "ok", summary: "Off", detail: "Webhook channels post to public https addresses only." };
   }

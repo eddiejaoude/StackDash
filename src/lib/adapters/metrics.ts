@@ -55,7 +55,7 @@ export const ProvenanceSchema = z.strictObject({
   pricingSource: z.string().trim().min(1).optional(),
 });
 
-// An estimate is calculated by DevMacro, so it is always derived and must name its price list.
+// An estimate is calculated by StackDash, so it is always derived and must name its price list.
 const EstimatedProvenanceSchema = z.strictObject({
   source: z.literal("derived"),
   endpoint: z.string().min(1).optional(),
@@ -123,7 +123,7 @@ const RecurringRevenueSchema = z.strictObject({
   kind: z.literal("recurring_revenue"),
 });
 
-// Set by a user in DevMacro. Part of the model so budgets compare against spend, never adapter output.
+// Set by a user in StackDash. Part of the model so budgets compare against spend, never adapter output.
 const BudgetSchema = z.strictObject({
   ...baseShape,
   ...nonNegativeMoneyShape,
@@ -173,7 +173,7 @@ export function validateAdapterMetrics(
       "kind" in candidate &&
       candidate.kind === "budget"
     ) {
-      issues.push({ index, path: "kind", message: "budget is set in DevMacro and never comes from a provider" });
+      issues.push({ index, path: "kind", message: "budget is set in StackDash and never comes from a provider" });
       return;
     }
     const parsed = AdapterMetricSchema.safeParse(candidate);

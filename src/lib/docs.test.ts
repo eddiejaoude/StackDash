@@ -181,7 +181,7 @@ describe("listDocs", () => {
     const vercel = getDoc(["providers", "vercel"]);
     expect(vercel?.title).toBe("Vercel");
     // The lead line only carries the provider id, verification, and date, so the description skips it.
-    expect(vercel?.description).toMatch(/^DevMacro reads your Vercel billing charges and deployments/);
+    expect(vercel?.description).toMatch(/^StackDash reads your Vercel billing charges and deployments/);
 
     for (const doc of listDocs()) {
       expect(doc.title, doc.href).not.toBe("");
@@ -191,11 +191,11 @@ describe("listDocs", () => {
     }
   });
 
-  it("describes every provider by what DevMacro reads, never by a research verdict", () => {
+  it("describes every provider by what StackDash reads, never by a research verdict", () => {
     const providers = listDocs().filter((doc) => doc.group === "providers");
     expect(providers.length).toBeGreaterThan(0);
     for (const doc of providers) {
-      expect(doc.description, doc.href).toMatch(/^DevMacro reads /);
+      expect(doc.description, doc.href).toMatch(/^StackDash reads /);
       expect(doc.description, doc.href).not.toMatch(/\b(go|no-go|not yet confirmed|nothing on this page)\b/i);
     }
   });
@@ -211,7 +211,7 @@ describe("listDocs", () => {
   // nothing to the reader. `#` followed by digits after a letter (`PKCS#1`) or inside a color
   // (`#0080FF`) is not an issue reference.
   it("publishes no issue references", () => {
-    const issueReference = /(?<![\w&])#\d+\b|github\.com\/eddiejaoude\/DevMacro\/(?:issues|pull)\//;
+    const issueReference = /(?<![\w&])#\d+\b|github\.com\/eddiejaoude\/StackDash\/(?:issues|pull)\//;
     for (const doc of listDocs()) {
       const found = doc.source.split("\n").filter((line) => issueReference.test(line));
       expect(found, doc.href).toEqual([]);
@@ -221,7 +221,7 @@ describe("listDocs", () => {
   it("leads with getting started and the guides, then providers, operations, and architecture", () => {
     const groups = groupDocs(listDocs());
     expect(groups.slice(0, 4).map((group) => group.label)).toEqual([
-      "Using DevMacro",
+      "Using StackDash",
       "Providers",
       "Self-hosting and operations",
       "Architecture",

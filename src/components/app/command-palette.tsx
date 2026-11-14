@@ -108,7 +108,7 @@ async function runServerAction(workspaceSlug: string, action: ServerAction): Pro
     // logs its own failures, so all the palette can add is the next step.
     return {
       tone: "error",
-      message: `${wordsFor(action).lost} because DevMacro did not answer. Check that you are online, then try again.`,
+      message: `${wordsFor(action).lost} because StackDash did not answer. Check that you are online, then try again.`,
     };
   }
   return {

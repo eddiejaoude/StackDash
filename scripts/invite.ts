@@ -1,5 +1,5 @@
 /*
- * Adds or removes an email on the DevMacro test invite list (issue #23).
+ * Adds or removes an email on the StackDash test invite list (issue #23).
  *
  *   npm run invite -- someone@example.com            invite
  *   npm run invite -- someone@example.com --remove   remove the invite

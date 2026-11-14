@@ -9,8 +9,8 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
  * earned" timeline entry, and a repeated sync neither duplicates nor moves it.
  *
  * A real sync is the trigger, the way production earns achievements: Sentry connects simulated
- * through the dev consent screen (the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1), its
- * three example projects become accounts, and those are assigned to a DevMacro project before the
+ * through the dev consent screen (the web server runs with STACKDASH_SIMULATE_PROVIDERS=1), its
+ * three example projects become accounts, and those are assigned to a StackDash project before the
  * first sync. POST /api/jobs/tick then syncs the connection, and the runner evaluates the project's
  * achievements right after (src/lib/jobs/sync-connection.ts). Every simulated Sentry project
  * releases every 20 minutes, so the 30 minute backfill always holds a release, which earns "First
@@ -20,7 +20,7 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
 
 const ACHIEVEMENT_ID = "sentry.releases.first";
 const ACHIEVEMENT_TITLE = "First Sentry release recorded";
-const EARNED_TYPE_ID = "devmacro.achievement_earned";
+const EARNED_TYPE_ID = "stackdash.achievement_earned";
 
 /** Ticks until the workspace's Sentry connection has synced after `after` (or at all). */
 async function tickUntilSynced(page: Page, workspace: TestWorkspace, after: string | null): Promise<string> {

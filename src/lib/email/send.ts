@@ -8,14 +8,14 @@ import { emailEnv, type EmailEnv } from "@/lib/env";
  * Alert email (#152). Callers get the transport with `emailTransportFromEnv()` (null when email is
  * not set up) and send through `EmailTransport.send`. It sends through Resend's official `resend`
  * package, the only transport since #244:
- * https://github.com/eddiejaoude/DevMacro/issues/244
+ * https://github.com/eddiejaoude/StackDash/issues/244
  *
  * What the package does, read from `resend@6.37.0` `dist/index.mjs` (2026-11-07):
  * - It never throws. `emails.send` returns `{ data, error }`; `error.statusCode` is the HTTP status,
  *   or null when no answer arrived (network failure, abort, timeout).
  * - The `baseUrl` option wins over `RESEND_BASE_URL` in the environment, so the validated
- *   DEVMACRO_RESEND_API_URL is always passed and that variable can never redirect mail.
- * - It writes `console.error("[Resend API Error]: ...")` only when RESEND_DEBUG=true. DevMacro
+ *   STACKDASH_RESEND_API_URL is always passed and that variable can never redirect mail.
+ * - It writes `console.error("[Resend API Error]: ...")` only when RESEND_DEBUG=true. StackDash
  *   never sets it: the failure is logged once, structured and redacted, by the caller
  *   (`notifications.email_failed` in src/lib/notifications/dispatch.ts) from the EmailSendError.
  */

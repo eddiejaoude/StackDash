@@ -18,7 +18,7 @@ ownerTest.describe("GitLab connection", () => {
         catalog: () => expectNoAxeViolations(page),
         connectScreen: async () => {
           const permissions = page.getByRole("region", { name: "Permissions GitLab will ask you to grant" });
-          await expect(permissions.getByText(/^Simulated\. DevMacro makes up example GitLab data/)).toBeVisible();
+          await expect(permissions.getByText(/^Simulated\. StackDash makes up example GitLab data/)).toBeVisible();
           const data = page.getByRole("region", { name: "Data collected" });
           for (const item of [
             "Compute minutes used this month, per namespace and per project",

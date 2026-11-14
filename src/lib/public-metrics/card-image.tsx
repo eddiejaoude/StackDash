@@ -83,7 +83,7 @@ function Frame({ tag, children, footer }: { tag: ReactNode; children: ReactNode;
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", fontSize: 36, color: COLORS.accent, letterSpacing: -1 }}>DevMacro</div>
+        <div style={{ display: "flex", fontSize: 36, color: COLORS.accent, letterSpacing: -1 }}>StackDash</div>
         {tag}
       </div>
       <div style={{ display: "flex", flexDirection: "column", flexGrow: 1, justifyContent: "center" }}>{children}</div>
@@ -187,7 +187,7 @@ export function AchievementCard({ achievement, projectName }: { achievement: Pub
   );
 }
 
-/** The site-wide link preview (#338): what DevMacro does and who it is for, for the landing page and the docs. */
+/** The site-wide link preview (#338): what StackDash does and who it is for, for the landing page and the docs. */
 export function SiteCard() {
   return (
     <Frame tag={<Tag text="Open source" color={COLORS.accent} />} footer={[site.tagline, site.githubUrl.replace(/^https:\/\//, "")]}>

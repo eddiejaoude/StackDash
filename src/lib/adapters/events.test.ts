@@ -24,11 +24,11 @@ const failedDeployment: ActivityEvent = {
   typeId: "vercel.deployment.failed",
   occurredAt: new Date("2026-10-31T09:15:00Z"),
   severity: "critical",
-  title: "Deployment failed for devmacro",
+  title: "Deployment failed for stackdash",
   body: "The build step exited with code 1.",
   externalAccountId: "team_1",
   dedupeKey: "dpl_123:failed",
-  url: "https://vercel.com/team/devmacro/dpl_123",
+  url: "https://vercel.com/team/stackdash/dpl_123",
 };
 
 describe("validateAdapterEvents", () => {

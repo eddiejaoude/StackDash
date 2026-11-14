@@ -396,7 +396,7 @@ export type PublishedAchievement = Readonly<{
   earnedAt: Date;
   /** `day`: earned on a whole UTC day (a daily total), stored at 00:00 UTC; show the date only. */
   earnedPrecision: "instant" | "day";
-  /** `at_least`: DevMacro first saw the value at or above `threshold`, not the crossing itself. */
+  /** `at_least`: StackDash first saw the value at or above `threshold`, not the crossing itself. */
   evidence: "crossed" | "at_least";
   threshold: number | null;
   /** Earned from data the provider simulator (#131) made up. Never show it as earned from real data. */

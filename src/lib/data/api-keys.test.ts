@@ -45,7 +45,7 @@ function keyRow(index: number, createdBy: string | null) {
   return {
     id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
     name: `Key ${index}`,
-    token_prefix: "dmk_abcdefgh",
+    token_prefix: "sd_abcdefgh",
     scopes: ["usage:read"],
     created_by: createdBy,
     created_at: "2026-11-04T09:15:00+00:00",

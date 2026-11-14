@@ -28,7 +28,7 @@ type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
 
 // Refresh this long before the access token expires, so a token never expires mid-sync.
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
-export const SYNC_FAILED_TYPE_ID = "devmacro.sync_failed";
+export const SYNC_FAILED_TYPE_ID = "stackdash.sync_failed";
 
 export type JobOutcome =
   | { status: "succeeded" }
@@ -255,8 +255,8 @@ function syncFailedEvent(input: {
         : `Reconnect ${name} in Connections to resume syncing.`;
   const body =
     input.status === "needs_attention"
-      ? `DevMacro can no longer read ${name} data for ${account}. ${action} Reference ${input.errorReference}.`
-      : `${name} did not answer after several attempts. DevMacro keeps retrying every hour. If it keeps failing, reconnect ${name} in Connections. Reference ${input.errorReference}.`;
+      ? `StackDash can no longer read ${name} data for ${account}. ${action} Reference ${input.errorReference}.`
+      : `${name} did not answer after several attempts. StackDash keeps retrying every hour. If it keeps failing, reconnect ${name} in Connections. Reference ${input.errorReference}.`;
   // The episode starts with the job whose failure took the connection out of `active`. Its
   // created_at is stable across a re-run of that job, so a crash between writing this event and
   // updating the connection cannot produce a second event for the same episode.

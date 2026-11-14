@@ -42,7 +42,7 @@ import {
 
 const API_ORIGIN = "https://sentry.io";
 const API_BASE = `${API_ORIGIN}/api/0`;
-const USER_AGENT = "DevMacro";
+const USER_AGENT = "StackDash";
 
 export const SENTRY_SCOPES = ["org:read", "event:read", "project:read"] as const;
 type SentryScope = (typeof SENTRY_SCOPES)[number];
@@ -129,35 +129,35 @@ const achievements: readonly Achievement[] = [
     id: "sentry.issues.resolved_first",
     title: "First Sentry issue resolved",
     publicTitle: "First Sentry issue resolved",
-    description: "Earned when DevMacro records the first resolved Sentry issue.",
+    description: "Earned when StackDash records the first resolved Sentry issue.",
     rule: { kind: "event_count", typeIds: ["sentry.issue.resolved"], count: 1 },
   },
   {
     id: "sentry.issues.resolved_100",
     title: "100 Sentry issues resolved",
     publicTitle: "100 Sentry issues resolved",
-    description: "Earned when DevMacro records the 100th resolved Sentry issue.",
+    description: "Earned when StackDash records the 100th resolved Sentry issue.",
     rule: { kind: "event_count", typeIds: ["sentry.issue.resolved"], count: 100 },
   },
   {
     id: "sentry.issues.bug_squasher",
     title: "Bug squasher: 10 issues resolved in one day",
     publicTitle: "Bug squasher: 10 issues resolved in one day",
-    description: "Earned when DevMacro records 10 resolved Sentry issues on one London calendar day.",
+    description: "Earned when StackDash records 10 resolved Sentry issues on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["sentry.issue.resolved"], count: 10, window: "day" },
   },
   {
     id: "sentry.releases.first",
     title: "First Sentry release recorded",
     publicTitle: "First Sentry release recorded",
-    description: "Earned when DevMacro records the first new Sentry release.",
+    description: "Earned when StackDash records the first new Sentry release.",
     rule: { kind: "event_count", typeIds: ["sentry.release.created"], count: 1 },
   },
   {
     id: "sentry.releases.10",
     title: "10 Sentry releases recorded",
     publicTitle: "10 Sentry releases recorded",
-    description: "Earned when DevMacro records the 10th new Sentry release.",
+    description: "Earned when StackDash records the 10th new Sentry release.",
     rule: { kind: "event_count", typeIds: ["sentry.release.created"], count: 10 },
   },
 ];
@@ -310,7 +310,7 @@ async function listProjects(
   return projects;
 }
 
-/** Error counts for one project and period, one usage metric per outcome DevMacro shows. */
+/** Error counts for one project and period, one usage metric per outcome StackDash shows. */
 export function errorVolumeMetrics(
   counts: Readonly<Record<ErrorOutcome, number>>,
   timeframe: Extract<Timeframe, { type: "period" }>,
@@ -655,19 +655,19 @@ export const sentryAdapter: ProviderAdapter = {
       scope: "org:read",
       access: "read",
       description:
-        "Organization: the project list and error counts by outcome from the usage stats. It can also read other organization details and settings; DevMacro reads only these.",
+        "Organization: the project list and error counts by outcome from the usage stats. It can also read other organization details and settings; StackDash reads only these.",
     },
     {
       scope: "event:read",
       access: "read",
       description:
-        "Issues and events in every project. Events can hold anything your app sends to Sentry, such as error messages, stack traces, and user details. DevMacro reads only each issue's short id, status, level, and first and last seen times, never titles, messages, or events.",
+        "Issues and events in every project. Events can hold anything your app sends to Sentry, such as error messages, stack traces, and user details. StackDash reads only each issue's short id, status, level, and first and last seen times, never titles, messages, or events.",
     },
     {
       scope: "project:read",
       access: "read",
       description:
-        "Projects and their releases. It can also read project settings and client keys (DSNs); DevMacro reads only release versions and when they were created.",
+        "Projects and their releases. It can also read project settings and client keys (DSNs); StackDash reads only release versions and when they were created.",
     },
   ],
   dataCollected: [

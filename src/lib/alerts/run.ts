@@ -76,7 +76,7 @@ export async function loadSnapshots(
 /**
  * Evaluates the workspace's active rules against its current metrics and records each threshold
  * crossed for the first time this billing cycle: one `triggered_alerts` row and one
- * `devmacro.alert_triggered` timeline event. Returns how many alerts were newly recorded.
+ * `stackdash.alert_triggered` timeline event. Returns how many alerts were newly recorded.
  */
 export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): Promise<{ triggered: number }> {
   const db = createAdminClient();

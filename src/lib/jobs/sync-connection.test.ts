@@ -367,7 +367,7 @@ describe("sync job: simulated credentials (#131)", () => {
     const [event, ...rest] = harness.failureEvents();
     expect(rest).toHaveLength(0);
     expect(event?.severity).toBe("critical");
-    expect(event?.body).toContain("DEVMACRO_SIMULATE_PROVIDERS=1");
+    expect(event?.body).toContain("STACKDASH_SIMULATE_PROVIDERS=1");
   });
 
   it("syncs a simulated credential with the registry's simulated adapter", async () => {

@@ -39,7 +39,7 @@ describe("handleSchema", () => {
     ["the Kelvin sign, which toLowerCase turns into k (unicode)", "\u212Aelvin", "Use lowercase letters and numbers, with single hyphens between words."],
     ["an emoji (unicode)", "acme🚀", "Use lowercase letters and numbers, with single hyphens between words."],
     ["a reserved route segment", "docs", "This handle is reserved. Choose another one."],
-    ["a reserved name", "devmacro", "This handle is reserved. Choose another one."],
+    ["a reserved name", "stackdash", "This handle is reserved. Choose another one."],
     ["a reserved name in capitals", "WWW", "This handle is reserved. Choose another one."],
     ["a reserved hyphenated route segment", "sign-in", "This handle is reserved. Choose another one."],
   ])("refuses %s", (_case, input, message) => {
@@ -83,7 +83,7 @@ function topLevelSegments(dir: string): string[] {
 
 describe("topLevelSegments", () => {
   it("lists the segments inside route groups, and none for dynamic, slot, or private folders (boundary)", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "devmacro-app-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stackdash-app-"));
     try {
       for (const folder of ["docs", "(marketing)/pricing", "(marketing)/(nested)/blog", "[id]", "@modal", "_lib"]) {
         fs.mkdirSync(path.join(root, folder), { recursive: true });

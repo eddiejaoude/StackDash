@@ -97,7 +97,7 @@ describe("parseTickArgs", () => {
   it.each([["1"], ["10"]])("refuses --volume %s with simulation off, naming the setting that turns it on", (volume) => {
     expect(parseTickArgs(["--watch", "--volume", volume], { simulationEnabled: false })).toEqual({
       kind: "invalid",
-      message: expect.stringContaining("Add DEVMACRO_SIMULATE_PROVIDERS=1 to .env.local"),
+      message: expect.stringContaining("Add STACKDASH_SIMULATE_PROVIDERS=1 to .env.local"),
     });
   });
 });
@@ -172,14 +172,14 @@ describe("runWatch", () => {
     expect(calls).toEqual(["tick", "sleep 10000", "tick"]);
     expect(lines.filter((line) => line.includes("Provider simulation is off"))).toHaveLength(1);
     // The one setting that turns streaming on, and that a running watcher must be restarted.
-    expect(lines.filter((line) => line.includes("add DEVMACRO_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher"))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes("add STACKDASH_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher"))).toHaveLength(1);
   });
 
   it("with simulation on but no active simulated connection, says how to connect one, once", async () => {
     const { deps, lines } = harness({ simulating: true, ticks: 3, dueCounts: [0] });
     await runWatch(deps, { intervalSeconds: 10, volume: 1 });
     expect(lines.filter((line) => line.startsWith("No active simulated connection"))).toHaveLength(1);
-    expect(lines.some((line) => line.includes("DEVMACRO_SIMULATE_PROVIDERS=1"))).toBe(false);
+    expect(lines.some((line) => line.includes("STACKDASH_SIMULATE_PROVIDERS=1"))).toBe(false);
   });
 
   it("stays quiet once a simulated connection is active, and says it again only if none is", async () => {

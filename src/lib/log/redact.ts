@@ -89,10 +89,10 @@ const STRING_RULES: readonly StringRule[] = [
     pattern: /\bvc[a-z]_[A-Za-z0-9]{16,}/g,
     replace: fullMask,
   },
-  // DevMacro API keys (#162): dmk_ plus 43 base64url characters. The 8 character display prefix
+  // StackDash API keys (#162): sd_ plus 43 base64url characters. The 8 character display prefix
   // shown in settings is too short to match and stays readable.
   {
-    pattern: /\bdmk_[A-Za-z0-9_-]{20,}/g,
+    pattern: /\bsd_[A-Za-z0-9_-]{20,}/g,
     replace: fullMask,
   },
   // Supabase personal access tokens and secret API keys.

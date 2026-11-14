@@ -12,7 +12,7 @@ const appPort = Number(process.env.E2E_PORT ?? 3100);
 export const FAKE_RESEND = {
   url: `http://127.0.0.1:${Number(process.env.E2E_RESEND_PORT ?? appPort + 1)}`,
   apiKey: "fake-resend-e2e-key",
-  from: "DevMacro alerts <alerts@example.com>",
+  from: "StackDash alerts <alerts@example.com>",
 } as const;
 
 /** Every email the fake accepted since it started, oldest first. */

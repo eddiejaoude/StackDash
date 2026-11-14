@@ -41,7 +41,7 @@ async function asStranger(browser: Browser, baseURL: string, path: string, check
 
 async function expectNotFound(page: Page, status: number | undefined): Promise<void> {
   expect(status).toBe(404);
-  await expect(page).toHaveTitle("Page not found · DevMacro");
+  await expect(page).toHaveTitle("Page not found · StackDash");
   await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
 }
 
@@ -95,7 +95,7 @@ ownerTest.describe("project pages as the owner", () => {
         .from("activity_events")
         .select("title, body, provider")
         .eq("workspace_id", workspace.id)
-        .eq("type_id", "devmacro.project_page_enabled");
+        .eq("type_id", "stackdash.project_page_enabled");
       if (error) throw new Error(`Reading events failed (code ${error.code}).`);
       expect(events).toEqual([
         { title: "Turned on the public project page", body: `Project Acme web. Address ${address}. Search engines may index it.`, provider: null },
@@ -103,7 +103,7 @@ ownerTest.describe("project pages as the owner", () => {
 
       await asStranger(browser, baseURL, address, async (publicPage, status) => {
         expect(status).toBe(200);
-        await expect(publicPage).toHaveTitle("Acme web: public metrics · DevMacro");
+        await expect(publicPage).toHaveTitle("Acme web: public metrics · StackDash");
         await expect(publicPage.getByRole("heading", { level: 1 })).toHaveText("Acme web");
         await expect(publicPage.locator('meta[name="robots"]')).toHaveAttribute("content", "index, follow");
 
@@ -286,7 +286,7 @@ ownerTest.describe("project pages as the owner", () => {
       expect(Number(headers["retry-after"])).toBeLessThanOrEqual(60);
       expect(headers["cache-control"]).toBe("no-store");
       expect(headers["content-security-policy"]).toContain("default-src 'self'");
-      await expect(publicPage).toHaveTitle("Too many requests · DevMacro");
+      await expect(publicPage).toHaveTitle("Too many requests · StackDash");
       await expect(publicPage.getByRole("heading", { level: 1, name: "Too many requests from this address" })).toBeVisible();
       await expect(publicPage.getByText(/Try again in \d+ seconds?, when the next minute starts\./)).toBeVisible();
       await expect(publicPage.getByRole("link", { name: "Go to the home page" })).toHaveAttribute("href", "/");

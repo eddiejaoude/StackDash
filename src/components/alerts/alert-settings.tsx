@@ -259,7 +259,7 @@ export async function AlertSettings({
             Alert rules
           </FragmentHeading>
           <p className="mt-1 text-sm text-muted">
-            Rules watch synced usage and spend and raise an alert in DevMacro when a threshold is crossed, at most once
+            Rules watch synced usage and spend and raise an alert in StackDash when a threshold is crossed, at most once
             per billing period.
           </p>
         </div>

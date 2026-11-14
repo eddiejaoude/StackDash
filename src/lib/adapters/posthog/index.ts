@@ -192,7 +192,7 @@ async function requestTokens(ctx: OAuthContext, form: Record<string, string>): P
     }
     if (error.status === 401 || oauthError === "invalid_client") {
       throw new ProviderUnavailableError(
-        `PostHog rejected DevMacro's client assertion (${oauthError ?? "401"}); check POSTHOG_OAUTH_PRIVATE_KEY and the JWKS route`,
+        `PostHog rejected StackDash's client assertion (${oauthError ?? "401"}); check POSTHOG_OAUTH_PRIVATE_KEY and the JWKS route`,
         details,
       );
     }
@@ -304,7 +304,7 @@ function productName(product: BillingProduct): string {
 }
 
 /**
- * The product's unit as DevMacro shows it next to a count. PostHog names units in the singular
+ * The product's unit as StackDash shows it next to a count. PostHog names units in the singular
  * (`event`, `recording`, `survey response`), so a lowercase noun gets a plural "s"; a symbol such as
  * `GB` is kept as sent. A unit the metric model cannot store becomes `units`.
  */
@@ -315,7 +315,7 @@ function unitOf(product: BillingProduct): string {
   return UnitSchema.safeParse(plural).success ? plural : "units";
 }
 
-/** Metered products with a key DevMacro can store: `usage_key` set and a lowercase type. */
+/** Metered products with a key StackDash can store: `usage_key` set and a lowercase type. */
 function meteredProducts(billing: BillingResponse): BillingProduct[] {
   return (billing.products ?? []).filter(
     (product) => product.usage_key != null && PRODUCT_TYPE_PATTERN.test(product.type),
@@ -488,35 +488,35 @@ const achievements: readonly Achievement[] = [
     id: "posthog.signups.first",
     title: "First PostHog signup recorded",
     publicTitle: "First PostHog signup recorded",
-    description: "Earned when DevMacro records the first PostHog signup, counted from daily signup totals.",
+    description: "Earned when StackDash records the first PostHog signup, counted from daily signup totals.",
     rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 1, sum: "cumulative" },
   },
   {
     id: "posthog.signups.10",
     title: "10 PostHog signups recorded",
     publicTitle: "10 PostHog signups recorded",
-    description: "Earned when DevMacro records the 10th PostHog signup, counted from daily signup totals.",
+    description: "Earned when StackDash records the 10th PostHog signup, counted from daily signup totals.",
     rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 10, sum: "cumulative" },
   },
   {
     id: "posthog.signups.100",
     title: "100 PostHog signups recorded",
     publicTitle: "100 PostHog signups recorded",
-    description: "Earned when DevMacro records the 100th PostHog signup, counted from daily signup totals.",
+    description: "Earned when StackDash records the 100th PostHog signup, counted from daily signup totals.",
     rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 100, sum: "cumulative" },
   },
   {
     id: "posthog.signups.1000",
     title: "1,000 PostHog signups recorded",
     publicTitle: "1,000 PostHog signups recorded",
-    description: "Earned when DevMacro records the 1,000th PostHog signup, counted from daily signup totals.",
+    description: "Earned when StackDash records the 1,000th PostHog signup, counted from daily signup totals.",
     rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 1000, sum: "cumulative" },
   },
   {
     id: "posthog.signups.big_day",
     title: "Big day: 100 signups in one day",
     publicTitle: "Big day: 100 signups in one day",
-    description: "Earned when DevMacro records a PostHog daily signup total of 100 or more.",
+    description: "Earned when StackDash records a PostHog daily signup total of 100 or more.",
     rule: { kind: "daily_total_threshold", metricKey: SIGNUP_METRIC_KEY, value: 100, sum: "single_day" },
   },
 ];
@@ -548,7 +548,7 @@ export function signupMetric(
  * People created per UTC day in [from, to). Persons are created when PostHog first identifies
  * someone (the default `identified_only` person profiles), which is the signup signal. Date literals
  * name UTC explicitly: HogQL parses them in the project's timezone otherwise (SQL, Supported
- * ClickHouse functions). The dates are DevMacro's own, never user input.
+ * ClickHouse functions). The dates are StackDash's own, never user input.
  */
 function signupQuery(from: string, to: string): string {
   return [
@@ -604,7 +604,7 @@ async function readSignups(
           headers: { ...bearer(credential), "Content-Type": "application/json" },
           body: JSON.stringify({
             query: { kind: "HogQLQuery", query: signupQuery(from, to) },
-            name: "DevMacro signups per day",
+            name: "StackDash signups per day",
           }),
         },
         SignupQueryResponseSchema,
@@ -650,7 +650,7 @@ export const postHogAdapter: ProviderAdapter = {
       scope: "query:read",
       access: "read",
       description:
-        "Run one read-only query a day per project that counts new people per day. DevMacro keeps only the counts, never names, emails, properties, or ids of people.",
+        "Run one read-only query a day per project that counts new people per day. StackDash keeps only the counts, never names, emails, properties, or ids of people.",
     },
   ],
   dataCollected: [

@@ -223,7 +223,7 @@ export type Milestone = Readonly<{
 /**
  * "First ... recorded" milestones: the oldest stored event of a kind, shown only while a metric
  * counting those events is published exactly. "Recorded" because providers backfill a limited
- * history, so the oldest event DevMacro has may not be the very first.
+ * history, so the oldest event StackDash has may not be the very first.
  */
 const FIRST_EVENT_MILESTONES: readonly Readonly<{
   id: string;

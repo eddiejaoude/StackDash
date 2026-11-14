@@ -50,7 +50,7 @@ type Enums = Database["public"]["Enums"];
 export type ProviderId = Enums["provider_id"];
 export type AlertSeverity = Extract<Enums["event_severity"], "warning" | "critical">;
 
-export const ALERT_TRIGGERED_TYPE_ID = "devmacro.alert_triggered";
+export const ALERT_TRIGGERED_TYPE_ID = "stackdash.alert_triggered";
 
 export type AlertRuleInput = Pick<
   Tables["alert_rules"]["Row"],
@@ -117,9 +117,9 @@ type ScopeTarget = Pick<AlertRuleInput, "scope" | "provider" | "project_id" | "c
 type ScopedItem = Readonly<{ provider: ProviderId; projectId: string | null; connectionId: string }>;
 
 const PERCENT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
-const ESTIMATED_ALLOWANCE_NOTE = " These figures include values estimated by DevMacro, not reported by the provider.";
+const ESTIMATED_ALLOWANCE_NOTE = " These figures include values estimated by StackDash, not reported by the provider.";
 const ESTIMATED_SPEND_NOTE =
-  " This total includes amounts estimated by DevMacro from a price list, so the provider's invoice may differ.";
+  " This total includes amounts estimated by StackDash from a price list, so the provider's invoice may differ.";
 
 /** `YYYY-MM-DD` (UTC) of an instant. */
 function utcDateOf(iso: string): string {

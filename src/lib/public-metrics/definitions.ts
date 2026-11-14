@@ -28,7 +28,7 @@ export const PUBLISHED_METRIC_DELAYS = [0, 7] as const;
 export type PublishedMetricDelay = (typeof PUBLISHED_METRIC_DELAYS)[number];
 
 /**
- * Verified: counted from what the provider reported. Estimated: calculated by DevMacro. A
+ * Verified: counted from what the provider reported. Estimated: calculated by StackDash. A
  * self-reported value is typed by a person, exists only on the project page, and is never an
  * engine metric, so it has no definition here.
  */
@@ -141,7 +141,7 @@ const DEPLOYMENT_SUCCEEDED = DEPLOYMENT_OUTCOMES.map((outcome) => outcome.succes
 // labels and formulas say so rather than claiming production. The formula is published on the
 // formulas page word for word, so it carries no issue number.
 const ALL_ENVIRONMENTS =
-  "Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.";
+  "Counts deployments to every environment (production and preview) until StackDash records the environment of each deployment.";
 // The providers by the names every other surface uses (`PROVIDER_NAMES`), as the run slide does.
 const DEPLOYMENT_SOURCES = new Intl.ListFormat("en-US", { type: "conjunction" }).format(
   DEPLOYMENT_PROVIDERS.map((provider) => PROVIDER_NAMES[provider]),

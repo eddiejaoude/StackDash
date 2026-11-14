@@ -7,16 +7,16 @@
  *
  * `--watch` repeats the tick every 10 seconds (at least 5) until Ctrl+C or SIGTERM, which stop it
  * after the tick in progress, and claims up to 100 jobs per tick instead of 10. With
- * DEVMACRO_SIMULATE_PROVIDERS=1 each iteration first makes the connections the simulator made due,
+ * STACKDASH_SIMULATE_PROVIDERS=1 each iteration first makes the connections the simulator made due,
  * so they sync on every tick (#131). It prints one line of counts per tick.
  *
  * `--volume` (#383, default 1) multiplies the simulated timeline events each sync makes, so local
- * screens fill faster. It needs `--watch` and DEVMACRO_SIMULATE_PROVIDERS=1 and is refused
+ * screens fill faster. It needs `--watch` and STACKDASH_SIMULATE_PROVIDERS=1 and is refused
  * otherwise, before any tick runs. Metrics, real providers, the cadence, and the claim limit stay
  * as they are.
  *
  * Calls the runner directly, so no dev server or CRON_SECRET is needed. Reads `.env.local` when
- * present (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEVMACRO_ENCRYPTION_KEY, provider
+ * present (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STACKDASH_ENCRYPTION_KEY, provider
  * OAuth settings). Prints the counts only. See docs/operations/jobs.md.
  */
 import { existsSync } from "node:fs";

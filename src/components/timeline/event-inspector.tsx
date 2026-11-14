@@ -45,7 +45,7 @@ function eventHref(baseHref: string, id: string): string {
 // `select` marks the history entry it pushes, so closing still goes back to the entry before it
 // after the route was hidden and shown again, as Back from a related event link does (#394). Next
 // keeps custom history state when it traverses to an entry (`preserveCustomHistoryState`).
-const PUSHED_ENTRY = "devmacroInspectorPushed";
+const PUSHED_ENTRY = "stackdashInspectorPushed";
 
 function onPushedEntry(): boolean {
   const state: unknown = window.history.state;

@@ -343,7 +343,7 @@ function ShareMetric({ metric, publication, projectId, origin, projectPage }: {
         projectPage === null
           ? "Posts link to the card, and the badge to how the metric is counted. Turn on the project page to link posts and the badge to it; the card shows the project name within a minute."
           : `Posts and the badge link to the project page at ${projectPage.path}. The card shows the project name within a minute of turning the page on, and drops it within a minute of turning it off.`,
-        `In the last ${VIEW_WINDOW_DAYS} days DevMacro served the badge ${times(metric.views.badge)} and the card ${times(metric.views.card)}, including previews here. Views a cache answers, such as GitHub's image proxy, are not counted.`,
+        `In the last ${VIEW_WINDOW_DAYS} days StackDash served the badge ${times(metric.views.badge)} and the card ${times(metric.views.card)}, including previews here. Views a cache answers, such as GitHub's image proxy, are not counted.`,
       ]}
     />
   );

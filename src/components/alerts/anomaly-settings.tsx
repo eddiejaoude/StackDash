@@ -41,7 +41,7 @@ export async function AnomalySettings({ workspace, role }: { workspace: Workspac
           Unusual spend and usage
         </FragmentHeading>
         <p className="mt-1 text-sm text-muted">
-          Every day, DevMacro compares each spend and usage metric with the {ANOMALY_WINDOW_DAYS} days before it. A day at
+          Every day, StackDash compares each spend and usage metric with the {ANOMALY_WINDOW_DAYS} days before it. A day at
           least {ANOMALY_MIN_RATIO} times the usual amount adds an event to the timeline. A metric needs{" "}
           {ANOMALY_MIN_HISTORY_DAYS} days of history first, and small changes never count.
         </p>

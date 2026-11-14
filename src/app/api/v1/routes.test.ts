@@ -81,7 +81,7 @@ const SAMPLE_ROWS: Record<string, Record<string, unknown>> = {
   },
   api_activity_events: {
     id: "77777777-7777-4777-8777-777777777777",
-    type_id: "devmacro.daily_summary",
+    type_id: "stackdash.daily_summary",
     severity: "info",
     title: "Daily summary",
     body: null,
@@ -244,7 +244,7 @@ describe.each(ROUTES)("GET /api/v1/$name authentication", ({ get, endpoint }) =>
 
   it.each<[string, AuthSetup, string | undefined, boolean]>([
     ["no Authorization header", { status: "valid", scopes: API_KEY_SCOPES }, undefined, false],
-    ["a header that is not a DevMacro key", { status: "valid", scopes: API_KEY_SCOPES }, "Bearer sk_test_abc", false],
+    ["a header that is not a StackDash key", { status: "valid", scopes: API_KEY_SCOPES }, "Bearer sk_test_abc", false],
     ["a key no row has", { status: "unknown" }, "key", true],
     ["a key whose creator left the workspace", { status: "creator_left" }, "key", true],
   ])("answers 401 to %s", async (_case, setup, header, sendsKey) => {
@@ -406,8 +406,8 @@ describe("response fields", () => {
     expect(await firstItem(getTriggeredAlerts, "/api/v1/triggered-alerts")).toMatchObject({ severity, provenance: "verified" });
   });
 
-  it("does not mark DevMacro's own events without a connection as simulated", async () => {
-    expect(await firstItem(getEvents, "/api/v1/events")).toMatchObject({ type: "devmacro.daily_summary", simulated: false });
+  it("does not mark StackDash's own events without a connection as simulated", async () => {
+    expect(await firstItem(getEvents, "/api/v1/events")).toMatchObject({ type: "stackdash.daily_summary", simulated: false });
   });
 
   it("passes usage and event filters to the database and nothing else", async () => {

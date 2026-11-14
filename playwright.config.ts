@@ -26,9 +26,9 @@ const inherited = Object.fromEntries(
 // Alert email goes to the fake Resend API (#244) that the first web server runs, never to Resend:
 // the app and the fake get the same URL and dummy key, whatever .env.local says.
 const fakeResendEnv = {
-  DEVMACRO_EMAIL_FROM: FAKE_RESEND.from,
-  DEVMACRO_RESEND_API_KEY: FAKE_RESEND.apiKey,
-  DEVMACRO_RESEND_API_URL: FAKE_RESEND.url,
+  STACKDASH_EMAIL_FROM: FAKE_RESEND.from,
+  STACKDASH_RESEND_API_KEY: FAKE_RESEND.apiKey,
+  STACKDASH_RESEND_API_URL: FAKE_RESEND.url,
 };
 
 export default defineConfig({
@@ -99,9 +99,9 @@ export default defineConfig({
         ...inherited,
         ...fakeResendEnv,
         ...E2E_OPERATOR,
-        DEVMACRO_SIMULATE_PROVIDERS: "1",
+        STACKDASH_SIMULATE_PROVIDERS: "1",
         NEXT_PUBLIC_SITE_URL: baseURL,
-        DEVMACRO_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
+        STACKDASH_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
       },
     },
   ],

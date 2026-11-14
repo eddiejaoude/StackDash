@@ -140,7 +140,7 @@ async function findUserInstallation(
 /**
  * Organizations do not need the user token after verification, so it is revoked
  * (`DELETE /applications/{client_id}/token`, 204 No Content). A failed revocation is logged and
- * not fatal: the token expires within 8 hours either way and DevMacro never sends it again.
+ * not fatal: the token expires within 8 hours either way and StackDash never sends it again.
  */
 async function revokeUserToken(ctx: OAuthContext, userToken: Secret): Promise<void> {
   const endpoint = `${API_ORIGIN}/applications/${encodeURIComponent(ctx.client.clientId)}/token`;
@@ -152,7 +152,7 @@ async function revokeUserToken(ctx: OAuthContext, userToken: Secret): Promise<vo
         Accept: "application/vnd.github+json",
         Authorization: `Basic ${basic}`,
         "Content-Type": "application/json",
-        "User-Agent": "DevMacro",
+        "User-Agent": "StackDash",
       },
       body: JSON.stringify({ access_token: userToken.reveal() }),
       signal: AbortSignal.timeout(ctx.timeoutMs),
@@ -189,49 +189,49 @@ const achievements: readonly Achievement[] = [
     id: "github.stars.10",
     title: "10 GitHub stars",
     publicTitle: "10 GitHub stars",
-    description: "Earned when DevMacro records 10 or more stars across the connected GitHub repositories.",
+    description: "Earned when StackDash records 10 or more stars across the connected GitHub repositories.",
     rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 10 },
   },
   {
     id: "github.stars.100",
     title: "100 GitHub stars",
     publicTitle: "100 GitHub stars",
-    description: "Earned when DevMacro records 100 or more stars across the connected GitHub repositories.",
+    description: "Earned when StackDash records 100 or more stars across the connected GitHub repositories.",
     rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 100 },
   },
   {
     id: "github.stars.1000",
     title: "1,000 GitHub stars",
     publicTitle: "1,000 GitHub stars",
-    description: "Earned when DevMacro records 1,000 or more stars across the connected GitHub repositories.",
+    description: "Earned when StackDash records 1,000 or more stars across the connected GitHub repositories.",
     rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 1000 },
   },
   {
     id: "github.stars.10000",
     title: "10,000 GitHub stars",
     publicTitle: "10,000 GitHub stars",
-    description: "Earned when DevMacro records 10,000 or more stars across the connected GitHub repositories.",
+    description: "Earned when StackDash records 10,000 or more stars across the connected GitHub repositories.",
     rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 10000 },
   },
   {
     id: "github.stars.777",
     title: "Lucky sevens: 777 GitHub stars",
     publicTitle: "Lucky sevens: 777 GitHub stars",
-    description: "Earned when DevMacro records 777 or more stars across the connected GitHub repositories.",
+    description: "Earned when StackDash records 777 or more stars across the connected GitHub repositories.",
     rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 777 },
   },
   {
     id: "github.stars.1024",
     title: "Kilostar: 1,024 GitHub stars",
     publicTitle: "Kilostar: 1,024 GitHub stars",
-    description: "Earned when DevMacro records 1,024 or more stars across the connected GitHub repositories.",
+    description: "Earned when StackDash records 1,024 or more stars across the connected GitHub repositories.",
     rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 1024 },
   },
   {
     id: "github.stars.hot_day",
     title: "Trending: 10 new stars in one day",
     publicTitle: "Trending: 10 new stars in one day",
-    description: "Earned when GitHub repositories DevMacro already followed gain 10 or more new stars between them over one UTC day.",
+    description: "Earned when GitHub repositories StackDash already followed gain 10 or more new stars between them over one UTC day.",
     // A daily total rather than the rise in `github.stars.total`: adding a repository to the
     // installation raises the total without a single new star.
     rule: { kind: "daily_total_threshold", metricKey: starMetricNames.gainedDaily.metricKey, value: 10, sum: "single_day" },
@@ -240,14 +240,14 @@ const achievements: readonly Achievement[] = [
     id: "github.stars.steady_glow",
     title: "Steady glow: new stars on 7 days in a row",
     publicTitle: "Steady glow: new stars on 7 days in a row",
-    description: "Earned when DevMacro records new stars on a connected GitHub repository on each of 7 consecutive days.",
+    description: "Earned when StackDash records new stars on a connected GitHub repository on each of 7 consecutive days.",
     rule: { kind: "consecutive_days", typeIds: ["github.stars.daily"], days: 7 },
   },
   {
     id: "github.stars.weekend",
     title: "Weekend stargazers: new stars on a Saturday and the Sunday after it",
     publicTitle: "Weekend stargazers: new stars on a Saturday and the Sunday after it",
-    description: "Earned when DevMacro records new stars on a connected GitHub repository on a Saturday and on the Sunday after it.",
+    description: "Earned when StackDash records new stars on a connected GitHub repository on a Saturday and on the Sunday after it.",
     // `github.stars.daily` is dated to the end of its UTC day (00:00 UTC the next day, always the
     // next London date), so Saturday's and Sunday's stars arrive as Sunday and Monday events and
     // the run starts on a Sunday.
@@ -257,28 +257,28 @@ const achievements: readonly Achievement[] = [
     id: "github.forks.first",
     title: "First fork recorded",
     publicTitle: "First fork recorded",
-    description: "Earned when DevMacro records the first new fork of a connected GitHub repository.",
+    description: "Earned when StackDash records the first new fork of a connected GitHub repository.",
     rule: { kind: "event_count", typeIds: ["github.forks.new"], count: 1 },
   },
   {
     id: "github.forks.10",
     title: "10 forks recorded",
     publicTitle: "10 forks recorded",
-    description: "Earned when DevMacro records the 10th new fork of a connected GitHub repository.",
+    description: "Earned when StackDash records the 10th new fork of a connected GitHub repository.",
     rule: { kind: "event_count", typeIds: ["github.forks.new"], count: 10 },
   },
   {
     id: "github.forks.100",
     title: "100 forks recorded",
     publicTitle: "100 forks recorded",
-    description: "Earned when DevMacro records the 100th new fork of a connected GitHub repository.",
+    description: "Earned when StackDash records the 100th new fork of a connected GitHub repository.",
     rule: { kind: "event_count", typeIds: ["github.forks.new"], count: 100 },
   },
   {
     id: "github.forks.party",
     title: "Fork party: 5 forks in one day",
     publicTitle: "Fork party: 5 forks in one day",
-    description: "Earned when DevMacro records 5 new forks of the connected GitHub repositories on one London calendar day.",
+    description: "Earned when StackDash records 5 new forks of the connected GitHub repositories on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["github.forks.new"], count: 5, window: "day" },
   },
 ];
@@ -302,13 +302,13 @@ export const githubAdapter: ProviderAdapter = {
       scope: appPermissions.metadata,
       access: "read",
       description:
-        "Repository metadata: the repositories you choose, their star counts, and new forks. On private repositories it can also read collaborators and contributors; DevMacro does not.",
+        "Repository metadata: the repositories you choose, their star counts, and new forks. On private repositories it can also read collaborators and contributors; StackDash does not.",
     },
     {
       scope: appPermissions.organizationAdministration,
       access: "read",
       description:
-        "Organization administration: billing usage for Actions, Copilot, and other metered products. It can also read organization settings, runners, and Copilot seat assignments; DevMacro reads only billing. Needs an organization owner to install.",
+        "Organization administration: billing usage for Actions, Copilot, and other metered products. It can also read organization settings, runners, and Copilot seat assignments; StackDash reads only billing. Needs an organization owner to install.",
     },
     {
       scope: appPermissions.plan,

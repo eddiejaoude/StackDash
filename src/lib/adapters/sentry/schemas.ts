@@ -18,7 +18,7 @@ export const SHORT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 /**
  * `POST /api/0/sentry-app-installations/{uuid}/authorizations/`, for the code exchange and for the
- * JWT bearer refresh alike. `refreshToken` is also returned but never read: DevMacro refreshes with
+ * JWT bearer refresh alike. `refreshToken` is also returned but never read: StackDash refreshes with
  * the JWT bearer grant Sentry recommends, so it is never declared and never stored.
  */
 export const TokenResponseSchema = z.object({

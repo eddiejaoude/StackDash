@@ -187,10 +187,10 @@ jobs:
             echo "NEXT_PUBLIC_SUPABASE_URL=${API_URL}"
             echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${PUBLISHABLE_KEY}"
             echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
-            echo "DEVMACRO_ENCRYPTION_KEY=${encryption_key}"
+            echo "STACKDASH_ENCRYPTION_KEY=${encryption_key}"
             echo "CRON_SECRET=${cron_secret}"
             # The fake provider drives the connect and sync flows without network or real apps.
-            echo "DEVMACRO_ENABLE_FAKE_PROVIDER=1"
+            echo "STACKDASH_ENABLE_FAKE_PROVIDER=1"
             echo "FAKE_PROVIDER_CLIENT_ID=fake-client"
             echo "FAKE_PROVIDER_CLIENT_SECRET=fake-secret"
             # Alert email (#152) needs nothing here: playwright.config.ts starts the fake
@@ -199,7 +199,7 @@ jobs:
             # which the production build and its alert links and metadata use (#338).
             # The e2e channel test posts to a webhook receiver on 127.0.0.1, which a
             # production build refuses unless this is set (#153).
-            echo "DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1"
+            echo "STACKDASH_ALLOW_PRIVATE_WEBHOOKS=1"
           } > .env.local
 
       - name: End-to-end tests

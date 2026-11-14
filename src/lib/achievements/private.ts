@@ -126,7 +126,7 @@ export type TimelineAchievement = Readonly<{
 
 /**
  * `event` marked simulated when its achievement was earned from simulator data. An "Achievement
- * earned" event is DevMacro's own and has no connection, so its own `simulated` is always false.
+ * earned" event is StackDash's own and has no connection, so its own `simulated` is always false.
  */
 export function withAchievementSimulated<E extends Readonly<{ simulated: boolean; achievement: AchievementRef | null }>>(
   event: E,

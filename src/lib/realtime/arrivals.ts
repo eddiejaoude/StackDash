@@ -213,8 +213,8 @@ export type LiveConnectionsRead =
  * The connection a realtime change brought provider data from (#392): the `connection_id` of a
  * usage snapshot or of an activity event a provider sent. Null for everything else, because none
  * of it is data received from the connection: a `connections` row changes on a sync request, a
- * failed retry, or a demo tick; DevMacro's own events (a sync failure carries the connection with
- * a null `provider`) and `triggered_alerts` come from DevMacro; and a payload of another shape.
+ * failed retry, or a demo tick; StackDash's own events (a sync failure carries the connection with
+ * a null `provider`) and `triggered_alerts` come from StackDash; and a payload of another shape.
  */
 export function changedConnectionId(table: string, row: unknown): string | null {
   if (table !== "activity_events" && table !== "usage_snapshots") return null;

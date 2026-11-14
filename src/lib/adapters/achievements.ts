@@ -28,7 +28,7 @@ export const AchievementRuleSchema = z.discriminatedUnion("kind", [
   // The `count`th recorded event of any of `typeIds`, dated to that event.
   z.strictObject({ kind: z.literal("event_count"), typeIds: TypeIds, count: PositiveCount }),
   // The first stored reading of `metricKey` at or above `value`. When no earlier reading below
-  // `value` is stored, the achievement is earned with "at least" evidence: DevMacro saw the value,
+  // `value` is stored, the achievement is earned with "at least" evidence: StackDash saw the value,
   // not the crossing.
   z.strictObject({ kind: z.literal("metric_threshold"), metricKey: AdapterScopedKeySchema, value: PositiveCount }),
   // `count` events of `successTypeIds` in a row, ordered by time, with no event of

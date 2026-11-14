@@ -23,7 +23,7 @@ describe("expectedMigrationVersion", () => {
 
   /** Runs from a project root whose supabase/migrations holds `files`, or has no such folder. */
   function runFromRootWith(files: readonly string[] | null): void {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "devmacro-root-"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "stackdash-root-"));
     made.push(root);
     vi.spyOn(process, "cwd").mockReturnValue(root);
     if (files === null) return;

@@ -323,12 +323,12 @@ export function DisconnectDialog({
     >
       <p>Disconnecting does this:</p>
       <ul className="mt-2 list-disc space-y-1 pl-5">
-        <li>Deletes the stored credential, so DevMacro can no longer reach {providerName}.</li>
+        <li>Deletes the stored credential, so StackDash can no longer reach {providerName}.</li>
         {canRevoke ? (
-          <li>Asks {providerName} to revoke DevMacro&apos;s access. If that fails, you are told how to do it there.</li>
+          <li>Asks {providerName} to revoke StackDash&apos;s access. If that fails, you are told how to do it there.</li>
         ) : (
           <li>
-            {providerName} does not let apps revoke their own access, so remove DevMacro in your {providerName}{" "}
+            {providerName} does not let apps revoke their own access, so remove StackDash in your {providerName}{" "}
             settings afterwards.
           </li>
         )}

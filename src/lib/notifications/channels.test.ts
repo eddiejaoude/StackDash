@@ -33,9 +33,9 @@ const DISCORD_URL = join("https://discord.com/api/webhooks/", "12345678901234567
 const SLACK_URL = join("https://hooks.slack.com/services/", "T0001/B0002/", "abcDEF123456");
 
 const links: WorkspaceLinks = {
-  alerts: "https://devmacro.test/w/abc/alerts",
-  connections: "https://devmacro.test/w/abc/connections",
-  timeline: "https://devmacro.test/w/abc/timeline",
+  alerts: "https://stackdash.test/w/abc/alerts",
+  connections: "https://stackdash.test/w/abc/connections",
+  timeline: "https://stackdash.test/w/abc/timeline",
 };
 
 function alert(id: string, fields: Partial<DeliveryAlert> = {}): DeliveryAlert {
@@ -63,7 +63,7 @@ describe("parseChannelUrl", () => {
     ["discord", DISCORD_URL, "discord.com"],
     ["discord", join("https://canary.discord.com/api/v10/webhooks/", "1/", "token_1"), "canary.discord.com"],
     ["slack", SLACK_URL, "hooks.slack.com"],
-    ["webhook", "https://hooks.example.com/devmacro?team=1", "hooks.example.com"],
+    ["webhook", "https://hooks.example.com/stackdash?team=1", "hooks.example.com"],
   ] as const)("accepts a %s URL", (kind, url, host) => {
     expect(parseChannelUrl(kind, `  ${url}  `, production)).toEqual({ ok: true, url: new URL(url).href, host });
   });
@@ -76,7 +76,7 @@ describe("parseChannelUrl", () => {
     ["discord", join("https://discord.com.evil.example/api/webhooks/", "1/", "token"), "This is not a Discord webhook URL."],
     ["slack", DISCORD_URL, "This is not a Slack incoming webhook URL."],
     ["slack", "https://hooks.slack.com/workflows/T1/A1/1/abc", "This is not a Slack incoming webhook URL."],
-    ["webhook", "http://hooks.example.com/devmacro", "Use an https URL."],
+    ["webhook", "http://hooks.example.com/stackdash", "Use an https URL."],
     ["webhook", "https://user:pass@hooks.example.com/", "Remove the user name and password from the URL."],
     ["webhook", "https://127.0.0.1/hook", "This URL points to a private network address"],
     ["webhook", "https://169.254.169.254/latest/meta-data", "This URL points to a private network address"],
@@ -115,8 +115,8 @@ describe("parseChannelUrl", () => {
 
   it.each([
     [{ NODE_ENV: "production" }, false],
-    [{ NODE_ENV: "production", DEVMACRO_ALLOW_PRIVATE_WEBHOOKS: "1" }, true],
-    [{ NODE_ENV: "production", DEVMACRO_ALLOW_PRIVATE_WEBHOOKS: "true" }, false],
+    [{ NODE_ENV: "production", STACKDASH_ALLOW_PRIVATE_WEBHOOKS: "1" }, true],
+    [{ NODE_ENV: "production", STACKDASH_ALLOW_PRIVATE_WEBHOOKS: "true" }, false],
     [{ NODE_ENV: "development" }, true],
   ])("reads the private host policy from %j", (env, allowPrivate) => {
     expect(urlPolicyFromEnv(env)).toEqual({ allowPrivate });
@@ -177,7 +177,7 @@ describe("discordPayload", () => {
     const embeds = payload.embeds as Array<{ description: string }>;
     expect(embeds).toHaveLength(10);
     // 15 alerts plus 3 "what to do" items, 9 shown.
-    expect(embeds.at(-1)?.description).toContain("9 more in DevMacro.");
+    expect(embeds.at(-1)?.description).toContain("9 more in StackDash.");
   });
 
   it("clips a very long message below Discord's limits", () => {
@@ -214,7 +214,7 @@ describe("slackPayload", () => {
     const alerts = Array.from({ length: 60 }, (_, index) => alert(`a${index}`));
     const blocks = slackPayload(alertNotice({ workspaceName: "Acme", alerts, links })).blocks as unknown[];
     expect(blocks.length).toBeLessThanOrEqual(50);
-    expect(JSON.stringify(blocks.at(-1))).toContain("43 more in DevMacro.");
+    expect(JSON.stringify(blocks.at(-1))).toContain("43 more in StackDash.");
   });
 });
 
@@ -222,7 +222,7 @@ describe("generic webhook", () => {
   it("carries the alerts as data", () => {
     const payload = webhookPayload(alertNotice({ workspaceName: "Acme", alerts: [alert("a")], links }), new Date("2026-11-05T09:01:00.000Z"));
     expect(payload).toMatchObject({
-      type: "devmacro.alerts",
+      type: "stackdash.alerts",
       sent_at: "2026-11-05T09:01:00.000Z",
       workspace: "Acme",
       alerts: [{ id: "a", rule_id: "rule-a", severity: "warning", provider: "Vercel", project: "Storefront", resets_at: "2026-12-01T00:00:00.000Z" }],
@@ -404,20 +404,20 @@ describe("pinnedFetch", () => {
 
   it("connects to the address it resolved and checked, once, keeping the host name", async () => {
     // `.test` names never resolve in DNS, so reaching the server proves the pinned address was used.
-    const dns = resolver({ "hooks.devmacro.test": ["127.0.0.1"] });
+    const dns = resolver({ "hooks.stackdash.test": ["127.0.0.1"] });
     received.length = 0;
-    const response = await pinnedFetch(local, dns.resolve)(`http://hooks.devmacro.test:${port}/hook`, init('{"a":1}'));
+    const response = await pinnedFetch(local, dns.resolve)(`http://hooks.stackdash.test:${port}/hook`, init('{"a":1}'));
     expect(response.status).toBe(204);
-    expect(dns.lookups).toEqual(["hooks.devmacro.test"]);
+    expect(dns.lookups).toEqual(["hooks.stackdash.test"]);
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({ method: "POST", body: '{"a":1}' });
-    expect(received[0]?.headers.host).toBe(`hooks.devmacro.test:${port}`);
+    expect(received[0]?.headers.host).toBe(`hooks.stackdash.test:${port}`);
   });
 
   it("refuses a name with any private address on a production instance, without connecting", async () => {
-    const dns = resolver({ "rebind.devmacro.test": ["8.8.8.8", "127.0.0.1"] });
+    const dns = resolver({ "rebind.stackdash.test": ["8.8.8.8", "127.0.0.1"] });
     received.length = 0;
-    await expect(pinnedFetch(production, dns.resolve)(`http://rebind.devmacro.test:${port}/hook`, init())).rejects.toBeInstanceOf(
+    await expect(pinnedFetch(production, dns.resolve)(`http://rebind.stackdash.test:${port}/hook`, init())).rejects.toBeInstanceOf(
       PrivateAddressError,
     );
     expect(received).toEqual([]);
@@ -448,31 +448,31 @@ describe("pinnedFetch", () => {
   it("times out while the name is still resolving", async () => {
     const hanging: ResolveHost = () => new Promise(() => {});
     const signal = AbortSignal.timeout(20);
-    await expect(pinnedFetch(local, hanging)(`http://slow.devmacro.test:${port}/hook`, { ...init(), signal })).rejects.toMatchObject({
+    await expect(pinnedFetch(local, hanging)(`http://slow.stackdash.test:${port}/hook`, { ...init(), signal })).rejects.toMatchObject({
       name: "TimeoutError",
     });
   });
 
   it("is retried end to end by postToChannel through the pinned address", async () => {
     replies.push({ status: 503 }, { status: 200 });
-    const dns = resolver({ "hooks.devmacro.test": ["127.0.0.1"] });
+    const dns = resolver({ "hooks.stackdash.test": ["127.0.0.1"] });
     const outcome = await postToChannel(
-      { kind: "webhook", url: `http://hooks.devmacro.test:${port}/hook`, body: "{}", headers: {} },
+      { kind: "webhook", url: `http://hooks.stackdash.test:${port}/hook`, body: "{}", headers: {} },
       { fetch: pinnedFetch(local, dns.resolve), sleep: async () => {}, random: () => 0.5, policy: local },
     );
     expect(outcome).toEqual({ ok: true, attempts: 2 });
-    expect(dns.lookups).toEqual(["hooks.devmacro.test", "hooks.devmacro.test"]);
+    expect(dns.lookups).toEqual(["hooks.stackdash.test", "hooks.stackdash.test"]);
   });
 });
 
 describe("describeFailure", () => {
   it.each([
     ["http_404", "The webhook no longer exists, or its channel was archived"],
-    ["rate_limited", "The service kept asking DevMacro to slow down"],
+    ["rate_limited", "The service kept asking StackDash to slow down"],
     ["private_address", "The webhook URL leads to a private network address, which this instance does not allow"],
     ["url_not_allowed", "This instance no longer allows the webhook URL"],
     ["http_503", "The service had an error"],
-    ["http_302", "The webhook URL redirects somewhere else, which DevMacro does not follow"],
+    ["http_302", "The webhook URL redirects somewhere else, which StackDash does not follow"],
     ["something_else", "The service rejected the message"],
     ["secret_missing", "The webhook URL can no longer be read"],
   ])("explains %s in plain words", (code, words) => {

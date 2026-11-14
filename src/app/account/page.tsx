@@ -180,13 +180,13 @@ async function DeletionDetails({
           <h3 className="font-semibold">Provider access</h3>
           {preview.revocable.length === 0 ? null : (
             <p className="mt-1">
-              DevMacro asks {preview.revocable.map((provider) => PROVIDER_NAMES[provider]).join(", ")} to revoke its
+              StackDash asks {preview.revocable.map((provider) => PROVIDER_NAMES[provider]).join(", ")} to revoke its
               access. If a request fails, the next page tells you how to remove access by hand.
             </p>
           )}
           {preview.manual.length === 0 ? null : (
             <>
-              <p className="mt-1">These providers cannot be revoked automatically. Remove DevMacro&apos;s access there yourself:</p>
+              <p className="mt-1">These providers cannot be revoked automatically. Remove StackDash&apos;s access there yourself:</p>
               <div className="mt-3">
                 <ManualRevokeList
                   label="Providers to revoke by hand"

@@ -101,10 +101,10 @@ export const SIMULATED_SENTENCE = "Simulated data, not verified";
  */
 export function provenanceSentence(metric: Pick<ShareableMetric, "provenance" | "simulated">): string {
   if (metric.simulated) return SIMULATED_SENTENCE;
-  return metric.provenance === "verified" ? "Verified by DevMacro" : "Estimated by DevMacro";
+  return metric.provenance === "verified" ? "Verified by StackDash" : "Estimated by StackDash";
 }
 
-/** "GitHub stars: 1,204 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT." */
+/** "GitHub stars: 1,204 stars. Verified by StackDash, last synced 2026-11-05 12:00 GMT." */
 export function metricSentence(metric: ShareableMetric): string {
   if (!metric.available || metric.lastSyncedAt === null) return `${metric.label}: ${metric.text}.`;
   return `${metric.label}: ${metric.text}. ${provenanceSentence(metric)}, last synced ${formatDateTime(metric.lastSyncedAt)}.`;
@@ -113,7 +113,7 @@ export function metricSentence(metric: ShareableMetric): string {
 /** Alt text for the card image, for the share dialog and the public project page's preview. */
 export function cardAltText(metric: ShareableMetric, projectName: string | null): string {
   const trend = metric.available ? ` With its trend over the last ${CARD_TREND_DAYS} days.` : "";
-  const card = projectName === null ? "DevMacro card." : `DevMacro card for ${projectName}.`;
+  const card = projectName === null ? "StackDash card." : `StackDash card for ${projectName}.`;
   return `${card} ${metricSentence(metric)}${trend}`;
 }
 
@@ -132,7 +132,7 @@ export function badgeMarkdown(input: Readonly<{ badgeUrl: string; linkUrl: strin
 /** The prefilled post for "Share to X": the value in words, naming the project when its page is public. */
 export function shareText(metric: ShareableMetric, projectName: string | null): string {
   const subject = projectName === null ? metric.label : `${metric.label} for ${projectName}`;
-  if (!metric.available) return `${subject} on DevMacro.`;
+  if (!metric.available) return `${subject} on StackDash.`;
   return `${subject}: ${metric.text}. ${provenanceSentence(metric)}.`;
 }
 
@@ -206,7 +206,7 @@ const ACHIEVEMENT_COUNT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractio
 /**
  * When an achievement was earned, in words: "Earned 2026-11-05 14:05 GMT"; "Earned 2026-11-05" for
  * a daily total, which has a day but no time (stored at 00:00 UTC of that day); and "Recorded at
- * least 1,000 on 2026-11-05 14:05 GMT" when DevMacro's first reading was already past the
+ * least 1,000 on 2026-11-05 14:05 GMT" when StackDash's first reading was already past the
  * threshold, so it never claims the crossing happened then. The one wording of every surface,
  * public and private (the project's Achievements page passes the stored timestamp string).
  */
@@ -226,16 +226,16 @@ function achievementSimulatedSuffix(achievement: Pick<ShareableAchievement, "sim
 }
 
 /**
- * "Vercel achievement on DevMacro: 10 Vercel deployments recorded." The badge's alt text, which
+ * "Vercel achievement on StackDash: 10 Vercel deployments recorded." The badge's alt text, which
  * adds "Simulated data, not verified." for an achievement earned from simulator data.
  */
 export function achievementBadgeAltText(achievement: ShareableAchievement): string {
-  return `${achievement.providerName} achievement on DevMacro: ${achievement.publicTitle}.${achievementSimulatedSuffix(achievement)}`;
+  return `${achievement.providerName} achievement on StackDash: ${achievement.publicTitle}.${achievementSimulatedSuffix(achievement)}`;
 }
 
 /** Alt text for an achievement's card, naming the project only while the card shows it. */
 export function achievementCardAltText(achievement: ShareableAchievement, projectName: string | null): string {
-  const card = projectName === null ? "DevMacro achievement card." : `DevMacro achievement card for ${projectName}.`;
+  const card = projectName === null ? "StackDash achievement card." : `StackDash achievement card for ${projectName}.`;
   return `${card} ${achievement.providerName} achievement: ${achievement.publicTitle}.${achievementSimulatedSuffix(achievement)}`;
 }
 
@@ -243,8 +243,8 @@ export function achievementCardAltText(achievement: ShareableAchievement, projec
 export function achievementShareText(achievement: ShareableAchievement, projectName: string | null): string {
   const subject = projectName === null ? "Achievement" : `Achievement for ${projectName}`;
   const source = achievement.simulated
-    ? `Earned from simulated ${achievement.providerName} data on DevMacro, not verified.`
-    : `Earned from ${achievement.providerName} data on DevMacro.`;
+    ? `Earned from simulated ${achievement.providerName} data on StackDash, not verified.`
+    : `Earned from ${achievement.providerName} data on StackDash.`;
   return `${subject}: ${achievement.publicTitle}. ${source}`;
 }
 

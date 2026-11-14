@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
  */
 export async function POST(request: NextRequest) {
   if (!isSameOrigin(request)) {
-    return new NextResponse("Sign-out must be submitted from DevMacro. Go back and use the Sign out button.", {
+    return new NextResponse("Sign-out must be submitted from StackDash. Go back and use the Sign out button.", {
       status: 403,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });

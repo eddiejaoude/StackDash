@@ -40,7 +40,7 @@ const REFRESH_TOKEN = tokenFixture.refresh_token;
 const SECRETS = [ACCESS_TOKEN, REFRESH_TOKEN, tokenRefreshedFixture.access_token, tokenRefreshedFixture.refresh_token];
 const ALL_SCOPES: readonly string[] = Object.values(EXAMPLE_SCOPES);
 const VERIFIER = "v".repeat(43);
-const REDIRECT_URI = "https://devmacro.test/api/connections/example/callback";
+const REDIRECT_URI = "https://stackdash.test/api/connections/example/callback";
 
 const credential: OAuthCredential = {
   accessToken: new Secret(ACCESS_TOKEN),

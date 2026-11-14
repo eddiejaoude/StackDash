@@ -34,7 +34,7 @@ import { Badge, CreateDisclosure, EditableRow } from "./list-items";
 const URL_HINTS: Record<ChannelFormValues["kind"], string> = {
   discord: "In Discord: channel settings, Integrations, Webhooks, New Webhook, Copy Webhook URL.",
   slack: "In Slack: create an app with incoming webhooks for the channel, then copy its webhook URL. It starts with https://hooks.slack.com/services/.",
-  webhook: "Any https URL that accepts a JSON POST. DevMacro signs each request so the receiver can check it came from here.",
+  webhook: "Any https URL that accepts a JSON POST. StackDash signs each request so the receiver can check it came from here.",
 };
 
 function RuleChoices({
@@ -192,7 +192,7 @@ export function ChannelForm({
           id={fieldIds.name}
           name="name"
           label="Channel name"
-          hint="Up to 80 characters, such as #alerts or Ops webhook. Only DevMacro shows it."
+          hint="Up to 80 characters, such as #alerts or Ops webhook. Only StackDash shows it."
           error={errors.name}
           value={values.name}
           onChange={(name) => update({ name })}
@@ -204,7 +204,7 @@ export function ChannelForm({
           id={fieldIds.url}
           name="url"
           label="Webhook URL"
-          hint={`${URL_HINTS[values.kind]} DevMacro stores it encrypted and never shows it again.`}
+          hint={`${URL_HINTS[values.kind]} StackDash stores it encrypted and never shows it again.`}
           error={errors.url}
           value={values.url}
           onChange={(url) => update({ url })}
@@ -247,7 +247,7 @@ export function ChannelForm({
               <div className="rounded-lg border border-line bg-panel-raised px-4 py-3">
                 <p className="font-medium">Signing secret</p>
                 <p className="mt-1 text-muted">
-                  Copy it now: DevMacro does not show it again. Your receiver checks the webhook-signature header with it.
+                  Copy it now: StackDash does not show it again. Your receiver checks the webhook-signature header with it.
                 </p>
                 <code className="mt-2 block break-all font-mono text-xs text-foreground">{signingSecret}</code>
               </div>
@@ -356,7 +356,7 @@ export function ChannelListItem({
               label="Remove channel"
               accessibleSuffix={row.name}
               title="Remove this channel?"
-              description={`${row.name} (${kind}) stops receiving alerts, and DevMacro deletes its webhook URL. This cannot be undone.`}
+              description={`${row.name} (${kind}) stops receiving alerts, and StackDash deletes its webhook URL. This cannot be undone.`}
               confirmLabel="Remove channel"
               action={deleteAlertChannel}
               fields={{ workspace: workspaceSlug, destinationId: row.id }}

@@ -66,13 +66,13 @@ const permissions: readonly Permission[] = [
   {
     scope: "event_read",
     access: "read",
-    description: "Read payment, customer, subscription, and refund events to show them on your DevMacro timeline",
+    description: "Read payment, customer, subscription, and refund events to show them on your StackDash timeline",
   },
   { scope: "charge_read", access: "read", description: "Read payment and refund amounts to show revenue" },
   {
     scope: "customer_read",
     access: "read",
-    description: "Count new customers. DevMacro does not store customer names or emails",
+    description: "Count new customers. StackDash does not store customer names or emails",
   },
   { scope: "subscription_read", access: "read", description: "Count new and canceled subscriptions" },
   { scope: "invoice_read", access: "read", description: "Read paid invoice amounts to show revenue" },
@@ -144,70 +144,70 @@ const achievements: readonly Achievement[] = [
     id: "stripe.payments.first",
     title: "First Stripe payment recorded",
     publicTitle: "First Stripe payment recorded",
-    description: "Earned when DevMacro records the first successful Stripe payment.",
+    description: "Earned when StackDash records the first successful Stripe payment.",
     rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 1 },
   },
   {
     id: "stripe.payments.10",
     title: "10 Stripe payments recorded",
     publicTitle: "10 Stripe payments recorded",
-    description: "Earned when DevMacro records the 10th successful Stripe payment.",
+    description: "Earned when StackDash records the 10th successful Stripe payment.",
     rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 10 },
   },
   {
     id: "stripe.payments.100",
     title: "100 Stripe payments recorded",
     publicTitle: "100 Stripe payments recorded",
-    description: "Earned when DevMacro records the 100th successful Stripe payment.",
+    description: "Earned when StackDash records the 100th successful Stripe payment.",
     rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 100 },
   },
   {
     id: "stripe.payments.1000",
     title: "1,000 Stripe payments recorded",
     publicTitle: "1,000 Stripe payments recorded",
-    description: "Earned when DevMacro records the 1,000th successful Stripe payment.",
+    description: "Earned when StackDash records the 1,000th successful Stripe payment.",
     rule: { kind: "event_count", typeIds: ["stripe.charge.succeeded"], count: 1000 },
   },
   {
     id: "stripe.payments.payday",
     title: "Payday: 10 payments in one day",
     publicTitle: "Payday: 10 payments in one day",
-    description: "Earned when DevMacro records 10 successful Stripe payments on one London calendar day.",
+    description: "Earned when StackDash records 10 successful Stripe payments on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["stripe.charge.succeeded"], count: 10, window: "day" },
   },
   {
     id: "stripe.payments.while_you_slept",
     title: "While you slept: a payment between midnight and 5 am",
     publicTitle: "While you slept: a payment between midnight and 5 am",
-    description: "Earned when DevMacro records a successful Stripe payment between midnight and 5 am London time.",
+    description: "Earned when StackDash records a successful Stripe payment between midnight and 5 am London time.",
     rule: { kind: "event_at_local_time", typeIds: ["stripe.charge.succeeded"], fromHour: 0, toHour: 5 },
   },
   {
     id: "stripe.subscriptions.first",
     title: "First Stripe subscription recorded",
     publicTitle: "First Stripe subscription recorded",
-    description: "Earned when DevMacro records the first new Stripe subscription.",
+    description: "Earned when StackDash records the first new Stripe subscription.",
     rule: { kind: "event_count", typeIds: ["stripe.customer.subscription.created"], count: 1 },
   },
   {
     id: "stripe.subscriptions.10",
     title: "10 Stripe subscriptions recorded",
     publicTitle: "10 Stripe subscriptions recorded",
-    description: "Earned when DevMacro records the 10th new Stripe subscription.",
+    description: "Earned when StackDash records the 10th new Stripe subscription.",
     rule: { kind: "event_count", typeIds: ["stripe.customer.subscription.created"], count: 10 },
   },
   {
     id: "stripe.customers.first",
     title: "First Stripe customer recorded",
     publicTitle: "First Stripe customer recorded",
-    description: "Earned when DevMacro records the first new Stripe customer.",
+    description: "Earned when StackDash records the first new Stripe customer.",
     rule: { kind: "event_count", typeIds: ["stripe.customer.created"], count: 1 },
   },
   {
     id: "stripe.customers.100",
     title: "100 Stripe customers recorded",
     publicTitle: "100 Stripe customers recorded",
-    description: "Earned when DevMacro records the 100th new Stripe customer.",
+    description: "Earned when StackDash records the 100th new Stripe customer.",
     rule: { kind: "event_count", typeIds: ["stripe.customer.created"], count: 100 },
   },
 ];
@@ -513,7 +513,7 @@ const FAILURE_SENTENCES: ReadonlyMap<string, string> = new Map([
   ["no_account", "The bank account could not be found."],
   ["processing_error", "An error occurred while processing the card."],
 ]);
-const UNKNOWN_FAILURE = "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.";
+const UNKNOWN_FAILURE = "Stripe gave a reason StackDash does not recognize. Open the payment in your Stripe Dashboard to see it.";
 
 type TimelineEntry = { severity: EventSeverity; title: string; body?: string };
 

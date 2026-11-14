@@ -9,7 +9,7 @@ import { log, logError } from "@/lib/log/logger";
 
 /*
  * Super admins (#250) run the instance: they see its configuration and instance-wide figures. They
- * are named by email in DEVMACRO_SUPER_ADMIN_EMAILS, matched against the verified email claim, the
+ * are named by email in STACKDASH_SUPER_ADMIN_EMAILS, matched against the verified email claim, the
  * same key the invite list uses. This is the one check every super admin surface calls; there is no
  * database role, so a super admin is no more than a workspace member anywhere else in the app.
  */

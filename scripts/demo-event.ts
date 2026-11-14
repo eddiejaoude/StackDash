@@ -14,7 +14,7 @@
  * `--watch` runs) emails and posts the alert.
  *
  * Writes to the demo workspace that `npm run demo:seed` built, or to the workspace `--workspace`
- * names; nothing else. Refuses to run unless DEVMACRO_SIMULATE_PROVIDERS=1 and
+ * names; nothing else. Refuses to run unless STACKDASH_SIMULATE_PROVIDERS=1 and
  * NEXT_PUBLIC_SUPABASE_URL points at this computer, like the demo seed. Reads `.env.local` when
  * present.
  */

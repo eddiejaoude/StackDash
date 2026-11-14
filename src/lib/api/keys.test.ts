@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 import { API_KEY_PREFIX, bearerApiKey, generateApiKey, hashApiKey } from "./keys";
 
 describe("generateApiKey", () => {
-  it("makes a dmk_ key with 43 base64url characters, its SHA-256 hex, and an 8 character display prefix", () => {
+  it("makes a sd_ key with 43 base64url characters, its SHA-256 hex, and an 8 character display prefix", () => {
     const { key, tokenHash, tokenPrefix } = generateApiKey();
-    expect(key).toMatch(/^dmk_[A-Za-z0-9_-]{43}$/);
+    expect(key).toMatch(/^sd_[A-Za-z0-9_-]{43}$/);
     expect(tokenHash).toBe(createHash("sha256").update(key).digest("hex"));
     expect(tokenHash).toMatch(/^[0-9a-f]{64}$/);
-    // The database checks token_prefix against ^dmk_[A-Za-z0-9_-]{8}$.
-    expect(tokenPrefix).toMatch(/^dmk_[A-Za-z0-9_-]{8}$/);
+    // The database checks token_prefix against ^sd_[A-Za-z0-9_-]{8}$.
+    expect(tokenPrefix).toMatch(/^sd_[A-Za-z0-9_-]{8}$/);
     expect(key.startsWith(tokenPrefix)).toBe(true);
   });
 
@@ -24,12 +24,12 @@ describe("generateApiKey", () => {
 
 describe("hashApiKey", () => {
   it("is the SHA-256 hex of the UTF-8 key, so the same key always finds the same row", () => {
-    expect(hashApiKey("dmk_example")).toBe(createHash("sha256").update("dmk_example", "utf8").digest("hex"));
-    expect(hashApiKey("dmk_example")).toBe(hashApiKey("dmk_example"));
+    expect(hashApiKey("sd_example")).toBe(createHash("sha256").update("sd_example", "utf8").digest("hex"));
+    expect(hashApiKey("sd_example")).toBe(hashApiKey("sd_example"));
   });
 
   it("differs for keys that differ by one character", () => {
-    expect(hashApiKey("dmk_a")).not.toBe(hashApiKey("dmk_b"));
+    expect(hashApiKey("sd_a")).not.toBe(hashApiKey("sd_b"));
   });
 });
 

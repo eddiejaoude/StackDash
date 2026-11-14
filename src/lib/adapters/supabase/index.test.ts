@@ -187,13 +187,13 @@ describe("buildAuthorizeUrl", () => {
     const url = supabaseAdapter.buildAuthorizeUrl({
       client,
       state: "synthetic-state",
-      redirectUri: "https://devmacro.example.com/api/connections/supabase/callback",
+      redirectUri: "https://stackdash.example.com/api/connections/supabase/callback",
       codeChallenge: "synthetic-challenge",
     });
     expect(`${url.origin}${url.pathname}`).toBe("https://api.supabase.com/v1/oauth/authorize");
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: client.clientId,
-      redirect_uri: "https://devmacro.example.com/api/connections/supabase/callback",
+      redirect_uri: "https://stackdash.example.com/api/connections/supabase/callback",
       response_type: "code",
       state: "synthetic-state",
       code_challenge: "synthetic-challenge",
@@ -203,7 +203,7 @@ describe("buildAuthorizeUrl", () => {
 
   it("refuses to build a URL without a PKCE challenge", () => {
     expect(() =>
-      supabaseAdapter.buildAuthorizeUrl({ client, state: "s", redirectUri: "https://devmacro.example.com/cb" }),
+      supabaseAdapter.buildAuthorizeUrl({ client, state: "s", redirectUri: "https://stackdash.example.com/cb" }),
     ).toThrow(TypeError);
   });
 });
@@ -214,7 +214,7 @@ describe("exchangeCode", () => {
     const result = await supabaseAdapter.exchangeCode(
       {
         code: "synthetic-code",
-        redirectUri: "https://devmacro.example.com/api/connections/supabase/callback",
+        redirectUri: "https://stackdash.example.com/api/connections/supabase/callback",
         codeVerifier: "synthetic-verifier",
         // Supabase sends only code and state; nothing provider-specific is read from the callback.
         callbackParams: { code: "synthetic-code", state: "synthetic-state" },
@@ -230,7 +230,7 @@ describe("exchangeCode", () => {
     expect(Object.fromEntries(new URLSearchParams(String(request?.init?.body)))).toEqual({
       grant_type: "authorization_code",
       code: "synthetic-code",
-      redirect_uri: "https://devmacro.example.com/api/connections/supabase/callback",
+      redirect_uri: "https://stackdash.example.com/api/connections/supabase/callback",
       code_verifier: "synthetic-verifier",
     });
 
@@ -247,7 +247,7 @@ describe("exchangeCode", () => {
     const api = fakeApi();
     await expect(
       supabaseAdapter.exchangeCode(
-        { code: "c", redirectUri: "https://devmacro.example.com/cb", callbackParams: {} },
+        { code: "c", redirectUri: "https://stackdash.example.com/cb", callbackParams: {} },
         contextFor(api.fetch, NOW_FREE),
       ),
     ).rejects.toThrow(TypeError);
@@ -545,7 +545,7 @@ describe("sync", () => {
         title: "9 logins",
         body:
           "2 new signups, 1 logout, 0 deleted users. Daily active users unavailable: Supabase keeps auth logs for 1 hour on the Free plan. " +
-          "Partial day: part of this day was outside Supabase's auth log retention when DevMacro polled.",
+          "Partial day: part of this day was outside Supabase's auth log retention when StackDash polled.",
         dedupeKey: `supabase.auth.daily_summary:${REF}:2026-10-30`,
       }),
     ]);

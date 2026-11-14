@@ -10,7 +10,7 @@ export type ConnectChecks = Readonly<{
 
 /**
  * Connects a simulated provider from the catalog with the keyboard and lands on the connection.
- * The web server must run with DEVMACRO_SIMULATE_PROVIDERS=1 (playwright.config.ts), so the dev
+ * The web server must run with STACKDASH_SIMULATE_PROVIDERS=1 (playwright.config.ts), so the dev
  * consent screen stands in for the provider. `checks` run on the catalog and on the connect screen
  * once each has loaded, before the flow moves on.
  */
@@ -33,7 +33,7 @@ export async function connectSimulated(
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Connect ${provider}`);
   const permissions = page.getByRole("region", { name: `Permissions ${provider} will ask you to grant` });
   await expect(permissions.getByText("Simulated", { exact: true })).toBeVisible();
-  await expect(permissions.getByText(/^Simulated\. DevMacro makes up example/)).toBeVisible();
+  await expect(permissions.getByText(/^Simulated\. StackDash makes up example/)).toBeVisible();
   await checks.connectScreen?.();
   await page.getByRole("button", { name: `Continue to ${provider}` }).focus();
   await page.keyboard.press("Enter");

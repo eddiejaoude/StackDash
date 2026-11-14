@@ -500,7 +500,7 @@ describe("aggregateDashboard simulated sources (#131)", () => {
 
   it("marks each provider card from its connection, never from the process flag", () => {
     for (const flag of [undefined, "1"]) {
-      vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", flag);
+      vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", flag);
       const view = aggregateDashboard(mixed());
       expect(view.byProvider.map((summary) => [summary.connectionId, summary.simulated])).toEqual([
         ["c1", false],

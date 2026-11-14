@@ -6,7 +6,7 @@ import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 /*
- * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
+ * Simulated providers (#131), end to end: the web server runs with STACKDASH_SIMULATE_PROVIDERS=1
  * (playwright.config.ts), so Vercel, Stripe, Polar, Railway, and Sentry connect from the catalog
  * through the dev consent screen without an OAuth app, a tick through POST /api/jobs/tick syncs
  * their made-up data, and every screen labels it "Simulated": once per page while every connection

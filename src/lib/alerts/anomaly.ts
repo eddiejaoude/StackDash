@@ -65,7 +65,7 @@ import type { Database, TablesInsert } from "@/lib/supabase/database.types";
 import { currencyMinorDigits } from "@/lib/money";
 import { providerName } from "@/lib/providers";
 
-export const ANOMALY_TYPE_ID = "devmacro.anomaly_detected";
+export const ANOMALY_TYPE_ID = "stackdash.anomaly_detected";
 
 /** The metric kinds detection reads: spend (verified and estimated) and usage, never levels or gauges. */
 export const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const satisfies readonly Database["public"]["Enums"]["metric_kind"][];
@@ -416,7 +416,7 @@ export function anomalyEventKey(anomaly: Pick<Anomaly, "date" | "provider" | "me
   return `anomaly:${anomaly.date}:${anomaly.provider}:${anomaly.metricKey}:${measureKey(anomaly.measure)}:${anomaly.source}`;
 }
 
-/** One `devmacro.anomaly_detected` timeline event, deduplicated per metric per day. */
+/** One `stackdash.anomaly_detected` timeline event, deduplicated per metric per day. */
 export function anomalyEvent(workspaceId: string, anomaly: Anomaly): TablesInsert<"activity_events"> {
   const provider = providerName(anomaly.provider);
   const noun = anomaly.measure.type === "money" ? "spend" : "usage";

@@ -11,7 +11,7 @@ import { expectTopRowFits } from "./fixtures/header";
 /*
  * Account deletion (#42) and the account's place in the headers (#175). Every test signs in as
  * fresh synthetic users created here and removed afterwards; the shared e2e owner and viewer are
- * never deleted. The web server runs with DEVMACRO_ENABLE_FAKE_PROVIDER=1, so the seeded fake
+ * never deleted. The web server runs with STACKDASH_ENABLE_FAKE_PROVIDER=1, so the seeded fake
  * connection never reaches a live provider.
  */
 
@@ -182,7 +182,7 @@ test.describe("the account header", () => {
       await expect(details.getByText(user.email, { exact: true })).toBeVisible();
 
       const header = page.getByRole("banner");
-      const brand = header.getByRole("link", { name: "DevMacro", exact: true });
+      const brand = header.getByRole("link", { name: "StackDash", exact: true });
       const workspace = header.getByRole("link", { name: "Open your workspace", exact: true });
       await expect(brand).toBeVisible();
       await expect(brand).toHaveAttribute("href", "/app");
@@ -312,9 +312,9 @@ test.describe("an account with no workspace", () => {
       await page.goto("/app");
       const main = page.getByRole("main");
       await expect(main.getByRole("heading", { level: 1 })).toHaveText("You are not a member of any workspace");
-      // #345: the product says "DevMacro", never "the DevMacro test".
-      await expect(main).toContainText("Contact the person who invited you to DevMacro, or sign out");
-      await expect(main).not.toContainText(/DevMacro test/);
+      // #345: the product says "StackDash", never "the StackDash test".
+      await expect(main).toContainText("Contact the person who invited you to StackDash, or sign out");
+      await expect(main).not.toContainText(/StackDash test/);
       await expect(main.getByRole("button", { name: "Sign out" })).toBeVisible();
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
@@ -352,11 +352,11 @@ test.describe("deleting an account", () => {
       }
       await expect(deleted).toContainText(/About \d+ history records/);
 
-      // And what DevMacro cannot revoke itself, with the steps to do it by hand.
+      // And what StackDash cannot revoke itself, with the steps to do it by hand.
       const manual = page.getByRole("list", { name: "Providers to revoke by hand" });
       await expect(manual.getByRole("listitem")).toHaveCount(1);
       await expect(manual).toContainText("Example provider does not let apps revoke their own access.");
-      await expect(manual).toContainText("Remove DevMacro's access in your Example provider account settings.");
+      await expect(manual).toContainText("Remove StackDash's access in your Example provider account settings.");
 
       // The button stays disabled until the account email is typed.
       const confirmation = page.getByRole("textbox", { name: "Type your email address or GitHub username to confirm" });

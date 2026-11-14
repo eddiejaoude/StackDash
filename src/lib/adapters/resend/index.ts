@@ -46,7 +46,7 @@ const TOKEN_URL = `${API_BASE}/oauth/token`;
 const REVOKE_URL = `${API_BASE}/oauth/revoke`;
 
 // Resend blocks requests without a User-Agent with 403 (error 1010) before they reach the API.
-export const RESEND_USER_AGENT = "DevMacro";
+export const RESEND_USER_AGENT = "StackDash";
 
 const FULL_ACCESS = "full_access";
 const REQUESTED_SCOPES = [FULL_ACCESS] as const;
@@ -95,20 +95,20 @@ const achievements: readonly Achievement[] = [
     id: "resend.domains.first",
     title: "First Resend domain verified",
     publicTitle: "First Resend domain verified",
-    description: "Earned when DevMacro records the first verified Resend domain.",
+    description: "Earned when StackDash records the first verified Resend domain.",
     rule: { kind: "event_count", typeIds: ["resend.domain.verified"], count: 1 },
   },
   {
     id: "resend.domains.collector",
     title: "Domain collector: 3 domains verified",
     publicTitle: "Domain collector: 3 domains verified",
-    description: "Earned when DevMacro records the 3rd verified Resend domain.",
+    description: "Earned when StackDash records the 3rd verified Resend domain.",
     rule: { kind: "event_count", typeIds: ["resend.domain.verified"], count: 3 },
   },
 ];
 
 // Domain statuses that produce an event when a domain moves into them. Threshold alerts such as
-// quota near its limit are DevMacro's job, not adapter events.
+// quota near its limit are StackDash's job, not adapter events.
 const statusEvents: Partial<Record<DomainStatus, (typeof eventTypes)[number]["id"]>> = {
   verified: "resend.domain.verified",
   failed: "resend.domain.failed",
@@ -425,7 +425,7 @@ export const resendAdapter: ProviderAdapter = {
       access: "full",
       description: "Read your Resend team's email usage, delivery metrics, and domain status.",
       fullAccessReason:
-        "Resend has no read-only access. This permission lets DevMacro send and delete email, change or delete domains, and create and delete API keys in this Resend team. DevMacro only reads usage, delivery metrics, and domain status, and you can revoke access at any time in your Resend team settings.",
+        "Resend has no read-only access. This permission lets StackDash send and delete email, change or delete domains, and create and delete API keys in this Resend team. StackDash only reads usage, delivery metrics, and domain status, and you can revoke access at any time in your Resend team settings.",
     },
   ],
   dataCollected: [
@@ -439,7 +439,7 @@ export const resendAdapter: ProviderAdapter = {
   // In beta until #241 settles whether a live Resend callback carries `iss`: once #228 lands,
   // `exchangeCode` refuses a callback without it, which would fail every Resend connection. Remove
   // this declaration to drop the catalog's "Beta" badge.
-  beta: { reason: "DevMacro is still checking how Resend returns you here after you approve access, so connecting may fail." },
+  beta: { reason: "StackDash is still checking how Resend returns you here after you approve access, so connecting may fail." },
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

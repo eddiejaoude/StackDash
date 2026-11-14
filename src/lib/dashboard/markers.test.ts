@@ -83,7 +83,7 @@ describe("bucketEventCounts in daily buckets", () => {
     expect(counts.every((count) => buckets.has(count.bucket))).toBe(true);
   });
 
-  it("keeps providers apart, keeps DevMacro's own events with no provider, and orders by day then category", () => {
+  it("keeps providers apart, keeps StackDash's own events with no provider, and orders by day then category", () => {
     const counts = bucketEventCounts(
       [
         row("2026-01-11", "stripe.charge.succeeded", 5, "stripe"),
@@ -213,7 +213,7 @@ describe("chartMarkers", () => {
   );
   const input = { provider: "vercel", shown: MARKER_CATEGORIES, granularity: "daily", timelinePath: TIMELINE, scope: EMPTY_SCOPE } as const;
 
-  it("marks a provider's chart with its own events and DevMacro's, oldest day first", () => {
+  it("marks a provider's chart with its own events and StackDash's, oldest day first", () => {
     expect(chartMarkers(counts, input).map(({ category, bucket, count }) => [bucket, category, count])).toEqual([
       ["2026-01-10", "deployments", 14],
       ["2026-01-10", "alerts", 2],
@@ -237,7 +237,7 @@ describe("chartMarkers", () => {
 
   it("links an alert marker without a provider filter", () => {
     const alerts = chartMarkers(counts, input).find((marker) => marker.category === "alerts");
-    expect(alerts?.href).toBe(`${TIMELINE}?type=devmacro.alert_triggered&from=2026-01-10&to=2026-01-10`);
+    expect(alerts?.href).toBe(`${TIMELINE}?type=stackdash.alert_triggered&from=2026-01-10&to=2026-01-10`);
   });
 
   it("links a monthly marker to the whole UTC month, including its last day", () => {
@@ -298,7 +298,7 @@ describe("category type ids", () => {
     expect(Object.entries(adapters).filter(([id, adapter]) => adapter.id !== id)).toEqual([]);
   });
 
-  it("names only event types an adapter declares, or DevMacro's alert event", () => {
+  it("names only event types an adapter declares, or StackDash's alert event", () => {
     const declared = new Set(
       Object.values(adapters).flatMap((adapter) => adapter.eventTypes.map((eventType) => eventType.id)),
     );

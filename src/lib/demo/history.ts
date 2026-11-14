@@ -43,7 +43,7 @@ export function demoCommandRefusal(input: Readonly<{ simulationEnabled: boolean;
 }
 
 /** The seed text `npm run demo` and `npm run demo:seed` use when `--seed` is not given. */
-export const DEMO_SEED_TEXT = "devmacro-demo";
+export const DEMO_SEED_TEXT = "stackdash-demo";
 
 /**
  * The seed a simulated provider derives its accounts from, fixed by the demo seed text so a

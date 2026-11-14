@@ -11,14 +11,14 @@
  * 2. Work out the id of the key in use now (the first 8 hex chars of its SHA-256):
  *    `printf '%s' "$OLD_KEY" | openssl base64 -d -A | shasum -a 256 | cut -c1-8`
  *    (this script also prints the current key id each time it runs).
- * 3. Set `DEVMACRO_ENCRYPTION_KEY` to the new key and add the old one to
- *    `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key` (comma separate several).
+ * 3. Set `STACKDASH_ENCRYPTION_KEY` to the new key and add the old one to
+ *    `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key` (comma separate several).
  *    Deploy. From now on new secrets are sealed with the new key and old rows still decrypt,
  *    so nothing goes down.
  * 4. Once every running instance has the new configuration, run `npm run keys:rotate`. It prints
  *    counts only and is safe to re-run; repeat until "remaining" is 0 for every table.
  * 5. Wait until pending OAuth states sealed with the old key have expired (they are short lived),
- *    then remove the old entry from `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` and deploy again. The
+ *    then remove the old entry from `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` and deploy again. The
  *    unsubscribe links in alert emails are signed with a key derived from the encryption key, so
  *    links in emails sent before the rotation stop working at this step; every newer email works.
  *

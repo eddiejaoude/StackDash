@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* DevMacro design tokens: dark-first, monochrome base, one coral accent. */
+/* StackDash design tokens: dark-first, monochrome base, one coral accent. */
 :root {
   --background: #0a0a0a;
   --foreground: #ededed;

@@ -1523,13 +1523,13 @@ ownerTest.describe("timeline event inspector", () => {
       const { data: github, error: githubError } = await admin.from("external_accounts").select("id")
         .eq("workspace_id", workspace.id).eq("external_id", "org_e2e").single();
       if (githubError) throw new Error(`Finding the synthetic account failed (code ${githubError.code}).`);
-      // DevMacro's own event: no connection and no account, and microseconds, as Postgres keeps them.
+      // StackDash's own event: no connection and no account, and microseconds, as Postgres keeps them.
       const { data: summary, error: summaryError } = await admin.from("activity_events").insert({
         workspace_id: workspace.id,
         connection_id: null,
         external_account_id: null,
         provider: null,
-        type_id: "devmacro.daily_summary",
+        type_id: "stackdash.daily_summary",
         severity: "info",
         title: "Microsecond summary",
         occurred_at: "2026-06-15T12:00:00.123456Z",
@@ -2234,7 +2234,7 @@ ownerTest.describe("timeline activity overview", () => {
       const { error } = await adminClient().from("activity_events").insert(warningMs.map((occurredMs, index) => ({
         workspace_id: workspace.id,
         provider: null,
-        type_id: "devmacro.sync_failed",
+        type_id: "stackdash.sync_failed",
         severity: "warning" as const,
         title: `Synthetic warning ${index}`,
         occurred_at: new Date(occurredMs).toISOString(),

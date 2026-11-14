@@ -33,7 +33,7 @@ export const FAKE_AUTHORIZE_PATH = "/api/dev/fake-provider/authorize";
 export const FAKE_CALLBACK_PATH = "/api/connections/fake/callback";
 export const FAKE_CODE_PREFIX = "fake-";
 // The route is served only when this variable is exactly "1" (never in production).
-export const FAKE_PROVIDER_ENABLE_ENV = "DEVMACRO_ENABLE_FAKE_PROVIDER";
+export const FAKE_PROVIDER_ENABLE_ENV = "STACKDASH_ENABLE_FAKE_PROVIDER";
 
 export const FAKE_SCOPE_USAGE_READ = "usage:read";
 export const FAKE_SCOPE_ADMIN = "admin";
@@ -104,7 +104,7 @@ const permissions: readonly Permission[] = [
     access: "full",
     description: "Change settings on the example provider.",
     fullAccessReason:
-      "Requested only to exercise the full-access disclosure in tests. DevMacro never uses it, and you can decline it.",
+      "Requested only to exercise the full-access disclosure in tests. StackDash never uses it, and you can decline it.",
   },
 ];
 
@@ -304,7 +304,7 @@ export const fakeAdapter: ProviderAdapter = {
   eventTypes,
   projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
-    // Relative to DevMacro's own origin; `buildAuthorizeUrl` resolves it against the redirect URI.
+    // Relative to StackDash's own origin; `buildAuthorizeUrl` resolves it against the redirect URI.
     authorizeUrl: FAKE_AUTHORIZE_PATH,
     // Never requested: `exchangeCode` and `refreshTokens` mint tokens in memory.
     tokenUrl: `${FAKE_ENDPOINT}/token`,

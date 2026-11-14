@@ -12,8 +12,8 @@ function page(authorizeUrl: string, providerName = "Vercel"): string {
 
 describe("handoffPage", () => {
   it("refreshes to the authorize URL and links to it, with one heading", () => {
-    const html = page("https://vercel.com/integrations/devmacro/new?state=abc");
-    const href = "https://vercel.com/integrations/devmacro/new?state=abc";
+    const html = page("https://vercel.com/integrations/stackdash/new?state=abc");
+    const href = "https://vercel.com/integrations/stackdash/new?state=abc";
     expect(html).toContain(`<meta http-equiv="refresh" content="0;url=${href}">`);
     expect(html).toContain(`<a href="${href}">Continue to Vercel</a>`);
     expect(html.match(/<h1>/g)).toHaveLength(1);
@@ -39,7 +39,7 @@ describe("handoffPage", () => {
     expect(html).not.toContain("<i>");
   });
 
-  it("refuses every target that is not https, except the fake route on DevMacro's own origin", () => {
+  it("refuses every target that is not https, except the fake route on StackDash's own origin", () => {
     for (const url of [
       "http://vercel.com/authorize",
       "javascript:alert(1)",

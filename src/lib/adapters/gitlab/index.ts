@@ -161,105 +161,105 @@ const achievements: readonly Achievement[] = [
     id: "gitlab.deployments.first",
     title: "First GitLab deployment recorded",
     publicTitle: "First GitLab deployment recorded",
-    description: "Earned when DevMacro records the first successful GitLab deployment.",
+    description: "Earned when StackDash records the first successful GitLab deployment.",
     rule: { kind: "event_count", typeIds: ["gitlab.deployment.succeeded"], count: 1 },
   },
   {
     id: "gitlab.deployments.10",
     title: "10 GitLab deployments recorded",
     publicTitle: "10 GitLab deployments recorded",
-    description: "Earned when DevMacro records the 10th successful GitLab deployment.",
+    description: "Earned when StackDash records the 10th successful GitLab deployment.",
     rule: { kind: "event_count", typeIds: ["gitlab.deployment.succeeded"], count: 10 },
   },
   {
     id: "gitlab.deployments.100",
     title: "100 GitLab deployments recorded",
     publicTitle: "100 GitLab deployments recorded",
-    description: "Earned when DevMacro records the 100th successful GitLab deployment.",
+    description: "Earned when StackDash records the 100th successful GitLab deployment.",
     rule: { kind: "event_count", typeIds: ["gitlab.deployment.succeeded"], count: 100 },
   },
   {
     id: "gitlab.deployments.streak_10",
     title: "10 GitLab deployments in a row",
     publicTitle: "10 GitLab deployments in a row",
-    description: "Earned when DevMacro records 10 successful GitLab deployments in a row, with no failed deployment between them.",
+    description: "Earned when StackDash records 10 successful GitLab deployments in a row, with no failed deployment between them.",
     rule: { kind: "event_streak", successTypeIds: ["gitlab.deployment.succeeded"], failureTypeIds: ["gitlab.deployment.failed"], count: 10 },
   },
   {
     id: "gitlab.deployments.night_owl",
     title: "Night owl: a GitLab deployment between midnight and 5 am",
     publicTitle: "Night owl: a GitLab deployment between midnight and 5 am",
-    description: "Earned when DevMacro records a successful GitLab deployment between midnight and 5 am London time.",
+    description: "Earned when StackDash records a successful GitLab deployment between midnight and 5 am London time.",
     rule: { kind: "event_at_local_time", typeIds: ["gitlab.deployment.succeeded"], fromHour: 0, toHour: 5 },
   },
   {
     id: "gitlab.deployments.friday_ship",
     title: "Shipped on a Friday afternoon",
     publicTitle: "Shipped on a Friday afternoon",
-    description: "Earned when DevMacro records a successful GitLab deployment on a Friday between 4 pm and midnight London time.",
+    description: "Earned when StackDash records a successful GitLab deployment on a Friday between 4 pm and midnight London time.",
     rule: { kind: "event_at_local_time", typeIds: ["gitlab.deployment.succeeded"], fromHour: 16, toHour: 24, weekdays: ["friday"] },
   },
   {
     id: "gitlab.deployments.busy_day",
     title: "Busy day: 10 GitLab deployments in one day",
     publicTitle: "Busy day: 10 GitLab deployments in one day",
-    description: "Earned when DevMacro records 10 successful GitLab deployments on one London calendar day.",
+    description: "Earned when StackDash records 10 successful GitLab deployments on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["gitlab.deployment.succeeded"], count: 10, window: "day" },
   },
   {
     id: "gitlab.deployments.weekly_rhythm",
     title: "Weekly rhythm: a GitLab deployment on 7 days in a row",
     publicTitle: "Weekly rhythm: a GitLab deployment on 7 days in a row",
-    description: "Earned when DevMacro records a successful GitLab deployment on each of 7 consecutive London calendar days.",
+    description: "Earned when StackDash records a successful GitLab deployment on each of 7 consecutive London calendar days.",
     rule: { kind: "consecutive_days", typeIds: ["gitlab.deployment.succeeded"], days: 7 },
   },
   {
     id: "gitlab.pipelines.100",
     title: "100 GitLab pipelines passed",
     publicTitle: "100 GitLab pipelines passed",
-    description: "Earned when DevMacro records the 100th successful GitLab pipeline.",
+    description: "Earned when StackDash records the 100th successful GitLab pipeline.",
     rule: { kind: "event_count", typeIds: ["gitlab.pipeline.succeeded"], count: 100 },
   },
   {
     id: "gitlab.pipelines.green_streak",
     title: "Green streak: 25 pipelines passed in a row",
     publicTitle: "Green streak: 25 pipelines passed in a row",
-    description: "Earned when DevMacro records 25 successful GitLab pipelines in a row, with no failed pipeline between them.",
+    description: "Earned when StackDash records 25 successful GitLab pipelines in a row, with no failed pipeline between them.",
     rule: { kind: "event_streak", successTypeIds: ["gitlab.pipeline.succeeded"], failureTypeIds: ["gitlab.pipeline.failed"], count: 25 },
   },
   {
     id: "gitlab.merge_requests.first",
     title: "First merge request merged",
     publicTitle: "First merge request merged",
-    description: "Earned when DevMacro records the first merged GitLab merge request.",
+    description: "Earned when StackDash records the first merged GitLab merge request.",
     rule: { kind: "event_count", typeIds: ["gitlab.merge_request.merged"], count: 1 },
   },
   {
     id: "gitlab.merge_requests.100",
     title: "100 merge requests merged",
     publicTitle: "100 merge requests merged",
-    description: "Earned when DevMacro records the 100th merged GitLab merge request.",
+    description: "Earned when StackDash records the 100th merged GitLab merge request.",
     rule: { kind: "event_count", typeIds: ["gitlab.merge_request.merged"], count: 100 },
   },
   {
     id: "gitlab.merge_requests.marathon",
     title: "Merge marathon: 10 merge requests in one day",
     publicTitle: "Merge marathon: 10 merge requests in one day",
-    description: "Earned when DevMacro records 10 merged GitLab merge requests on one London calendar day.",
+    description: "Earned when StackDash records 10 merged GitLab merge requests on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["gitlab.merge_request.merged"], count: 10, window: "day" },
   },
   {
     id: "gitlab.releases.first",
     title: "First GitLab release published",
     publicTitle: "First GitLab release published",
-    description: "Earned when DevMacro records the first published GitLab release.",
+    description: "Earned when StackDash records the first published GitLab release.",
     rule: { kind: "event_count", typeIds: ["gitlab.release.published"], count: 1 },
   },
   {
     id: "gitlab.releases.10",
     title: "10 GitLab releases published",
     publicTitle: "10 GitLab releases published",
-    description: "Earned when DevMacro records the 10th published GitLab release.",
+    description: "Earned when StackDash records the 10th published GitLab release.",
     rule: { kind: "event_count", typeIds: ["gitlab.release.published"], count: 10 },
   },
 ];
@@ -531,7 +531,7 @@ function toCredential(
   };
 }
 
-const USAGE_QUERY = `query DevMacroUsage($fullPath: ID!, $namespaceId: NamespaceID!, $month: Date!, $projects: Int!) {
+const USAGE_QUERY = `query StackDashUsage($fullPath: ID!, $namespaceId: NamespaceID!, $month: Date!, $projects: Int!) {
   namespace(fullPath: $fullPath) { actualSizeLimit rootStorageStatistics { storageSize } }
   ciMinutesUsage(namespaceId: $namespaceId, date: $month, first: 1) { nodes { monthIso8601 minutes } }
   ciMinutesProjectMonthlyUsage(namespaceId: $namespaceId, date: $month, first: $projects) {
@@ -754,7 +754,7 @@ export const gitlabAdapter: ProviderAdapter = {
       scope: READ_API,
       access: "read",
       description:
-        "Read the groups and projects you can see: compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests. It cannot change anything. It can also read code, issues, and the package and container registries; DevMacro does not.",
+        "Read the groups and projects you can see: compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests. It cannot change anything. It can also read code, issues, and the package and container registries; StackDash does not.",
     },
     {
       scope: READ_USER,

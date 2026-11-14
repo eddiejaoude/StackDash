@@ -19,9 +19,9 @@ const HANDLE_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /**
  * Refused as handles. Every top-level route segment of the app comes first (handles.test.ts keeps
- * that part in step with src/app), so a handle can never be mistaken for a page of DevMacro if
+ * that part in step with src/app), so a handle can never be mistaken for a page of StackDash if
  * addresses ever drop the `@`. Then segments and root files the app is likely to add, and names a
- * visitor could take for DevMacro itself. Entries shorter than HANDLE_MIN are refused by length
+ * visitor could take for StackDash itself. Entries shorter than HANDLE_MIN are refused by length
  * already; they stay listed so the route list is complete.
  */
 export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
@@ -65,8 +65,8 @@ export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   "static",
   "status",
   "terms",
-  // DevMacro itself, and names a visitor could take for it.
-  "devmacro",
+  // StackDash itself, and names a visitor could take for it.
+  "stackdash",
   "help",
   "official",
   "root",

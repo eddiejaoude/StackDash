@@ -50,7 +50,7 @@ async function seedConnection(workspace: TestWorkspace): Promise<Seeded> {
 
 /**
  * Ten deployments three days ago, five in each of two adjacent hours from 12:00 UTC (the same two
- * London hours, whatever the clock change), one signup five days ago, and one DevMacro sync failure
+ * London hours, whatever the clock change), one signup five days ago, and one StackDash sync failure
  * seven days ago with no provider or account. Returns where each lands.
  */
 async function seedEvents(workspace: TestWorkspace, seeded: Seeded) {
@@ -82,7 +82,7 @@ async function seedEvents(workspace: TestWorkspace, seeded: Seeded) {
       event(failureAt, "sync-failed", {
         external_account_id: null,
         provider: null,
-        type_id: "devmacro.sync_failed",
+        type_id: "stackdash.sync_failed",
         severity: "warning",
         title: "Sync failed",
       }),
@@ -123,7 +123,7 @@ ownerTest.describe("activity heatmap", () => {
       await expect(filters.getByRole("link", { name: "all", exact: true })).not.toHaveAttribute("aria-current");
       await expect(sentence).toHaveText(`peak ${cells.signup.day} ${hh(cells.signup.hour)} to ${hh(cells.signup.hour + 1)} · 1 event`);
 
-      // DevMacro's own sync failure counts by its type, with no provider and no account.
+      // StackDash's own sync failure counts by its type, with no provider and no account.
       await filters.getByRole("link", { name: "failures", exact: true }).click();
       await expect(page).toHaveURL(/[?&]heat=failures(&|$)/);
       await expect(sentence).toHaveText(`peak ${cells.failure.day} ${hh(cells.failure.hour)} to ${hh(cells.failure.hour + 1)} · 1 event`);

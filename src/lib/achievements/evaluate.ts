@@ -252,7 +252,7 @@ function combinedReadings(readings: readonly MetricReading[], metricKey: string)
 /**
  * The first combined reading at or above `value`. The crossing counts as observed only when the
  * reading before it was below `value` and no account's first reading is part of it: an account's
- * first reading, like the very first reading, shows a level DevMacro never saw being reached, so
+ * first reading, like the very first reading, shows a level StackDash never saw being reached, so
  * that achievement is recorded "at least" `value` instead.
  */
 function metricThreshold(readings: readonly MetricReading[], metricKey: string, value: number): Proof | null {

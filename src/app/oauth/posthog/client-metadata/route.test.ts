@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET } from "./route";
 
-const ORIGIN = "https://devmacro.example.com";
+const ORIGIN = "https://stackdash.example.com";
 const CLIENT_ID = `${ORIGIN}/oauth/posthog/client-metadata`;
 const KEY = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 
@@ -55,6 +55,6 @@ describe("GET /oauth/posthog/client-metadata", () => {
     vi.stubEnv(name, value);
     const response = await GET(request());
     expect(response.status).toBe(404);
-    expect(await response.text()).toBe("PostHog is not set up on this DevMacro instance.");
+    expect(await response.text()).toBe("PostHog is not set up on this StackDash instance.");
   });
 });

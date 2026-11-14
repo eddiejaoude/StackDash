@@ -17,10 +17,10 @@ import type { ClaimedJob, EventRow, SummaryConnection, SummarySnapshot } from ".
 import type { JobOutcome, SyncDeps } from "./sync-connection";
 
 /*
- * Daily summary (#64): one `devmacro.daily_summary` timeline event per workspace per UTC day,
+ * Daily summary (#64): one `stackdash.daily_summary` timeline event per workspace per UTC day,
  * listing the previous UTC day's usage and spending per provider from usage_snapshots.
  *
- * - Each value is labeled verified (reported by the provider), estimated (calculated by DevMacro),
+ * - Each value is labeled verified (reported by the provider), estimated (calculated by StackDash),
  *   or unavailable (no snapshot that day), never shown as 0 when missing.
  * - Money is summed per provider and currency only, never across currencies, and each amount
  *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
@@ -32,17 +32,17 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  *   invoice, #215, and a SKU's day read the day after), and a rolling window repeats the month
  *   inside it (Stripe's last 30 days, #176).
  * - Each provider's spend projected to the end of its billing period follows its values (#167),
- *   labeled as an estimate by DevMacro, or says why there is none; a quota projected to run out
+ *   labeled as an estimate by StackDash, or says why there is none; a quota projected to run out
  *   before its reset, or already used up, gets a line too. Projections are as of the end of the
  *   summarized day, from the history up to it (`src/lib/dashboard/projection.ts`).
  * - The event's dedupe key names the day, so a job that runs twice writes one event.
  * - Anomaly detection (#169) runs in the same job, right after the summary is built: one
- *   `devmacro.anomaly_detected` event per unusual metric, unless the workspace turned it off or
+ *   `stackdash.anomaly_detected` event per unusual metric, unless the workspace turned it off or
  *   muted the metric. Running totals are checked on the summarized day, one day periods on the
  *   day before, whose row the provider has stored by then. See src/lib/alerts/anomaly.ts.
  */
 
-export const DAILY_SUMMARY_TYPE_ID = "devmacro.daily_summary";
+export const DAILY_SUMMARY_TYPE_ID = "stackdash.daily_summary";
 const DAY_MS = 86_400_000;
 /**
  * UTC days of snapshots read for the projections, ending with the summarized day: a projection

@@ -66,7 +66,7 @@ export function AchievementShareDialog({
         "The badge and card show this achievement's public title, its provider, and when it was earned, and nothing else.",
         ...(simulated ? ["It was earned from simulated data, so the badge, the card, and posts say it is simulated."] : []),
         projectPage === null
-          ? "Posts link to the card, and the badge to DevMacro. Once the project page is on, they link to it instead."
+          ? "Posts link to the card, and the badge to StackDash. Once the project page is on, they link to it instead."
           : `Posts and the badge link to the project page at ${projectPage.path}.`,
         "If the achievement is unpublished, the badge and card show Unpublished within a minute.",
       ]}

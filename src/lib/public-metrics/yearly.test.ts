@@ -99,8 +99,8 @@ describe("computeYearSummary", () => {
     const summary = await computeYearSummary(store, 2026, NOW);
     expect(summary.asOf).toEqual(NOW);
     expect(summary.stats[0]).toMatchObject({ status: "available", value: 2 });
-    expect(yearShareText(summary)).toBe("My stack in 2026 so far on DevMacro: 2 deployments shipped.");
-    expect(yearCardAltText(summary)).toMatch(/^DevMacro card: your stack in 2026 so far, 2026-01-01 to 2026-11-05\. /);
+    expect(yearShareText(summary)).toBe("My stack in 2026 so far on StackDash: 2 deployments shipped.");
+    expect(yearCardAltText(summary)).toMatch(/^StackDash card: your stack in 2026 so far, 2026-01-01 to 2026-11-05\. /);
   });
 
   it("says there is no data in the year when the provider was connected after it (boundary: history after the year)", async () => {
@@ -114,7 +114,7 @@ describe("computeYearSummary", () => {
     const store = new MemoryMetricStore([account("vercel", "2026-01-10T00:00:00Z", { simulated: true })], [], [deploy("2026-03-01T00:00:00Z")]);
     const summary = await computeYearSummary(store, 2026, NOW);
     expect(summary.simulated).toBe(true);
-    expect(yearShareText(summary)).toBe("My stack in 2026 so far on DevMacro: 1 deployment shipped. Simulated data.");
+    expect(yearShareText(summary)).toBe("My stack in 2026 so far on StackDash: 1 deployment shipped. Simulated data.");
   });
 
   it("refuses a year that has not started", async () => {
@@ -192,9 +192,9 @@ describe("the year card's words", () => {
       { label: "Providers connected", value: "1", since: null, countedUpTo: null },
     ]);
     expect(yearCardAltText(summary)).toBe(
-      "DevMacro card: your stack in 2025, 2025-01-01 to 2025-12-31. Deployments shipped: 1, since 2025-08-07. Stars gained: Not connected. Signups: Not connected. Providers connected: 1. Counted by DevMacro from stored data.",
+      "StackDash card: your stack in 2025, 2025-01-01 to 2025-12-31. Deployments shipped: 1, since 2025-08-07. Stars gained: Not connected. Signups: Not connected. Providers connected: 1. Counted by StackDash from stored data.",
     );
-    expect(yearShareText(summary)).toBe("My stack in 2025 on DevMacro: 1 deployment shipped.");
+    expect(yearShareText(summary)).toBe("My stack in 2025 on StackDash: 1 deployment shipped.");
   });
 });
 
@@ -269,9 +269,9 @@ describe("computeYearReview", () => {
     for (const word of slideWords(slides)) expect(word).not.toMatch(/^[-\u2013\u2014]$|[\u2013\u2014]/);
     expect(yearPartialNote(review)).toBeNull();
     expect(slides.slice(0, 3).map((slide) => yearSlideShareText(review, slide))).toEqual([
-      "My stack in 2025 on DevMacro.",
-      "My stack in 2025 on DevMacro.",
-      "My stack in 2025 on DevMacro.",
+      "My stack in 2025 on StackDash.",
+      "My stack in 2025 on StackDash.",
+      "My stack in 2025 on StackDash.",
     ]);
   });
 
@@ -307,14 +307,14 @@ describe("computeYearReview", () => {
     });
     expect(provider).toMatchObject({ value: "Vercel", detail: "3 events on your timeline, more than any other provider, not counting payments." });
     expect(YEAR_SLIDE_IDS.map((id) => yearSlideDownloadName(review.summary, id))).toEqual([
-      "devmacro-2026-so-far-busiest-day.png",
-      "devmacro-2026-so-far-deployment-run.png",
-      "devmacro-2026-so-far-top-provider.png",
-      "devmacro-2026-so-far.png",
+      "stackdash-2026-so-far-busiest-day.png",
+      "stackdash-2026-so-far-deployment-run.png",
+      "stackdash-2026-so-far-top-provider.png",
+      "stackdash-2026-so-far.png",
     ]);
-    expect(busiest === undefined ? "" : yearSlideShareText(review, busiest)).toBe("My busiest day of 2026 so far on DevMacro: 2 events on 2026-11-05.");
+    expect(busiest === undefined ? "" : yearSlideShareText(review, busiest)).toBe("My busiest day of 2026 so far on StackDash: 2 events on 2026-11-05.");
     expect(busiest === undefined ? "" : yearSlideAltText(review, busiest)).toBe(
-      "DevMacro slide for your stack in 2026 so far, 2026-01-01 to 2026-11-05. Busiest day: Thursday, 2026-11-05. 2 events on your timeline that day, not counting payments. Counted by DevMacro from stored data.",
+      "StackDash slide for your stack in 2026 so far, 2026-01-01 to 2026-11-05. Busiest day: Thursday, 2026-11-05. 2 events on your timeline that day, not counting payments. Counted by StackDash from stored data.",
     );
   });
 
@@ -409,7 +409,7 @@ describe("computeYearReview", () => {
       "Railway deployments that succeeded one after another, with no failed Railway deployment between them.",
     ]);
     const [, run] = yearSlides(review);
-    expect(run === undefined ? "" : yearSlideShareText(review, run)).toBe("My longest run of successful deployments in 2026 so far on DevMacro: 3 in a row on Railway.");
+    expect(run === undefined ? "" : yearSlideShareText(review, run)).toBe("My longest run of successful deployments in 2026 so far on StackDash: 3 in a row on Railway.");
   });
 
   it("keeps each provider's run its own: a failure on one never breaks another's", async () => {
@@ -606,7 +606,7 @@ describe("slide images", () => {
 
   it("downloads a whole year's slides without so far", async () => {
     const review = await computeYearReview(new MemoryMetricStore([], [], []), 2025, NOW);
-    expect(yearSlideDownloadName(review.summary, "busiest-day")).toBe("devmacro-2025-busiest-day.png");
-    expect(yearSlideDownloadName(review.summary, "totals")).toBe("devmacro-2025.png");
+    expect(yearSlideDownloadName(review.summary, "busiest-day")).toBe("stackdash-2025-busiest-day.png");
+    expect(yearSlideDownloadName(review.summary, "totals")).toBe("stackdash-2025.png");
   });
 });

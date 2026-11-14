@@ -150,7 +150,7 @@ ownerTest.describe("public metrics as the owner", () => {
         .from("activity_events")
         .select("title, provider")
         .eq("workspace_id", workspace.id)
-        .eq("type_id", "devmacro.metric_published");
+        .eq("type_id", "stackdash.metric_published");
       if (error) throw new Error(`Reading events failed (code ${error.code}).`);
       expect(events).toEqual([{ title: "Published GitHub stars", provider: null }]);
 
@@ -174,7 +174,7 @@ ownerTest.describe("public metrics as the owner", () => {
             provider: "github",
             title: "1,000 GitHub stars",
             public_title: "1,000 GitHub stars",
-            description: "Earned when DevMacro records 1,000 or more stars across the connected GitHub repositories.",
+            description: "Earned when StackDash records 1,000 or more stars across the connected GitHub repositories.",
             earned_at: new Date(Date.now() - DAY_MS).toISOString(),
             earned_precision: "instant",
             evidence: "at_least",
@@ -221,7 +221,7 @@ ownerTest.describe("public metrics as the owner", () => {
         .from("activity_events")
         .select("title, body")
         .eq("workspace_id", workspace.id)
-        .eq("type_id", "devmacro.metrics_unpublished_all");
+        .eq("type_id", "stackdash.metrics_unpublished_all");
       if (auditError) throw new Error(`Reading events failed (code ${auditError.code}).`);
       expect(audit).toEqual([{ title: "Unpublished everything", body: "1 metric and 1 achievement are no longer public." }]);
     } finally {
@@ -254,7 +254,7 @@ ownerTest.describe("public metrics as the owner", () => {
         .from("activity_events")
         .select("title, body")
         .eq("workspace_id", workspace.id)
-        .eq("type_id", "devmacro.metric_published");
+        .eq("type_id", "stackdash.metric_published");
       if (error) throw new Error(`Reading events failed (code ${error.code}).`);
       expect(events).toEqual([{ title: "Published Downloads this month (self-reported)", body: "Project Acme web. 4,200 downloads." }]);
     } finally {

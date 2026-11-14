@@ -10,7 +10,7 @@ import type { Database } from "@/lib/supabase/database.types";
  */
 
 // Set in app_metadata, which only the service role can write, when the demo seed creates the account.
-export const DEMO_USER_MARKER = "devmacro_demo";
+export const DEMO_USER_MARKER = "stackdash_demo";
 
 /** True when `appMetadata` carries the marker the demo seed sets on the account it creates. */
 export function isDemoAccount(appMetadata: unknown): boolean {

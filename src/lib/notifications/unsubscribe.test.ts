@@ -13,8 +13,8 @@ const WORKSPACE_ID = "6f1c2c7e-6a43-4c7b-9a39-0d6f0b1d2a11";
 const USER_ID = "0b8f3a4e-5d2c-4e1f-8a7b-9c6d5e4f3a21";
 
 function useKeys(current: Buffer, previous?: Buffer): void {
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEY", current.toString("base64"));
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEYS_PREVIOUS", previous === undefined ? "" : `${keyIdFor(previous)}:${previous.toString("base64")}`);
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEY", current.toString("base64"));
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEYS_PREVIOUS", previous === undefined ? "" : `${keyIdFor(previous)}:${previous.toString("base64")}`);
 }
 
 afterEach(() => {

@@ -20,7 +20,7 @@ function plainText(message: string, status: number): NextResponse {
 }
 
 /**
- * The redirect target must be DevMacro's own callback for this provider: anything else is an
+ * The redirect target must be StackDash's own callback for this provider: anything else is an
  * open redirect. Returns the callback carrying the state, or an error response.
  */
 function callbackFor(requestUrl: URL, path: string): URL | NextResponse {
@@ -99,9 +99,9 @@ function simulatedConsent(requestUrl: URL, providerParam: string): NextResponse 
 
 /**
  * Dev-only consent screen (#40, #131), for tests, e2e, and local demos. It approves at once and
- * redirects to DevMacro's own callback, so the connect flow runs end to end without a real OAuth
+ * redirects to StackDash's own callback, so the connect flow runs end to end without a real OAuth
  * app. Without `provider` it is the fake provider's screen, served only when
- * DEVMACRO_ENABLE_FAKE_PROVIDER is "1", with these test switches in the query:
+ * STACKDASH_ENABLE_FAKE_PROVIDER is "1", with these test switches in the query:
  * - `decline=usage:read` (space-separated scopes): the user unticked those scopes.
  * - `error=access_denied`: the user pressed Cancel.
  * - `mode=rate_limited|revoked|unavailable`: forwarded so later calls on the connection fail.

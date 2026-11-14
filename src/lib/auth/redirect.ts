@@ -4,7 +4,7 @@ const MAX_NEXT_PATH_LENGTH = 512;
 
 // A placeholder origin for parsing. `.invalid` is reserved (RFC 2606), so it can never collide with
 // a real host, and any input that resolves to a different origin is absolute and rejected.
-const PARSE_BASE = "https://devmacro.invalid";
+const PARSE_BASE = "https://stackdash.invalid";
 
 // Browsers treat a backslash as a slash and silently drop tabs and newlines in URLs, so "/\evil.com"
 // or "/\t/evil.com" can navigate to another origin even though it looks relative.

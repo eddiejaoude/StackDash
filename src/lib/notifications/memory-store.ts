@@ -138,7 +138,7 @@ export function memoryNotificationDeps(overrides: Partial<NotificationDeps> = {}
     store: new MemoryNotificationStore(),
     email: null,
     post: async (): Promise<PostOutcome> => ({ ok: true, attempts: 1 }),
-    origin: () => "https://devmacro.test",
+    origin: () => "https://stackdash.test",
     unsubscribeToken: (workspaceId, userId) => `token-${workspaceId}-${userId}`,
     now: () => new Date("2026-11-05T09:00:00.000Z"),
     random: () => 0.5,

@@ -13,7 +13,7 @@ describe("isSameOrigin", () => {
 
   it("prefers X-Forwarded-Host behind a proxy", () => {
     expect(
-      isSameOrigin(post({ origin: "https://devmacro.example", host: "internal:3000", "x-forwarded-host": "devmacro.example" })),
+      isSameOrigin(post({ origin: "https://stackdash.example", host: "internal:3000", "x-forwarded-host": "stackdash.example" })),
     ).toBe(true);
   });
 

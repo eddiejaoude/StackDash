@@ -30,7 +30,7 @@ test.describe("signed out", () => {
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
-    await expect(page.getByText("DevMacro is invite only during the test.")).toBeVisible();
+    await expect(page.getByText("StackDash is invite only during the test.")).toBeVisible();
 
     const buttons = page.getByRole("main").getByRole("button");
     await expect(buttons).toHaveCount(1);
@@ -44,7 +44,7 @@ test.describe("signed out", () => {
   test("a not-invited error explains what to do next", async ({ page }) => {
     await page.goto("/sign-in?error=not_invited");
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(
-      "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
+      "This GitHub account's email has not been invited to StackDash. Ask for an invite, then try again.",
     );
   });
 

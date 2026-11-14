@@ -12,7 +12,7 @@ import { encryptionEnv } from "@/lib/env";
  *
  * AES-256-GCM with a fresh 12-byte IV per encryption and a 16-byte tag. The key lives only in the
  * environment, so a database dump alone reveals no credential. Each record stores the id of the
- * key that sealed it, which lets `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` keep old rows readable while
+ * key that sealed it, which lets `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` keep old rows readable while
  * `npm run keys:rotate` re-encrypts them under the current key.
  *
  * Associated data binds a ciphertext to its row (`workspaceId:connectionId`), so copying an
@@ -48,7 +48,7 @@ export class UnknownEncryptionKeyError extends Error {
 
   constructor(keyId: string) {
     super(
-      `No encryption key with id "${keyId}" is configured. Add it to DEVMACRO_ENCRYPTION_KEYS_PREVIOUS, or reconnect the affected connection.`,
+      `No encryption key with id "${keyId}" is configured. Add it to STACKDASH_ENCRYPTION_KEYS_PREVIOUS, or reconnect the affected connection.`,
     );
     this.keyId = keyId;
   }
@@ -94,15 +94,15 @@ function decodeKey(encoded: string, source: string): Buffer {
 // network round trip, and it keeps rotation (and `vi.stubEnv` in tests) free of stale state.
 function loadKeyring(): Keyring {
   const env = encryptionEnv();
-  const current = decodeKey(env.DEVMACRO_ENCRYPTION_KEY, "DEVMACRO_ENCRYPTION_KEY");
+  const current = decodeKey(env.STACKDASH_ENCRYPTION_KEY, "STACKDASH_ENCRYPTION_KEY");
   const currentKeyId = keyIdFor(current);
   const keys = new Map<string, Buffer>([[currentKeyId, current]]);
 
-  const previous = env.DEVMACRO_ENCRYPTION_KEYS_PREVIOUS ?? "";
+  const previous = env.STACKDASH_ENCRYPTION_KEYS_PREVIOUS ?? "";
   for (const [index, rawEntry] of previous.split(",").entries()) {
     const entry = rawEntry.trim();
     if (entry === "") continue;
-    const source = `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS entry ${index + 1}`;
+    const source = `STACKDASH_ENCRYPTION_KEYS_PREVIOUS entry ${index + 1}`;
     // Base64 never contains ":", so the first colon always separates the id from the key.
     const separator = entry.indexOf(":");
     if (separator <= 0) {
@@ -136,11 +136,11 @@ export function needsRotation(keyId: string): boolean {
 // HKDF info prefixes (RFC 5869, `crypto.hkdfSync`): one namespace per kind of derived key, each
 // versioned, so a key derived for one purpose never equals an encryption key or a key derived for
 // another purpose, and changing what a key is used for is a version bump, not a key rotation. The
-// two prefixes differ in the first word after the shared `devmacro `, so no purpose string makes
+// two prefixes differ in the first word after the shared `stackdash `, so no purpose string makes
 // them collide. The signing prefix is fixed: changing it would invalidate every signature already
 // sent.
-const SIGNING_INFO_PREFIX = "devmacro signing v1:";
-const DERIVED_INFO_PREFIX = "devmacro key v1:";
+const SIGNING_INFO_PREFIX = "stackdash signing v1:";
+const DERIVED_INFO_PREFIX = "stackdash key v1:";
 
 /** The one HKDF derivation in this file: a 32 byte key from `key` for the purpose `info` names. */
 function hkdfKey(key: Buffer, info: string): Buffer {
@@ -167,7 +167,7 @@ function signingKey(key: Buffer, purpose: string): Buffer {
 /**
  * Signs `message` for `purpose` (such as "unsubscribe") with HMAC-SHA256 under a key derived from
  * the current encryption key. Returns `<keyId>.<base64url signature>`, so a signature made before a
- * rotation still verifies while the old key is in DEVMACRO_ENCRYPTION_KEYS_PREVIOUS.
+ * rotation still verifies while the old key is in STACKDASH_ENCRYPTION_KEYS_PREVIOUS.
  */
 export function signMessage(purpose: string, message: string): string {
   const { currentKeyId: keyId, keys } = loadKeyring();

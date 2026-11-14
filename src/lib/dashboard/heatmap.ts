@@ -33,7 +33,7 @@ export function heatmapWindowStart(now: Date): string {
   return new Date(now.getTime() - HEATMAP_DAYS * DAY_MS).toISOString();
 }
 
-/** An event type the app knows: an adapter's declaration, or one of DevMacro's own ids, which have no category. */
+/** An event type the app knows: an adapter's declaration, or one of StackDash's own ids, which have no category. */
 export type KnownEventType = Readonly<Pick<EventType, "id" | "category">>;
 
 /**
@@ -46,7 +46,7 @@ export type HeatMatch =
   | Readonly<{ kind: "some"; typeIds: readonly string[]; severities: readonly EventSeverity[] }>;
 
 // The last segment of the id ends in "failed" or "crashed": `vercel.deployment.failed`,
-// `stripe.charge.failed`, `digitalocean.droplet.action_failed`, `devmacro.sync_failed`, and
+// `stripe.charge.failed`, `digitalocean.droplet.action_failed`, `stackdash.sync_failed`, and
 // `railway.deployment.crashed`, which is only critical in production.
 const FAILED_TYPE_ID = /(failed|crashed)$/;
 

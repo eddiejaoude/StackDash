@@ -10,7 +10,7 @@
  * - Each amount is counted once (`countedSnapshots`): a total supersedes its breakdown, and a
  *   longer billing window supersedes a day inside it.
  * - Money is grouped by currency and never added across currencies. Verified (from the provider)
- *   and estimated (calculated by DevMacro from a price list) amounts are kept apart.
+ *   and estimated (calculated by StackDash from a price list) amounts are kept apart.
  * - One spend total (spend and budget alerts, projections) counts verified spend per account and
  *   currency, and estimated spend only for an account with none (`spendToCount`).
  * - Allowance rows pair by account, key prefix, and unit (`allowanceGroups`, `allowanceUsage`).
@@ -87,7 +87,7 @@ export type DashboardInput = Readonly<{
   now: Date;
 }>;
 
-/** Verified comes from the provider; estimated is calculated by DevMacro. */
+/** Verified comes from the provider; estimated is calculated by StackDash. */
 export type Provenance =
   | Readonly<{ status: "verified" }>
   | Readonly<{ status: "estimated"; pricingSources: readonly string[] }>;
@@ -413,7 +413,7 @@ export function allowanceUsage<T extends SnapshotInput>(
   return group.usage.filter((row) => row.unit === unit && usable(row)).sort((a, b) => a.metric_key.localeCompare(b.metric_key))[0];
 }
 
-/** Calculated by DevMacro from a price list (or otherwise derived), not reported by the provider. */
+/** Calculated by StackDash from a price list (or otherwise derived), not reported by the provider. */
 export function isEstimated(row: Pick<SnapshotInput, "kind" | "provenance_source">): boolean {
   return row.kind === "estimated_spend" || row.provenance_source === "derived";
 }

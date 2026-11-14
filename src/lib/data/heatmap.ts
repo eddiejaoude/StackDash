@@ -16,7 +16,7 @@ import { resolveTimelineScope } from "./timeline";
 
 /**
  * Every event type the heatmap's filter groups can draw on: what the adapters declare, and
- * DevMacro's own events, which no adapter declares and which carry no category.
+ * StackDash's own events, which no adapter declares and which carry no category.
  */
 const KNOWN_EVENT_TYPES: readonly KnownEventType[] = [
   ...declaredEventTypes,
@@ -34,7 +34,7 @@ const KNOWN_EVENT_TYPES: readonly KnownEventType[] = [
 /**
  * Event counts per London weekday and hour for the activity heatmap (#414), over the last
  * `HEATMAP_DAYS` days, for the events `filter` groups, narrowed by `scope` exactly as the timeline
- * narrows it: a project resolves to its accounts, so events with no account (DevMacro's own) leave
+ * narrows it: a project resolves to its accounts, so events with no account (StackDash's own) leave
  * the count once a project or account is chosen. Counted in the database (`activity_heatmap`), at
  * most one row per cell, so 168 rows at most and no paging. Call only after `requireWorkspace` has
  * confirmed membership.

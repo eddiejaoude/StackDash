@@ -70,7 +70,7 @@ export default async function AuthErrorPage({ searchParams }: PageProps<"/auth/e
             href="/app"
             className={buttonClass("primary", "lg")}
           >
-            Go to DevMacro
+            Go to StackDash
           </Link>
           <Link
             href="/"

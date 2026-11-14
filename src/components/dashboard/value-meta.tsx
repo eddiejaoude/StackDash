@@ -94,7 +94,7 @@ function EstimateBadge({ label }: { label: string }) {
 }
 
 /**
- * A projection to the end of a period (#167): the figure, labeled "Estimate by DevMacro" in words
+ * A projection to the end of a period (#167): the figure, labeled "Estimate by StackDash" in words
  * with the estimate icon. How it was calculated sits behind an info button beside the badge (#269),
  * as the button's accessible description, so it is one keystroke or tap away rather than a
  * paragraph under every projection. `estimate` is false when nothing was projected or the figure is
@@ -116,7 +116,7 @@ export function ProjectionNote({ text, estimate, flag }: { text: ProjectionText;
         <span>{text.headline}</span>
         {estimate ? (
           <>
-            <EstimateBadge label="Estimate by DevMacro" />
+            <EstimateBadge label="Estimate by StackDash" />
             <InfoTooltip label="How this projection is worked out" text={text.explanation} placement="container" />
           </>
         ) : null}
@@ -141,7 +141,7 @@ export function ProvenanceDetail({ provenance, sources }: { provenance: Provenan
   if (provenance.status === "verified") {
     return <p className="text-xs leading-5 text-muted">From the provider: {from}</p>;
   }
-  const pricing = provenance.pricingSources.length > 0 ? provenance.pricingSources.join(", ") : "calculated by DevMacro";
+  const pricing = provenance.pricingSources.length > 0 ? provenance.pricingSources.join(", ") : "calculated by StackDash";
   return (
     <p className="text-xs leading-5 text-muted">
       Estimated from {from}. Pricing source: {pricing}

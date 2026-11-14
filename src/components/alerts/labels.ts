@@ -146,7 +146,7 @@ export const EMAIL_FREQUENCY_CHOICES: ReadonlyArray<{ value: EmailFrequency; lab
   { value: "immediate", label: "As each alert happens", hint: "One email per alert, at most once each billing period." },
   { value: "daily", label: "Daily digest", hint: "One email each morning with new alerts, usage, and spend." },
   { value: "weekly", label: "Weekly digest", hint: "One email each Monday covering the week before." },
-  { value: "off", label: "Off", hint: "No alert emails. Alerts still show in DevMacro." },
+  { value: "off", label: "Off", hint: "No alert emails. Alerts still show in StackDash." },
 ];
 
 export const DESTINATION_KIND_LABELS: Record<DestinationKind, string> = {

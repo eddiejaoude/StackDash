@@ -52,7 +52,7 @@ ownerTest.describe("alert channels as the owner", () => {
       const [delivery] = receiver.received;
       expect(delivery?.headers["webhook-signature"]).toMatch(/^v1,/);
       expect(delivery?.headers["webhook-id"]).toBeTruthy();
-      expect(delivery?.body).toContain(`Test message from DevMacro for ${workspace.name}`);
+      expect(delivery?.body).toContain(`Test message from StackDash for ${workspace.name}`);
       expect(delivery?.body).not.toContain(receiver.url);
 
       // Keyboard: the remove button opens the dialog, and Enter on its confirm button removes it.

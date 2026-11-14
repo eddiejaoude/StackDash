@@ -8,7 +8,7 @@ import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
 import { combobox, openWith, option, optionsOfKind, palette, resultCount, trigger } from "./fixtures/palette";
 
-// playwright.config.ts names the e2e owner, and only the owner, in DEVMACRO_SUPER_ADMIN_EMAILS.
+// playwright.config.ts names the e2e owner, and only the owner, in STACKDASH_SUPER_ADMIN_EMAILS.
 
 const OWNER_ACCOUNT = `Account: ${E2E_USERS.owner.userName}`;
 
@@ -46,7 +46,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
         .insert(
           [1, 2, 3].map((n) => ({
             workspace_id: workspace.id,
-            type_id: "devmacro.daily_summary",
+            type_id: "stackdash.daily_summary",
             severity: "info" as const,
             title: "Daily summary",
             occurred_at: new Date(Date.UTC(2026, 10, n)).toISOString(),
@@ -57,7 +57,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
 
       const response = await page.goto("/app/admin");
       expect(response?.status()).toBe(200);
-      await expect(page).toHaveTitle("Instance overview · DevMacro");
+      await expect(page).toHaveTitle("Instance overview · StackDash");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Instance overview");
       for (const section of ["Usage", "Configuration", "Providers", "Background jobs", "Workspaces", "Deployment"]) {
         await expect(page.getByRole("heading", { level: 2, name: section })).toBeVisible();
@@ -156,7 +156,7 @@ function rewriteHeaders(headers: Record<string, string>): Record<string, string 
 viewerTest("a signed-in user who is not a super admin gets page not found", async ({ page }) => {
   const response = await page.goto("/app/admin");
   expect(response?.status()).toBe(404);
-  await expect(page).toHaveTitle("Page not found · DevMacro");
+  await expect(page).toHaveTitle("Page not found · StackDash");
   await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
   await expect(page.getByText("Instance overview")).toHaveCount(0);
 });

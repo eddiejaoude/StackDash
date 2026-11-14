@@ -5,7 +5,7 @@ import { authenticateApiRequest, rateLimitHeaders } from "@/lib/api/auth";
 import { apiErrorResponse, invalidRequest } from "@/lib/api/errors";
 import { connectOrigin } from "@/lib/connections/oauth-state";
 import { log } from "@/lib/log/logger";
-import { authInfoFor, createDevMacroMcpServer, principalFrom } from "@/lib/mcp/server";
+import { authInfoFor, createStackDashMcpServer, principalFrom } from "@/lib/mcp/server";
 
 /*
  * The read-only MCP endpoint (#163), Streamable HTTP at /api/mcp. Each request goes through the
@@ -15,7 +15,7 @@ import { authInfoFor, createDevMacroMcpServer, principalFrom } from "@/lib/mcp/s
  * so it runs the same on every server and on a self-hosted install. See docs/mcp.md.
  */
 
-// Tool calls carry a few short filters; anything near this size is not a DevMacro request.
+// Tool calls carry a few short filters; anything near this size is not a StackDash request.
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 
 // no-transform, which the SDK sets on its event streams, keeps a proxy from buffering or
@@ -24,7 +24,7 @@ const NO_STORE = { "Cache-Control": "no-store, no-transform" } as const;
 
 // The default response mode answers with one JSON body unless a tool sends progress or log
 // messages first, and none does.
-const handler = createMcpHandler(({ authInfo }) => createDevMacroMcpServer(principalFrom(authInfo)), {
+const handler = createMcpHandler(({ authInfo }) => createStackDashMcpServer(principalFrom(authInfo)), {
   maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
   onerror: (error) => log.warn("mcp.request_rejected", { message: error.message }),
 });
@@ -32,7 +32,7 @@ const handler = createMcpHandler(({ authInfo }) => createDevMacroMcpServer(princ
 /*
  * Whether the body is a JSON-RPC batch. The SDK's 2025 leg dispatches every message of a batch
  * array (up to 100), so one request, counted once against the key's limit, could run a hundred tool
- * calls. Batches left the protocol in 2025-06-18, and no DevMacro client needs one. The check reads
+ * calls. Batches left the protocol in 2025-06-18, and no StackDash client needs one. The check reads
  * a copy, so the SDK still reads the original and answers a body that is too large or not JSON.
  */
 async function isBatch(request: Request): Promise<boolean> {

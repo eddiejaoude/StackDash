@@ -32,7 +32,7 @@ const APP_ID = "424242";
 const CLIENT_ID = "Iv1.fixtureclientid";
 const INSTALLATION_ID = "12345678";
 const ACCOUNT_ID = "9000001";
-const REDIRECT_URI = "https://devmacro.example/api/connections/github/callback";
+const REDIRECT_URI = "https://stackdash.example/api/connections/github/callback";
 
 // Throwaway key generated per run: the JWT is signed and verified without any real app secret.
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
@@ -98,7 +98,7 @@ function harness(overrides: Routes = {}, options: { now?: Date; privateKeyPem?: 
       clientId: CLIENT_ID,
       clientSecret: new Secret("fixture-client-secret"),
       extra: {
-        appSlug: new Secret("devmacro-example"),
+        appSlug: new Secret("stackdash-example"),
         appId: new Secret(APP_ID),
         privateKey: new Secret(options.privateKeyPem ?? privateKey),
       },
@@ -169,7 +169,7 @@ describe("connect flow URLs", () => {
   it("builds the app install URL with the state and no scopes or redirect", () => {
     const { ctx } = harness();
     const url = githubAdapter.buildAuthorizeUrl({ client: ctx.client, state: "state-1", redirectUri: REDIRECT_URI });
-    expect(url.origin + url.pathname).toBe("https://github.com/apps/devmacro-example/installations/new");
+    expect(url.origin + url.pathname).toBe("https://github.com/apps/stackdash-example/installations/new");
     expect([...url.searchParams.entries()]).toEqual([["state", "state-1"]]);
   });
 

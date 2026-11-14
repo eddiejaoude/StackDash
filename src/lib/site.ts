@@ -3,14 +3,14 @@ const audience = "solo developers running side projects and small products";
 
 /** Single source of truth for site-wide constants. Update links here, nowhere else. */
 export const site = {
-  name: "DevMacro",
-  /** The brand line: the footer and the README. Not the page heading, which says what DevMacro does. */
+  name: "StackDash",
+  /** The brand line: the footer and the README. Not the page heading, which says what StackDash does. */
   tagline: "The big picture of your developer stack",
   /** The promise: the hero heading and the document title (#144, #305). */
   headline: "One timeline and one alert for your whole developer stack",
   audience,
-  description: `DevMacro is an open-source dashboard for ${audience}: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish. Spend and allowances show where each provider reports them.`,
-  githubUrl: "https://github.com/eddiejaoude/DevMacro",
+  description: `StackDash is an open-source dashboard for ${audience}: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish. Spend and allowances show where each provider reports them.`,
+  githubUrl: "https://github.com/eddiejaoude/StackDash",
   founder: {
     name: "Eddie Jaoude",
     url: "https://github.com/eddiejaoude",

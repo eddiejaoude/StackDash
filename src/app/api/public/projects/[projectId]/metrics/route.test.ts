@@ -116,7 +116,7 @@ describe("GET /api/public/projects/[projectId]/metrics", () => {
   });
 
   it("builds formula links from NEXT_PUBLIC_SITE_URL when it is set, not from the request", async () => {
-    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://devmacro.example.com/ignored-path");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://stackdash.example.com/ignored-path");
     loadPublishedProjectMetrics.mockResolvedValue({
       projectId: PROJECT_ID,
       workspaceId: "20000000-0000-4000-8000-000000000001",
@@ -139,7 +139,7 @@ describe("GET /api/public/projects/[projectId]/metrics", () => {
       ],
     });
     const body = await (await get(PROJECT_ID)).json();
-    expect(body.metrics[0].formulaUrl).toBe("https://devmacro.example.com/docs/architecture/public-metrics#github-stars");
+    expect(body.metrics[0].formulaUrl).toBe("https://stackdash.example.com/docs/architecture/public-metrics#github-stars");
   });
 
   it.each([

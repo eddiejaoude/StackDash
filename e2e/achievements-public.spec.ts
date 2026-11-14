@@ -20,7 +20,7 @@ const BADGE_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox";
 // What only members may see: the private title names the account seeded by
 // seedProjectWithHistory ("example-org"), and the description carries an amount.
 const PRIVATE_TITLE = "10 Vercel deployments recorded on example-org";
-const PRIVATE_DESCRIPTION = "Earned when DevMacro records 10 successful Vercel deployments for example-org, worth $1,234.00.";
+const PRIVATE_DESCRIPTION = "Earned when StackDash records 10 successful Vercel deployments for example-org, worth $1,234.00.";
 
 type SeededAchievement = Readonly<{
   achievement_id: string;
@@ -54,7 +54,7 @@ const LUCKY_SEVENS: SeededAchievement = {
   provider: "github",
   title: "Lucky sevens: 777 GitHub stars",
   public_title: "Lucky sevens: 777 GitHub stars",
-  description: "Earned when DevMacro records 777 or more stars across the connected GitHub repositories.",
+  description: "Earned when StackDash records 777 or more stars across the connected GitHub repositories.",
   earned_at: "2026-10-21T12:00:00Z",
   earned_precision: "instant",
   evidence: "at_least",
@@ -68,7 +68,7 @@ const STARS_1000: SeededAchievement = {
   provider: "github",
   title: "1,000 GitHub stars",
   public_title: "1,000 GitHub stars",
-  description: "Earned when DevMacro records 1,000 or more stars across the connected GitHub repositories.",
+  description: "Earned when StackDash records 1,000 or more stars across the connected GitHub repositories.",
   earned_at: "2026-10-22T18:30:00Z",
   earned_precision: "instant",
   evidence: "crossed",
@@ -97,7 +97,7 @@ const PRIVATE_ONLY: SeededAchievement = {
   provider: "vercel",
   title: "First Vercel deployment recorded",
   public_title: "First Vercel deployment recorded",
-  description: "Earned when DevMacro records the first successful Vercel deployment.",
+  description: "Earned when StackDash records the first successful Vercel deployment.",
   earned_at: "2026-10-19T08:00:00Z",
   earned_precision: "instant",
   evidence: "crossed",
@@ -228,7 +228,7 @@ test.describe("published achievements on public surfaces", () => {
     const api = await anonymous(baseURL);
     try {
       const svg = await expectBadge(api, `/badge/${projectId}/achievement-vercel.deployments.10.svg`, "🏆 Vercel", "10 Vercel deployments recorded");
-      expect(svg).toContain("<title>Vercel achievement on DevMacro: 10 Vercel deployments recorded. Earned 2026-10-20 10:15 BST.</title>");
+      expect(svg).toContain("<title>Vercel achievement on StackDash: 10 Vercel deployments recorded. Earned 2026-10-20 10:15 BST.</title>");
       expectNothingPrivate(svg);
       await expectCard(api, `/card/${projectId}/achievement-vercel.deployments.10.png`);
 
@@ -240,7 +240,7 @@ test.describe("published achievements on public surfaces", () => {
         "First PostHog signup recorded (simulated)",
       );
       expect(simulated).toContain(
-        "<title>PostHog achievement on DevMacro: First PostHog signup recorded. Simulated data, not verified. Earned 2026-10-23.</title>",
+        "<title>PostHog achievement on StackDash: First PostHog signup recorded. Simulated data, not verified. Earned 2026-10-23.</title>",
       );
       expect(simulated).toContain('fill="#a16207"');
       await expectCard(api, `/card/${projectId}/achievement-posthog.signups.first.png`);
@@ -254,7 +254,7 @@ test.describe("published achievements on public surfaces", () => {
         `/badge/30000000-0000-4000-8000-000000000001/achievement-vercel.deployments.10.svg`,
       ]) {
         await test.step(path, async () => {
-          const unpublished = await expectBadge(api, path, "DevMacro", "Unpublished");
+          const unpublished = await expectBadge(api, path, "StackDash", "Unpublished");
           expect(unpublished).not.toContain("First Vercel deployment recorded");
         });
       }
@@ -287,9 +287,9 @@ test.describe("published achievements on public surfaces", () => {
       expect(match?.[3]).toBe(match?.[1]);
       expect(match?.[4]).toBe(address);
       await expect(dialog.getByLabel("Card URL")).toHaveValue(new RegExp(`/card/${projectId}/achievement-vercel\\.deployments\\.10\\.png$`));
-      await expect(dialog.getByRole("img", { name: "Vercel achievement on DevMacro: 10 Vercel deployments recorded." })).toBeVisible();
+      await expect(dialog.getByRole("img", { name: "Vercel achievement on StackDash: 10 Vercel deployments recorded." })).toBeVisible();
       await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(
-        "DevMacro achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded.",
+        "StackDash achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded.",
       );
       expect(await new AxeBuilder({ page }).include("dialog[open]").analyze().then((scan) => scan.violations)).toEqual([]);
 
@@ -303,7 +303,7 @@ test.describe("published achievements on public surfaces", () => {
       const shareToX = dialog.getByRole("link", { name: "Share to X (opens in a new tab)" });
       const intent = new URL((await shareToX.getAttribute("href")) ?? "");
       expect(intent.origin + intent.pathname).toBe("https://x.com/intent/tweet");
-      expect(intent.searchParams.get("text")).toBe("Achievement for Acme web: 10 Vercel deployments recorded. Earned from Vercel data on DevMacro.");
+      expect(intent.searchParams.get("text")).toBe("Achievement for Acme web: 10 Vercel deployments recorded. Earned from Vercel data on StackDash.");
 
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
@@ -327,7 +327,7 @@ test.describe("published achievements on public surfaces", () => {
       await expect(section.getByRole("heading", { level: 3 })).toHaveText(["Lucky sevens: 777 GitHub stars", "First PostHog signup recorded"]);
       // The milestone the 1,000 star achievement stood for is listed again, once.
       await expect(page.getByRole("region", { name: "Milestones" }).getByText("Reached 1,000 GitHub stars")).toHaveCount(1);
-      await expectBadge(api, `/badge/${projectId}/achievement-vercel.deployments.10.svg`, "DevMacro", "Unpublished");
+      await expectBadge(api, `/badge/${projectId}/achievement-vercel.deployments.10.svg`, "StackDash", "Unpublished");
       await expectCard(api, `/card/${projectId}/achievement-vercel.deployments.10.png`);
 
       // With nothing published, the section is gone and the page still answers for its metric.

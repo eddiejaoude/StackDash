@@ -502,7 +502,7 @@ describe("wording", () => {
     const text = spendProjectionText(usd);
     expect(text.headline).toBe("On track for $30.75 by 2026-11-30");
     expect(text.explanation).toBe(
-      "Calculated by DevMacro, not reported by the provider: the average daily increase over the last 5 days with data (2026-11-01 to 2026-11-05), $1.00 a day, continued to the end of the period. It is never added to the spend shown.",
+      "Calculated by StackDash, not reported by the provider: the average daily increase over the last 5 days with data (2026-11-01 to 2026-11-05), $1.00 a day, continued to the end of the period. It is never added to the spend shown.",
     );
     expect(`${text.headline} ${text.explanation}`).not.toMatch(DASHES);
   });
@@ -512,13 +512,13 @@ describe("wording", () => {
     const rows = spendRows([100, 200, 300]).map((candidate) => ({ ...candidate, period_end: candidate.retrieved_at }));
     const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
     if (usd === undefined) throw new Error("no projection");
-    expect(spendProjectionText(usd).explanation).toContain("DevMacro assumes it ends with the calendar month");
+    expect(spendProjectionText(usd).explanation).toContain("StackDash assumes it ends with the calendar month");
   });
 
   it("says why there is no projection", () => {
     expect(spendProjectionText({ currency: "USD", includesEstimates: false, projection: none("too_few_days") })).toEqual({
       headline: "Projection unavailable",
-      explanation: "DevMacro needs at least 3 days of data in the current period to project it.",
+      explanation: "StackDash needs at least 3 days of data in the current period to project it.",
     });
   });
 
@@ -530,7 +530,7 @@ describe("wording", () => {
     expect(text).toEqual({
       headline: "Projection unavailable",
       explanation:
-        "DevMacro cannot project 1 of the 3 amounts in this total (the end of the period is unknown), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+        "StackDash cannot project 1 of the 3 amounts in this total (the end of the period is unknown), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
     });
     expect(text.explanation).not.toMatch(DASHES);
     expect(spendProjectionLine({ currency: "USD", includesEstimates: false, projection: none("unknown_period", 1, 3) })).toBe(
@@ -541,7 +541,7 @@ describe("wording", () => {
   it("gives the single reason when no amount of a total could be projected", () => {
     const spend: SpendProjection = { currency: "USD", includesEstimates: false, projection: none("too_few_days", 3, 3) };
     expect(spendProjectionText(spend, "Each provider card says why.").explanation).toBe(
-      "DevMacro needs at least 3 days of data in the current period to project it.",
+      "StackDash needs at least 3 days of data in the current period to project it.",
     );
     expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (fewer than 3 days of data)");
   });
@@ -554,7 +554,7 @@ describe("wording", () => {
     };
     const text = spendProjectionText(spend, "Each provider card shows its own projection or the reason there is none.");
     expect(text.explanation).toBe(
-      "DevMacro cannot project any of the 2 amounts in this total (the period has ended, fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+      "StackDash cannot project any of the 2 amounts in this total (the period has ended, fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
     );
     expect(text.explanation).not.toMatch(DASHES);
     expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (2 amounts: the period has ended, fewer than 3 days of data)");
@@ -567,7 +567,7 @@ describe("wording", () => {
       projection: { status: "unavailable", reasons: ["unknown_period", "too_few_days"], missing: 2, of: 3 },
     };
     expect(spendProjectionText(spend).explanation).toBe(
-      "DevMacro cannot project 2 of the 3 amounts in this total (the end of the period is unknown, fewer than 3 days of data), so it does not project the total.",
+      "StackDash cannot project 2 of the 3 amounts in this total (the end of the period is unknown, fewer than 3 days of data), so it does not project the total.",
     );
     expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (2 of 3 amounts: the end of the period is unknown, fewer than 3 days of data)");
   });
@@ -580,7 +580,7 @@ describe("wording", () => {
 
   it("says the length of a period not known yet is why there is none", () => {
     expect(spendProjectionText({ currency: "USD", includesEstimates: false, projection: none("period_length_unknown") }).explanation).toBe(
-      "DevMacro does not know yet how long the current period lasts, so it does not project it.",
+      "StackDash does not know yet how long the current period lasts, so it does not project it.",
     );
   });
 

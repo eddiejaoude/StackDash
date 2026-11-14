@@ -6,11 +6,11 @@ import { signMessage, verifyMessage } from "@/lib/crypto/credentials";
 
 /*
  * One-click unsubscribe tokens (#152): `<workspace id>.<user id>.<key id>.<signature>`, an
- * HMAC-SHA256 under a key derived from DEVMACRO_ENCRYPTION_KEY (signMessage). The token is the
+ * HMAC-SHA256 under a key derived from STACKDASH_ENCRYPTION_KEY (signMessage). The token is the
  * whole authorization, because RFC 8058 forbids cookies on the one-click POST; all it can do is
  * turn alert email off for one member in one workspace, which is safe to repeat. It does not
  * expire, so an old email's link keeps working, and it survives key rotation while the old key is
- * listed in DEVMACRO_ENCRYPTION_KEYS_PREVIOUS.
+ * listed in STACKDASH_ENCRYPTION_KEYS_PREVIOUS.
  */
 
 const PURPOSE = "unsubscribe";

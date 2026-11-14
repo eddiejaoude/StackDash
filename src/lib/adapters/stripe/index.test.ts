@@ -94,13 +94,13 @@ describe("stripeAdapter.buildAuthorizeUrl", () => {
     const url = stripeAdapter.buildAuthorizeUrl({
       client: { clientId: "ca_fixture_client", clientSecret: new Secret(liveKey), extra: {} },
       state: "state-123",
-      redirectUri: "https://devmacro.example.com/api/connections/stripe/callback",
+      redirectUri: "https://stackdash.example.com/api/connections/stripe/callback",
       codeChallenge: "ignored",
     });
     expect(`${url.origin}${url.pathname}`).toBe("https://marketplace.stripe.com/oauth/v2/authorize");
     expect(Object.fromEntries(url.searchParams)).toEqual({
       client_id: "ca_fixture_client",
-      redirect_uri: "https://devmacro.example.com/api/connections/stripe/callback",
+      redirect_uri: "https://stackdash.example.com/api/connections/stripe/callback",
       state: "state-123",
     });
     expect(stripeAdapter.oauth.pkce).toBe(false);
@@ -113,7 +113,7 @@ describe("stripeAdapter.exchangeCode", () => {
     const { ctx } = context(fetch);
 
     const result = await stripeAdapter.exchangeCode(
-      { code: "ac_fixture", redirectUri: "https://devmacro.example.com/cb", callbackParams: { code: "ac_fixture", state: "s" } },
+      { code: "ac_fixture", redirectUri: "https://stackdash.example.com/cb", callbackParams: { code: "ac_fixture", state: "s" } },
       ctx,
     );
 
@@ -140,7 +140,7 @@ describe("stripeAdapter.exchangeCode", () => {
     const { ctx } = context(fetch, { testSecretKey: new Secret(testKey) });
 
     const result = await stripeAdapter.exchangeCode(
-      { code: "ac_fixture", redirectUri: "https://devmacro.example.com/cb", callbackParams: {} },
+      { code: "ac_fixture", redirectUri: "https://stackdash.example.com/cb", callbackParams: {} },
       ctx,
     );
 
@@ -565,17 +565,17 @@ describe("stripe payment events on the timeline (#261)", () => {
     {
       name: "an unknown code",
       code: "some_future_code",
-      body: "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.",
+      body: "Stripe gave a reason StackDash does not recognize. Open the payment in your Stripe Dashboard to see it.",
     },
     {
       name: "a code named like an Object.prototype member",
       code: "constructor",
-      body: "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.",
+      body: "Stripe gave a reason StackDash does not recognize. Open the payment in your Stripe Dashboard to see it.",
     },
     {
       name: "free text where the code belongs",
       code: "Card of Jane Doe was declined",
-      body: "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.",
+      body: "Stripe gave a reason StackDash does not recognize. Open the payment in your Stripe Dashboard to see it.",
     },
   ])("explains a failed payment with $name in a plain sentence, never the code", ({ code, body }) => {
     const event = charge("charge.failed", { amount: 1500, currency: "gbp", failure_code: code });

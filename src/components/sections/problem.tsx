@@ -1,6 +1,6 @@
 import { Section } from "@/components/section";
 
-// Ordered by what DevMacro answers on a free plan first; spend comes last because it depends on the
+// Ordered by what StackDash answers on a free plan first; spend comes last because it depends on the
 // provider's plan (see the integrations section).
 const questions: readonly string[] = [
   "What shipped across my projects today?",

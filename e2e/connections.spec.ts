@@ -8,7 +8,7 @@ import { expectHydrated } from "./fixtures/hydration";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
- * DEVMACRO_ENABLE_FAKE_PROVIDER=1 and FAKE_PROVIDER_CLIENT_ID/SECRET set, so no live provider is
+ * STACKDASH_ENABLE_FAKE_PROVIDER=1 and FAKE_PROVIDER_CLIENT_ID/SECRET set, so no live provider is
  * ever called. Each test seeds only inside its own workspace.
  */
 
@@ -108,7 +108,7 @@ async function connectThroughUi(page: Page, slug: string): Promise<string> {
   await page.getByRole("link", { name: `Connect ${PROVIDER_NAME}` }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Connect ${PROVIDER_NAME}`);
   const consent = page.getByRole("checkbox", {
-    name: `I understand DevMacro gets full access to my ${PROVIDER_NAME} account`,
+    name: `I understand StackDash gets full access to my ${PROVIDER_NAME} account`,
   });
   await consent.focus();
   await page.keyboard.press("Space");
@@ -147,7 +147,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await expect(summary).toBeVisible();
       await expect(summary).toBeFocused();
       const consent = page.getByRole("checkbox", {
-        name: `I understand DevMacro gets full access to my ${PROVIDER_NAME} account`,
+        name: `I understand StackDash gets full access to my ${PROVIDER_NAME} account`,
       });
       await expect(consent).toHaveAttribute("aria-invalid", "true");
       await expect(consent).toHaveAccessibleDescription(/Tick this box to continue\./);
@@ -200,7 +200,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await page.goto(`/w/${workspace.slug}/connections`);
       const providers = page.getByRole("list", { name: "Providers" });
       const cards = providers.getByRole("listitem");
-      const reason = "DevMacro is still checking how Resend returns you here after you approve access, so connecting may fail.";
+      const reason = "StackDash is still checking how Resend returns you here after you approve access, so connecting may fail.";
 
       // The word and the reason as visible text, and the reason as the connect link's description.
       const resend = cards.filter({ has: page.getByRole("heading", { level: 3, name: "Resend", exact: true }) });
@@ -259,7 +259,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await expect(page).toHaveURL(CONNECTION_URL);
       await expect(page.getByText("Status: Needs attention").first()).toBeVisible();
       const attention = page.getByRole("region", {
-        name: `${PROVIDER_NAME} did not grant every permission DevMacro needs`,
+        name: `${PROVIDER_NAME} did not grant every permission StackDash needs`,
       });
       await expect(attention).toContainText("Missing: usage:read");
       await attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` }).click();

@@ -93,10 +93,10 @@ ownerTest.describe("year in review", () => {
       await previous.click();
       const download = page.getByRole("link", { name: /^Download slide/ });
       const files = [
-        ["busiest-day.png", `devmacro-${year}-so-far-busiest-day.png`],
-        ["deployment-run.png", `devmacro-${year}-so-far-deployment-run.png`],
-        ["top-provider.png", `devmacro-${year}-so-far-top-provider.png`],
-        ["card.png", `devmacro-${year}-so-far.png`],
+        ["busiest-day.png", `stackdash-${year}-so-far-busiest-day.png`],
+        ["deployment-run.png", `stackdash-${year}-so-far-deployment-run.png`],
+        ["top-provider.png", `stackdash-${year}-so-far-top-provider.png`],
+        ["card.png", `stackdash-${year}-so-far.png`],
       ] as const;
       for (const [index, [file, downloadName]] of files.entries()) {
         if (index > 0) await next.click();
@@ -115,13 +115,13 @@ ownerTest.describe("year in review", () => {
       await trigger.click();
       const dialog = page.getByRole("dialog", { name: `Share your ${year} year to date totals slide` });
       await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
-      await expect(dialog.getByRole("link", { name: "Download card" })).toHaveAttribute("download", `devmacro-${year}-so-far.png`);
+      await expect(dialog.getByRole("link", { name: "Download card" })).toHaveAttribute("download", `stackdash-${year}-so-far.png`);
       // Private: no public URL to copy, only the image to download and post.
       await expect(dialog.getByLabel("Card URL")).toHaveCount(0);
-      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(new RegExp(`^DevMacro card: your stack in ${year} so far, `));
+      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(new RegExp(`^StackDash card: your stack in ${year} so far, `));
       await expect(dialog.getByRole("link", { name: "Share to X (opens in a new tab)" })).toHaveAttribute(
         "href",
-        new RegExp(`text=My\\+stack\\+in\\+${year}\\+so\\+far\\+on\\+DevMacro`),
+        new RegExp(`text=My\\+stack\\+in\\+${year}\\+so\\+far\\+on\\+StackDash`),
       );
       expect(await axeViolations(page, "dialog[open]")).toEqual([]);
       await page.keyboard.press("Escape");

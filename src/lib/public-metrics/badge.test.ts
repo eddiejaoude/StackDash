@@ -40,7 +40,7 @@ describe("badgeContent", () => {
       label: "GitHub stars",
       message: "1,204 verified",
       tone: "verified",
-      title: "GitHub stars: 1,204 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT.",
+      title: "GitHub stars: 1,204 stars. Verified by StackDash, last synced 2026-11-05 12:00 GMT.",
     });
   });
 
@@ -54,7 +54,7 @@ describe("badgeContent", () => {
     const content = badgeContent(metric(available({ simulated: true })));
     expect(content).toMatchObject({ message: "1,204 simulated", tone: "simulated" });
     expect(content.title).toContain("Simulated data, not verified");
-    expect(content.title).not.toContain("Verified by DevMacro");
+    expect(content.title).not.toContain("Verified by StackDash");
   });
 
   it("formats a percent as a percent", () => {
@@ -74,10 +74,10 @@ describe("badgeContent", () => {
 
   it("shows the same neutral Unpublished badge for anything not published (boundary: null)", () => {
     expect(badgeContent(null)).toEqual({
-      label: "DevMacro",
+      label: "StackDash",
       message: "Unpublished",
       tone: "neutral",
-      title: "This metric is not published on DevMacro.",
+      title: "This metric is not published on StackDash.",
     });
   });
 });
@@ -101,13 +101,13 @@ describe("achievementBadgeContent (#413)", () => {
       label: "🏆 GitHub",
       message: "Kilostar: 1,024 GitHub stars",
       tone: "achievement",
-      title: "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Earned 2026-11-05 12:00 GMT.",
+      title: "GitHub achievement on StackDash: Kilostar: 1,024 GitHub stars. Earned 2026-11-05 12:00 GMT.",
     });
   });
 
-  it("never claims the crossing when DevMacro only saw the value already past it", () => {
+  it("never claims the crossing when StackDash only saw the value already past it", () => {
     expect(achievementBadgeContent({ ...achievement, evidence: "at_least" }).title).toBe(
-      "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Recorded at least 1,024 on 2026-11-05 12:00 GMT.",
+      "GitHub achievement on StackDash: Kilostar: 1,024 GitHub stars. Recorded at least 1,024 on 2026-11-05 12:00 GMT.",
     );
   });
 
@@ -117,7 +117,7 @@ describe("achievementBadgeContent (#413)", () => {
       label: "🏆 GitHub",
       message: "Kilostar: 1,024 GitHub stars (simulated)",
       tone: "simulated",
-      title: "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Simulated data, not verified. Earned 2026-11-05 12:00 GMT.",
+      title: "GitHub achievement on StackDash: Kilostar: 1,024 GitHub stars. Simulated data, not verified. Earned 2026-11-05 12:00 GMT.",
     });
     const fill = (content: Parameters<typeof renderBadgeSvg>[0]) => /<rect x="\d+" width="\d+" height="20" fill="(#[0-9a-f]{6})"\/>/.exec(renderBadgeSvg(content))?.[1];
     expect(fill(simulated)).toBe(fill(badgeContent(metric(available({ simulated: true })))));
@@ -126,7 +126,7 @@ describe("achievementBadgeContent (#413)", () => {
 
   it("shows the metric's neutral Unpublished badge for anything not published (boundary: null)", () => {
     const unpublished = achievementBadgeContent(null);
-    expect(unpublished).toMatchObject({ label: "DevMacro", message: "Unpublished", tone: "neutral" });
+    expect(unpublished).toMatchObject({ label: "StackDash", message: "Unpublished", tone: "neutral" });
     expect(renderBadgeSvg(unpublished)).toBe(renderBadgeSvg({ ...badgeContent(null), title: unpublished.title }));
   });
 });
@@ -136,7 +136,7 @@ describe("renderBadgeSvg", () => {
     const svg = renderBadgeSvg(badgeContent(metric(available())));
     expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     expect(svg).toContain('role="img"');
-    expect(svg).toContain("<title>GitHub stars: 1,204 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT.</title>");
+    expect(svg).toContain("<title>GitHub stars: 1,204 stars. Verified by StackDash, last synced 2026-11-05 12:00 GMT.</title>");
     expect(svg).not.toMatch(/<script|<a\b|href=|<image|<foreignObject|on[a-z]+=/i);
   });
 

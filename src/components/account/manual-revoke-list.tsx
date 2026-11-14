@@ -7,7 +7,7 @@ export type ManualRevokeItem = Readonly<{
   referenceId?: string;
 }>;
 
-/** Per provider: why DevMacro could not remove its access, and how to remove it by hand. */
+/** Per provider: why StackDash could not remove its access, and how to remove it by hand. */
 export function ManualRevokeList({ items, label }: { items: readonly ManualRevokeItem[]; label: string }) {
   return (
     <ul aria-label={label} className="flex flex-col gap-3">

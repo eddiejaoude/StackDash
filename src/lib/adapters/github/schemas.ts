@@ -80,7 +80,7 @@ export type Repository = z.infer<typeof InstallationRepositoriesSchema>["reposit
 export const StargazersCountSchema = z.object({ count: z.int().nonnegative() });
 
 // `GET /repos/{owner}/{repo}/forks`. Only the fork id and creation time are read: the fork's
-// name and owner are another person's account, and DevMacro stores no personal data.
+// name and owner are another person's account, and StackDash stores no personal data.
 export const ForksSchema = z.array(
   z.object({
     id: z.int().positive(),

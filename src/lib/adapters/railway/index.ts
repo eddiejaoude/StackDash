@@ -95,9 +95,9 @@ const PROJECTED_SPEND_METRIC_KEY = "railway.estimate.bill";
 
 type QueryName = "workspaces" | "projects" | "deployments" | "billing";
 
-const WORKSPACES_QUERY = "query DevMacroWorkspaces { me { workspaces { id name } } }";
+const WORKSPACES_QUERY = "query StackDashWorkspaces { me { workspaces { id name } } }";
 
-const PROJECTS_QUERY = `query DevMacroProjects($workspaceId: String!) {
+const PROJECTS_QUERY = `query StackDashProjects($workspaceId: String!) {
   workspace(workspaceId: $workspaceId) {
     projects(first: ${PROJECT_PAGE_SIZE}) { edges { node { id name } } pageInfo { hasNextPage } }
   }
@@ -120,10 +120,10 @@ function deploymentsQuery(count: number): string {
         `d${index}: deployments(first: ${DEPLOYMENT_PAGE_SIZE}, after: $a${index}, input: { projectId: $p${index}, includeDeleted: true }) { edges { node { ${DEPLOYMENT_FIELDS} } } pageInfo { hasNextPage endCursor } }`,
     )
     .join("\n  ");
-  return `query DevMacroDeployments(${variables}) {\n  ${fields}\n}`;
+  return `query StackDashDeployments(${variables}) {\n  ${fields}\n}`;
 }
 
-const BILLING_QUERY = `query DevMacroBilling($workspaceId: String!, $measurements: [MetricMeasurement!]!) {
+const BILLING_QUERY = `query StackDashBilling($workspaceId: String!, $measurements: [MetricMeasurement!]!) {
   workspace(workspaceId: $workspaceId) {
     plan
     customer { billingPeriod { start end } currentUsage creditBalance }
@@ -189,56 +189,56 @@ const achievements: readonly Achievement[] = [
     id: "railway.deployments.first",
     title: "First Railway deployment recorded",
     publicTitle: "First Railway deployment recorded",
-    description: "Earned when DevMacro records the first successful Railway deployment.",
+    description: "Earned when StackDash records the first successful Railway deployment.",
     rule: { kind: "event_count", typeIds: ["railway.deployment.deployed"], count: 1 },
   },
   {
     id: "railway.deployments.10",
     title: "10 Railway deployments recorded",
     publicTitle: "10 Railway deployments recorded",
-    description: "Earned when DevMacro records the 10th successful Railway deployment.",
+    description: "Earned when StackDash records the 10th successful Railway deployment.",
     rule: { kind: "event_count", typeIds: ["railway.deployment.deployed"], count: 10 },
   },
   {
     id: "railway.deployments.100",
     title: "100 Railway deployments recorded",
     publicTitle: "100 Railway deployments recorded",
-    description: "Earned when DevMacro records the 100th successful Railway deployment.",
+    description: "Earned when StackDash records the 100th successful Railway deployment.",
     rule: { kind: "event_count", typeIds: ["railway.deployment.deployed"], count: 100 },
   },
   {
     id: "railway.deployments.streak_10",
     title: "10 Railway deployments in a row",
     publicTitle: "10 Railway deployments in a row",
-    description: "Earned when DevMacro records 10 successful Railway deployments in a row, with no failed deployment between them.",
+    description: "Earned when StackDash records 10 successful Railway deployments in a row, with no failed deployment between them.",
     rule: { kind: "event_streak", successTypeIds: ["railway.deployment.deployed"], failureTypeIds: ["railway.deployment.failed"], count: 10 },
   },
   {
     id: "railway.deployments.night_owl",
     title: "Night owl: a Railway deployment between midnight and 5 am",
     publicTitle: "Night owl: a Railway deployment between midnight and 5 am",
-    description: "Earned when DevMacro records a successful Railway deployment between midnight and 5 am London time.",
+    description: "Earned when StackDash records a successful Railway deployment between midnight and 5 am London time.",
     rule: { kind: "event_at_local_time", typeIds: ["railway.deployment.deployed"], fromHour: 0, toHour: 5 },
   },
   {
     id: "railway.deployments.friday_ship",
     title: "Shipped on a Friday afternoon",
     publicTitle: "Shipped on a Friday afternoon",
-    description: "Earned when DevMacro records a successful Railway deployment on a Friday between 4 pm and midnight London time.",
+    description: "Earned when StackDash records a successful Railway deployment on a Friday between 4 pm and midnight London time.",
     rule: { kind: "event_at_local_time", typeIds: ["railway.deployment.deployed"], fromHour: 16, toHour: 24, weekdays: ["friday"] },
   },
   {
     id: "railway.deployments.busy_day",
     title: "Busy day: 10 Railway deployments in one day",
     publicTitle: "Busy day: 10 Railway deployments in one day",
-    description: "Earned when DevMacro records 10 successful Railway deployments on one London calendar day.",
+    description: "Earned when StackDash records 10 successful Railway deployments on one London calendar day.",
     rule: { kind: "events_in_window", typeIds: ["railway.deployment.deployed"], count: 10, window: "day" },
   },
   {
     id: "railway.deployments.weekly_rhythm",
     title: "Weekly rhythm: a Railway deployment on 7 days in a row",
     publicTitle: "Weekly rhythm: a Railway deployment on 7 days in a row",
-    description: "Earned when DevMacro records a successful Railway deployment on each of 7 consecutive London calendar days.",
+    description: "Earned when StackDash records a successful Railway deployment on each of 7 consecutive London calendar days.",
     rule: { kind: "consecutive_days", typeIds: ["railway.deployment.deployed"], days: 7 },
   },
 ];
@@ -785,12 +785,12 @@ export const railwayAdapter: ProviderAdapter = {
       scope: "email",
       access: "read",
       description:
-        "Your email address. Railway only lists the workspaces you share when an app asks for email and profile. DevMacro never reads them.",
+        "Your email address. Railway only lists the workspaces you share when an app asks for email and profile. StackDash never reads them.",
     },
     {
       scope: "profile",
       access: "read",
-      description: "Your name and picture, needed with email to list the workspaces you share. DevMacro never reads them.",
+      description: "Your name and picture, needed with email to list the workspaces you share. StackDash never reads them.",
     },
     {
       scope: "offline_access",
@@ -801,7 +801,7 @@ export const railwayAdapter: ProviderAdapter = {
       scope: WORKSPACE_SCOPE,
       access: "read",
       description:
-        "Viewer access to the workspaces you pick on Railway's consent screen: projects, deployments, usage, and billing where viewer access allows it. It may also allow reading logs and service settings, which DevMacro never reads.",
+        "Viewer access to the workspaces you pick on Railway's consent screen: projects, deployments, usage, and billing where viewer access allows it. It may also allow reading logs and service settings, which StackDash never reads.",
     },
   ],
   dataCollected: [

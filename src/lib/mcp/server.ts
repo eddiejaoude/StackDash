@@ -35,26 +35,26 @@ import { providerName } from "@/lib/providers";
  *
  * Spend never reaches a key without usage:read: get_usage needs that scope, and list_events and
  * list_alerts withhold the fields that can quote an amount (event text written by providers and by
- * DevMacro's own alerts and daily summaries, an alert's message and money). The decision and its
+ * StackDash's own alerts and daily summaries, an alert's message and money). The decision and its
  * evidence are on #163.
  *
  * The prompts (#254) read nothing: each is a message naming the tools to call, with their exact
  * arguments, so every number in the answer still comes through a tool and its scope check.
  */
 
-export const MCP_SERVER_INFO = { name: "devmacro", title: "DevMacro", version: "1.0.0" } as const;
+export const MCP_SERVER_INFO = { name: "stackdash", title: "StackDash", version: "1.0.0" } as const;
 
 /** URI of a provider page from docs/providers, as a resource. */
-export const PROVIDER_DOC_URI_PREFIX = "devmacro://docs/providers/";
+export const PROVIDER_DOC_URI_PREFIX = "stackdash://docs/providers/";
 
 const INSTRUCTIONS = [
-  "DevMacro reads one workspace's developer stack: usage, spend, allowances, revenue, timeline events, triggered alerts, and connection status. Every tool only reads.",
+  "StackDash reads one workspace's developer stack: usage, spend, allowances, revenue, timeline events, triggered alerts, and connection status. Every tool only reads.",
   "Money is amount_minor, an integer in the minor unit of currency (cents for USD), and display shows it formatted. Never add amounts in different currencies.",
-  "provenance is verified when the provider reported a number and estimated when DevMacro calculated it from a price list (pricing_source). Say which when you quote a number.",
-  "retrieved_at on a usage row is when DevMacro fetched it from the provider. read_at is when this answer was read. simulated true means the provider simulator made the data up.",
+  "provenance is verified when the provider reported a number and estimated when StackDash calculated it from a price list (pricing_source). Say which when you quote a number.",
+  "retrieved_at on a usage row is when StackDash fetched it from the provider. read_at is when this answer was read. simulated true means the provider simulator made the data up.",
   "Usage rows are one per account, metric, and UTC day, newest day first: the latest day of a metric is its current value. Lists are paged: pass next_cursor back as cursor, with the same filters.",
   "withheld names fields this key cannot read and the scope that would return them.",
-  "The provider pages under devmacro://docs/providers/ explain each metric and whether it is verified or estimated.",
+  "The provider pages under stackdash://docs/providers/ explain each metric and whether it is verified or estimated.",
 ].join("\n");
 
 /** The tools' names, so a prompt can only name a tool this server registers. */
@@ -68,12 +68,12 @@ export const MCP_TOOLS = {
 
 type McpToolName = (typeof MCP_TOOLS)[keyof typeof MCP_TOOLS];
 
-// Every tool reads, never changes anything, and answers from DevMacro's own database.
+// Every tool reads, never changes anything, and answers from StackDash's own database.
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 const timestamp = z.iso.datetime({ offset: true });
 
-const readAt = timestamp.meta({ description: "When DevMacro read this answer from its database." });
+const readAt = timestamp.meta({ description: "When StackDash read this answer from its database." });
 const nextCursor = z
   .string()
   .nullable()
@@ -248,7 +248,7 @@ function promptResult(task: string, calls: readonly PromptToolCall[], answer: re
   const text = [
     task,
     "",
-    "Call these DevMacro tools in order. When a result has a next_cursor, call the same tool again with the same arguments plus that cursor, until next_cursor is null.",
+    "Call these StackDash tools in order. When a result has a next_cursor, call the same tool again with the same arguments plus that cursor, until next_cursor is null.",
     ...calls.map((call, index) => `${index + 1}. Call \`${call.tool}\` with \`${JSON.stringify(call.arguments)}\`: ${call.purpose}`),
     "",
     ...answer,
@@ -262,7 +262,7 @@ function promptResult(task: string, calls: readonly PromptToolCall[], answer: re
 function weeklyStackReview(now: Date): GetPromptResult {
   const { from, to, since, label } = lookBack(now, WEEK_DAYS);
   return promptResult(
-    `Review this DevMacro workspace's developer stack for ${label}.`,
+    `Review this StackDash workspace's developer stack for ${label}.`,
     [
       { tool: MCP_TOOLS.listProjects, arguments: {}, purpose: "the workspace and its projects, to group the review by." },
       { tool: MCP_TOOLS.getConnectionStatus, arguments: {}, purpose: "connections that are not active need attention first." },
@@ -296,10 +296,10 @@ function whyDidSpendChange({ days, provider }: z.infer<typeof SpendChangeArgsSch
   const usage = (kind: MetricKind) => ({ kind, from, to, ...(provider === undefined ? {} : { provider }), ...PROMPT_PAGE });
   const scope = provider === undefined ? "" : ` for ${providerName(provider)}`;
   return promptResult(
-    `Explain why spend changed in this DevMacro workspace${scope} over ${label}.`,
+    `Explain why spend changed in this StackDash workspace${scope} over ${label}.`,
     [
       { tool: MCP_TOOLS.getUsage, arguments: usage("verified_spend"), purpose: "spend each provider reported." },
-      { tool: MCP_TOOLS.getUsage, arguments: usage("estimated_spend"), purpose: "spend DevMacro estimated from a price list." },
+      { tool: MCP_TOOLS.getUsage, arguments: usage("estimated_spend"), purpose: "spend StackDash estimated from a price list." },
       {
         tool: MCP_TOOLS.getUsage,
         arguments: usage("usage"),
@@ -323,7 +323,7 @@ function whyDidSpendChange({ days, provider }: z.infer<typeof SpendChangeArgsSch
 }
 
 /** One server instance for one authenticated request (the SDK's per-request factory). */
-export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
+export function createStackDashMcpServer(principal: ApiPrincipal): McpServer {
   const server = new McpServer(MCP_SERVER_INFO, { instructions: INSTRUCTIONS });
   const { tokenHash } = principal;
 

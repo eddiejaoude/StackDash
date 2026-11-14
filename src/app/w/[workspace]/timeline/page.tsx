@@ -182,7 +182,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     search: query.search,
     scopeDescription: describeScope(query.scope, scopeOptions),
   });
-  // Events with a connection are the connections in view; DevMacro's own events have none (#269).
+  // Events with a connection are the connections in view; StackDash's own events have none (#269).
   const allSimulated = everySimulated(events.filter((event) => event.connectionName !== null));
 
   return (

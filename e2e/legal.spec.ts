@@ -43,13 +43,13 @@ test.describe("privacy policy and terms of use", () => {
 
     expect(response?.status()).toBe(200);
     await expectNoCookies(page, response);
-    await expect(page).toHaveTitle("Privacy policy · DevMacro");
+    await expect(page).toHaveTitle("Privacy policy · StackDash");
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
-    await expect(main.getByText(`${E2E_OPERATOR.DEVMACRO_OPERATOR_NAME} runs DevMacro at this address`)).toBeVisible();
-    await expect(main.getByRole("link", { name: E2E_OPERATOR.DEVMACRO_OPERATOR_EMAIL }).first()).toHaveAttribute(
+    await expect(main.getByText(`${E2E_OPERATOR.STACKDASH_OPERATOR_NAME} runs StackDash at this address`)).toBeVisible();
+    await expect(main.getByRole("link", { name: E2E_OPERATOR.STACKDASH_OPERATOR_EMAIL }).first()).toHaveAttribute(
       "href",
-      `mailto:${E2E_OPERATOR.DEVMACRO_OPERATOR_EMAIL}`,
+      `mailto:${E2E_OPERATOR.STACKDASH_OPERATOR_EMAIL}`,
     );
     for (const heading of ["Cookies", "Who processes data for us", "How long we keep it", "Deleting your account"]) {
       await expect(main.getByRole("heading", { level: 2, name: heading })).toBeVisible();
@@ -62,11 +62,11 @@ test.describe("privacy policy and terms of use", () => {
 
     expect(response?.status()).toBe(200);
     await expectNoCookies(page, response);
-    await expect(page).toHaveTitle("Terms of use · DevMacro");
+    await expect(page).toHaveTitle("Terms of use · StackDash");
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1 })).toHaveText("Terms of use");
-    await expect(main.getByText(`which ${E2E_OPERATOR.DEVMACRO_OPERATOR_NAME} runs`)).toBeVisible();
-    await expect(main.getByText(`governed by the law of ${E2E_OPERATOR.DEVMACRO_GOVERNING_LAW}`)).toBeVisible();
+    await expect(main.getByText(`which ${E2E_OPERATOR.STACKDASH_OPERATOR_NAME} runs`)).toBeVisible();
+    await expect(main.getByText(`governed by the law of ${E2E_OPERATOR.STACKDASH_GOVERNING_LAW}`)).toBeVisible();
   });
 
   test("the sign-in page, the footer, and the sitemap lead to both pages", async ({ page, request }) => {
@@ -114,6 +114,6 @@ test.describe("privacy policy and terms of use", () => {
     await expect(page).toHaveURL("/privacy");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
 
-    await tabTo(page, page.getByRole("main").getByRole("link", { name: E2E_OPERATOR.DEVMACRO_OPERATOR_EMAIL }).first());
+    await tabTo(page, page.getByRole("main").getByRole("link", { name: E2E_OPERATOR.STACKDASH_OPERATOR_EMAIL }).first());
   });
 });

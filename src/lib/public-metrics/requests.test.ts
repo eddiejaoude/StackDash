@@ -42,22 +42,22 @@ describe("clientIp", () => {
 describe("clientIpEnv", () => {
   it("reads Vercel's header on Vercel, whatever the proxy count says", () => {
     vi.stubEnv("VERCEL", "1");
-    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "3");
+    vi.stubEnv("STACKDASH_TRUSTED_PROXY_COUNT", "3");
     expect(clientIpEnv()).toEqual(VERCEL);
   });
 
   it("trusts one proxy when self-hosted and unset, and the configured count when set", () => {
     vi.stubEnv("VERCEL", "");
-    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "");
+    vi.stubEnv("STACKDASH_TRUSTED_PROXY_COUNT", "");
     expect(clientIpEnv()).toEqual(ONE_PROXY);
-    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "2");
+    vi.stubEnv("STACKDASH_TRUSTED_PROXY_COUNT", "2");
     expect(clientIpEnv()).toEqual(TWO_PROXIES);
   });
 
-  it.each(["0", "10", "two", "1.5"])("refuses DEVMACRO_TRUSTED_PROXY_COUNT=%s (boundary: 1 to 9)", (value) => {
+  it.each(["0", "10", "two", "1.5"])("refuses STACKDASH_TRUSTED_PROXY_COUNT=%s (boundary: 1 to 9)", (value) => {
     vi.stubEnv("VERCEL", "");
-    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", value);
-    expect(() => clientIpEnv()).toThrow("DEVMACRO_TRUSTED_PROXY_COUNT is invalid");
+    vi.stubEnv("STACKDASH_TRUSTED_PROXY_COUNT", value);
+    expect(() => clientIpEnv()).toThrow("STACKDASH_TRUSTED_PROXY_COUNT is invalid");
   });
 });
 
@@ -106,7 +106,7 @@ describe("rateLimitedPageHtml", () => {
   it("says what happened, names the wait, and links home", () => {
     const html = rateLimitedPageHtml({ retryAfterSeconds: 42 });
     expect(html).toContain('<html lang="en">');
-    expect(html).toContain("<title>Too many requests · DevMacro</title>");
+    expect(html).toContain("<title>Too many requests · StackDash</title>");
     expect(html).toContain(">Too many requests from this address</h1>");
     expect(html).toContain(`up to ${PUBLIC_REQUESTS_PER_MINUTE} requests a minute`);
     expect(html).toContain("Try again in 42 seconds");

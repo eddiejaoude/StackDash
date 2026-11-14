@@ -74,7 +74,7 @@ function fakeVercel(overrides: Readonly<Record<string, Route>> = {}) {
   return { fetch, calls, callsTo };
 }
 
-function makeCtx(fetch: FetchLike, extra: Record<string, Secret> = { integrationSlug: new Secret("devmacro-local") }) {
+function makeCtx(fetch: FetchLike, extra: Record<string, Secret> = { integrationSlug: new Secret("stackdash-local") }) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const ctx: OAuthContext = {
     fetch,
@@ -125,11 +125,11 @@ describe("vercelAdapter.buildAuthorizeUrl", () => {
     const url = vercelAdapter.buildAuthorizeUrl({
       client: ctx.client,
       state: "xyzABC123",
-      redirectUri: "https://devmacro.example/api/connections/vercel/callback",
+      redirectUri: "https://stackdash.example/api/connections/vercel/callback",
       codeChallenge: "ignored-challenge",
     });
 
-    expect(url.origin + url.pathname).toBe("https://vercel.com/integrations/devmacro-local/new");
+    expect(url.origin + url.pathname).toBe("https://vercel.com/integrations/stackdash-local/new");
     expect([...url.searchParams.entries()]).toEqual([["state", "xyzABC123"]]);
   });
 
@@ -156,7 +156,7 @@ describe("vercelAdapter.exchangeCode", () => {
   };
   const exchangeInput = {
     code: "jMIukZ1DBCKXHje3X14BCkU0",
-    redirectUri: "https://devmacro.example/api/connections/vercel/callback",
+    redirectUri: "https://stackdash.example/api/connections/vercel/callback",
     callbackParams,
   };
 
@@ -174,7 +174,7 @@ describe("vercelAdapter.exchangeCode", () => {
       client_id: "oac_exampleClientId",
       client_secret: "example-client-secret",
       code: "jMIukZ1DBCKXHje3X14BCkU0",
-      redirect_uri: "https://devmacro.example/api/connections/vercel/callback",
+      redirect_uri: "https://stackdash.example/api/connections/vercel/callback",
     });
     expect(credential.accessToken.reveal()).toBe(ACCESS_TOKEN);
     expect(credential.metadata).toEqual({ configurationId: CONFIGURATION_ID, userId: USER_ID, teamId: TEAM_ID });

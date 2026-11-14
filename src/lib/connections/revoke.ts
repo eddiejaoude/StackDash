@@ -8,7 +8,7 @@ import { PROVIDER_NAMES } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /*
- * Removing DevMacro's access at a provider, shared by disconnect and delete connection (#40) and
+ * Removing StackDash's access at a provider, shared by disconnect and delete connection (#40) and
  * account deletion (#42). Callers authorize the user for the connection's workspace first.
  */
 
@@ -22,27 +22,27 @@ export type RevokeOutcome =
   | { kind: "not_configured" }
   | { kind: "failed"; referenceId: string };
 
-// Where to remove DevMacro's access by hand, from docs/providers/*.md. Providers not listed get the
+// Where to remove StackDash's access by hand, from docs/providers/*.md. Providers not listed get the
 // generic account settings wording.
 const MANUAL_REVOKE_STEPS: Partial<Record<ProviderId, string>> = {
   vercel:
-    "In the Vercel dashboard, open Integrations, choose Manage next to DevMacro, open Settings, and choose Uninstall Integration.",
+    "In the Vercel dashboard, open Integrations, choose Manage next to StackDash, open Settings, and choose Uninstall Integration.",
   github:
-    "Uninstall the DevMacro GitHub App at github.com/settings/installations, or for an organization in the organization's settings under GitHub Apps.",
+    "Uninstall the StackDash GitHub App at github.com/settings/installations, or for an organization in the organization's settings under GitHub Apps.",
   stripe:
-    "In the Stripe Dashboard, open Settings, then Installed apps, open the DevMacro app menu, and choose Uninstall. Only an administrator of the Stripe account can do this.",
+    "In the Stripe Dashboard, open Settings, then Installed apps, open the StackDash app menu, and choose Uninstall. Only an administrator of the Stripe account can do this.",
   gitlab:
-    "In GitLab, select your avatar, then Edit profile, then Access, then Applications, and under Authorized applications choose Revoke next to DevMacro.",
-  resend: "In your Resend team settings, revoke DevMacro's access.",
-  sentry: "In Sentry, open Settings, then Integrations, choose DevMacro, and choose Uninstall.",
+    "In GitLab, select your avatar, then Edit profile, then Access, then Applications, and under Authorized applications choose Revoke next to StackDash.",
+  resend: "In your Resend team settings, revoke StackDash's access.",
+  sentry: "In Sentry, open Settings, then Integrations, choose StackDash, and choose Uninstall.",
 };
 
-/** The steps that remove DevMacro's access at the provider by hand. */
+/** The steps that remove StackDash's access at the provider by hand. */
 export function manualRevokeStep(provider: ProviderId): string {
-  return MANUAL_REVOKE_STEPS[provider] ?? `Remove DevMacro's access in your ${PROVIDER_NAMES[provider]} account settings.`;
+  return MANUAL_REVOKE_STEPS[provider] ?? `Remove StackDash's access in your ${PROVIDER_NAMES[provider]} account settings.`;
 }
 
-/** True when DevMacro can ask the provider to revoke its own access. */
+/** True when StackDash can ask the provider to revoke its own access. */
 export function supportsRevoke(provider: ProviderId): boolean {
   try {
     return getAdapter(provider).revoke !== undefined;
@@ -85,9 +85,9 @@ export function manualRevokeMessage(provider: ProviderId, outcome: RevokeOutcome
     case "unsupported":
       return `${name} does not let apps revoke their own access. ${step}`;
     case "not_configured":
-      return `${name} is no longer set up on this instance, so DevMacro could not revoke access. ${step}`;
+      return `${name} is no longer set up on this instance, so StackDash could not revoke access. ${step}`;
     case "failed":
-      return `DevMacro could not revoke access at ${name} (reference ${outcome.referenceId}). ${step}`;
+      return `StackDash could not revoke access at ${name} (reference ${outcome.referenceId}). ${step}`;
   }
 }
 

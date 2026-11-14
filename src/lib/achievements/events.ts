@@ -3,7 +3,7 @@
  * in `record_project_achievements()` (supabase/migrations/20261114120000_project_achievements.sql),
  * with this type id and a dedupe key built the same way as `achievement_event_dedupe_key()`.
  */
-export const ACHIEVEMENT_EARNED_TYPE_ID = "devmacro.achievement_earned";
+export const ACHIEVEMENT_EARNED_TYPE_ID = "stackdash.achievement_earned";
 
 const DEDUPE_KEY_PREFIX = "achievement:";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

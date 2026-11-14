@@ -33,7 +33,7 @@ const FAILED_RUN = z.object({ code: z.number(), stdout: z.string(), stderr: z.st
 async function demoEvent(type: string, workspace: TestWorkspace, simulate = "1"): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
     const { stdout, stderr } = await run("npm", ["run", "-s", "demo:event", "--", "--type", type, "--workspace", workspace.slug], {
-      env: { ...process.env, DEVMACRO_SIMULATE_PROVIDERS: simulate },
+      env: { ...process.env, STACKDASH_SIMULATE_PROVIDERS: simulate },
       timeout: 60_000,
     });
     return { code: 0, stdout, stderr };

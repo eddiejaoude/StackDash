@@ -63,14 +63,14 @@ describe("demoCommandRefusal", () => {
 
 describe("demoAccountSeed", () => {
   it("is eight hex characters, the same for the same seed and provider", () => {
-    expect(demoAccountSeed("devmacro-demo", "vercel")).toMatch(/^[0-9a-f]{8}$/);
-    expect(demoAccountSeed("devmacro-demo", "vercel")).toBe(demoAccountSeed("devmacro-demo", "vercel"));
+    expect(demoAccountSeed("stackdash-demo", "vercel")).toMatch(/^[0-9a-f]{8}$/);
+    expect(demoAccountSeed("stackdash-demo", "vercel")).toBe(demoAccountSeed("stackdash-demo", "vercel"));
   });
 
   it("differs between providers and between seeds, including seeds that only differ by joining", () => {
     const seeds = new Set([
-      demoAccountSeed("devmacro-demo", "vercel"),
-      demoAccountSeed("devmacro-demo", "github"),
+      demoAccountSeed("stackdash-demo", "vercel"),
+      demoAccountSeed("stackdash-demo", "github"),
       demoAccountSeed("rehearsal", "vercel"),
       demoAccountSeed("a", "bvercel"),
       demoAccountSeed("ab", "vercel"),

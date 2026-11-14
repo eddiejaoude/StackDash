@@ -33,7 +33,7 @@ function demoClaims(appMetadata: Record<string, unknown> = { [DEMO_USER_MARKER]:
 let output: string[];
 
 beforeEach(() => {
-  vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+  vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:55421");
   vi.stubEnv("VERCEL_ENV", "");
   auth.verifyOtp.mockResolvedValue({ error: null });
@@ -81,8 +81,8 @@ describe("GET /auth/confirm with a valid demo link", () => {
 
 describe("GET /auth/confirm refusals", () => {
   it.each([
-    ["simulation off", { DEVMACRO_SIMULATE_PROVIDERS: "0" }],
-    ["simulation unset", { DEVMACRO_SIMULATE_PROVIDERS: "" }],
+    ["simulation off", { STACKDASH_SIMULATE_PROVIDERS: "0" }],
+    ["simulation unset", { STACKDASH_SIMULATE_PROVIDERS: "" }],
     ["a Vercel production deployment", { VERCEL_ENV: "production" }],
     ["a hosted Supabase project", { NEXT_PUBLIC_SUPABASE_URL: "https://abcdefghijklmnop.supabase.co" }],
     ["no Supabase URL", { NEXT_PUBLIC_SUPABASE_URL: "" }],
@@ -180,7 +180,7 @@ describe("GET /auth/confirm next", () => {
   });
 
   it("keeps /app as next on an invalid link with an unsafe next", async () => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "0");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "0");
 
     const response = await confirm(demoSignInPath(TOKEN_HASH, "https://evil.example"));
 

@@ -92,7 +92,7 @@ async function seedTrends(workspace: TestWorkspace): Promise<SeededTrends> {
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 
 /**
- * A burst of 14 deployments two days ago, one signup today, and one triggered alert today (DevMacro's
+ * A burst of 14 deployments two days ago, one signup today, and one triggered alert today (StackDash's
  * own event, with no provider), all at midday UTC so the UTC and London days agree.
  */
 async function seedEvents(workspace: TestWorkspace, seeded: SeededTrends): Promise<void> {
@@ -117,7 +117,7 @@ async function seedEvents(workspace: TestWorkspace, seeded: SeededTrends): Promi
         connection_id: null,
         external_account_id: null,
         provider: null,
-        type_id: "devmacro.alert_triggered",
+        type_id: "stackdash.alert_triggered",
         severity: "warning",
         title: "Spend passed 80 percent of the budget",
       }),
@@ -354,7 +354,7 @@ ownerTest.describe("dashboard trends", () => {
       );
       await expect(spend.getByRole("link", { name: `1 triggered alert on ${today}` })).toHaveAttribute(
         "href",
-        `/w/${workspace.slug}/timeline?type=devmacro.alert_triggered&from=${today}&to=${today}`,
+        `/w/${workspace.slug}/timeline?type=stackdash.alert_triggered&from=${today}&to=${today}`,
       );
       const legend = trends.getByRole("list", { name: "Legend for every chart" });
       await expect(legend).toContainText("Marker: deployments");

@@ -252,7 +252,7 @@ export function HeroPreview() {
             <span className="size-2.5 rounded-full bg-line-strong" />
             <span className="size-2.5 rounded-full bg-line-strong" />
           </span>
-          <p className="flex-1 text-center font-mono text-xs text-muted">Acme workspace · DevMacro</p>
+          <p className="flex-1 text-center font-mono text-xs text-muted">Acme workspace · StackDash</p>
           <span className="w-[42px]" aria-hidden="true" />
         </div>
 

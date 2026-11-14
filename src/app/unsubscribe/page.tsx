@@ -39,7 +39,7 @@ async function UnsubscribeDetails({ searchParams }: { searchParams: PageProps<"/
   if (status.kind === "not_member") {
     return (
       <p className="text-sm leading-6">
-        You are no longer a member of this workspace, so DevMacro sends you no alert emails for it. Nothing needs doing.
+        You are no longer a member of this workspace, so StackDash sends you no alert emails for it. Nothing needs doing.
       </p>
     );
   }

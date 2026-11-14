@@ -36,7 +36,7 @@ describe("suggestPageSlug", () => {
     ["Acme web", "acme-web"],
     ["Acme Web (beta)", "acme-web-beta"],
     ["Café Ünïcode", "cafe-unicode"],
-    ["  DevMacro  ", "devmacro"],
+    ["  StackDash  ", "stackdash"],
   ])("suggests a valid slug for %s", (name, slug) => {
     expect(suggestPageSlug(name)).toBe(slug);
     expect(isPageSlug(slug)).toBe(true);

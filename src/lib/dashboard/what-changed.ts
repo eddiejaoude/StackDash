@@ -18,7 +18,7 @@
  *   comes before any ratio and a larger ratio before a smaller one; then provider name, label,
  *   and source, so equal inputs always give the same three. At most `WHAT_CHANGED_LIMIT` are kept.
  * - The events named are the anomaly's provider's own marker categories on the anomaly's UTC day,
- *   counted under the dashboard scope like the trend markers. DevMacro's own events (triggered
+ *   counted under the dashboard scope like the trend markers. StackDash's own events (triggered
  *   alerts) carry no provider, so the provider filtered link would not list them, and they are
  *   left out: what a sentence counts is what its link shows.
  * - The link is the timeline narrowed to the provider (keeping the rest of the dashboard scope) on

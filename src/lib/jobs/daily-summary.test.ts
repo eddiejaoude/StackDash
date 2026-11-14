@@ -210,8 +210,8 @@ describe("daily summary (#64)", () => {
         "Example provider: Spending $5.00 (verified)",
         "Example provider: Requests this month 2,000 requests (verified)",
         // 500 cents plus 100 a day from 2026-11-05 06:00 to 2026-12-01.
-        "Example provider: Spending on track for $30.75 by 2026-11-30 (estimate by DevMacro)",
-        "Example provider: Requests included in the plan runs out around 2026-11-07 (estimate by DevMacro)",
+        "Example provider: Spending on track for $30.75 by 2026-11-30 (estimate by StackDash)",
+        "Example provider: Requests included in the plan runs out around 2026-11-07 (estimate by StackDash)",
       ]);
     });
 
@@ -243,7 +243,7 @@ describe("daily summary (#64)", () => {
       expect(summaries(store)[0]?.body?.split("\n")).toEqual([
         "GitHub: Spending $5.00 (verified)",
         "GitHub: Usage unavailable",
-        "GitHub: Spending on track for $30.75 by 2026-11-30 (estimate by DevMacro)",
+        "GitHub: Spending on track for $30.75 by 2026-11-30 (estimate by StackDash)",
       ]);
     });
 
@@ -282,7 +282,7 @@ describe("daily summary (#64)", () => {
 
       await runTick(deps);
       // 300 cents on 2026-11-30 06:00 plus 100 a day for the 18 hours left.
-      expect(summaries(store)[0]?.body).toContain("Example provider: Spending on track for $3.75 by 2026-11-30 (estimate by DevMacro)");
+      expect(summaries(store)[0]?.body).toContain("Example provider: Spending on track for $3.75 by 2026-11-30 (estimate by StackDash)");
     });
   });
 
@@ -320,7 +320,7 @@ describe("daily summary (#64)", () => {
     await runTick(deps);
     expect(summaries(store)[0]?.body).toContain("GitHub: Spending $64.27 (verified)");
     // Neither amount can be projected, each for its own reason (the day's window has no end
-    // DevMacro can project to, the month has one day of data), so the line names both.
+    // StackDash can project to, the month has one day of data), so the line names both.
     expect(summaries(store)[0]?.body).toContain(
       "GitHub: Spending projection in USD unavailable (2 amounts: the end of the period is unknown, fewer than 3 days of data)",
     );

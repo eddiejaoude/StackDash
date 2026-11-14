@@ -6,7 +6,7 @@ import { PROVIDER_NAMES } from "../src/lib/providers";
 
 const providerNames = liveProviderIds.map((id) => PROVIDER_NAMES[id]);
 
-const PICTURE_NAME = /^Events from .* flow into one DevMacro timeline\.$/;
+const PICTURE_NAME = /^Events from .* flow into one StackDash timeline\.$/;
 
 interface Box {
   /** A card's source name or a packet's label, for the failure message. */

@@ -43,7 +43,7 @@ async function seedTriggeredAlert(workspace: TestWorkspace): Promise<string> {
   if (alertError) throw new Error(`Seeding a triggered alert failed (code ${alertError.code}).`);
   const { error: eventError } = await admin.from("activity_events").insert({
     workspace_id: workspace.id,
-    type_id: "devmacro.alert_triggered",
+    type_id: "stackdash.alert_triggered",
     severity: "critical",
     title: EVENT_TITLE,
     body: ALERT_MESSAGE,

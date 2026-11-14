@@ -36,7 +36,7 @@ export function generateMetadata(): Metadata {
 const LOGS = "Our logs record what happened and a reference id, with tokens, keys, and other secrets masked.";
 
 // Who receives alert email: Resend by name when the client posts to its own API, otherwise whichever
-// server DEVMACRO_RESEND_API_URL names, which this page cannot name.
+// server STACKDASH_RESEND_API_URL names, which this page cannot name.
 function emailProcessor(): "resend" | "other" | null {
   const email = emailEnv();
   if (email === null) return null;

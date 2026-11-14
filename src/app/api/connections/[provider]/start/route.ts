@@ -37,12 +37,12 @@ function textField(form: FormData, name: string): string | null {
  * full-access permissions, stores a single-use state (with the PKCE verifier sealed), and answers
  * with a page that moves on to the provider's consent screen by meta refresh. Not a redirect:
  * browsers check form-action on every redirect hop after a form post, and the provider's hops are
- * outside DevMacro's control (see handoff-page.ts).
+ * outside StackDash's control (see handoff-page.ts).
  */
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/connections/[provider]/start">) {
   if (!isSameOrigin(request)) {
     return new NextResponse(
-      "Connecting a provider must start from DevMacro. Go back to Connections and choose the provider again.",
+      "Connecting a provider must start from StackDash. Go back to Connections and choose the provider again.",
       { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" } },
     );
   }

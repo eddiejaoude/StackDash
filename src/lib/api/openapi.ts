@@ -64,12 +64,12 @@ export function buildOpenApiDocument() {
   return {
     openapi: "3.1.0",
     info: {
-      title: "DevMacro REST API",
+      title: "StackDash REST API",
       version: "1",
       description:
         "Read-only access to one workspace's usage, events, alerts, and connection status. Create a key in the workspace settings and send it as a bearer token. Guide: /docs/api",
     },
-    servers: [{ url: "/", description: "The DevMacro instance that serves this document." }],
+    servers: [{ url: "/", description: "The StackDash instance that serves this document." }],
     security: [{ [SECURITY_SCHEME]: [] }],
     paths: Object.fromEntries(endpoints.map((endpoint) => [endpoint.path, { get: operation(endpoint) }])),
     components: {
@@ -77,7 +77,7 @@ export function buildOpenApiDocument() {
         [SECURITY_SCHEME]: {
           type: "http",
           scheme: "bearer",
-          description: "A workspace API key, dmk_ followed by 43 characters, from the workspace settings.",
+          description: "A workspace API key, sd_ followed by 43 characters, from the workspace settings.",
         },
       },
       schemas: { Error: jsonSchema(ErrorResponseSchema) },

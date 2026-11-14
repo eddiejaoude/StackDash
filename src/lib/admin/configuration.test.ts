@@ -22,17 +22,17 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-role-test");
   vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
-  vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com");
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEY", ENCRYPTION_KEY);
-  vi.stubEnv("DEVMACRO_ENCRYPTION_KEYS_PREVIOUS", "");
+  vi.stubEnv("STACKDASH_SUPER_ADMIN_EMAILS", "ops@example.com");
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEY", ENCRYPTION_KEY);
+  vi.stubEnv("STACKDASH_ENCRYPTION_KEYS_PREVIOUS", "");
   vi.stubEnv("CRON_SECRET", "c".repeat(64));
-  vi.stubEnv("DEVMACRO_EMAIL_FROM", "");
-  vi.stubEnv("DEVMACRO_RESEND_API_KEY", "");
-  vi.stubEnv("DEVMACRO_RESEND_API_URL", "");
-  vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "");
-  vi.stubEnv("DEVMACRO_ALLOW_PRIVATE_WEBHOOKS", "");
-  vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "");
-  vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "");
+  vi.stubEnv("STACKDASH_EMAIL_FROM", "");
+  vi.stubEnv("STACKDASH_RESEND_API_KEY", "");
+  vi.stubEnv("STACKDASH_RESEND_API_URL", "");
+  vi.stubEnv("STACKDASH_TRUSTED_PROXY_COUNT", "");
+  vi.stubEnv("STACKDASH_ALLOW_PRIVATE_WEBHOOKS", "");
+  vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "");
+  vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "");
 });
 
 afterEach(() => {
@@ -56,12 +56,12 @@ describe("encryption key", () => {
     ["not 32 bytes of base64", "too-short", "attention", "Invalid"],
     ["valid", ENCRYPTION_KEY, "ok", "Set"],
   ])("is %s", (_title, value, status, summary) => {
-    vi.stubEnv("DEVMACRO_ENCRYPTION_KEY", value);
+    vi.stubEnv("STACKDASH_ENCRYPTION_KEY", value);
     expect(check("Encryption key")).toMatchObject({ status, summary });
   });
 
   it("asks for attention while previous keys are kept for a rotation", () => {
-    vi.stubEnv("DEVMACRO_ENCRYPTION_KEYS_PREVIOUS", "deadbeef:" + ENCRYPTION_KEY);
+    vi.stubEnv("STACKDASH_ENCRYPTION_KEYS_PREVIOUS", "deadbeef:" + ENCRYPTION_KEY);
     expect(check("Previous encryption keys")).toMatchObject({ status: "attention", summary: "Set" });
   });
 });
@@ -72,10 +72,10 @@ describe("alert email", () => {
   });
 
   it("is invalid with a key but no sender, without repeating the key", () => {
-    vi.stubEnv("DEVMACRO_RESEND_API_KEY", "re_secret_value");
+    vi.stubEnv("STACKDASH_RESEND_API_KEY", "re_secret_value");
     const result = check("Alert email");
     expect(result).toMatchObject({ status: "attention", summary: "Invalid" });
-    expect(result.detail).toContain("DEVMACRO_EMAIL_FROM");
+    expect(result.detail).toContain("STACKDASH_EMAIL_FROM");
     expect(result.detail).not.toContain("re_secret_value");
   });
 });
@@ -95,7 +95,7 @@ describe("production only problems", () => {
     ["production with the flag", "production", "1", "attention"],
   ])("private network webhooks in %s", (_title, nodeEnv, flag, status) => {
     vi.stubEnv("NODE_ENV", nodeEnv);
-    vi.stubEnv("DEVMACRO_ALLOW_PRIVATE_WEBHOOKS", flag);
+    vi.stubEnv("STACKDASH_ALLOW_PRIVATE_WEBHOOKS", flag);
     expect(check("Private network webhooks").status).toBe(status);
   });
 
@@ -107,7 +107,7 @@ describe("production only problems", () => {
   ])("simulated providers %s", (_title, nodeEnv, vercelEnv, flag, status, summary) => {
     vi.stubEnv("NODE_ENV", nodeEnv);
     vi.stubEnv("VERCEL_ENV", vercelEnv);
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", flag);
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", flag);
     expect(check("Simulated providers")).toMatchObject({ status, summary });
   });
 });
@@ -129,9 +129,9 @@ it("never returns a configured value, only whether it is set", () => {
     NEXT_PUBLIC_SITE_URL: "https://site-value.example.com",
     SUPABASE_SERVICE_ROLE_KEY: "service-role-value",
     CRON_SECRET: "cron-value-".repeat(4),
-    DEVMACRO_EMAIL_FROM: "sender-value@example.com",
-    DEVMACRO_RESEND_API_KEY: "resend-key-value",
-    DEVMACRO_SUPER_ADMIN_EMAILS: "admin-value@example.com",
+    STACKDASH_EMAIL_FROM: "sender-value@example.com",
+    STACKDASH_RESEND_API_KEY: "resend-key-value",
+    STACKDASH_SUPER_ADMIN_EMAILS: "admin-value@example.com",
     GITHUB_APP_CLIENT_ID: "github-id-value",
     GITHUB_APP_CLIENT_SECRET: "github-secret-value",
     GITHUB_APP_PRIVATE_KEY: "github-private-key-value",

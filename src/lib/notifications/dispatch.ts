@@ -54,13 +54,13 @@ import {
  *   anyway, so one broken channel cannot hold back every later alert.
  * - digest sends the daily digest (and the weekly one on Mondays) to the members and channels that
  *   chose it, with the same delivery records.
- * - Every failed send writes one `devmacro.notification_failed` timeline event per job and target,
+ * - Every failed send writes one `stackdash.notification_failed` timeline event per job and target,
  *   with the reference id of the logged error. A channel whose failures cross the limit becomes
- *   "needs attention" and writes one `devmacro.channel_needs_attention` event.
+ *   "needs attention" and writes one `stackdash.channel_needs_attention` event.
  */
 
-export const NOTIFICATION_FAILED_TYPE_ID = "devmacro.notification_failed";
-export const CHANNEL_NEEDS_ATTENTION_TYPE_ID = "devmacro.channel_needs_attention";
+export const NOTIFICATION_FAILED_TYPE_ID = "stackdash.notification_failed";
+export const CHANNEL_NEEDS_ATTENTION_TYPE_ID = "stackdash.channel_needs_attention";
 
 // Bounds for one dispatch. Alerts beyond the first batch go out with the next tick's dispatch.
 export const DISPATCH_ALERT_LIMIT = 100;
@@ -208,7 +208,7 @@ async function sendToTarget(
 /**
  * Writes a failed delivery onto the channel: its failure count, error code, and reference id, so
  * alert settings shows the problem. A permanent failure, or the one that reaches the limit, makes
- * the channel "needs attention" and writes one `devmacro.channel_needs_attention` event.
+ * the channel "needs attention" and writes one `stackdash.channel_needs_attention` event.
  */
 async function recordChannelFailure(
   deps: NotificationDeps,
@@ -234,7 +234,7 @@ async function recordChannelFailure(
         type_id: CHANNEL_NEEDS_ATTENTION_TYPE_ID,
         severity: "critical",
         title: `The channel ${destination.name} needs attention`,
-        body: `${describeFailure(failure.code)}, so DevMacro stopped posting alerts to ${destination.name}. ${repairStep(failure.code, false)}. Reference ${referenceId}.`,
+        body: `${describeFailure(failure.code)}, so StackDash stopped posting alerts to ${destination.name}. ${repairStep(failure.code, false)}. Reference ${referenceId}.`,
         url: null,
         occurred_at: deps.now().toISOString(),
         dedupe_key: `channel_needs_attention:${destination.id}:${deps.now().toISOString()}`,
@@ -260,10 +260,10 @@ function failureEvent(input: {
       ? "the email to an owner or admin of this workspace"
       : `the channel ${target.destination.name}`;
   const next = input.willRetry
-    ? "DevMacro tries again shortly."
+    ? "StackDash tries again shortly."
     : target.kind === "email"
-      ? "DevMacro will not try this message again. Alerts stay on the alerts page."
-      : "DevMacro will not try this message again. Check the channel in alert settings.";
+      ? "StackDash will not try this message again. Alerts stay on the alerts page."
+      : "StackDash will not try this message again. Check the channel in alert settings.";
   return {
     workspace_id: input.workspace.id,
     connection_id: null,

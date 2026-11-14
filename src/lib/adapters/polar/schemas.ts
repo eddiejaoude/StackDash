@@ -14,7 +14,7 @@ const PolarEnumSchema = z.string().regex(/^[a-z0-9_]{1,64}$/, "must be a lowerca
 // Integer cents (the currency's minor units) on a single order or refund, which the timeline title
 // prints (#261). Optional: without one the title carries no amount.
 const PolarAmountMinorSchema = z.int().nonnegative().optional();
-// Polar returns lowercase ISO 4217 codes ("usd"); DevMacro stores uppercase.
+// Polar returns lowercase ISO 4217 codes ("usd"); StackDash stores uppercase.
 const PolarCurrencySchema = z
   .string()
   .regex(/^[a-z]{3}$/i, "must be a three-letter currency code")
@@ -49,11 +49,11 @@ export const OrganizationSchema = z.object({ id: PolarIdSchema, name: z.string()
 export type Organization = z.infer<typeof OrganizationSchema>;
 
 // "integer | number | null" in the reference. Currency values are in cents and may carry a
-// fraction (MRR normalizes yearly plans by twelve), so they stay numbers until DevMacro rounds once.
+// fraction (MRR normalizes yearly plans by twelve), so they stay numbers until StackDash rounds once.
 const MetricValueSchema = z.number().nonnegative().nullable().optional();
 
 /**
- * `GET /v1/metrics/`, one period per day. Only the fields DevMacro reads; a missing or null field
+ * `GET /v1/metrics/`, one period per day. Only the fields StackDash reads; a missing or null field
  * makes that metric unavailable, never zero.
  */
 export const MetricPeriodSchema = z.object({

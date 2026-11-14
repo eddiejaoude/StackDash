@@ -45,7 +45,7 @@ import { vercelProfile } from "./vercel";
  * value from `ctx.now()` and the account id.
  */
 
-export const SIMULATE_PROVIDERS_ENV = "DEVMACRO_SIMULATE_PROVIDERS";
+export const SIMULATE_PROVIDERS_ENV = "STACKDASH_SIMULATE_PROVIDERS";
 
 /**
  * True when this process simulates the live providers: the flag is exactly "1" and this is not a
@@ -119,7 +119,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
       {
         scope: SIMULATED_SCOPE,
         access: "read",
-        description: `Simulated. DevMacro makes up example ${name} data on this computer. No ${name} account is connected and nothing is read from ${name}.`,
+        description: `Simulated. StackDash makes up example ${name} data on this computer. No ${name} account is connected and nothing is read from ${name}.`,
       },
     ],
     dataCollected: real.dataCollected,

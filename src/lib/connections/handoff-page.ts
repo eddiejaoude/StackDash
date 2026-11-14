@@ -3,7 +3,7 @@ import { FAKE_AUTHORIZE_PATH } from "@/lib/adapters/fake";
 /*
  * The page the start route answers with (#40) instead of redirecting its form POST to the provider.
  * Browsers check CSP form-action on every redirect hop that follows a form submission, and a
- * provider's authorize URL can bounce through origins DevMacro cannot list. A meta refresh (and the
+ * provider's authorize URL can bounce through origins StackDash cannot list. A meta refresh (and the
  * link beside it, for a browser that ignores refresh) is a plain navigation, which form-action does
  * not govern, so the provider's hops need no entry in the app's policy.
  *
@@ -29,11 +29,11 @@ export type HandoffInput = Readonly<{
   providerName: string;
   /** The adapter's authorize URL. */
   authorizeUrl: URL;
-  /** DevMacro's own origin, where the dev-only fake provider's authorize route lives. */
+  /** StackDash's own origin, where the dev-only fake provider's authorize route lives. */
   appOrigin: string;
 }>;
 
-/** Only an https provider page, or the fake provider's authorize route on DevMacro's own origin. */
+/** Only an https provider page, or the fake provider's authorize route on StackDash's own origin. */
 function isAllowedTarget(url: URL, appOrigin: string): boolean {
   if (url.protocol === "https:") return true;
   return url.origin === appOrigin && url.pathname === FAKE_AUTHORIZE_PATH;
@@ -83,7 +83,7 @@ a:focus-visible { outline: 2px solid #ff5d3b; outline-offset: 2px; border-radius
 /**
  * The start route's success answer. next.config.ts sets Referrer-Policy on every path and Next.js
  * keeps a header the config already set, so the meta referrer tag in the page is what keeps the
- * DevMacro URL from reaching the provider; the header here covers a host that does not merge them.
+ * StackDash URL from reaching the provider; the header here covers a host that does not merge them.
  */
 export function handoffResponse(input: HandoffInput): Response {
   return new Response(handoffPage(input), {

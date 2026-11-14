@@ -5,7 +5,7 @@ import { EmailSendError, resendTransport, type EmailMessage } from "./send";
 
 // The real `resend` package against the local fake of Resend's API: no network, no real key.
 const API_KEY = "fake-test-key";
-const FROM = "DevMacro <alerts@example.com>";
+const FROM = "StackDash <alerts@example.com>";
 
 const message: EmailMessage = {
   to: "owner@example.com",
@@ -114,7 +114,7 @@ describe("resendTransport", () => {
   it.each([
     ["the subject", { subject: "Hello\r\nBcc: x@example.com" }],
     ["the recipient", { to: "owner@example.com\nBcc: x@example.com" }],
-    ["a header value", { headers: { "List-Unsubscribe": "<https://devmacro.test>\r\nBcc: x@example.com" } }],
+    ["a header value", { headers: { "List-Unsubscribe": "<https://stackdash.test>\r\nBcc: x@example.com" } }],
   ])("refuses a line break in %s before sending anything", async (_title, change) => {
     const error = await failure(transport().send({ ...message, ...change }));
     expect(error.retryable).toBe(false);

@@ -118,9 +118,9 @@ export type WorkspaceDeletionSummary = Readonly<{
 
 export type AccountDeletionPreview = Readonly<{
   workspaces: readonly WorkspaceDeletionSummary[];
-  // Providers with a connection being deleted that DevMacro cannot revoke itself.
+  // Providers with a connection being deleted that StackDash cannot revoke itself.
   manual: readonly ProviderId[];
-  // Providers DevMacro asks to revoke its access.
+  // Providers StackDash asks to revoke its access.
   revocable: readonly ProviderId[];
 }>;
 
@@ -178,7 +178,7 @@ export type AccountDeletionResult =
  * Deletes the account of `userId`, who must be the signed-in user. The plan is rebuilt here, so
  * nothing the browser sent decides what is deleted. Blocked plans change nothing.
  *
- * Every connection in a workspace being deleted is disconnected first, a few at a time: DevMacro
+ * Every connection in a workspace being deleted is disconnected first, a few at a time: StackDash
  * asks the provider to revoke access where it can (a failure is recorded, not fatal) and deletes the
  * credential. Then the auth user is deleted, and the database cascade removes the profile,
  * memberships, the workspaces only this user belonged to, and every row in them.

@@ -50,7 +50,7 @@ describe("checkAdapterDeclaration", () => {
   // The live adapters whatever the developer's shell exports: with simulation on, `getAdapter`
   // hands out the simulated twins, which are checked on their own below.
   beforeEach(() => {
-    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "");
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "");
   });
 
   afterEach(() => {
@@ -165,7 +165,7 @@ describe("checkAdapterDeclaration", () => {
       id: "example.deployments.first",
       title: "First Example Cloud deployment recorded",
       publicTitle: "First Example Cloud deployment recorded",
-      description: "Earned when DevMacro records the first successful Example Cloud deployment.",
+      description: "Earned when StackDash records the first successful Example Cloud deployment.",
       rule: { kind: "event_count", typeIds: ["example.deploy.succeeded"], count: 1 },
     };
     const withRule = (rule: AchievementRule): Achievement => ({ ...deployments, rule });

@@ -1,7 +1,7 @@
 /*
  * How to connect each MCP client to this instance (#163), for the settings page. docs/mcp.md walks
- * through the same steps with the URL as $DEVMACRO_URL. Claude Code and Cursor never get the key in
- * their snippet: they read it from DEVMACRO_API_KEY each time they connect. Claude Desktop and other
+ * through the same steps with the URL as $STACKDASH_URL. Claude Code and Cursor never get the key in
+ * their snippet: they read it from STACKDASH_API_KEY each time they connect. Claude Desktop and other
  * clients keep the key in their own configuration anyway, so their snippets carry a placeholder, or
  * the key itself right after "Create assistant key" made one (#254), shown once like the key.
  *
@@ -20,7 +20,7 @@
  * - Cursor: https://cursor.com/docs/mcp, "Config interpolation".
  */
 
-/** The MCP endpoint's path on every DevMacro instance. */
+/** The MCP endpoint's path on every StackDash instance. */
 export const MCP_ENDPOINT_PATH = "/api/mcp";
 
 export type McpClientSetup = Readonly<{
@@ -31,7 +31,7 @@ export type McpClientSetup = Readonly<{
   snippet: string;
 }>;
 
-const KEY_VARIABLE = "DEVMACRO_API_KEY";
+const KEY_VARIABLE = "STACKDASH_API_KEY";
 
 export function mcpEndpointUrl(origin: string): string {
   return new URL(MCP_ENDPOINT_PATH, origin).href;
@@ -41,7 +41,7 @@ export function mcpEndpointUrl(origin: string): string {
 export function mcpClientSetups(endpointUrl: string, apiKey: string | null): readonly McpClientSetup[] {
   const claudeDesktop = {
     mcpServers: {
-      devmacro: {
+      stackdash: {
         command: "npx",
         args: ["-y", "mcp-remote", endpointUrl, "--header", "Authorization:${AUTH_HEADER}"],
         env: { AUTH_HEADER: `Bearer ${apiKey ?? "paste-your-key-here"}` },
@@ -50,7 +50,7 @@ export function mcpClientSetups(endpointUrl: string, apiKey: string | null): rea
   };
   const cursor = {
     mcpServers: {
-      devmacro: { url: endpointUrl, headers: { Authorization: `Bearer \${env:${KEY_VARIABLE}}` } },
+      stackdash: { url: endpointUrl, headers: { Authorization: `Bearer \${env:${KEY_VARIABLE}}` } },
     },
   };
   return [
@@ -58,7 +58,7 @@ export function mcpClientSetups(endpointUrl: string, apiKey: string | null): rea
       id: "claude-code",
       name: "Claude Code",
       instructions: `Put the key in ${KEY_VARIABLE} in the environment Claude Code starts from, then run this once. Claude Code saves the variable's name, not the key. Check it with claude mcp list.`,
-      snippet: `claude mcp add --transport http devmacro ${endpointUrl} \\\n  --header 'Authorization: Bearer \${${KEY_VARIABLE}}'`,
+      snippet: `claude mcp add --transport http stackdash ${endpointUrl} \\\n  --header 'Authorization: Bearer \${${KEY_VARIABLE}}'`,
     },
     {
       id: "claude-desktop",

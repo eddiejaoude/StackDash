@@ -116,7 +116,7 @@ export default async function AdminPage({ searchParams }: PageProps<"/super-admi
       <main id="main" className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
         <PageHeader
           title="Instance overview"
-          description="How this DevMacro server is configured and how it is used. Settings show whether they are set, never their values."
+          description="How this StackDash server is configured and how it is used. Settings show whether they are set, never their values."
         />
         <Suspense fallback={<LoadingOverview />}>
           <AdminContent userId={user.id} searchParams={searchParams} />

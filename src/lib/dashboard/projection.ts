@@ -4,7 +4,7 @@
  * here is unit tested at its boundaries.
  *
  * Rules decided here, once:
- * - A projection is an estimate by DevMacro. It is shown beside verified and estimated amounts
+ * - A projection is an estimate by StackDash. It is shown beside verified and estimated amounts
  *   and never added to either.
  * - What is projected is what the dashboard counts (`countedSnapshots`): a breakdown or a day
  *   inside a longer billing window is not projected as an amount of its own, and a provider's
@@ -60,7 +60,7 @@ const DAY_MS = 86_400_000;
 
 export type UnavailableReason = "too_few_days" | "unknown_period" | "period_ended" | "period_too_short" | "period_length_unknown";
 
-/** When the projected period ends. `assumed` when DevMacro took it to be the calendar month. */
+/** When the projected period ends. `assumed` when StackDash took it to be the calendar month. */
 export type PeriodEnd = Readonly<{ at: string; assumed: boolean }>;
 
 /** One reading a day: the UTC snapshot date, the instant it was read, and the value then. */
@@ -400,11 +400,11 @@ export function projectDashboard(input: DashboardInput): DashboardProjections {
 export type ProjectionText = Readonly<{ headline: string; explanation: string }>;
 
 const REASON_TEXT: Record<UnavailableReason, string> = {
-  too_few_days: `DevMacro needs at least ${MIN_PROJECTION_DAYS} days of data in the current period to project it.`,
+  too_few_days: `StackDash needs at least ${MIN_PROJECTION_DAYS} days of data in the current period to project it.`,
   unknown_period: "The provider does not say when the current period ends.",
   period_ended: "The current period has ended.",
   period_too_short: `The period is shorter than ${MIN_PROJECTION_DAYS} days, so there is nothing to project.`,
-  period_length_unknown: "DevMacro does not know yet how long the current period lasts, so it does not project it.",
+  period_length_unknown: "StackDash does not know yet how long the current period lasts, so it does not project it.",
 };
 
 /** The reason in a few words, for one line summaries and sums. */
@@ -439,10 +439,10 @@ function basisPhrase(basis: ProjectionBasis, rate: string): string {
     basis.days === null
       ? `between ${basis.from} and ${basis.to}`
       : `over the last ${basis.days} days with data (${basis.from} to ${basis.to})`;
-  return `Calculated by DevMacro, not reported by the provider: the average daily increase ${over}, ${rate} a day, continued to the end of the period.`;
+  return `Calculated by StackDash, not reported by the provider: the average daily increase ${over}, ${rate} a day, continued to the end of the period.`;
 }
 
-const ASSUMED_NOTE = " The provider reports this period to date, so DevMacro assumes it ends with the calendar month.";
+const ASSUMED_NOTE = " The provider reports this period to date, so StackDash assumes it ends with the calendar month.";
 
 /**
  * "On track for $51.75 by 2026-11-30", with how it was calculated, or why there is none. When
@@ -456,7 +456,7 @@ export function spendProjectionText(spend: SpendProjection, partsNote?: string):
     const amounts = projection.missing < projection.of ? `${projection.missing} of the ${projection.of}` : `any of the ${projection.of}`;
     const reasons = projection.reasons.map((reason) => REASON_PHRASE[reason]).join(", ");
     const explanation = isAboutParts(projection)
-      ? `DevMacro cannot project ${amounts} amounts in this total (${reasons}), so it does not project the total.` +
+      ? `StackDash cannot project ${amounts} amounts in this total (${reasons}), so it does not project the total.` +
         (partsNote === undefined ? "" : ` ${partsNote}`)
       : REASON_TEXT[projection.reasons[0]];
     return { headline: "Projection unavailable", explanation };
@@ -464,7 +464,7 @@ export function spendProjectionText(spend: SpendProjection, partsNote?: string):
   const explanation =
     basisPhrase(projection.basis, formatMoney(Math.round(projection.basis.ratePerDay), currency)) +
     (projection.periodEnd.assumed ? ASSUMED_NOTE : "") +
-    (spend.includesEstimates ? " Includes spend estimated by DevMacro from a price list." : "") +
+    (spend.includesEstimates ? " Includes spend estimated by StackDash from a price list." : "") +
     " It is never added to the spend shown.";
   return {
     headline: `On track for ${formatMoney(projectedMinor(projection), currency)} by ${endPhrase(projection)}`,
@@ -472,11 +472,11 @@ export function spendProjectionText(spend: SpendProjection, partsNote?: string):
   };
 }
 
-/** One line for the daily summary: "Spending on track for $51.75 by 2026-11-30 (estimate by DevMacro)". */
+/** One line for the daily summary: "Spending on track for $51.75 by 2026-11-30 (estimate by StackDash)". */
 export function spendProjectionLine(spend: SpendProjection): string {
   const { projection, currency } = spend;
   if (projection.status === "projected") {
-    return `Spending on track for ${formatMoney(projectedMinor(projection), currency)} by ${endPhrase(projection)} (estimate by DevMacro)`;
+    return `Spending on track for ${formatMoney(projectedMinor(projection), currency)} by ${endPhrase(projection)} (estimate by StackDash)`;
   }
   const amounts = projection.missing < projection.of ? `${projection.missing} of ${projection.of}` : `${projection.of}`;
   const reasons = projection.reasons.map((reason) => REASON_PHRASE[reason]).join(", ");
@@ -489,7 +489,7 @@ export function spendProjectionLine(spend: SpendProjection): string {
  * null: a quota that lasts needs no line.
  */
 export function quotaProjectionLine({ label, quota }: AllowanceProjection): string | null {
-  if (quota.status === "runs_out") return `${label} runs out around ${formatUtcDate(quota.at)} (estimate by DevMacro)`;
+  if (quota.status === "runs_out") return `${label} runs out around ${formatUtcDate(quota.at)} (estimate by StackDash)`;
   if (quota.status === "used_up") return `${label} used up`;
   return null;
 }

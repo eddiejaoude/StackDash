@@ -4,7 +4,7 @@
  * shows, the hosted instance's operator.
  */
 export const E2E_OPERATOR = {
-  DEVMACRO_OPERATOR_NAME: "Example Operator Ltd",
-  DEVMACRO_OPERATOR_EMAIL: "privacy@example.com",
-  DEVMACRO_GOVERNING_LAW: "England and Wales",
+  STACKDASH_OPERATOR_NAME: "Example Operator Ltd",
+  STACKDASH_OPERATOR_EMAIL: "privacy@example.com",
+  STACKDASH_GOVERNING_LAW: "England and Wales",
 } as const;

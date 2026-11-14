@@ -3,7 +3,7 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixture
 
 /*
  * A real connection while the live providers are simulated (#131): the web server runs with
- * DEVMACRO_SIMULATE_PROVIDERS=1 (playwright.config.ts), but whether a connection is simulated is
+ * STACKDASH_SIMULATE_PROVIDERS=1 (playwright.config.ts), but whether a connection is simulated is
  * recorded on the connection, so one made with a real app is never labeled "Simulated" and cannot
  * be reconnected through the simulator. It never runs the job tick, so it stays in the `chromium`
  * project beside the other specs; specs that tick live in `instance-wide`.

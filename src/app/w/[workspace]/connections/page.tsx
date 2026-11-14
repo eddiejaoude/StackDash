@@ -88,7 +88,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
           <p>The connection, its credential, and its history are deleted.</p>
           {first(query.revoke) === "manual" ? (
             <p className="mt-1">
-              DevMacro could not revoke access at {PROVIDER_NAMES[deleted.data]}. Remove DevMacro&apos;s access in your{" "}
+              StackDash could not revoke access at {PROVIDER_NAMES[deleted.data]}. Remove StackDash&apos;s access in your{" "}
               {PROVIDER_NAMES[deleted.data]} account settings.
             </p>
           ) : null}
@@ -142,7 +142,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
           Add a provider
         </h2>
         <p className="mt-1 text-sm text-muted">
-          Each provider shows exactly what DevMacro asks for before you leave for its consent screen. Connect
+          Each provider shows exactly what StackDash asks for before you leave for its consent screen. Connect
           the same provider again to add another account; each one stays separate.
         </p>
         <ul aria-label="Providers" className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -231,7 +231,7 @@ function CatalogCard({
   const reason = !canConnect
     ? actionDeniedReason("manage_connections")
     : !configured
-      ? `Not set up on this instance. Ask the person who runs this DevMacro instance to register the ${adapter.displayName} app.`
+      ? `Not set up on this instance. Ask the person who runs this StackDash instance to register the ${adapter.displayName} app.`
       : null;
   // Visible text and the connect link's description, so the reason never lives in a tooltip only.
   const betaReasonId = adapter.beta === undefined ? undefined : `catalog-${adapter.id}-beta-reason`;

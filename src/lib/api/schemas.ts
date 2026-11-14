@@ -26,7 +26,7 @@ const date = z.iso.date();
 const ProviderSchema = z.enum(Enums.provider_id).meta({ description: "Provider id, for example github or vercel." });
 const ProvenanceSchema = z.enum(["verified", "estimated"]).meta({
   description:
-    "verified: reported by the provider. estimated: calculated by DevMacro from a price list. The same labels the dashboard shows.",
+    "verified: reported by the provider. estimated: calculated by StackDash from a price list. The same labels the dashboard shows.",
 });
 const SimulatedSchema = z.boolean().meta({
   description: "True when the provider simulator made the connection, so the data is made up.",
@@ -148,7 +148,7 @@ export const EventSchema = z
     body: z.string().nullable(),
     url: z.string().nullable(),
     occurred_at: timestamp,
-    provider: ProviderSchema.nullable().meta({ description: "Null for events DevMacro creates itself." }),
+    provider: ProviderSchema.nullable().meta({ description: "Null for events StackDash creates itself." }),
     connection_id: id.nullable(),
     account_id: id.nullable(),
     account_name: z.string().nullable(),

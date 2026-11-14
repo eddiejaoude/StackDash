@@ -6,7 +6,7 @@ import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace }
 
 /*
  * DigitalOcean (#116), end to end. The web server simulates the live providers
- * (DEVMACRO_SIMULATE_PROVIDERS=1 in playwright.config.ts), so DigitalOcean connects from the catalog
+ * (STACKDASH_SIMULATE_PROVIDERS=1 in playwright.config.ts), so DigitalOcean connects from the catalog
  * through the dev consent screen without an OAuth app. Synced data is seeded rather than ticked:
  * the job tick is instance-wide and lives in the `instance-wide` project, so this spec stays in
  * `chromium`. The adapter's sync itself is covered by src/lib/adapters/digitalocean/index.test.ts
@@ -29,7 +29,7 @@ ownerTest.describe("DigitalOcean", () => {
       await page.keyboard.press("Enter");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect DigitalOcean");
       const permissions = page.getByRole("region", { name: "Permissions DigitalOcean will ask you to grant" });
-      await expect(permissions.getByText(/^Simulated\. DevMacro makes up example DigitalOcean data/)).toBeVisible();
+      await expect(permissions.getByText(/^Simulated\. StackDash makes up example DigitalOcean data/)).toBeVisible();
       await expectNoAxeViolations(page);
 
       await page.getByRole("button", { name: "Continue to DigitalOcean" }).focus();

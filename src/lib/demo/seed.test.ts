@@ -121,10 +121,10 @@ describe("runDemoCommand", () => {
 
   it("refuses with the refusal message, exit code 2, and touches nothing else", async () => {
     const { command: demo, calls, out, err } = command({
-      refusal: () => "Provider simulation is off. Set DEVMACRO_SIMULATE_PROVIDERS=1 in .env.local and run the command again.",
+      refusal: () => "Provider simulation is off. Set STACKDASH_SIMULATE_PROVIDERS=1 in .env.local and run the command again.",
     });
     expect(await runDemoCommand([], demo)).toBe(2);
-    expect(err).toEqual(["Demo refused. Provider simulation is off. Set DEVMACRO_SIMULATE_PROVIDERS=1 in .env.local and run the command again."]);
+    expect(err).toEqual(["Demo refused. Provider simulation is off. Set STACKDASH_SIMULATE_PROVIDERS=1 in .env.local and run the command again."]);
     expect(calls).toEqual([]);
     expect(out).toEqual([]);
   });

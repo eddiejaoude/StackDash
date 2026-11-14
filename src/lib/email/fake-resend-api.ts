@@ -6,7 +6,7 @@ import { z } from "zod";
 /*
  * A stand-in for Resend's send email endpoint (#244), for local development, the unit tests of the
  * transport, and the e2e run: the app talks to it through the real `resend` package with
- * DEVMACRO_RESEND_API_URL set to its origin, so nothing leaves this computer and no real key is
+ * STACKDASH_RESEND_API_URL set to its origin, so nothing leaves this computer and no real key is
  * needed. Started by `npm run email:fake` (scripts/fake-resend-api.ts) and by Playwright.
  *
  * What it mirrors from https://resend.com/docs/api-reference/emails/send-email and
@@ -64,7 +64,7 @@ const failureSchema = z.union([
 export type FakeFailure = z.infer<typeof failureSchema>;
 
 export type FakeResendApi = Readonly<{
-  /** The origin to set as DEVMACRO_RESEND_API_URL, such as http://127.0.0.1:55430. */
+  /** The origin to set as STACKDASH_RESEND_API_URL, such as http://127.0.0.1:55430. */
   url: string;
   emails(): readonly FakeEmail[];
   /** Queues one answer for the next `POST /emails`, the same as `POST /fake/failures`. */

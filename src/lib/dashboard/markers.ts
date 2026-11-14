@@ -6,7 +6,7 @@
  * Rules decided here, once:
  * - Buckets are the trend buckets (`trendBuckets`): UTC days or UTC months, counted per bucket in
  *   the database. Buckets outside the chart's window are dropped, never moved to an edge bucket.
- * - A provider's events mark that provider's charts only. DevMacro's own events (triggered
+ * - A provider's events mark that provider's charts only. StackDash's own events (triggered
  *   alerts) carry no provider and mark every chart (decided on #168).
  * - Counts are filtered by the dashboard scope the same way the timeline filters, so a marker's
  *   count is what its timeline link lists. The link opens the bucket's dates, which the timeline
@@ -33,8 +33,8 @@ type CategoryInfo = Readonly<{
   one: string;
   many: string;
   typeIds: readonly string[];
-  /** DevMacro's own events have no provider, so their links never filter by one. */
-  owner: "provider" | "devmacro";
+  /** StackDash's own events have no provider, so their links never filter by one. */
+  owner: "provider" | "stackdash";
 }>;
 
 const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
@@ -97,7 +97,7 @@ const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
     one: "triggered alert",
     many: "triggered alerts",
     typeIds: [ALERT_TRIGGERED_TYPE_ID],
-    owner: "devmacro",
+    owner: "stackdash",
   },
 };
 
@@ -137,7 +137,7 @@ export function toggleHidden(hidden: readonly MarkerCategory[], category: Marker
 
 // Counting.
 
-// Generated function types mark every returned column non-null; `provider` is null for DevMacro's
+// Generated function types mark every returned column non-null; `provider` is null for StackDash's
 // own events.
 export type EventCountRow = Readonly<
   Pick<Database["public"]["Functions"]["activity_event_counts"]["Returns"][number], "bucket_start" | "type_id" | "event_count"> & {
@@ -156,7 +156,7 @@ export function eventCountBucket(granularity: TrendGranularity): "day" | "month"
 }
 
 export type EventBucketCount = Readonly<{
-  /** null for DevMacro's own events. */
+  /** null for StackDash's own events. */
   provider: ProviderId | null;
   category: MarkerCategory;
   /** A trend bucket: `YYYY-MM-DD` or `YYYY-MM`, UTC. */

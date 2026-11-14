@@ -46,7 +46,7 @@ const MAX_URL_LENGTH = 2000;
 
 /*
  * Addresses a webhook may not reach on a production instance unless
- * DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1: loopback, private, shared (carrier-grade NAT), link-local
+ * STACKDASH_ALLOW_PRIVATE_WEBHOOKS=1: loopback, private, shared (carrier-grade NAT), link-local
  * (cloud metadata), unique and site local, multicast, reserved, and documentation ranges, from the
  * IANA special-purpose registries (checked 2026-11-05):
  * https://www.iana.org/assignments/iana-ipv4-special-registry and
@@ -121,7 +121,7 @@ export type UrlPolicy = Readonly<{ allowPrivate: boolean }>;
 
 /** Plain http, and private hosts, are for local runs and self-hosted networks only. */
 export function urlPolicyFromEnv(env: Readonly<Record<string, string | undefined>> = process.env): UrlPolicy {
-  return { allowPrivate: env.NODE_ENV !== "production" || env.DEVMACRO_ALLOW_PRIVATE_WEBHOOKS === "1" };
+  return { allowPrivate: env.NODE_ENV !== "production" || env.STACKDASH_ALLOW_PRIVATE_WEBHOOKS === "1" };
 }
 
 export type ParsedChannelUrl = { ok: true; url: string; host: string } | { ok: false; message: string };
@@ -194,7 +194,7 @@ export function discordPayload(notice: Notice): Record<string, unknown> {
   }));
   embeds.push({
     title: clip(notice.subject, 256),
-    description: clip([notice.intro, rest > 0 ? `${rest} more in DevMacro.` : "", links].filter((part) => part !== "").join("\n\n"), DISCORD_DESCRIPTION_MAX),
+    description: clip([notice.intro, rest > 0 ? `${rest} more in StackDash.` : "", links].filter((part) => part !== "").join("\n\n"), DISCORD_DESCRIPTION_MAX),
     color: DISCORD_COLOR.info,
     fields: [],
   });
@@ -243,13 +243,13 @@ export function slackPayload(notice: Notice): Record<string, unknown> {
     }
   }
   const links = notice.links.map((link) => `<${link.url}|${slackEscape(link.label)}>`);
-  if (hidden > 0) links.unshift(`${hidden} more in DevMacro.`);
+  if (hidden > 0) links.unshift(`${hidden} more in StackDash.`);
   blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: clip(links.join(" | "), 3000) }] });
   // The fallback `text` is mrkdwn too (it is what notifications show), so it is escaped as well.
   return { text: clip(slackEscape(notice.subject), 3000), blocks };
 }
 
-const WEBHOOK_TYPES = { alerts: "devmacro.alerts", digest: "devmacro.digest", test: "devmacro.test" } as const;
+const WEBHOOK_TYPES = { alerts: "stackdash.alerts", digest: "stackdash.digest", test: "stackdash.test" } as const;
 
 /** The generic webhook body: the same sections, plus the alerts as data for whoever receives it. */
 export function webhookPayload(notice: Notice, sentAt: Date): Record<string, unknown> {
@@ -316,7 +316,7 @@ export type PostDeps = Readonly<{
   random: () => number;
   now: () => Date;
   newId: () => string;
-  /** Read when the message is sent, so removing DEVMACRO_ALLOW_PRIVATE_WEBHOOKS takes effect at once. */
+  /** Read when the message is sent, so removing STACKDASH_ALLOW_PRIVATE_WEBHOOKS takes effect at once. */
   policy: UrlPolicy;
 }>;
 
@@ -353,7 +353,7 @@ export function channelRequest(
   const now = deps.now();
   const payload = kind === "discord" ? discordPayload(notice) : kind === "slack" ? slackPayload(notice) : webhookPayload(notice, now);
   const body = JSON.stringify(payload);
-  const headers: Record<string, string> = { "Content-Type": "application/json", "User-Agent": "DevMacro" };
+  const headers: Record<string, string> = { "Content-Type": "application/json", "User-Agent": "StackDash" };
   if (kind === "webhook" && secret.signingSecret !== undefined) {
     const id = `msg_${deps.newId()}`;
     const timestamp = Math.floor(now.getTime() / 1000);
@@ -367,7 +367,7 @@ export function channelRequest(
 /**
  * Posts with up to POST_MAX_ATTEMPTS tries (`maxAttempts` lowers it, for a test message that
  * should answer with the first result). The URL rules are applied again first: a URL saved while
- * DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1 is no longer posted once the flag is gone. 429 waits for
+ * STACKDASH_ALLOW_PRIVATE_WEBHOOKS=1 is no longer posted once the flag is gone. 429 waits for
  * Retry-After (when short enough) and 5xx, timeouts, and network errors back off with jitter; both
  * are retryable later when the tries run out. Any other 4xx, any redirect (never followed, so a
  * webhook cannot bounce the request to another host), and a host that resolves to a private
@@ -517,14 +517,14 @@ export const SECRET_MISSING_CODE = "secret_missing";
 /** Plain words for a failure code, for the timeline and the channel's status line. */
 export function describeFailure(code: string): string {
   if (code === SECRET_MISSING_CODE) return "The webhook URL can no longer be read";
-  if (code === "rate_limited") return "The service kept asking DevMacro to slow down";
+  if (code === "rate_limited") return "The service kept asking StackDash to slow down";
   if (code === "timeout") return "The service did not answer in time";
-  if (code === "network_error") return "DevMacro could not reach the service";
+  if (code === "network_error") return "StackDash could not reach the service";
   if (code === "private_address") return "The webhook URL leads to a private network address, which this instance does not allow";
   if (code === "url_not_allowed") return "This instance no longer allows the webhook URL";
   if (code === "http_404" || code === "http_410") return "The webhook no longer exists, or its channel was archived";
   if (code === "http_401" || code === "http_403") return "The service refused the webhook";
-  if (/^http_3\d\d$/.test(code)) return "The webhook URL redirects somewhere else, which DevMacro does not follow";
+  if (/^http_3\d\d$/.test(code)) return "The webhook URL redirects somewhere else, which StackDash does not follow";
   if (/^http_5\d\d$/.test(code)) return "The service had an error";
   return "The service rejected the message";
 }

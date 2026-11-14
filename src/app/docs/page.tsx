@@ -4,7 +4,7 @@ import Link from "next/link";
 import { DOCS_ROUTE, groupDocs, listDocs, type DocVerification } from "@/lib/docs";
 import { socialMetadata } from "@/lib/site-metadata";
 
-const intro = "How to use DevMacro, what it reads from each provider, how to run it yourself, and how its data is stored.";
+const intro = "How to use StackDash, what it reads from each provider, how to run it yourself, and how its data is stored.";
 
 export const metadata: Metadata = {
   title: "Docs",

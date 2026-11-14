@@ -3,20 +3,20 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 
 /*
- * API key format and hashing (#162), following BackTalk's token storage: a key is "dmk_" plus 32
+ * API key format and hashing (#162), following BackTalk's token storage: a key is "sd_" plus 32
  * random bytes in base64url, shown to its creator once and never stored. The database keeps the
  * SHA-256 hex digest (the lookup key) and a display prefix. A plain digest is enough here because
  * the secret is 256 random bits: there is nothing to guess, so a slow password hash would only add
  * latency to every request.
  */
 
-export const API_KEY_PREFIX = "dmk_";
+export const API_KEY_PREFIX = "sd_";
 
 const SECRET_BYTES = 32;
-// "dmk_" plus the first 8 characters of the secret: tells keys apart in a list, cannot authenticate.
+// "sd_" plus the first 8 characters of the secret: tells keys apart in a list, cannot authenticate.
 const DISPLAY_PREFIX_LENGTH = API_KEY_PREFIX.length + 8;
 // 32 bytes are 43 base64url characters without padding.
-const API_KEY_PATTERN = /^dmk_[A-Za-z0-9_-]{43}$/;
+const API_KEY_PATTERN = /^sd_[A-Za-z0-9_-]{43}$/;
 
 export type GeneratedApiKey = Readonly<{
   /** The plaintext key. Show it once, then let it go: it is never logged or stored. */
@@ -36,7 +36,7 @@ export function generateApiKey(): GeneratedApiKey {
 }
 
 /**
- * The key from an `Authorization: Bearer dmk_...` header, or null when the header is missing or
+ * The key from an `Authorization: Bearer sd_...` header, or null when the header is missing or
  * holds anything else. A wrong shape is refused here, before any database lookup.
  */
 export function bearerApiKey(authorization: string | null): string | null {

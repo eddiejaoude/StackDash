@@ -5,16 +5,16 @@ import { digestPeriods, type DeliveryAlert } from "./model";
 import { alertNotice, digestNotice, testNotice, type DigestContent, type Notice, type WorkspaceLinks } from "./notice";
 
 const links: WorkspaceLinks = {
-  alerts: "https://devmacro.test/w/abc/alerts",
-  connections: "https://devmacro.test/w/abc/connections",
-  timeline: "https://devmacro.test/w/abc/timeline",
+  alerts: "https://stackdash.test/w/abc/alerts",
+  connections: "https://stackdash.test/w/abc/connections",
+  timeline: "https://stackdash.test/w/abc/timeline",
 };
 
 const footer: EmailFooter = {
   reason: "You get this because you are an owner or admin of Acme and your alert emails are set to each alert as it happens.",
-  preferencesUrl: "https://devmacro.test/w/abc/alerts/settings#alert-emails",
-  unsubscribePageUrl: "https://devmacro.test/unsubscribe?token=t",
-  oneClickUrl: "https://devmacro.test/api/notifications/unsubscribe?token=t",
+  preferencesUrl: "https://stackdash.test/w/abc/alerts/settings#alert-emails",
+  unsubscribePageUrl: "https://stackdash.test/unsubscribe?token=t",
+  oneClickUrl: "https://stackdash.test/api/notifications/unsubscribe?token=t",
 };
 
 function alert(fields: Partial<DeliveryAlert> = {}): DeliveryAlert {
@@ -79,7 +79,7 @@ describe("alert email", () => {
     const email = renderNoticeEmail(alertNotice({ workspaceName: "Acme", alerts: [alert()], links }), footer);
     expect(email.subject).toBe("Alert in Acme: Example provider requests passed 90 percent of the allowance");
     for (const line of [
-      "A threshold you set in DevMacro for Acme was crossed.",
+      "A threshold you set in StackDash for Acme was crossed.",
       "at 104 percent of the allowance (104,000 requests of 100,000 requests)",
       "Severity: Critical",
       "Provider: Example provider",
@@ -138,7 +138,7 @@ describe("digest email", () => {
       "Example (Acme): Requests this month (Critical)",
       "104% used, 104,000 requests of 100,000 requests.",
       "Spend this billing period",
-      "$123.45 reported by the provider, and $300.00 estimated by DevMacro.",
+      "$123.45 reported by the provider, and $300.00 estimated by StackDash.",
       "Billing period: 2026-11-01 to 2026-11-30",
       "4 deployments, 1 signup, 2 star events, 0 payments",
     ]) {

@@ -118,7 +118,7 @@ describe("allowanceResetEvents", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      type_id: "devmacro.allowance_reset",
+      type_id: "stackdash.allowance_reset",
       provider: null,
       occurred_at: "2026-11-01T00:00:00.000Z",
       dedupe_key: "allowance_reset:acct-row-1:fake.requests.included:2026-11-01T00:00:00.000Z",

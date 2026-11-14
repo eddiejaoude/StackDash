@@ -115,7 +115,7 @@ async function ConnectionContent({
           className="mt-6 rounded-xl border border-warning/50 bg-panel px-5 py-4 text-sm"
         >
           <h2 id="attention-title" className="font-semibold text-warning">
-            {providerName} did not grant every permission DevMacro needs
+            {providerName} did not grant every permission StackDash needs
           </h2>
           <p className="mt-1 leading-6 text-muted">
             Missing: <span className="font-medium text-foreground">{connection.missing_scopes.join(", ")}</span>. The

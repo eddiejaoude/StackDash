@@ -10,12 +10,12 @@ import { loadOAuthClient } from "@/lib/adapters/registry";
 import { callbackRedirectUri, connectOrigin } from "@/lib/connections/oauth-state";
 import { log } from "@/lib/log/logger";
 
-const NOT_SET_UP = "PostHog is not set up on this DevMacro instance.";
+const NOT_SET_UP = "PostHog is not set up on this StackDash instance.";
 
 /**
  * PostHog's client ID metadata document (#115, docs/providers/posthog.md, Self-hosted registration).
  * POSTHOG_OAUTH_CLIENT_ID is this route's own URL; PostHog fetches it, unauthenticated and without
- * following redirects, the first time someone authorizes DevMacro and again when its cache expires.
+ * following redirects, the first time someone authorizes StackDash and again when its cache expires.
  * Public by design: it holds only what PostHog's consent screen shows and where to send the user
  * back. `request.url` is read first, which makes this a request-time handler (Route Handlers, "With
  * Cache Components"), so the environment is read when PostHog asks, never baked in at build time.

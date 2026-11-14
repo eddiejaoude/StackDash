@@ -10,7 +10,7 @@ import {
   SigningKeyError,
 } from "./client-auth";
 
-const CLIENT_ID = "https://devmacro.example.com/oauth/posthog/client-metadata";
+const CLIENT_ID = "https://stackdash.example.com/oauth/posthog/client-metadata";
 const NOW = new Date("2026-11-05T09:00:00.000Z");
 
 const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -102,21 +102,21 @@ describe("createClientAssertion", () => {
 describe("clientMetadataDocument", () => {
   const document = clientMetadataDocument({
     clientId: CLIENT_ID,
-    origin: "https://devmacro.example.com",
-    redirectUri: "https://devmacro.example.com/api/connections/posthog/callback",
+    origin: "https://stackdash.example.com",
+    redirectUri: "https://stackdash.example.com/api/connections/posthog/callback",
     scopes: ["billing:read", "organization:read"],
   });
 
   it("names the client id, callback, JWKS, private_key_jwt, and the scope ceiling", () => {
     expect(document).toEqual({
       client_id: CLIENT_ID,
-      client_name: "DevMacro",
-      client_uri: "https://devmacro.example.com",
-      redirect_uris: ["https://devmacro.example.com/api/connections/posthog/callback"],
+      client_name: "StackDash",
+      client_uri: "https://stackdash.example.com",
+      redirect_uris: ["https://stackdash.example.com/api/connections/posthog/callback"],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "private_key_jwt",
-      jwks_uri: `https://devmacro.example.com${JWKS_PATH}`,
+      jwks_uri: `https://stackdash.example.com${JWKS_PATH}`,
       "com.posthog": { scopes: ["billing:read", "organization:read"] },
     });
   });

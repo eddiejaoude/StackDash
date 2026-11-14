@@ -14,7 +14,7 @@ import { logError } from "@/lib/log/logger";
 export async function GET() {
   await connection();
   const client = loadOAuthClient(postHogAdapter);
-  if (client === null) return new NextResponse("PostHog is not set up on this DevMacro instance.", { status: 404 });
+  if (client === null) return new NextResponse("PostHog is not set up on this StackDash instance.", { status: 404 });
 
   try {
     const jwks = publicJwks(loadSigningKey(client.clientSecret.reveal()));
@@ -22,7 +22,7 @@ export async function GET() {
   } catch (error) {
     if (!(error instanceof SigningKeyError)) throw error;
     const ref = logError("posthog.jwks.invalid_key", error);
-    return new NextResponse(`PostHog is not set up correctly on this DevMacro instance. Reference: ${ref}`, {
+    return new NextResponse(`PostHog is not set up correctly on this StackDash instance. Reference: ${ref}`, {
       status: 500,
     });
   }

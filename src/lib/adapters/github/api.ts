@@ -13,7 +13,7 @@ import {
 
 export const API_ORIGIN = "https://api.github.com";
 const API_VERSION = "2026-03-10";
-const USER_AGENT = "DevMacro";
+const USER_AGENT = "StackDash";
 
 // Keys in `OAuthClient.extra`, mapped to their environment variables in the adapter descriptor.
 export const extraKeys = {

@@ -23,7 +23,7 @@ import user from "./fixtures/user.json"; // https://docs.gitlab.com/api/users/ (
 const NOW = new Date("2026-11-05T12:00:00Z");
 const NAMESPACE_ID = "2";
 const PROJECT_ID = 9;
-const REDIRECT_URI = "https://devmacro.example.com/api/connections/gitlab/callback";
+const REDIRECT_URI = "https://stackdash.example.com/api/connections/gitlab/callback";
 
 type Recorded = Readonly<{ method: string; url: URL; body: string | undefined }>;
 type Handler = (request: Recorded) => Response;

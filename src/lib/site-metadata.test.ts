@@ -5,7 +5,7 @@ import { site } from "@/lib/site";
 
 import { LANDING_TITLE, robotsRules, ROBOTS_DISALLOW, SITE_IMAGE, siteMetadataBase, sitemapEntries, socialMetadata } from "./site-metadata";
 
-const ORIGIN = "https://devmacro.example";
+const ORIGIN = "https://stackdash.example";
 const DOC_PATHS = ["/docs/providers/vercel", "/docs/operations/deploy"];
 const PROJECT_PAGE = { path: "/@acme/acme-web", lastModified: new Date("2026-11-01T09:00:00Z") };
 const LEGAL_PAGES = [
@@ -88,7 +88,7 @@ describe("siteMetadataBase", () => {
 });
 
 describe("socialMetadata", () => {
-  const page = { title: "Vercel", description: "DevMacro reads deployments from Vercel.", path: "/docs/providers/vercel" };
+  const page = { title: "Vercel", description: "StackDash reads deployments from Vercel.", path: "/docs/providers/vercel" };
 
   it("gives a page its own canonical address, cards, and the site image when the site URL is set", () => {
     expect(socialMetadata(page, ORIGIN)).toEqual({
