@@ -14,6 +14,10 @@
   --success: #3ecf8e;
   --warning: #f5a623;
   --danger: #ef4444;
+  /* Achievements (#413): gold on a tinted fill, so the pill differs from the outlined warning one
+     by shape as well as hue. Over 10:1 against --panel-raised. */
+  --gold: #f4cf5d;
+  --gold-soft: rgba(244, 207, 93, 0.14);
   /* Activity heatmap scale (#414): panel grey to coral, rising in lightness as well as hue, so the
      steps still read in grayscale. */
   --heat-0: #1c1c21;
@@ -36,6 +40,8 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
   --color-heat-0: var(--heat-0);
   --color-heat-1: var(--heat-1);
   --color-heat-2: var(--heat-2);
@@ -355,6 +361,10 @@ summary {
 
 .feed-arrival[data-severity="Success"] {
   --flash: var(--success);
+}
+
+.feed-arrival[data-severity="Achievement"] {
+  --flash: var(--gold);
 }
 
 @keyframes live-pulse {

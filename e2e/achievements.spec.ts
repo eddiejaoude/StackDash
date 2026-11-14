@@ -228,10 +228,12 @@ ownerTest.describe("achievements as the owner", () => {
       const projectId = await seedAchievements(workspace);
       await page.goto(`/w/${workspace.slug}/timeline`);
 
-      // The label is words beside the private title, not part of it and not color alone.
+      // The label is words beside the private title, not part of it and not color alone. The row
+      // names the provider that earned it, whose logo it shows, and its pill says Achievement.
       const row = entry(page, "10 Vercel deployments recorded");
       await expect(row).toContainText("Achievement earned");
-      await expect(row).toContainText("DevMacro");
+      await expect(row.getByText("Vercel", { exact: true })).toBeVisible();
+      await expect(row.getByText("Achievement", { exact: true })).toBeVisible();
 
       const inspector = await openEntry(page, "10 Vercel deployments recorded");
       await expect(inspector).toContainText("Achievement earned");

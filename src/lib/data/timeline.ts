@@ -5,6 +5,7 @@ import { cache } from "react";
 import { ACHIEVEMENT_EARNED_TYPE_ID, parseAchievementEventDedupeKey } from "@/lib/achievements/events";
 import type { AchievementRef } from "@/lib/achievements/private";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
 import { projectSelection, timelineScope, type ScopeFilters, type TimelineScope } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -18,6 +19,7 @@ import {
   type TimelineCursor,
   type TimelineTimeRange,
 } from "@/lib/timeline/query";
+import { eventEmoji } from "@/lib/timeline/event-emoji";
 
 type ActivityEventRow = Database["public"]["Tables"]["activity_events"]["Row"];
 
@@ -44,6 +46,13 @@ export type TimelineEvent = Pick<
    * its dedupe key: the event row has no project column, and its `url` holds only https links out.
    */
   achievement: AchievementRef | null;
+  /**
+   * The logo the row shows: the event's provider, or for an achievement the provider that earned it
+   * (its id is adapter-scoped, `vercel.deployments.10`). Null is DevMacro's own empty frame.
+   */
+  markProvider: ProviderId | null;
+  /** The emoji in the corner of that logo (`eventEmoji`). */
+  emoji: string;
 };
 
 export type TimelineFilters = {
@@ -71,21 +80,29 @@ export type TimelinePage = {
 const EVENT_COLUMNS = "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, dedupe_key, external_accounts(display_name), connections(display_name, granted_scopes)";
 
 // The shape EVENT_COLUMNS selects; the embeds are many-to-one, so each is one row or none.
-type EventRow = Pick<ActivityEventRow, Exclude<keyof TimelineEvent, "accountName" | "connectionName" | "simulated" | "achievement"> | "dedupe_key"> &
+type EventRow = Pick<ActivityEventRow, Exclude<keyof TimelineEvent, "accountName" | "connectionName" | "simulated" | "achievement" | "markProvider" | "emoji"> | "dedupe_key"> &
   Readonly<{
     external_accounts: Readonly<{ display_name: string }> | null;
     connections: Readonly<{ display_name: string; granted_scopes: readonly string[] }> | null;
   }>;
 
 function timelineEvent({ external_accounts, connections, dedupe_key, ...event }: EventRow): TimelineEvent {
+  // Only DevMacro writes this type, so a provider's event can never pass for an achievement.
+  const achievement = event.type_id === ACHIEVEMENT_EARNED_TYPE_ID && event.provider === null ? parseAchievementEventDedupeKey(dedupe_key) : null;
   return {
     ...event,
     accountName: external_accounts?.display_name ?? null,
     connectionName: connections?.display_name ?? null,
     simulated: connections !== null && isSimulatedConnection(connections),
-    // Only DevMacro writes this type, so a provider's event can never pass for an achievement.
-    achievement: event.type_id === ACHIEVEMENT_EARNED_TYPE_ID && event.provider === null ? parseAchievementEventDedupeKey(dedupe_key) : null,
+    achievement,
+    markProvider: achievement === null ? event.provider : achievementProvider(achievement.achievementId),
+    emoji: eventEmoji(event.type_id),
   };
+}
+
+function achievementProvider(achievementId: string): ProviderId | null {
+  const parsed = ProviderIdSchema.safeParse(achievementId.split(".")[0]);
+  return parsed.success ? parsed.data : null;
 }
 
 /** A shared event link can point outside the loaded page, but never outside this workspace. */

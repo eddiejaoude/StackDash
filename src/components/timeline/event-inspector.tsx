@@ -230,7 +230,7 @@ function EventDetails({ event, href, achievementActions }: { event: InspectorEve
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [manualLink, setManualLink] = useState<string | null>(null);
   const linkId = useId();
-  const provider = providerName(event.provider);
+  const provider = providerName(event.markProvider);
   const source = event.accountName ?? event.connectionName;
 
   async function copyLink() {
@@ -249,9 +249,9 @@ function EventDetails({ event, href, achievementActions }: { event: InspectorEve
   return (
     <div className="mt-6 space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <ProviderMark provider={event.provider} size="sm" />
+        <ProviderMark provider={event.markProvider} emoji={event.emoji} size="sm" />
         <span className="text-sm">{provider}</span>
-        <SeverityBadge severity={severityBadge(event.severity)} />
+        <SeverityBadge severity={event.achievement === null ? severityBadge(event.severity) : "Achievement"} />
         {event.type_id === ACHIEVEMENT_EARNED_TYPE_ID ? <AchievementEarnedLabel /> : null}
         {event.simulated ? <SimulatedBadge /> : null}
       </div>

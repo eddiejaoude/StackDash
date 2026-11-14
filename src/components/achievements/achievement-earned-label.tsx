@@ -4,7 +4,7 @@
  */
 export function AchievementEarnedLabel() {
   return (
-    <span className="whitespace-nowrap rounded-full border border-success px-2 py-0.5 text-xs font-medium text-success">
+    <span className="whitespace-nowrap rounded-full border border-gold/50 bg-gold-soft px-2 py-0.5 text-xs font-medium text-gold">
       Achievement earned
     </span>
   );

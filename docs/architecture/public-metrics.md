@@ -251,6 +251,7 @@ A project earns permanent achievements from its providers' data (#413), such as 
 ### Timeline entries
 
 - Earning an achievement writes one `devmacro.achievement_earned` event to the workspace timeline, with the visible label "Achievement earned", the private title, severity success, and the earned date as its time, so a backfill lands in its place in history rather than at the top. Its dedupe key `achievement:<project id>:<achievement id>` stops a repeated evaluation from writing it twice.
+- The row shows the logo and name of the provider that earned it, read from the adapter-scoped id, with 🏆 in the logo's corner, and its pill says "Achievement" in gold where other success events say "Success". Every other row carries its own type's emoji in the same corner (`EventType.emoji`, or DevMacro's own in `src/lib/timeline/event-emoji.ts`).
 - The entry links to the achievement in the project's Achievements section. Share opens the share dialog when the achievement is published; when it is not, owners and admins see Publish instead and other members see neither. Members can hide the event type like any other.
 - The timeline is private, so unpublishing keeps the entry. Deleting the project or its workspace deletes the achievements, their publications, and these entries.
 
@@ -259,7 +260,7 @@ A project earns permanent achievements from its providers' data (#413), such as 
 | Surface | What it shows |
 |---|---|
 | Project page, Achievements | Each published achievement, oldest first: its public title, the provider's mark and name, "Earned 2026-11-05 14:05 GMT" (Europe/London), "Earned 2026-11-05" for a daily total, or "Recorded at least 1,000 on 2026-11-05 14:05 GMT", and Share |
-| `GET /badge/<project id>/achievement-<achievement id>.svg` | A two part SVG badge: the provider's name, then the public title. Its `<title>` adds when it was earned in the same words |
+| `GET /badge/<project id>/achievement-<achievement id>.svg` | A two part SVG badge: 🏆 and the provider's name, then the public title. Its `<title>` adds when it was earned in the same words |
 | `GET /card/<project id>/achievement-<achievement id>.png` | A 1200 by 630 PNG: the project's name while its page is public, the provider, the public title, and when it was earned |
 
 - The badge and card follow the [metric badge rules](#badges-and-cards): an unknown, unpublished, or malformed id gets the same neutral "Unpublished" badge or card with a `200`; the same 60 second cache and [rate limit](#rate-limit); no session or cookie; `Cross-Origin-Resource-Policy: cross-origin`; and the badge's Content-Security-Policy from `next.config.ts`. `achievementIdFromFile` in `share.ts` accepts only an id the database can store. Achievement serves are not counted in [view counts](#view-counts), which are kept per published metric.

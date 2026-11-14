@@ -110,7 +110,7 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
               {event.type_id === ACHIEVEMENT_EARNED_TYPE_ID ? <AchievementEarnedLabel /> : null}
             </div>
             <p className="mt-0.5 break-words text-xs text-muted">
-              <span className="text-foreground">{providerName(event.provider)}</span>
+              <span className="text-foreground">{providerName(event.markProvider)}</span>
               {source === null ? null : (
                 <>
                   <span aria-hidden="true"> · </span>
@@ -121,7 +121,7 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
               <ArrivalNewLabel eventIds={[event.id]} />
             </p>
           </div>
-          <RowLabels severity={event.severity} simulated={markSimulated && event.simulated} />
+          <RowLabels severity={event.severity} achievement={event.achievement !== null} simulated={markSimulated && event.simulated} />
         </div>
       </article>
     </ArrivalEventRow>
@@ -161,7 +161,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
               {latest.type_id === ACHIEVEMENT_EARNED_TYPE_ID && title === latest.title ? <AchievementEarnedLabel /> : null}
             </div>
             <p className="mt-0.5 break-words text-xs text-muted">
-              <span className="text-foreground">{providerName(latest.provider)}</span>
+              <span className="text-foreground">{providerName(latest.markProvider)}</span>
               {source === null ? null : (
                 <>
                   <span aria-hidden="true"> · </span>
@@ -172,7 +172,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
               <ArrivalNewLabel eventIds={eventIds} />
             </p>
           </div>
-          <RowLabels severity={latest.severity} simulated={markSimulated && latest.simulated} />
+          <RowLabels severity={latest.severity} achievement={latest.achievement !== null} simulated={markSimulated && latest.simulated} />
         </div>
         <details className="group relative z-10 mt-2">
           <summary className="inline-flex min-h-6 list-none items-center gap-1 text-sm text-accent underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">
@@ -195,11 +195,12 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
  * The row's labels on the right: "Simulated" when asked for, and the severity pill for success,
  * warning, and critical. An info row's word ("Event") is screen-reader text only, so quiet rows
  * carry no pill and the pills that remain stand out. It sits where the pill would, so a row reads
- * in the same order whatever its severity.
+ * in the same order whatever its severity. An achievement's pill says "Achievement" in gold rather
+ * than "Success", the same word and color as the homepage feed.
  */
-function RowLabels({ severity, simulated }: { severity: EventSeverity; simulated: boolean }) {
-  const word = severityBadge(severity);
-  const quiet = severity === "info";
+function RowLabels({ severity, achievement, simulated }: { severity: EventSeverity; achievement: boolean; simulated: boolean }) {
+  const word = achievement ? "Achievement" : severityBadge(severity);
+  const quiet = severity === "info" && !achievement;
   if (quiet && !simulated) return <span className="sr-only">{word}</span>;
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -217,8 +218,8 @@ function TimelinePosition({ event, now, latest = false }: { event: TimelineEvent
         <EventTime occurredAt={event.occurred_at} now={now} gutter />
       </div>
       <div aria-hidden="true" className="col-start-1 row-span-2 row-start-1 lg:col-start-2 lg:row-span-1">
-        <span className={`flex size-10 items-center justify-center rounded-lg border bg-background ${SEVERITY_NODE[event.severity]}`}>
-          <ProviderMark provider={event.provider} size="sm" />
+        <span className={`flex size-10 items-center justify-center rounded-lg border bg-background ${event.achievement === null ? SEVERITY_NODE[event.severity] : "border-gold/60"}`}>
+          <ProviderMark provider={event.markProvider} emoji={event.emoji} size="sm" />
         </span>
       </div>
     </>
