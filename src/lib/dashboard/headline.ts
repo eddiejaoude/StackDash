@@ -36,7 +36,7 @@
  *   against the whole one before it. When that has no figure either, one explanation replaces the
  *   figures, never six "Unavailable" cards. Without a stale connection the strip keeps its reasons.
  */
-import type { EventCategory, EventType } from "@/lib/adapters/events";
+import { typeIdsOfCategory, type EventType } from "@/lib/adapters/events";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatList, formatMoney, formatQuantity } from "@/lib/format";
 import { divideMinorUnits } from "@/lib/money";
@@ -89,12 +89,10 @@ export type HeadlineEventTypes = Readonly<{
 }>;
 
 export function headlineEventTypes(declared: readonly EventType[], signupDailyTotals: readonly string[]): HeadlineEventTypes {
-  const ofCategory = (...categories: readonly EventCategory[]) =>
-    declared.filter((type) => type.category !== undefined && categories.includes(type.category)).map((type) => type.id);
   return {
-    signups: ofCategory("signup"),
-    deploys: ofCategory("deploy_succeeded", "deploy_failed"),
-    failedDeploys: ofCategory("deploy_failed"),
+    signups: typeIdsOfCategory(declared, ["signup"]),
+    deploys: typeIdsOfCategory(declared, ["deploy_succeeded", "deploy_failed"]),
+    failedDeploys: typeIdsOfCategory(declared, ["deploy_failed"]),
     signupDailyTotals,
   };
 }

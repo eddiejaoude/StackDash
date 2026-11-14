@@ -56,6 +56,17 @@ export type EventSeverity = z.infer<typeof EventSeveritySchema>;
 export type ActivityEvent = z.infer<typeof ActivityEventSchema>;
 
 /**
+ * The ids of the types in any of `categories`, each once, in declaration order: what the headline
+ * strip and the activity heatmap count as signups and deploys.
+ */
+export function typeIdsOfCategory(
+  types: readonly Readonly<Pick<EventType, "id" | "category">>[],
+  categories: readonly EventCategory[],
+): string[] {
+  return [...new Set(types.filter((type) => type.category !== undefined && categories.includes(type.category)).map((type) => type.id))];
+}
+
+/**
  * Gate between an adapter's `sync` output and storage. All or nothing, like
  * metrics: an undeclared type id means the adapter and its declaration drifted.
  */
