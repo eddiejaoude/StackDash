@@ -849,6 +849,11 @@ describe("simulated numbers", () => {
     const repos = metrics.filter((item) => /^github\.stars\.repo_\d+$/.test(item.metricKey));
     expect(repos).toHaveLength(3);
     expect(quantity(metric(metrics, "github.stars.total"))).toBe(repos.reduce((sum, item) => sum + quantity(item), 0));
+    // Yesterday's new stars across the three repositories (240, 24, and 6 a day), dated to yesterday.
+    expect(metric(metrics, "github.stars.gained.daily")).toMatchObject({
+      value: 270,
+      timeframe: { type: "period", start: new Date("2026-11-19T00:00:00Z"), end: new Date("2026-11-20T00:00:00Z") },
+    });
     expect(quantity(metric(metrics, "github.usage.actions.minutes"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions.actions_linux"))).toBe(amount(metric(metrics, "github.spend.actions")));

@@ -305,15 +305,16 @@ function metricDailyGain(readings: readonly MetricReading[], metricKey: string, 
 }
 
 /**
- * Daily totals (one UTC day's signups per reading), summed across accounts per day. Each day is
- * its own total, so nothing is carried forward. A total is dated to the day it counts, at 00:00
- * UTC with day precision, never to a time.
+ * Daily totals (one UTC day's total per reading: signups, new stars), summed across accounts per
+ * day. Each day is its own total, so nothing is carried forward. A total is dated to the day it
+ * counts, at 00:00 UTC with day precision, never to a time.
  */
 function dailyTotalThreshold(
   readings: readonly MetricReading[],
   rule: Extract<AchievementRule, { kind: "daily_total_threshold" }>,
 ): Proof | null {
-  // The day a reading counts is its period's (PostHog stores yesterday's total in today's row).
+  // The day a reading counts is its period's (PostHog and GitHub store yesterday's total in
+  // today's row).
   const latest = new Map<string, MetricReading & Readonly<{ day: string }>>();
   for (const reading of readings) {
     if (reading.metricKey !== rule.metricKey) continue;

@@ -121,6 +121,17 @@ describe("checkAdapterDeclaration", () => {
       { signupDailyTotals: ["example.signups.daily"], capabilities: { ...exampleAdapter.capabilities, usage: false } },
       "signupDailyTotals is declared but capabilities.usage is false",
     ],
+    ["a daily total owned by another provider", { dailyTotals: ["github.stars.gained.daily"] }, "dailyTotals key github.stars.gained.daily must start with example."],
+    [
+      "a daily total without the usage capability",
+      { dailyTotals: ["example.requests.daily"], capabilities: { ...exampleAdapter.capabilities, usage: false } },
+      "dailyTotals is declared but capabilities.usage is false",
+    ],
+    [
+      "a daily total also declared as signups",
+      { signupDailyTotals: ["example.signups.daily"], dailyTotals: ["example.signups.daily"] },
+      "dailyTotals key example.signups.daily is also declared in signupDailyTotals",
+    ],
     ["a beta without a reason", { beta: { reason: " " } }, "beta is set without a reason"],
     ["a poll interval of 59 seconds", { pollIntervalSeconds: 59 }, "pollIntervalSeconds must be a whole number of at least 60"],
     ["a fractional poll interval", { pollIntervalSeconds: 60.5 }, "pollIntervalSeconds must be a whole number of at least 60"],
@@ -175,6 +186,13 @@ describe("checkAdapterDeclaration", () => {
           achievements: [withRule({ kind: "daily_total_threshold", metricKey: "example.signups.daily", value: 10, sum: "cumulative" })],
         },
       ],
+      [
+        "a daily total declared in dailyTotals",
+        {
+          dailyTotals: ["example.requests.daily"],
+          achievements: [withRule({ kind: "daily_total_threshold", metricKey: "example.requests.daily", value: 10, sum: "single_day" })],
+        },
+      ],
       ["a metric threshold on the adapter's own key", { achievements: [withRule({ kind: "metric_threshold", metricKey: metricKeys.requestsUsed, value: 1000 })] }],
     ])("passes %s (boundary)", (_case, change) => {
       expect(checkAdapterDeclaration(adapterWith(change))).toEqual([]);
@@ -210,9 +228,9 @@ describe("checkAdapterDeclaration", () => {
         "achievement example.deployments.first reads metric github.stars.total, which must start with example.",
       ],
       [
-        "a daily total missing from signupDailyTotals",
+        "a daily total declared in neither signupDailyTotals nor dailyTotals",
         [withRule({ kind: "daily_total_threshold", metricKey: "example.signups.daily", value: 10, sum: "cumulative" })],
-        "achievement example.deployments.first sums example.signups.daily, which is not declared in signupDailyTotals",
+        "achievement example.deployments.first sums example.signups.daily, which is not declared in signupDailyTotals or dailyTotals",
       ],
     ])("reports %s (boundary)", (_case, achievements, problem) => {
       expect(checkAdapterDeclaration(adapterWith({ achievements }))).toContain(problem);
@@ -293,6 +311,27 @@ describe("checkSyncResult", () => {
         events: [],
       },
       ["metrics[0] example.credits.balance is declared in signupDailyTotals but is credit_balance"],
+    ],
+    [
+      "a declared daily total that is not usage",
+      adapterWith({ dailyTotals: [metricKeys.creditBalance] }),
+      {
+        metrics: [
+          {
+            kind: "credit_balance",
+            metricKey: metricKeys.creditBalance,
+            label: "Account credit",
+            amountMinor: 5,
+            currency: "USD",
+            timeframe: { type: "point", at: NOW },
+            externalAccountId: ACCOUNT,
+            retrievedAt: NOW,
+            provenance: { source: "provider_api" },
+          },
+        ],
+        events: [],
+      },
+      ["metrics[0] example.credits.balance is declared in dailyTotals but is credit_balance"],
     ],
     [
       "a partial error naming a scope the adapter never requests",

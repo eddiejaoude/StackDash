@@ -25,7 +25,7 @@ import {
   requireExtra,
 } from "./api";
 import { collectBilling } from "./billing";
-import { collectRepositories, CursorSchema, eventTypes, type Cursor } from "./repositories";
+import { collectRepositories, CursorSchema, eventTypes, starMetricNames, type Cursor } from "./repositories";
 import {
   TokenResponseSchema,
   UserInstallationsPageSchema,
@@ -181,8 +181,9 @@ function parseCursor(cursor: string | undefined, ctx: OAuthContext): Cursor | un
   return parsed.data;
 }
 
-// Achievements (#413). Stars come from the stored `github.stars.total` snapshots, forks from
-// `github.forks.new` events (docs/adapters.md, "Achievements").
+// Achievements (#413). Star thresholds come from the stored `github.stars.total` snapshots,
+// Trending from the `github.stars.gained.daily` daily totals, forks from `github.forks.new` events
+// (docs/adapters.md, "Achievements").
 const achievements: readonly Achievement[] = [
   {
     id: "github.stars.10",
@@ -230,8 +231,10 @@ const achievements: readonly Achievement[] = [
     id: "github.stars.hot_day",
     title: "Trending: 10 new stars in one day",
     publicTitle: "Trending: 10 new stars in one day",
-    description: "Earned when the stars across the connected GitHub repositories rise by 10 or more from one daily reading to the next.",
-    rule: { kind: "metric_daily_gain", metricKey: "github.stars.total", gain: 10 },
+    description: "Earned when GitHub repositories DevMacro already followed gain 10 or more new stars between them over one UTC day.",
+    // A daily total rather than the rise in `github.stars.total`: adding a repository to the
+    // installation raises the total without a single new star.
+    rule: { kind: "daily_total_threshold", metricKey: starMetricNames.gainedDaily.metricKey, value: 10, sum: "single_day" },
   },
   {
     id: "github.stars.steady_glow",
@@ -322,6 +325,7 @@ export const githubAdapter: ProviderAdapter = {
   ],
   eventTypes,
   achievements,
+  dailyTotals: [starMetricNames.gainedDaily.metricKey],
   oauth: {
     authorizeUrl: OAUTH_AUTHORIZE_URL,
     tokenUrl: OAUTH_TOKEN_URL,

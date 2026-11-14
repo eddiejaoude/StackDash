@@ -67,9 +67,10 @@ export const AchievementRuleSchema = z.discriminatedUnion("kind", [
     days: PositiveCount,
     startWeekday: WeekdaySchema.optional(),
   }),
-  // A usage metric whose readings are one day's total each (`ProviderAdapter.signupDailyTotals`,
-  // one whole UTC day per reading). `cumulative` sums the days in order; `single_day` needs one
-  // day's total at or above `value`. Dated to the reading's own day, never to a time.
+  // A usage metric whose readings are one day's total each (`ProviderAdapter.signupDailyTotals`
+  // or `dailyTotals`, one whole UTC day per reading). `cumulative` sums the days in order;
+  // `single_day` needs one day's total at or above `value`. Dated to the reading's own day, never
+  // to a time.
   z.strictObject({
     kind: z.literal("daily_total_threshold"),
     metricKey: AdapterScopedKeySchema,

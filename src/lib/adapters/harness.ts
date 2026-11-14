@@ -155,7 +155,7 @@ function blank(value: string): boolean {
 /**
  * What the registry, the connect screen, and the dashboard read from the adapter before any sync:
  * its id, the permissions it explains, the data it lists, the event types it declares, and the
- * keys it marks as projections or daily signup totals.
+ * keys it marks as projections or daily totals.
  */
 export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): string[] {
   const problems: string[] = [];
@@ -200,6 +200,7 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
   for (const [field, keys] of [
     ["projectedSpend", adapter.projectedSpend ?? []],
     ["signupDailyTotals", adapter.signupDailyTotals ?? []],
+    ["dailyTotals", adapter.dailyTotals ?? []],
   ] as const) {
     for (const key of keys) {
       if (!ownKey(key)) problems.push(`${field} key ${key} must start with ${prefix}`);
@@ -208,15 +209,23 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
   if ((adapter.projectedSpend ?? []).length > 0 && !adapter.capabilities.spending) {
     problems.push("projectedSpend is declared but capabilities.spending is false");
   }
-  if ((adapter.signupDailyTotals ?? []).length > 0 && !adapter.capabilities.usage) {
-    problems.push("signupDailyTotals is declared but capabilities.usage is false");
+  for (const [field, keys] of [
+    ["signupDailyTotals", adapter.signupDailyTotals ?? []],
+    ["dailyTotals", adapter.dailyTotals ?? []],
+  ] as const) {
+    if (keys.length > 0 && !adapter.capabilities.usage) problems.push(`${field} is declared but capabilities.usage is false`);
+  }
+  // A key in both would also count as signups on the dashboard headline (#173).
+  const signupTotals = new Set(adapter.signupDailyTotals ?? []);
+  for (const key of adapter.dailyTotals ?? []) {
+    if (signupTotals.has(key)) problems.push(`dailyTotals key ${key} is also declared in signupDailyTotals`);
   }
 
   // Achievement ids are stored on every earned row, so each must be the adapter's own and unique,
   // and every rule must read evidence this adapter writes: one of its event types (with or
   // without a category), or one of its metric keys.
   const achievementIds = new Set<string>();
-  const dailyTotals = new Set(adapter.signupDailyTotals ?? []);
+  const dailyTotals = new Set([...signupTotals, ...(adapter.dailyTotals ?? [])]);
   for (const achievement of adapter.achievements ?? []) {
     const label = `achievement ${achievement.id}`;
     if (!ownKey(achievement.id)) problems.push(`${label} must start with ${prefix}`);
@@ -235,7 +244,7 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
     const metricKey = achievementRuleMetricKey(rule);
     if (metricKey !== undefined && !ownKey(metricKey)) problems.push(`${label} reads metric ${metricKey}, which must start with ${prefix}`);
     if (rule.kind === "daily_total_threshold" && !dailyTotals.has(rule.metricKey)) {
-      problems.push(`${label} sums ${rule.metricKey}, which is not declared in signupDailyTotals`);
+      problems.push(`${label} sums ${rule.metricKey}, which is not declared in signupDailyTotals or dailyTotals`);
     }
   }
 
@@ -277,7 +286,7 @@ function batchProblems(label: string, batch: BatchValidation<unknown>): string[]
 /**
  * One `sync` result against the gates the sync runner applies before storing anything
  * (`src/lib/jobs/sync-connection.ts`), plus what the dashboard assumes: every metric kind is a
- * declared capability, a declared projection is estimated spend, and a daily signup total is usage.
+ * declared capability, a declared projection is estimated spend, and a declared daily total is usage.
  */
 export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccountId: string, result: SyncResult): string[] {
   const problems = [
@@ -294,7 +303,10 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
   }
 
   const projected = new Set(adapter.projectedSpend ?? []);
-  const signupTotals = new Set(adapter.signupDailyTotals ?? []);
+  const dailyTotals = [
+    ["signupDailyTotals", new Set(adapter.signupDailyTotals ?? [])],
+    ["dailyTotals", new Set(adapter.dailyTotals ?? [])],
+  ] as const;
   result.metrics.forEach((metric, index) => {
     const capability = KIND_CAPABILITY[metric.kind];
     if (!adapter.capabilities[capability]) {
@@ -303,8 +315,10 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
     if (projected.has(metric.metricKey) && metric.kind !== "estimated_spend") {
       problems.push(`metrics[${index}] ${metric.metricKey} is declared in projectedSpend but is ${metric.kind}`);
     }
-    if (signupTotals.has(metric.metricKey) && metric.kind !== "usage") {
-      problems.push(`metrics[${index}] ${metric.metricKey} is declared in signupDailyTotals but is ${metric.kind}`);
+    for (const [field, keys] of dailyTotals) {
+      if (keys.has(metric.metricKey) && metric.kind !== "usage") {
+        problems.push(`metrics[${index}] ${metric.metricKey} is declared in ${field} but is ${metric.kind}`);
+      }
     }
   });
 

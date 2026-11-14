@@ -37,6 +37,9 @@ export const starMetricNames = {
     label: `Stars on ${repo.full_name}`.slice(0, 120),
   }),
   total: { metricKey: "github.stars.total", label: "Stars across connected repositories" },
+  // A daily total (`ProviderAdapter.dailyTotals`): its timeframe carries the UTC day it counts, so
+  // the label holds on any day the dashboard shows.
+  gainedDaily: { metricKey: "github.stars.gained.daily", label: "New stars over one UTC day" },
 } as const;
 
 export const eventTypes: readonly EventType[] = [
@@ -113,14 +116,19 @@ type RepoContext = Readonly<{
 function starEvents({ repo, count, previous, externalAccountId, now }: RepoContext): {
   events: ActivityEvent[];
   state: Pick<RepoState, "day" | "dayCount" | "milestone">;
+  // The repository's new stars over yesterday (UTC), set only when this sync closed a baseline
+  // taken yesterday: 0 when the net change was not positive. Undefined on a first sync (no
+  // baseline) and when the closed baseline is older, because then the net spans several days.
+  yesterdayGain: number | undefined;
 } {
   const today = now.toISOString().slice(0, 10);
   // First sync: no history, so set the baselines without backfilling events.
   if (previous === undefined) {
-    return { events: [], state: { day: today, dayCount: count, milestone: highestMilestone(count) } };
+    return { events: [], state: { day: today, dayCount: count, milestone: highestMilestone(count) }, yesterdayGain: undefined };
   }
   const events: ActivityEvent[] = [];
   let state = { day: previous.day, dayCount: previous.dayCount, milestone: previous.milestone };
+  let yesterdayGain: number | undefined;
 
   if (previous.day < today) {
     // The baseline day closed: its net change runs from its first poll to the first poll today.
@@ -138,6 +146,9 @@ function starEvents({ repo, count, previous, externalAccountId, now }: RepoConte
         url: repo.html_url,
       });
     }
+    // Only a baseline taken yesterday covers one UTC day; an older one (missed syncs) covers
+    // several, so it adds to no day's total. A loss adds 0 rather than cancelling another gain.
+    if (dayEnd.toISOString().slice(0, 10) === today) yesterdayGain = Math.max(net, 0);
     state = { ...state, day: today, dayCount: count };
   } else if (previous.day > today) {
     // A baseline from the future means the clock moved back; start the day again.
@@ -156,7 +167,7 @@ function starEvents({ repo, count, previous, externalAccountId, now }: RepoConte
     });
     state = { ...state, milestone };
   }
-  return { events, state };
+  return { events, state, yesterdayGain };
 }
 
 function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): {
@@ -226,6 +237,9 @@ export async function collectRepositories(
   const events: ActivityEvent[] = [];
   const repos: Cursor["repos"] = {};
   let totalStars = 0;
+  // Yesterday's new stars across the repositories that closed a baseline taken yesterday;
+  // undefined when none did (no day closed this sync, so there is nothing to report).
+  let starsGainedYesterday: number | undefined;
 
   for (const repo of page.repositories.slice(0, MAX_REPOSITORIES)) {
     const repoPath = `/repos/${encodeURIComponent(repo.owner.login)}/${encodeURIComponent(repo.name)}`;
@@ -247,6 +261,7 @@ export async function collectRepositories(
     events.push(...stars.events, ...forked.events);
     repos[String(repo.id)] = { ...stars.state, ...forked.state };
     totalStars += count;
+    if (stars.yesterdayGain !== undefined) starsGainedYesterday = (starsGainedYesterday ?? 0) + stars.yesterdayGain;
 
     metrics.push({
       kind: "usage",
@@ -270,6 +285,23 @@ export async function collectRepositories(
     retrievedAt: now,
     provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
   });
+
+  if (starsGainedYesterday !== undefined) {
+    // Shaped like PostHog's daily signups: a period of one whole UTC day, stored in today's row,
+    // so a `daily_total_threshold` rule dates it to yesterday. A repository added to the
+    // installation starts from a baseline, so its existing stars never count as new.
+    const dayStart = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`) - DAY_MS;
+    metrics.push({
+      kind: "usage",
+      ...starMetricNames.gainedDaily,
+      value: starsGainedYesterday,
+      unit: "stars",
+      timeframe: { type: "period", start: new Date(dayStart), end: new Date(dayStart + DAY_MS) },
+      externalAccountId,
+      retrievedAt: now,
+      provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
+    });
+  }
 
   return { metrics, events, repos };
 }

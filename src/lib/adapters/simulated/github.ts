@@ -25,9 +25,10 @@ import {
  * Simulated GitHub organization with three repositories: stars grow at a steady rate per
  * repository (so the 100, 500, and 1,000 milestones are crossed now and then), forks trickle in
  * (about 65 a day across the three), and a daily stars event lands at UTC midnight for the day
- * before. Actions minutes and spend accrue hour by hour, at under a third of the pace on weekends
- * (#166). Keys and milestones come from the real adapter's modules. Fork counts are at the default
- * event volume; a higher volume (#383) multiplies them and leaves stars alone.
+ * before, and every sync reports the day before's new stars. Actions minutes and spend accrue
+ * hour by hour, at under a third of the pace on weekends (#166). Keys and milestones come from
+ * the real adapter's modules. Fork counts are at the default event volume; a higher volume (#383)
+ * multiplies them and leaves stars alone.
  */
 
 const ORGANIZATION = "example-org";
@@ -103,12 +104,22 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
 
   const stars = { ...common, kind: "usage", unit: "stars", timeframe: { type: "point", at }, provenance: { source: "provider_api", endpoint: simulatedEndpoint("github", "/repos/{owner}/{repo}/stargazers/count") } } as const;
   let total = 0;
+  let gainedYesterday = 0;
   for (const repo of repositories(accountId)) {
     const count = starsAt(repo, now);
     total += count;
+    gainedYesterday += Math.max(0, starsAt(repo, dayStart) - starsAt(repo, dayStart - DAY_MS));
     result.push({ ...stars, ...starMetricNames.repo(repo), value: count });
   }
   result.push({ ...stars, ...starMetricNames.total, value: total });
+  // Yesterday's new stars, as the real adapter reports them once the day closes. The simulated
+  // repositories always have yesterday's baseline, so every sync reports the same total.
+  result.push({
+    ...stars,
+    ...starMetricNames.gainedDaily,
+    value: gainedYesterday,
+    timeframe: { type: "period", start: new Date(dayStart - DAY_MS), end: new Date(dayStart) },
+  });
   return result;
 }
 

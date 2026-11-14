@@ -126,6 +126,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     eventTypes: real.eventTypes,
     ...(real.achievements === undefined ? {} : { achievements: real.achievements }),
     ...(real.signupDailyTotals === undefined ? {} : { signupDailyTotals: real.signupDailyTotals }),
+    ...(real.dailyTotals === undefined ? {} : { dailyTotals: real.dailyTotals }),
     ...(real.projectedSpend === undefined ? {} : { projectedSpend: real.projectedSpend }),
     ...(real.beta === undefined ? {} : { beta: real.beta }),
     oauth: {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { Achievement, AchievementRule } from "@/lib/adapters/achievements";
+import { githubAdapter } from "@/lib/adapters/github";
+import { starMetricNames } from "@/lib/adapters/github/repositories";
 
 import { evaluateAchievements, type AchievementEvent, type EarnedAchievement, type MetricReading } from "./evaluate";
 
@@ -303,6 +305,20 @@ describe("daily_total_threshold", () => {
     const rule: AchievementRule = { kind: "daily_total_threshold", metricKey: SIGNUPS, value: 100, sum: "single_day" };
     const readings = [day("2026-04-01", 60), day("2026-04-02", 60), day("2026-04-03", 99)];
     expect(evaluate(rule, { readings })).toBeUndefined();
+  });
+
+  it("earns GitHub's Trending from one closed day of 10 new stars, dated to that day, and not from 9", () => {
+    const hotDay = githubAdapter.achievements?.find((entry) => entry.id === "github.stars.hot_day");
+    if (hotDay === undefined) throw new Error("expected github.stars.hot_day");
+    const stars = (date: string, value: number): MetricReading => ({ ...day(date, value), metricKey: starMetricNames.gainedDaily.metricKey });
+    const earn = (readings: MetricReading[]) => evaluateAchievements({ achievements: [hotDay], earnedIds: new Set(), events: [], readings });
+    // A repository added to the installation lifts the stars total by thousands in a day; that is
+    // not new stars, and two days of 9 are not one day of 18.
+    const total = (snapshotDate: string, value: number) => reading({ snapshotDate, value, metricKey: starMetricNames.total.metricKey });
+    expect(earn([total("2026-06-05", 100), total("2026-06-06", 5100), stars("2026-06-05", 9), stars("2026-06-06", 9)])).toEqual([]);
+    expect(earn([stars("2026-06-05", 9), stars("2026-06-06", 10)])).toMatchObject([
+      { achievementId: "github.stars.hot_day", earnedAt: new Date("2026-06-06T00:00:00.000Z"), earnedPrecision: "day", evidence: "crossed", threshold: null },
+    ]);
   });
 });
 

@@ -154,6 +154,14 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 `sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync read the first page and stop at the first fork id already seen. Store the fork `id` and `created_at` for de-duplication; do not store owner logins. `forks_count` on the repository is the total.
 
+### New stars per day: `github.stars.gained.daily`
+
+A usage metric DevMacro derives from the `/stargazers/count` snapshots, declared in the adapter's `dailyTotals`. Each repository keeps a baseline: its star count at the first sync of a UTC day. The first sync of the next day closes that day, and the reading is the sum of each repository's net change over it, counting a repository that lost stars as 0, so an unstar never cancels another repository's new stars. Its timeframe is the closed day (00:00 to 00:00 UTC), and it is stored in that sync's daily row.
+
+- A repository on its first sync, including one just added to the installation, only sets its baseline: its existing stars are never counted as new.
+- A repository whose baseline is older than yesterday (syncs were missed) adds nothing, because its change spans several days.
+- When repositories closed the day without new stars, the reading is 0. When no repository closed a day on a sync (every later sync that day), no reading is written, so the first sync's reading stands.
+
 ### Units, freshness, retention
 
 - Money: every amount is a JSON number in US dollars, with sub-cent prices (`pricePerUnit: 0.008`). No currency field is returned; USD is the inference from GitHub's billing docs, which price everything in USD. Convert at the parse boundary to integer cents (`amountMinor`, `currency: "USD"`) with decimal string arithmetic, never by multiplying floats. Keep `pricePerUnit` as the original decimal string. Round per line item and note that DevMacro totals can differ from GitHub's by a few cents.
@@ -177,7 +185,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 DevMacro evaluates these for each project the GitHub accounts are assigned to, from the GitHub data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
-The star thresholds read the stored `github.stars.total` snapshots. When the first snapshot DevMacro stored is already at or above a threshold, the achievement says "Recorded at least" that many, because DevMacro did not see the crossing. Trending compares each GitHub account's stored snapshot of one UTC day with its snapshot of the day before, and adds those rises across the accounts read on both days. DevMacro stores one snapshot per UTC day, so that is the finest day it can prove: the London day in winter, 01:00 to 01:00 London time in summer. A missed day never counts. The fork achievements count `github.forks.new` events, and Steady glow and Weekend stargazers read `github.stars.daily`, which is emitted only for a repository whose star count rose over a UTC day (a day with no net gain has no event).
+The star thresholds read the stored `github.stars.total` snapshots. When the first snapshot DevMacro stored is already at or above a threshold, the achievement says "Recorded at least" that many, because DevMacro did not see the crossing. Trending reads `github.stars.gained.daily` (see [New stars per day](#new-stars-per-day-githubstarsgaineddaily)): the new stars of repositories DevMacro already followed over one UTC day, added across the GitHub accounts, and dated to that day. A repository added to the installation never counts its existing stars as new, and a gap of more than one day between syncs never counts as one day. One UTC day is the London day in winter, 01:00 to 01:00 London time in summer. The fork achievements count `github.forks.new` events, and Steady glow and Weekend stargazers read `github.stars.daily`, which is emitted only for a repository whose star count rose over a UTC day (a day with no net gain has no event).
 
 `github.stars.daily` is dated to the end of its UTC day: 00:00 UTC the next day, which is always the next London date. Saturday's and Sunday's stars therefore arrive as Sunday and Monday events, so Weekend stargazers looks for a two-day run that starts on a Sunday. Steady glow needs no such change: every day moves by one, so 7 consecutive days stay consecutive.
 
@@ -189,7 +197,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 | `github.stars.10000` | 10,000 GitHub stars | Earned when DevMacro records 10,000 or more stars across the connected GitHub repositories. |
 | `github.stars.777` | Lucky sevens: 777 GitHub stars | Earned when DevMacro records 777 or more stars across the connected GitHub repositories. |
 | `github.stars.1024` | Kilostar: 1,024 GitHub stars | Earned when DevMacro records 1,024 or more stars across the connected GitHub repositories. |
-| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when the stars across the connected GitHub repositories rise by 10 or more from one daily reading to the next. |
+| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when GitHub repositories DevMacro already followed gain 10 or more new stars between them over one UTC day. |
 | `github.stars.steady_glow` | Steady glow: new stars on 7 days in a row | Earned when DevMacro records new stars on a connected GitHub repository on each of 7 consecutive days. |
 | `github.stars.weekend` | Weekend stargazers: new stars on a Saturday and the Sunday after it | Earned when DevMacro records new stars on a connected GitHub repository on a Saturday and on the Sunday after it. |
 | `github.forks.first` | First fork recorded | Earned when DevMacro records the first new fork of a connected GitHub repository. |
