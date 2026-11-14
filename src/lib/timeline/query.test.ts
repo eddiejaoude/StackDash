@@ -302,6 +302,7 @@ describe("eventTypeLabel", () => {
     ["vercel.deployment_failed", "Deployment failed"],
     ["devmacro.daily_summary", "Daily summary"],
     ["devmacro.anomaly_detected", "Unusual spend or usage"],
+    ["devmacro.achievement_earned", "Achievement earned"],
     ["github.release.published", "Release published"],
   ])("labels %s", (typeId, expected) => {
     expect(eventTypeLabel(typeId)).toBe(expected);

@@ -200,6 +200,10 @@ function ProjectRow({
         >
           Public metrics<span className="sr-only"> for {project.name}</span>
         </Link>
+        {/* Every role: members see what the project has earned, owners and admins publish it (#413). */}
+        <Link href={`/w/${workspaceSlug}/projects/${project.id}/achievements`} className={buttonClass("secondary", "sm")}>
+          Achievements<span className="sr-only"> for {project.name}</span>
+        </Link>
         {canManage ? (
           <>
             <button

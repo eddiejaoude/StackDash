@@ -19,6 +19,7 @@ import {
 } from "@/components/public-metrics/publication-controls";
 import { SELF_REPORTED_LIVE_MAX } from "@/components/public-metrics/self-reported-rules";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
+import { achievementsPath } from "@/lib/achievements/private";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { loadProjectPageSettings } from "@/lib/data/project-pages";
 import { countLivePublications, loadProjectPublications, VIEW_WINDOW_DAYS, type ProjectMetricStatus } from "@/lib/data/published-metrics";
@@ -145,12 +146,19 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               badges, and cards read the same values.
             </p>
           ) : (
-            <p className="mt-2 leading-6 text-muted">Nothing from this project is public.</p>
+            <p className="mt-2 leading-6 text-muted">No metric or self-reported value from this project is public.</p>
           )}
           <p className="mt-2 leading-6 text-muted">
             Every formula is on the{" "}
             <Link href={FORMULAS_DOC_PATH} className="font-medium text-foreground underline underline-offset-4">
               public metrics formulas page
+            </Link>
+            .
+          </p>
+          <p className="mt-2 leading-6 text-muted">
+            Achievements this project has earned are published one at a time on its{" "}
+            <Link href={achievementsPath(workspace.slug, project.id)} className="font-medium text-foreground underline underline-offset-4">
+              Achievements page
             </Link>
             .
           </p>

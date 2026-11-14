@@ -1,7 +1,9 @@
+import { AchievementEarnedLabel } from "@/components/achievements/achievement-earned-label";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ChevronDownIcon } from "@/components/icons";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import { SeverityBadge } from "@/components/severity-badge";
+import { ACHIEVEMENT_EARNED_TYPE_ID } from "@/lib/achievements/events";
 import { eventTypeName } from "@/lib/adapters/registry";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
@@ -101,9 +103,12 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
         <ArrivalFlash eventIds={[event.id]} flash={SEVERITY_FLASH[event.severity]} className="rounded-md" />
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="break-words text-sm font-medium leading-5">
-              <EventInspectorLink eventId={event.id}>{event.title}</EventInspectorLink>
-            </h3>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h3 className="break-words text-sm font-medium leading-5">
+                <EventInspectorLink eventId={event.id}>{event.title}</EventInspectorLink>
+              </h3>
+              {event.type_id === ACHIEVEMENT_EARNED_TYPE_ID ? <AchievementEarnedLabel /> : null}
+            </div>
             <p className="mt-0.5 break-words text-xs text-muted">
               <span className="text-foreground">{providerName(event.provider)}</span>
               {source === null ? null : (
@@ -152,6 +157,8 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
               <span className="whitespace-nowrap rounded-full border border-line-strong px-1.5 font-mono text-[11px] text-muted">
                 {count}
               </span>
+              {/* A run of different achievements is already headed "Achievement earned". */}
+              {latest.type_id === ACHIEVEMENT_EARNED_TYPE_ID && title === latest.title ? <AchievementEarnedLabel /> : null}
             </div>
             <p className="mt-0.5 break-words text-xs text-muted">
               <span className="text-foreground">{providerName(latest.provider)}</span>

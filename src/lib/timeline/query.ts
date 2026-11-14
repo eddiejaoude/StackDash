@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { Severity } from "@/components/severity-badge";
+import { ACHIEVEMENT_EARNED_TYPE_ID } from "@/lib/achievements/events";
 import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import {
   appendScopeParams,
@@ -66,8 +67,13 @@ export function isEventTypeId(value: string): value is string {
 }
 
 // DevMacro's own types whose id reads differently from the product's name for them (#345): alert
-// settings calls these "unusual spend and usage", so the timeline must not say "anomaly".
-const DEVMACRO_TYPE_LABELS: ReadonlyMap<string, string> = new Map([[ANOMALY_TYPE_ID, "Unusual spend or usage"]]);
+// settings calls these "unusual spend and usage", so the timeline must not say "anomaly". An
+// achievement entry (#413) is named by its label, which the type filter repeats so a member can
+// find and hide it by the same words.
+const DEVMACRO_TYPE_LABELS: ReadonlyMap<string, string> = new Map([
+  [ANOMALY_TYPE_ID, "Unusual spend or usage"],
+  [ACHIEVEMENT_EARNED_TYPE_ID, "Achievement earned"],
+]);
 
 /** `vercel.deployment_failed` reads as "Deployment failed". The provider is shown beside it. */
 export function eventTypeLabel(typeId: string): string {

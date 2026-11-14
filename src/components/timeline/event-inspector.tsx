@@ -4,13 +4,19 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { createContext, use, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import { PublishAchievementButton } from "@/components/achievements/achievement-controls";
+import { AchievementEarnedLabel } from "@/components/achievements/achievement-earned-label";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { GuardedButton } from "@/components/guarded-button";
+import { AchievementShareDialog } from "@/components/public-metrics/achievement-share-dialog";
+import { PublicationAnnouncer } from "@/components/public-metrics/publication-controls";
 import { SeverityBadge } from "@/components/severity-badge";
 import { buttonClass } from "@/components/ui/button";
 import { LiveRegion, OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 import { DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 import { ProviderMark } from "@/components/ui/provider-mark";
+import { ACHIEVEMENT_EARNED_TYPE_ID } from "@/lib/achievements/events";
+import type { TimelineAchievement } from "@/lib/achievements/private";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
 import { parseTimelineEventId, severityBadge, type EventFilterHrefs } from "@/lib/timeline/query";
@@ -18,9 +24,14 @@ import { parseTimelineEventId, severityBadge, type EventFilterHrefs } from "@/li
 /**
  * An event with what the server writes for it: its London time, since browsers name the London
  * zone differently, its type's declared name, from the server-only adapter registry (#294), and
- * its filter links, built with `timelineHref` so the panel never writes a query string itself.
+ * its filter links, built with `timelineHref` so the panel never writes a query string itself. An
+ * "Achievement earned" entry (#413) also carries its achievement, read with the page's events.
  */
-export type InspectorEvent = TimelineEvent & Readonly<{ londonTime: string; typeName: string; filterHrefs: EventFilterHrefs }>;
+export type InspectorEvent = Omit<TimelineEvent, "achievement"> &
+  Readonly<{ londonTime: string; typeName: string; filterHrefs: EventFilterHrefs; achievement: TimelineAchievement | null }>;
+
+/** What the viewer may do with an achievement entry, and the origin its share links use. */
+export type AchievementActions = Readonly<{ workspaceSlug: string; canPublish: boolean; siteOrigin: string }>;
 
 const InspectorContext = createContext<{
   baseHref: string;
@@ -52,11 +63,12 @@ function replaceEntry(href: string): void {
  * no opener (a shared link, a reload, Forward), focus returns to the event's row when it is on this
  * page, and to `fallbackFocusId` otherwise.
  */
-export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId, children }: {
+export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId, achievementActions, children }: {
   events: readonly InspectorEvent[];
   linkedEvent: InspectorEvent | null;
   baseHref: string;
   fallbackFocusId: string;
+  achievementActions: AchievementActions;
   children: ReactNode;
 }) {
   const searchParams = useSearchParams();
@@ -166,7 +178,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
           </div>
         ) : (
           <>
-            <EventDetails key={current.id} event={current} href={eventHref(baseHref, current.id)} />
+            <EventDetails key={current.id} event={current} href={eventHref(baseHref, current.id)} achievementActions={achievementActions} />
             <nav aria-label="Events on this page" className="mt-6 flex flex-wrap gap-2 border-t border-line pt-4">
               <GuardedButton type="button" unavailable={newer === undefined} onClick={() => moveTo(newer)} className={buttonClass("secondary", "sm")}>
                 Newer event
@@ -214,7 +226,7 @@ export function EventInspectorLink({ eventId, children }: { eventId: string; chi
   );
 }
 
-function EventDetails({ event, href }: { event: InspectorEvent; href: string }) {
+function EventDetails({ event, href, achievementActions }: { event: InspectorEvent; href: string; achievementActions: AchievementActions }) {
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [manualLink, setManualLink] = useState<string | null>(null);
   const linkId = useId();
@@ -240,12 +252,14 @@ function EventDetails({ event, href }: { event: InspectorEvent; href: string }) 
         <ProviderMark provider={event.provider} size="sm" />
         <span className="text-sm">{provider}</span>
         <SeverityBadge severity={severityBadge(event.severity)} />
+        {event.type_id === ACHIEVEMENT_EARNED_TYPE_ID ? <AchievementEarnedLabel /> : null}
         {event.simulated ? <SimulatedBadge /> : null}
       </div>
       <h3 className="break-words text-xl font-semibold leading-7">{event.title}</h3>
       <dl className="grid gap-3 text-sm">
         <div><dt className="text-muted">Event type</dt><dd className="mt-1 break-words">{event.typeName}</dd></div>
         {source === null ? null : <div><dt className="text-muted">Source account</dt><dd className="mt-1 break-words">{source}</dd></div>}
+        {event.achievement === null ? null : <div><dt className="text-muted">Project</dt><dd className="mt-1 break-words">{event.achievement.projectName}</dd></div>}
         <div><dt className="text-muted">London time</dt><dd className="mt-1 font-mono text-xs">{event.londonTime}</dd></div>
         <div><dt className="text-muted">Exact timestamp (UTC)</dt><dd className="mt-1 break-all font-mono text-xs"><time dateTime={event.occurred_at}>{event.occurred_at}</time></dd></div>
       </dl>
@@ -255,12 +269,18 @@ function EventDetails({ event, href }: { event: InspectorEvent; href: string }) 
           {event.body || "This event has no additional details."}
         </p>
       </div>
+      {event.achievement === null ? null : <AchievementPublication achievement={event.achievement} title={event.title} actions={achievementActions} />}
       <div className="flex flex-wrap gap-2">
         {event.url?.startsWith("https://") ? (
           <a href={event.url} target="_blank" rel="noopener noreferrer" className={buttonClass("raised", "sm")}>
             View in {provider}<span className="sr-only"> (opens in a new tab)</span>
           </a>
         ) : null}
+        {event.achievement === null ? null : (
+          <Link href={event.achievement.href} className={buttonClass("raised", "sm")}>
+            View in project achievements
+          </Link>
+        )}
         <button type="button" onClick={copyLink} className={buttonClass("secondary", "sm")}>Copy event link</button>
       </div>
       <OutcomeAnnouncement outcome={outcome} />
@@ -272,6 +292,54 @@ function EventDetails({ event, href }: { event: InspectorEvent; href: string }) 
       )}
       <RelatedEvents hrefs={event.filterHrefs} />
     </div>
+  );
+}
+
+/**
+ * Whether an "Achievement earned" entry's achievement is public (#413), with Share once it is.
+ * Before then, owners and admins can publish it from here, and other members see the state alone.
+ * A publish swaps its button for Share, so the announcement lives above both and focus moves to
+ * this section's heading.
+ */
+function AchievementPublication({ achievement, title, actions }: {
+  achievement: TimelineAchievement;
+  title: string;
+  actions: AchievementActions;
+}) {
+  const headingId = useId();
+  return (
+    <section aria-labelledby={headingId} className="border-t border-line pt-4">
+      <h4 id={headingId} tabIndex={-1} className="text-sm font-semibold">Publication</h4>
+      <PublicationAnnouncer>
+        <p className="mt-2 break-words text-sm leading-6 text-muted">
+          {achievement.published
+            ? `Published. Anyone can see it as ${achievement.publicTitle}.`
+            : "Not published. Only members of this workspace can see it."}
+        </p>
+        {achievement.published ? (
+          <div className="mt-3">
+            <AchievementShareDialog
+              projectId={achievement.projectId}
+              achievementId={achievement.achievementId}
+              publicTitle={achievement.publicTitle}
+              providerName={achievement.providerName}
+              siteOrigin={actions.siteOrigin}
+              projectPage={achievement.projectPage}
+            />
+          </div>
+        ) : actions.canPublish ? (
+          <div className="mt-3">
+            <PublishAchievementButton
+              workspaceSlug={actions.workspaceSlug}
+              projectId={achievement.projectId}
+              achievementId={achievement.achievementId}
+              title={title}
+              focusId={headingId}
+            />
+          </div>
+        ) : null}
+      </PublicationAnnouncer>
+    </section>
   );
 }
 

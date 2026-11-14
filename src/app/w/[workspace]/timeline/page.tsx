@@ -16,9 +16,12 @@ import { ActivityOverview } from "@/components/timeline/activity-overview";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { ActiveFilterChips, TimelineFilters, TimelineToolbar } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
+import { achievementEventDedupeKey } from "@/lib/achievements/events";
+import { loadTimelineAchievements, type TimelineAchievement } from "@/lib/achievements/private";
 import { eventTypeName } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
+import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { getTimelineEvent, listTimelineActivity, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds, type TimelineEvent } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
@@ -49,13 +52,18 @@ const HIDDEN_TYPE_IDS: readonly string[] = [];
 
 // Written on the server, as the row's own time is: browsers name the London zone differently. The
 // type's declared name comes from the adapter registry, which is server-only (#294), and the filter
-// links from `timelineHref`, so the client panel never builds a query string of its own.
-function inspected(event: TimelineEvent, basePath: string): InspectorEvent {
+// links from `timelineHref`, so the client panel never builds a query string of its own. An
+// achievement entry (#413) gets its achievement, or none when it was deleted between the reads.
+function inspected(event: TimelineEvent, basePath: string, achievements: ReadonlyMap<string, TimelineAchievement>): InspectorEvent {
   return {
     ...event,
     londonTime: formatDateTime(event.occurred_at),
     typeName: eventTypeName(event.type_id),
     filterHrefs: eventFilterHrefs(basePath, event),
+    achievement:
+      event.achievement === null
+        ? null
+        : (achievements.get(achievementEventDedupeKey(event.achievement.projectId, event.achievement.achievementId)) ?? null),
   };
 }
 
@@ -78,21 +86,29 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const basePath = workspacePath(workspace.slug, "timeline");
 
   const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
-  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent, activity] = await Promise.all([
+  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent, activity, origin] = await Promise.all([
     listTimelineEvents(workspace.id, filters),
     listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
     getWorkspaceScope(workspace.id),
     selectedEventId === null ? null : getTimelineEvent(workspace.id, selectedEventId),
     listTimelineActivity(workspace.id, filters),
+    // Achievement share links use the public origin, as the project's Achievements page builds them.
+    requestPublicOrigin(),
   ]);
+  // Whether each achievement entry's achievement is published, for all of them in one read.
+  const achievementRefs = [...page.events, ...(linkedEvent === null ? [] : [linkedEvent])].flatMap((event) =>
+    event.achievement === null ? [] : [event.achievement],
+  );
+  const achievements = await loadTimelineAchievements(workspace, achievementRefs);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
   const inspectorProps = {
-    events: page.events.map((event) => inspected(event, basePath)),
-    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent, basePath),
+    events: page.events.map((event) => inspected(event, basePath, achievements)),
+    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent, basePath, achievements),
     baseHref: timelineHref(basePath, query, query.cursor),
     fallbackFocusId: HEADING_ID,
+    achievementActions: { workspaceSlug: workspace.slug, canPublish: canPerform(role, "publish_metrics"), siteOrigin: origin },
   };
 
   // The type ids come from the daily event count rollup, which its triggers keep equal to every
