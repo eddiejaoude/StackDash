@@ -45,18 +45,21 @@ export const eventTypes: readonly EventType[] = [
     label: "New stars",
     description: "Net new stars on a repository over one UTC day, from hourly star count snapshots.",
     shownByDefault: true,
+    emoji: "⭐",
   },
   {
     id: eventTypeIds.starsMilestone,
     label: "Star milestone",
     description: "A repository reached 100, 500, 1,000, or another multiple of 1,000 stars.",
     shownByDefault: true,
+    emoji: "🌟",
   },
   {
     id: eventTypeIds.forksNew,
     label: "New fork",
     description: "Someone forked a repository. Who forked it is not collected.",
     shownByDefault: true,
+    emoji: "🍴",
   },
 ];
 

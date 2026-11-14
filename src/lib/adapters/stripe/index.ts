@@ -90,23 +90,37 @@ export const timelineEvents = [
     stripeType: "charge.succeeded",
     label: "Payment succeeded",
     description: "A payment on your Stripe account succeeded.",
+    emoji: "💳",
   },
-  { stripeType: "charge.failed", label: "Payment failed", description: "A payment on your Stripe account failed." },
+  {
+    stripeType: "charge.failed",
+    label: "Payment failed",
+    description: "A payment on your Stripe account failed.",
+    emoji: "🚫",
+  },
   {
     stripeType: "charge.refunded",
     label: "Payment refunded",
     description: "A payment on your Stripe account was refunded in full or in part.",
+    emoji: "↩️",
   },
-  { stripeType: "customer.created", label: "New customer", description: "A customer was added to your Stripe account." },
+  {
+    stripeType: "customer.created",
+    label: "New customer",
+    description: "A customer was added to your Stripe account.",
+    emoji: "🤝",
+  },
   {
     stripeType: "customer.subscription.created",
     label: "Subscription created",
     description: "A subscription was created on your Stripe account.",
+    emoji: "🔁",
   },
   {
     stripeType: "customer.subscription.deleted",
     label: "Subscription ended",
     description: "A subscription on your Stripe account ended.",
+    emoji: "🚪",
   },
 ] as const;
 
@@ -119,6 +133,7 @@ const eventTypes: readonly EventType[] = timelineEvents.map((event) => ({
   label: event.label,
   description: event.description,
   shownByDefault: true,
+  emoji: event.emoji,
 }));
 
 // Achievements (#413): counts only, never amounts. The payment and subscription ids are shared

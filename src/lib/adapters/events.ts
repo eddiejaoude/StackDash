@@ -18,6 +18,9 @@ import {
  */
 export const EventCategorySchema = z.enum(["signup", "deploy_succeeded", "deploy_failed"]);
 
+/** One emoji, with its optional presentation selector: `🚀`, `⚠️`. */
+export const EventEmojiSchema = z.string().regex(/^\p{Extended_Pictographic}\uFE0F?$/u, "must be one emoji");
+
 /**
  * Declared by each adapter. Events carry the id so members can hide event
  * types later (#119) without reworking stored events. `category` is left out
@@ -29,6 +32,9 @@ export const EventTypeSchema = z.strictObject({
   description: z.string().trim().min(1).max(280),
   shownByDefault: z.boolean(),
   category: EventCategorySchema.optional(),
+  // One emoji for what happened (🚀 a deployment went live, 💳 a payment), shown in the corner of
+  // the provider's logo on the timeline. Decorative: the label and title say it in words.
+  emoji: EventEmojiSchema,
 });
 
 export const EventSeveritySchema = z.enum(["info", "success", "warning", "critical"]);

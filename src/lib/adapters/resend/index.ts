@@ -78,12 +78,14 @@ export const eventTypes = [
     label: "Domain verified",
     description: "A sending domain passed Resend's DNS verification.",
     shownByDefault: true,
+    emoji: "✅",
   },
   {
     id: "resend.domain.failed",
     label: "Domain verification failed",
     description: "Resend could not find a domain's DNS records within 72 hours, so it cannot send.",
     shownByDefault: true,
+    emoji: "❌",
   },
 ] as const satisfies readonly EventType[];
 

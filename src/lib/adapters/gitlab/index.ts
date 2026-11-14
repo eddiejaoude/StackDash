@@ -112,12 +112,14 @@ export const eventTypes = [
     label: "Pipeline succeeded",
     description: "A GitLab CI/CD pipeline finished successfully.",
     shownByDefault: true,
+    emoji: "✅",
   },
   {
     id: "gitlab.pipeline.failed",
     label: "Pipeline failed",
     description: "A GitLab CI/CD pipeline failed. Failures on the default branch are critical.",
     shownByDefault: true,
+    emoji: "❌",
   },
   {
     id: "gitlab.deployment.succeeded",
@@ -125,6 +127,7 @@ export const eventTypes = [
     description: "A deployment to a GitLab environment finished successfully.",
     shownByDefault: true,
     category: "deploy_succeeded",
+    emoji: "🚀",
   },
   {
     id: "gitlab.deployment.failed",
@@ -132,18 +135,21 @@ export const eventTypes = [
     description: "A deployment to a GitLab environment failed. Failures in production are critical.",
     shownByDefault: true,
     category: "deploy_failed",
+    emoji: "💥",
   },
   {
     id: "gitlab.release.published",
     label: "Release published",
     description: "A project published a GitLab release.",
     shownByDefault: true,
+    emoji: "📦",
   },
   {
     id: "gitlab.merge_request.merged",
     label: "Merge request merged",
     description: "A merge request was merged. Only its number is kept, never its title or author.",
     shownByDefault: true,
+    emoji: "🔀",
   },
 ] as const satisfies readonly EventType[];
 

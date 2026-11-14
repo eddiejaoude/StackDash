@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EventTypeSchema, validateAdapterEvents, type ActivityEvent, type EventType } from "./events";
+import { EventEmojiSchema, EventTypeSchema, validateAdapterEvents, type ActivityEvent, type EventType } from "./events";
 import { declaredEventTypes } from "./registry";
 
 const eventTypes: EventType[] = [
@@ -9,12 +9,14 @@ const eventTypes: EventType[] = [
     label: "Deployment failed",
     description: "A production or preview deployment did not finish.",
     shownByDefault: true,
+    emoji: "💥",
   },
   {
     id: "vercel.deployment.succeeded",
     label: "Deployment succeeded",
     description: "A deployment finished and is serving traffic.",
     shownByDefault: false,
+    emoji: "🚀",
   },
 ];
 
@@ -90,7 +92,35 @@ describe("EventTypeSchema", () => {
     expect(EventTypeSchema.safeParse({ ...declaration, category: "payment" }).success).toBe(false);
   });
 
+  it.each(["🚀", "⚠️", "↩️", "🗑️"])("accepts the single emoji %s", (emoji) => {
+    expect(EventTypeSchema.safeParse({ ...declaration, emoji }).success).toBe(true);
+  });
+
+  it("rejects a declaration without an emoji", () => {
+    expect(EventTypeSchema.safeParse({ ...declaration, emoji: undefined }).success).toBe(false);
+  });
+
+  it.each([
+    ["an empty string", ""],
+    ["two emoji", "🚀🚀"],
+    ["an emoji with text", "🚀 deployed"],
+    ["a word", "rocket"],
+    ["a letter", "a"],
+    ["a digit", "1"],
+    ["a doubled presentation selector", "⚠️\uFE0F"],
+    ["a lone presentation selector", "\uFE0F"],
+  ])("rejects %s as the emoji (boundary)", (_case, emoji) => {
+    expect(EventTypeSchema.safeParse({ ...declaration, emoji }).success).toBe(false);
+  });
+
   it("accepts every registered adapter's declarations", () => {
     for (const eventType of declaredEventTypes) expect(EventTypeSchema.safeParse(eventType).error).toBeUndefined();
+  });
+
+  // Every type of every live adapter (and the fake one) shows an emoji on its timeline row.
+  it("gives every registered adapter's event type one emoji", () => {
+    for (const eventType of declaredEventTypes) {
+      expect(EventEmojiSchema.safeParse(eventType.emoji).success, eventType.id).toBe(true);
+    }
   });
 });

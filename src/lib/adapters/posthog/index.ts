@@ -102,18 +102,21 @@ export const eventTypes = [
     label: "Daily signups",
     description: "New people identified in a PostHog project on one UTC day. Only the count is kept.",
     shownByDefault: true,
+    emoji: "👋",
   },
   {
     id: "posthog.usage_limit.near",
     label: "Usage near billing limit",
     description: "A PostHog product passed 80 percent of the billing limit set for the period.",
     shownByDefault: true,
+    emoji: "⚠️",
   },
   {
     id: "posthog.usage_limit.reached",
     label: "Billing limit reached",
     description: "A PostHog product reached its billing limit, so PostHog stops processing its new data.",
     shownByDefault: true,
+    emoji: "🛑",
   },
 ] as const satisfies readonly EventType[];
 

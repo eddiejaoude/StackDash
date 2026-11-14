@@ -163,6 +163,7 @@ describe("checkAdapterDeclaration", () => {
       label: "Domain verified",
       description: "A custom domain passed verification.",
       shownByDefault: true,
+      emoji: "✅",
     } as const;
 
     it.each<[string, Partial<ProviderAdapter<string>>]>([

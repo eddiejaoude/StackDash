@@ -107,6 +107,7 @@ export const eventTypes = [
     label: "App deployment started",
     description: "An App Platform deployment started building.",
     shownByDefault: true,
+    emoji: "🏗️",
   },
   {
     id: "digitalocean.deployment.succeeded",
@@ -114,6 +115,7 @@ export const eventTypes = [
     description: "An App Platform deployment finished and went live.",
     shownByDefault: true,
     category: "deploy_succeeded",
+    emoji: "🚀",
   },
   {
     id: "digitalocean.deployment.failed",
@@ -121,42 +123,49 @@ export const eventTypes = [
     description: "An App Platform deployment failed to build or deploy.",
     shownByDefault: true,
     category: "deploy_failed",
+    emoji: "💥",
   },
   {
     id: "digitalocean.droplet.created",
     label: "Droplet created",
     description: "A Droplet was created in the team.",
     shownByDefault: true,
+    emoji: "💧",
   },
   {
     id: "digitalocean.droplet.resized",
     label: "Droplet resized",
     description: "A Droplet moved to a different size, which changes what it costs.",
     shownByDefault: true,
+    emoji: "📏",
   },
   {
     id: "digitalocean.droplet.power_cycled",
     label: "Droplet power cycled",
     description: "A Droplet was switched off and on again.",
     shownByDefault: true,
+    emoji: "🔌",
   },
   {
     id: "digitalocean.droplet.destroyed",
     label: "Droplet deleted",
     description: "A Droplet was deleted from the team.",
     shownByDefault: true,
+    emoji: "🗑️",
   },
   {
     id: "digitalocean.droplet.action_failed",
     label: "Droplet action failed",
     description: "Creating, resizing, power cycling, or deleting a Droplet failed.",
     shownByDefault: true,
+    emoji: "⚠️",
   },
   {
     id: "digitalocean.invoice.issued",
     label: "Invoice issued",
     description: "DigitalOcean issued the invoice for a billing month.",
     shownByDefault: true,
+    emoji: "🧾",
   },
 ] as const satisfies readonly EventType[];
 

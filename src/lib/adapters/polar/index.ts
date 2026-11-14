@@ -141,24 +141,28 @@ export const eventTypes = [
     label: "Order paid",
     description: "An order on your Polar organization was paid, including subscription renewals.",
     shownByDefault: true,
+    emoji: "💳",
   },
   {
     id: "polar.subscription.started",
     label: "Subscription started",
     description: "A subscription on your Polar organization started.",
     shownByDefault: true,
+    emoji: "🔁",
   },
   {
     id: "polar.subscription.canceled",
     label: "Subscription canceled",
     description: "A customer canceled a subscription on your Polar organization. Access can continue until the paid period ends.",
     shownByDefault: true,
+    emoji: "🚪",
   },
   {
     id: "polar.refund.succeeded",
     label: "Order refunded",
     description: "An order on your Polar organization was refunded in full or in part.",
     shownByDefault: true,
+    emoji: "↩️",
   },
 ] as const satisfies readonly EventType[];
 

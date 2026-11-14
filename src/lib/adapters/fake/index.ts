@@ -81,6 +81,7 @@ const eventTypes = [
     description: "A deployment on the example provider finished successfully.",
     shownByDefault: true,
     category: "deploy_succeeded",
+    emoji: "🚀",
   },
   {
     id: "fake.signup",
@@ -88,6 +89,7 @@ const eventTypes = [
     description: "Someone signed up to the example app. No details about the person are collected.",
     shownByDefault: true,
     category: "signup",
+    emoji: "👋",
   },
 ] as const satisfies readonly EventType[];
 

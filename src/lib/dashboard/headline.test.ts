@@ -948,6 +948,7 @@ describe("headlineEventTypes", () => {
     label: "Event",
     description: "An event.",
     shownByDefault: true,
+    emoji: "🚀",
     ...(category === undefined ? {} : { category }),
   });
 

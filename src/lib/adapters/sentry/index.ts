@@ -98,24 +98,28 @@ export const eventTypes = [
     label: "New issue",
     description: "Sentry saw an error or problem for the first time and opened a new issue.",
     shownByDefault: true,
+    emoji: "🐛",
   },
   {
     id: "sentry.issue.regressed",
     label: "Issue regressed",
     description: "An issue that was resolved started happening again.",
     shownByDefault: true,
+    emoji: "🐞",
   },
   {
     id: "sentry.issue.resolved",
     label: "Issue resolved",
     description: "An issue was marked resolved in Sentry.",
     shownByDefault: true,
+    emoji: "✅",
   },
   {
     id: "sentry.release.created",
     label: "New release",
     description: "A new release was created in Sentry for the project.",
     shownByDefault: true,
+    emoji: "📦",
   },
 ] as const satisfies readonly EventType[];
 

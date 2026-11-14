@@ -97,6 +97,7 @@ export const eventTypes = [
     description: "Someone signed up to an app hosted on Example Cloud.",
     shownByDefault: true,
     category: "signup",
+    emoji: "👋",
   },
   {
     id: "example.deploy.succeeded",
@@ -104,6 +105,7 @@ export const eventTypes = [
     description: "A deployment finished and is serving traffic.",
     shownByDefault: true,
     category: "deploy_succeeded",
+    emoji: "🚀",
   },
   {
     id: "example.deploy.failed",
@@ -111,6 +113,7 @@ export const eventTypes = [
     description: "A deployment failed before it could serve traffic.",
     shownByDefault: true,
     category: "deploy_failed",
+    emoji: "💥",
   },
 ] as const satisfies readonly EventType[];
 

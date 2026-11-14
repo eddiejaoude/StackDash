@@ -148,6 +148,7 @@ export const eventTypes = [
     label: "Deployment building",
     description: "A Railway deployment started building.",
     shownByDefault: true,
+    emoji: "🏗️",
   },
   {
     id: "railway.deployment.deployed",
@@ -155,6 +156,7 @@ export const eventTypes = [
     description: "A Railway deployment finished and is running.",
     shownByDefault: true,
     category: "deploy_succeeded",
+    emoji: "🚀",
   },
   {
     id: "railway.deployment.failed",
@@ -162,18 +164,21 @@ export const eventTypes = [
     description: "A Railway deployment failed to build or deploy.",
     shownByDefault: true,
     category: "deploy_failed",
+    emoji: "💥",
   },
   {
     id: "railway.deployment.crashed",
     label: "Deployment crashed",
     description: "A Railway deployment crashed after it started.",
     shownByDefault: true,
+    emoji: "🔥",
   },
   {
     id: "railway.deployment.removed",
     label: "Deployment removed",
     description: "A Railway deployment was removed, usually because a newer one replaced it.",
     shownByDefault: true,
+    emoji: "🗑️",
   },
 ] as const satisfies readonly EventType[];
 

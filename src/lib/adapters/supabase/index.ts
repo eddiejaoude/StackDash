@@ -148,24 +148,28 @@ export const eventTypes = [
     description: "A user signed up to a Supabase project. Only the time is kept.",
     shownByDefault: true,
     category: "signup",
+    emoji: "👋",
   },
   {
     id: "supabase.auth.daily_summary",
     label: "Daily auth summary",
     description: "Logins, signups, logouts, deleted users, and active users for one UTC day.",
     shownByDefault: true,
+    emoji: "📋",
   },
   {
     id: "supabase.project.unhealthy",
     label: "Project unhealthy",
     description: "One or more Supabase services of the project reported unhealthy.",
     shownByDefault: true,
+    emoji: "🚨",
   },
   {
     id: "supabase.project.healthy",
     label: "Project healthy again",
     description: "Every checked Supabase service of the project is healthy again.",
     shownByDefault: true,
+    emoji: "💚",
   },
 ] as const satisfies readonly EventType[];
 
