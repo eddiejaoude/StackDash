@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { declaredProjectedSpend } from "@/lib/adapters/registry";
+import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
 import { addUtcDays, anomalySnapshotRange, findAnomalies, type AnomalyConnection, type AnomalyRow } from "@/lib/alerts/anomaly";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -169,7 +169,7 @@ describe("createSupabaseJobStore listAnomalySnapshots", () => {
 
     expect(rows).toEqual(oldestFirst(kept).map(asRead));
     expect(warn).not.toHaveBeenCalled();
-    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [], projectedSpend: declaredProjectedSpend })).toEqual([
+    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [], projectedSpend: declaredProjectedSpend, dailyTotals: declaredDailyTotals })).toEqual([
       expect.objectContaining({ date: DATE, metricKey: "vercel.spend.total", value: 3 * SPIKE_DAILY_MINOR, usual: 3 * USUAL_DAILY_MINOR }),
     ]);
   });
@@ -192,7 +192,7 @@ describe("createSupabaseJobStore listAnomalySnapshots", () => {
     expect(requests).toHaveLength(ANOMALY_ROW_LIMIT / MAX_ROWS);
     expect(warn).toHaveBeenCalledExactlyOnceWith("anomaly.snapshots_truncated", { workspaceId: WORKSPACE_ID, rows: ANOMALY_ROW_LIMIT });
     // 2026-10-02 loses its day before for those accounts and is unavailable, leaving 11 history days.
-    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [], projectedSpend: declaredProjectedSpend })).toEqual([
+    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [], projectedSpend: declaredProjectedSpend, dailyTotals: declaredDailyTotals })).toEqual([
       expect.objectContaining({
         date: DATE,
         metricKey: "vercel.spend.total",

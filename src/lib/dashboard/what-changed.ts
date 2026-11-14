@@ -68,6 +68,7 @@ export function recentAnomalies(input: {
   connections: readonly (AnomalyConnection & Pick<ConnectionInput, "status">)[];
   mutes: readonly AnomalyMute[];
   projectedSpend: readonly string[];
+  dailyTotals: readonly string[];
 }): Anomaly[] {
   if (!input.enabled || input.days < 1) return [];
   const today = input.now.toISOString().slice(0, 10);
@@ -84,7 +85,8 @@ export function recentAnomalies(input: {
     const date = addUtcDays(today, -back);
     const range = anomalySnapshotRange(date);
     const rows = candidates.filter((row) => row.snapshot_date >= range.from && row.snapshot_date <= range.to);
-    for (const anomaly of findAnomalies({ date, rows, connections, mutes: input.mutes, projectedSpend: input.projectedSpend })) {
+    const anomalies = findAnomalies({ date, rows, connections, mutes: input.mutes, projectedSpend: input.projectedSpend, dailyTotals: input.dailyTotals });
+    for (const anomaly of anomalies) {
       // A one day period is checked the day before the job's date, so the oldest job reaches one
       // day past the window.
       if (anomaly.date >= first) found.push(anomaly);

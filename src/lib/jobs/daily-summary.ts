@@ -1,4 +1,4 @@
-import { declaredProjectedSpend } from "@/lib/adapters/registry";
+import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
 import type { ProviderAdapter } from "@/lib/adapters/types";
 import { anomalyEvent, anomalySnapshotRange, findAnomalies } from "@/lib/alerts/anomaly";
 import { countedSnapshots, isCurrentPeriod, type ProviderId } from "@/lib/dashboard/aggregate";
@@ -220,7 +220,14 @@ export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promi
   });
   if (event === null) return { status: "succeeded" };
   const anomalies = anomalySettings.enabled
-    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes, projectedSpend: declaredProjectedSpend })
+    ? findAnomalies({
+        date,
+        rows: anomalyRows,
+        connections,
+        mutes: anomalySettings.mutes,
+        projectedSpend: declaredProjectedSpend,
+        dailyTotals: declaredDailyTotals,
+      })
     : [];
   await deps.store.insertEvents([event, ...anomalies.map((anomaly) => anomalyEvent(workspaceId, anomaly))]);
   if (anomalies.length > 0) deps.log.info("anomalies.detected", { workspaceId, date, count: anomalies.length });

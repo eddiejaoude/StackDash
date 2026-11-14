@@ -23,6 +23,15 @@ import {
 export const MAX_REPOSITORIES = 100;
 const FORKS_PAGE_SIZE = 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How often GitHub is polled: the adapter's `pollIntervalSeconds`. */
+export const POLL_INTERVAL_SECONDS = 3600;
+// A repository's baseline is its count at the first sync of a day, and the first sync of the next
+// day closes it, so a late close (a connection waiting in needs_attention, a job runner down across
+// midnight) folds the next day's stars into the closed one: up to ~48 hours read as one day, which
+// could earn Trending falsely. So a closed day adds to `github.stars.gained.daily` only when the
+// closing sync ran within two poll intervals of the day's end (one missed or slow poll), and a
+// reading never covers more than 26 hours. A later close undercounts the day; it never overclaims.
+const DAY_CLOSE_MAX_DELAY_MS = 2 * POLL_INTERVAL_SECONDS * 1000;
 
 export const eventTypeIds = {
   starsDaily: "github.stars.daily",
@@ -116,9 +125,10 @@ type RepoContext = Readonly<{
 function starEvents({ repo, count, previous, externalAccountId, now }: RepoContext): {
   events: ActivityEvent[];
   state: Pick<RepoState, "day" | "dayCount" | "milestone">;
-  // The repository's new stars over yesterday (UTC), set only when this sync closed a baseline
-  // taken yesterday: 0 when the net change was not positive. Undefined on a first sync (no
-  // baseline) and when the closed baseline is older, because then the net spans several days.
+  // The repository's new stars over yesterday (UTC): its net change from the baseline taken
+  // yesterday to this sync, or 0 when not positive. Set only when this sync closed a baseline taken
+  // yesterday within `DAY_CLOSE_MAX_DELAY_MS` of midnight. Undefined on a first sync (no baseline),
+  // for a later close, and for an older baseline (missed syncs), whose net spans more than one day.
   yesterdayGain: number | undefined;
 } {
   const today = now.toISOString().slice(0, 10);
@@ -146,9 +156,10 @@ function starEvents({ repo, count, previous, externalAccountId, now }: RepoConte
         url: repo.html_url,
       });
     }
-    // Only a baseline taken yesterday covers one UTC day; an older one (missed syncs) covers
-    // several, so it adds to no day's total. A loss adds 0 rather than cancelling another gain.
-    if (dayEnd.toISOString().slice(0, 10) === today) yesterdayGain = Math.max(net, 0);
+    // Only a close soon after the day ended covers about one UTC day (`DAY_CLOSE_MAX_DELAY_MS`); a
+    // later one, or an older baseline, adds to no day's total. A loss adds 0 rather than cancelling
+    // another repository's gain.
+    if (now.getTime() - dayEnd.getTime() <= DAY_CLOSE_MAX_DELAY_MS) yesterdayGain = Math.max(net, 0);
     state = { ...state, day: today, dayCount: count };
   } else if (previous.day > today) {
     // A baseline from the future means the clock moved back; start the day again.
@@ -237,8 +248,8 @@ export async function collectRepositories(
   const events: ActivityEvent[] = [];
   const repos: Cursor["repos"] = {};
   let totalStars = 0;
-  // Yesterday's new stars across the repositories that closed a baseline taken yesterday;
-  // undefined when none did (no day closed this sync, so there is nothing to report).
+  // Yesterday's new stars across the repositories whose baseline from yesterday this sync closed
+  // soon after midnight; undefined when none did (nothing to report, so no reading is written).
   let starsGainedYesterday: number | undefined;
 
   for (const repo of page.repositories.slice(0, MAX_REPOSITORIES)) {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError } from "../errors";
 import { validateAdapterEvents } from "../events";
+import { checkSyncResult } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { ASSERTION_AUDIENCE, CLIENT_ASSERTION_TYPE } from "./client-auth";
@@ -389,6 +390,8 @@ describe("sync", () => {
     expect(metrics.ok ? [] : metrics.issues).toEqual([]);
     const events = validateAdapterEvents(postHogAdapter.eventTypes, result.events);
     expect(events.ok ? [] : events.issues).toEqual([]);
+    // The sync runner's gates, including that the daily signup total covers one whole UTC day.
+    expect(checkSyncResult(postHogAdapter, ORG_ID, result)).toEqual([]);
     expect(result.partialErrors).toBeUndefined();
 
     const billingCall = calls.find((call) => call.url.pathname === "/api/billing/");

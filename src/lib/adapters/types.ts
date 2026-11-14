@@ -229,7 +229,8 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   readonly signupDailyTotals?: readonly string[];
   // Usage metric keys whose reading is the total of one whole UTC day (its timeframe is that day)
   // and which are not signups, such as GitHub's new stars per day. `daily_total_threshold`
-  // achievement rules read a key from `dailyTotals` or `signupDailyTotals`. Omitted when none.
+  // achievement rules read a key from `dailyTotals` or `signupDailyTotals`. They feed achievements,
+  // not usage to watch, so anomaly detection and its mute list leave them out. Omitted when none.
   readonly dailyTotals?: readonly string[];
   // Estimated spend metric keys whose reading is a projection for the whole billing period (what
   // the period is expected to cost), not money spent so far. Every reading of spend (dashboard,

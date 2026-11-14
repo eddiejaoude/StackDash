@@ -112,8 +112,9 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
     result.push({ ...stars, ...starMetricNames.repo(repo), value: count });
   }
   result.push({ ...stars, ...starMetricNames.total, value: total });
-  // Yesterday's new stars, as the real adapter reports them once the day closes. The simulated
-  // repositories always have yesterday's baseline, so every sync reports the same total.
+  // Yesterday's new stars over exactly that UTC day, the reading the real adapter writes when a sync
+  // closes the day soon after midnight. Star counts here are a pure function of the clock, so the
+  // count is exact at any hour and every sync reports the same total for the day.
   result.push({
     ...stars,
     ...starMetricNames.gainedDaily,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { declaredProjectedSpend } from "@/lib/adapters/registry";
+import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
 import { addUtcDays, type Anomaly, type AnomalyConnection, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { ConnectionInput } from "@/lib/dashboard/aggregate";
 import { EMPTY_SCOPE } from "@/lib/filters/scope";
@@ -223,6 +223,7 @@ function recent(rows: readonly AnomalyRow[], fields: Partial<Parameters<typeof r
     connections: [VERCEL, RESEND],
     mutes: [],
     projectedSpend: declaredProjectedSpend,
+    dailyTotals: declaredDailyTotals,
     ...fields,
   });
 }
@@ -263,6 +264,20 @@ describe("recentAnomalies", () => {
     for (const status of ["pending", "needs_attention", "failed"] as const) {
       expect(recent(rows, { connections: [{ ...VERCEL, status }] }), status).toHaveLength(1);
     }
+  });
+
+  it("never names GitHub's new stars per day, a declared daily total, however big the day", () => {
+    const github: Connection = { id: "c0000000-0000-4000-8000-000000000003", provider: "github", status: "active" };
+    const stars = emailsPerDay("2026-11-08").map((snapshot) => ({
+      ...snapshot,
+      connection_id: github.id,
+      metric_key: "github.stars.gained.daily",
+      label: "New stars over one UTC day",
+      unit: "stars",
+    }));
+    expect(recent(stars, { connections: [github] })).toEqual([]);
+    // Undeclared, the same day is named, so the declaration is what keeps it out.
+    expect(recent(stars, { connections: [github], dailyTotals: [] }).map((found) => found.date)).toEqual(["2026-11-08"]);
   });
 
   it("finds nothing with no rows or no days (boundary: empty)", () => {

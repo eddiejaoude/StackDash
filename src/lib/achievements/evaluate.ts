@@ -267,44 +267,6 @@ function metricThreshold(readings: readonly MetricReading[], metricKey: string, 
 }
 
 /**
- * A rise of at least `gain` from one stored daily reading to the next: for each snapshot day D,
- * the sum over the accounts with a row on both D and the day before of (D's value minus the day
- * before's). `usage_snapshots` keeps one row per account, metric, and UTC `snapshot_date`, each
- * sync overwriting it, so a stored day is a UTC day and the two rows bound one UTC day: London's
- * day in winter, 01:00 to 01:00 London time in summer. Keying by snapshot date rather than by the
- * London date of `observedAt` keeps a late evening row in summer (23:xx UTC, already the next
- * London date) from being compared with the row two days back, and an account with a missed day
- * never adds two days' rise together. Accounts read on only one of the two days (one added to the
- * project) never count. Dated to the latest of D's contributing rows, the moment the rise was known.
- */
-function metricDailyGain(readings: readonly MetricReading[], metricKey: string, gain: number): Proof | null {
-  const byAccount = new Map<string, Map<string, MetricReading>>();
-  for (const reading of readings) {
-    if (reading.metricKey !== metricKey) continue;
-    const days = byAccount.get(reading.accountId) ?? new Map<string, MetricReading>();
-    days.set(reading.snapshotDate, reading);
-    byAccount.set(reading.accountId, days);
-  }
-  const dates = [...new Set([...byAccount.values()].flatMap((days) => [...days.keys()]))].sort();
-  for (const date of dates) {
-    const before = addUtcDays(date, -1);
-    let rise = 0;
-    let observedAt = 0;
-    let compared = false;
-    for (const days of byAccount.values()) {
-      const current = days.get(date);
-      const previous = days.get(before);
-      if (current === undefined || previous === undefined) continue;
-      rise += current.value - previous.value;
-      observedAt = Math.max(observedAt, current.observedAt.getTime());
-      compared = true;
-    }
-    if (compared && rise >= gain) return crossedAt(new Date(observedAt));
-  }
-  return null;
-}
-
-/**
  * Daily totals (one UTC day's total per reading: signups, new stars), summed across accounts per
  * day. Each day is its own total, so nothing is carried forward. A total is dated to the day it
  * counts, at 00:00 UTC with day precision, never to a time.
@@ -355,8 +317,6 @@ function prove(rule: AchievementRule, input: EvaluationInput, clock: (at: Date) 
       return metricThreshold(input.readings, rule.metricKey, rule.value);
     case "daily_total_threshold":
       return dailyTotalThreshold(input.readings, rule);
-    case "metric_daily_gain":
-      return metricDailyGain(input.readings, rule.metricKey, rule.gain);
   }
 }
 

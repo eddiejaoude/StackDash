@@ -140,8 +140,6 @@ function threshold(rule: AchievementRule): number {
     case "metric_threshold":
     case "daily_total_threshold":
       return rule.value;
-    case "metric_daily_gain":
-      return rule.gain;
     case "consecutive_days":
       return rule.days;
     case "event_at_local_time":

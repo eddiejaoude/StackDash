@@ -77,12 +77,6 @@ export const AchievementRuleSchema = z.discriminatedUnion("kind", [
     value: PositiveCount,
     sum: z.enum(["cumulative", "single_day"]),
   }),
-  // `metricKey` rising by at least `gain` between consecutive stored daily readings: per account,
-  // the reading of snapshot day D minus the reading of D-1, summed over the accounts read on both
-  // days. Snapshot days are UTC days, not London calendar days: one row per day can prove nothing
-  // finer, and keying by the London date of a late summer row (23:xx UTC) would compare it with
-  // the row two days back. A missed day never counts. Dated to day D's reading.
-  z.strictObject({ kind: z.literal("metric_daily_gain"), metricKey: AdapterScopedKeySchema, gain: PositiveCount }),
 ]);
 
 const Title = z.string().trim().min(1).max(ACHIEVEMENT_TITLE_MAX);
@@ -117,7 +111,6 @@ export function achievementRuleTypeIds(rule: AchievementRule): string[] {
       return [...rule.successTypeIds, ...rule.failureTypeIds];
     case "metric_threshold":
     case "daily_total_threshold":
-    case "metric_daily_gain":
       return [];
   }
 }
@@ -127,7 +120,6 @@ export function achievementRuleMetricKey(rule: AchievementRule): string | undefi
   switch (rule.kind) {
     case "metric_threshold":
     case "daily_total_threshold":
-    case "metric_daily_gain":
       return rule.metricKey;
     default:
       return undefined;

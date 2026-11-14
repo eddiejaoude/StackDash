@@ -25,7 +25,7 @@ import {
   requireExtra,
 } from "./api";
 import { collectBilling } from "./billing";
-import { collectRepositories, CursorSchema, eventTypes, starMetricNames, type Cursor } from "./repositories";
+import { collectRepositories, CursorSchema, eventTypes, POLL_INTERVAL_SECONDS, starMetricNames, type Cursor } from "./repositories";
 import {
   TokenResponseSchema,
   UserInstallationsPageSchema,
@@ -339,7 +339,7 @@ export const githubAdapter: ProviderAdapter = {
       privateKey: "GITHUB_APP_PRIVATE_KEY",
     },
   },
-  pollIntervalSeconds: 3600,
+  pollIntervalSeconds: POLL_INTERVAL_SECONDS,
 
   /** Leg 1: the app install URL. The setup URL is fixed in the app registration, not sent here. */
   buildAuthorizeUrl({ client, state }) {

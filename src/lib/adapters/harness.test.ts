@@ -240,7 +240,7 @@ describe("checkAdapterDeclaration", () => {
     it.each<[string, Achievement, string]>([
       ["an event count of 0", withRule({ kind: "event_count", typeIds: ["example.deploy.succeeded"], count: 0 }), "rule.count"],
       ["a metric threshold of 0", withRule({ kind: "metric_threshold", metricKey: metricKeys.requestsUsed, value: 0 }), "rule.value"],
-      ["a negative daily gain", withRule({ kind: "metric_daily_gain", metricKey: metricKeys.requestsUsed, gain: -5 }), "rule.gain"],
+      ["a negative daily total", withRule({ kind: "daily_total_threshold", metricKey: metricKeys.requestsUsed, value: -5, sum: "single_day" }), "rule.value"],
       ["a run of 0 days", withRule({ kind: "consecutive_days", typeIds: ["example.deploy.succeeded"], days: 0 }), "rule.days"],
       ["a title too long for the card", { ...deployments, title: "x".repeat(81) }, "title"],
     ])("reports %s as invalid (boundary)", (_case, achievement, field) => {
@@ -258,6 +258,31 @@ describe("checkSyncResult", () => {
 
   it("passes an empty result (boundary)", () => {
     expect(checkSyncResult(exampleAdapter, ACCOUNT, { metrics: [], events: [] })).toEqual([]);
+  });
+
+  // A daily total of usage over the whole UTC day before NOW, as PostHog and GitHub report theirs.
+  const yesterday = { type: "period", start: new Date("2026-11-15T00:00:00.000Z"), end: NOW } as const;
+
+  it.each([
+    ["signupDailyTotals", adapterWith({ signupDailyTotals: [metricKeys.requestsUsed] })],
+    ["dailyTotals", adapterWith({ dailyTotals: [metricKeys.requestsUsed] })],
+  ])("passes a total declared in %s over one whole UTC day", (_field, adapter) => {
+    expect(checkSyncResult(adapter, ACCOUNT, { metrics: [{ ...usage, timeframe: yesterday }], events: [] })).toEqual([]);
+  });
+
+  it.each<[string, AdapterMetric["timeframe"]]>([
+    ["a point reading", { type: "point", at: NOW }],
+    ["24 hours from 01:00 UTC", { type: "period", start: new Date("2026-11-15T01:00:00.000Z"), end: new Date("2026-11-16T01:00:00.000Z") }],
+    ["two whole UTC days", { type: "period", start: new Date("2026-11-14T00:00:00.000Z"), end: NOW }],
+    ["a day 1 ms short", { type: "period", start: new Date("2026-11-15T00:00:00.000Z"), end: new Date(NOW.getTime() - 1) }],
+  ])("reports a declared daily total whose timeframe is %s (boundary)", (_case, timeframe) => {
+    const metrics = [{ ...usage, timeframe }];
+    expect(checkSyncResult(adapterWith({ dailyTotals: [metricKeys.requestsUsed] }), ACCOUNT, { metrics, events: [] })).toEqual([
+      "metrics[0] example.requests.used is declared in dailyTotals but its timeframe is not one whole UTC day",
+    ]);
+    expect(checkSyncResult(adapterWith({ signupDailyTotals: [metricKeys.requestsUsed] }), ACCOUNT, { metrics, events: [] })).toEqual([
+      "metrics[0] example.requests.used is declared in signupDailyTotals but its timeframe is not one whole UTC day",
+    ]);
   });
 
   it.each<[string, ProviderAdapter<string>, SyncResult, string[]]>([
@@ -302,7 +327,7 @@ describe("checkSyncResult", () => {
             label: "Account credit",
             amountMinor: 5,
             currency: "USD",
-            timeframe: { type: "point", at: NOW },
+            timeframe: yesterday,
             externalAccountId: ACCOUNT,
             retrievedAt: NOW,
             provenance: { source: "provider_api" },
@@ -323,7 +348,7 @@ describe("checkSyncResult", () => {
             label: "Account credit",
             amountMinor: 5,
             currency: "USD",
-            timeframe: { type: "point", at: NOW },
+            timeframe: yesterday,
             externalAccountId: ACCOUNT,
             retrievedAt: NOW,
             provenance: { source: "provider_api" },

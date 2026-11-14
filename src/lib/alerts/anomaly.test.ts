@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { declaredProjectedSpend } from "@/lib/adapters/registry";
+import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
 import type { TrendMeasure } from "@/lib/dashboard/trends";
 
 import {
@@ -31,9 +31,9 @@ function lastDay(series: readonly (number | null)[], measure: TrendMeasure = USD
   return detectSpike(series.slice(-15, -1), series.at(-1) ?? null, measure);
 }
 
-/** Detection with the adapters' declared projections, as the daily summary job runs it. */
-function anomaliesFor(input: Omit<Parameters<typeof findAnomalies>[0], "projectedSpend">) {
-  return findAnomalies({ ...input, projectedSpend: declaredProjectedSpend });
+/** Detection with the adapters' declared projections and daily totals, as the daily summary job runs it. */
+function anomaliesFor(input: Omit<Parameters<typeof findAnomalies>[0], "projectedSpend" | "dailyTotals">) {
+  return findAnomalies({ ...input, projectedSpend: declaredProjectedSpend, dailyTotals: declaredDailyTotals });
 }
 
 /** Which days of `series` fire, checking each day against the 14 before it. */
@@ -260,8 +260,34 @@ describe("findAnomalies", () => {
     const verified = monthToDate(() => 10_000);
     expect(anomaliesFor({ date: DATE, rows: [...verified, ...projection], connections: [VERCEL], mutes: [] })).toEqual([]);
     // The same rows under an undeclared key fire, so the declaration is what keeps them quiet.
-    const undeclared = findAnomalies({ date: DATE, rows: projection, connections: [VERCEL], mutes: [], projectedSpend: [] });
+    const undeclared = findAnomalies({ date: DATE, rows: projection, connections: [VERCEL], mutes: [], projectedSpend: [], dailyTotals: declaredDailyTotals });
     expect(undeclared.map((anomaly) => [anomaly.metricKey, anomaly.source])).toEqual([[metricKey, "estimated"]]);
+  });
+
+  // GitHub's new stars per day feeds Trending; a launch day is not usage to warn about (#413).
+  it.each(declaredDailyTotals)("never fires %s, a declared daily total, on a day of 100 times the usual", (metricKey) => {
+    const github: AnomalyConnection = { id: "gh", provider: "github" };
+    // 5 new stars a day, then 500 on DATE; each day's total is stored the day after its own day.
+    const rows = Array.from({ length: 15 }, (_, index) => {
+      const day = addUtcDays(DATE, index - 14);
+      return row({
+        connection_id: github.id,
+        metric_key: metricKey,
+        kind: "usage",
+        label: "New stars over one UTC day",
+        currency: null,
+        unit: "stars",
+        value: day === DATE ? 500 : 5,
+        snapshot_date: addUtcDays(day, 1),
+        period_start: `${day}T00:00:00.000Z`,
+        period_end: `${addUtcDays(day, 1)}T00:00:00.000Z`,
+      });
+    });
+    const summarized = addUtcDays(DATE, 1);
+    expect(anomaliesFor({ date: summarized, rows, connections: [github], mutes: [] })).toEqual([]);
+    // The same rows under an undeclared key fire, so the declaration is what keeps them quiet.
+    const undeclared = findAnomalies({ date: summarized, rows, connections: [github], mutes: [], projectedSpend: declaredProjectedSpend, dailyTotals: [] });
+    expect(undeclared.map((anomaly) => [anomaly.metricKey, anomaly.date, anomaly.value])).toEqual([[metricKey, DATE, 500]]);
   });
 
   it("never fires a breakdown beside its total or its parent", () => {
@@ -344,7 +370,7 @@ describe("checkedRows", () => {
       }),
       row({ snapshot_date: DATE, metric_key: "vercel.allowance.included", kind: "included_allowance", amount_minor: 2000 }),
     ];
-    expect(checkedRows(rows, declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual(["github.spend.actions"]);
+    expect(checkedRows(rows, declaredProjectedSpend, declaredDailyTotals).map((snapshot) => snapshot.metric_key)).toEqual(["github.spend.actions"]);
   });
 
   it("keeps a lone breakdown or day row when its parent or month is missing that day", () => {
@@ -356,7 +382,7 @@ describe("checkedRows", () => {
       period_end: `${addUtcDays(DATE, 1)}T00:00:00.000Z`,
     });
     const month = row({ snapshot_date: addUtcDays(DATE, -1), metric_key: "github.spend.actions", amount_minor: 1000 });
-    expect(checkedRows([month, day], declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual([
+    expect(checkedRows([month, day], declaredProjectedSpend, declaredDailyTotals).map((snapshot) => snapshot.metric_key)).toEqual([
       "github.spend.actions",
       "github.daily_spend.actions",
     ]);
@@ -365,8 +391,27 @@ describe("checkedRows", () => {
   it("leaves a declared projection out, so alert settings never offers to mute it (#223)", () => {
     const spent = row({ snapshot_date: DATE, metric_key: "posthog.spend.current", amount_minor: 0 });
     const projected = row({ snapshot_date: DATE, metric_key: "posthog.spend.projected", kind: "estimated_spend", amount_minor: 2986 });
-    expect(checkedRows([spent, projected], declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual(["posthog.spend.current"]);
-    expect(checkedRows([projected], declaredProjectedSpend)).toEqual([]);
+    expect(checkedRows([spent, projected], declaredProjectedSpend, declaredDailyTotals).map((snapshot) => snapshot.metric_key)).toEqual(["posthog.spend.current"]);
+    expect(checkedRows([projected], declaredProjectedSpend, declaredDailyTotals)).toEqual([]);
+  });
+
+  it("leaves a declared daily total out, so alert settings never offers to mute new stars, and keeps daily signups", () => {
+    // Only GitHub declares one; PostHog's daily signups are `signupDailyTotals` and stay checked.
+    expect(declaredDailyTotals).toEqual(["github.stars.gained.daily"]);
+    const stars = row({
+      snapshot_date: DATE,
+      metric_key: "github.stars.gained.daily",
+      kind: "usage",
+      currency: null,
+      unit: "stars",
+      value: 12,
+      period_start: `${addUtcDays(DATE, -1)}T00:00:00.000Z`,
+      period_end: `${DATE}T00:00:00.000Z`,
+    });
+    const signups = { ...stars, metric_key: "posthog.signups.daily", unit: "signups" };
+    expect(checkedRows([stars, signups], declaredProjectedSpend, declaredDailyTotals).map((snapshot) => snapshot.metric_key)).toEqual([
+      "posthog.signups.daily",
+    ]);
   });
 });
 

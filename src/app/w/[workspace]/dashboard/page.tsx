@@ -20,6 +20,7 @@ import { buttonClass } from "@/components/ui/button";
 import { LiveRegion } from "@/components/ui/live-region";
 import {
   declaredCapabilities,
+  declaredDailyTotals,
   declaredEventTypes,
   declaredProjectedSpend,
   declaredSignupDailyTotals,
@@ -267,6 +268,7 @@ async function DashboardContent({
       connections: data.connections,
       mutes: anomalyControls.mutes,
       projectedSpend: declaredProjectedSpend,
+      dailyTotals: declaredDailyTotals,
     }),
     bucketEventCounts(dayEventCounts, "daily", now),
     { timelinePath, scope },

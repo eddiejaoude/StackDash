@@ -2,7 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
-import { declaredProjectedSpend } from "@/lib/adapters/registry";
+import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
 import { ANOMALY_KINDS, ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
 import type { ProviderId, SnapshotInput } from "@/lib/dashboard/aggregate";
 import type { Database } from "@/lib/supabase/database.types";
@@ -62,11 +62,11 @@ export const getAnomalyControls = cache(async (workspaceId: string): Promise<Ano
  * The spend and usage metrics a person can mute, sorted by label: every series the workspace's
  * snapshots hold, judged by `checkedRows` on the series' newest snapshot date, so a breakdown
  * beside its total (a GitHub SKU), a day inside a billing month (`github.daily_spend.<product>`),
- * or a provider's declared projection (#223) is not offered, because muting it would silence
- * nothing. A series that stopped reporting is offered on purpose, even though detection reads only
- * the last `ANOMALY_WINDOW_DAYS` and skips it for now: a mute holds by provider and metric key, so
- * one set before the series resumes still applies when it does (#319). Read per series in the
- * database, and a non-member gets none.
+ * a provider's declared projection (#223), or a declared daily total (GitHub's new stars per day)
+ * is not offered, because muting it would silence nothing. A series that stopped reporting is
+ * offered on purpose, even though detection reads only the last `ANOMALY_WINDOW_DAYS` and skips it
+ * for now: a mute holds by provider and metric key, so one set before the series resumes still
+ * applies when it does (#319). Read per series in the database, and a non-member gets none.
  */
 export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<AnomalyMetric[]> => {
   const supabase = await createClient();
@@ -88,7 +88,7 @@ export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<Ano
   const full = rows.length === SERIES_DAY_ROWS_LIMIT && rows.some((row) => row.snapshot_date !== oldest);
   const scanned = full ? rows.filter((row) => row.snapshot_date !== oldest) : rows;
   const byKey = new Map<string, AnomalyMetric>();
-  for (const row of checkedRows(scanned, declaredProjectedSpend)) {
+  for (const row of checkedRows(scanned, declaredProjectedSpend, declaredDailyTotals)) {
     const key = `${row.provider} ${row.metric_key}`;
     // Newest first, so the first label seen is the current one.
     if (!byKey.has(key)) byKey.set(key, { provider: row.provider, metricKey: row.metric_key, label: row.label });

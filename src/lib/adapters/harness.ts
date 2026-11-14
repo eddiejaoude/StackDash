@@ -147,6 +147,7 @@ export function createAdapterHarness(options: HarnessOptions): AdapterHarness {
 const PROVIDER_ID = /^[a-z][a-z0-9]*$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
 const MIN_POLL_INTERVAL_SECONDS = 60;
+const DAY_MS = 86_400_000;
 
 function blank(value: string): boolean {
   return value.trim().length === 0;
@@ -285,8 +286,9 @@ function batchProblems(label: string, batch: BatchValidation<unknown>): string[]
 
 /**
  * One `sync` result against the gates the sync runner applies before storing anything
- * (`src/lib/jobs/sync-connection.ts`), plus what the dashboard assumes: every metric kind is a
- * declared capability, a declared projection is estimated spend, and a declared daily total is usage.
+ * (`src/lib/jobs/sync-connection.ts`), plus what the dashboard and achievements assume: every
+ * metric kind is a declared capability, a declared projection is estimated spend, and a declared
+ * daily total is usage over exactly one whole UTC day.
  */
 export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccountId: string, result: SyncResult): string[] {
   const problems = [
@@ -316,8 +318,17 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
       problems.push(`metrics[${index}] ${metric.metricKey} is declared in projectedSpend but is ${metric.kind}`);
     }
     for (const [field, keys] of dailyTotals) {
-      if (keys.has(metric.metricKey) && metric.kind !== "usage") {
-        problems.push(`metrics[${index}] ${metric.metricKey} is declared in ${field} but is ${metric.kind}`);
+      if (!keys.has(metric.metricKey)) continue;
+      if (metric.kind !== "usage") problems.push(`metrics[${index}] ${metric.metricKey} is declared in ${field} but is ${metric.kind}`);
+      // `daily_total_threshold` dates a total by its period's start and falls back to the stored
+      // date for any other timeframe, so anything but one whole UTC day would date it wrong.
+      const { timeframe } = metric;
+      const wholeUtcDay =
+        timeframe.type === "period" &&
+        timeframe.start.getTime() % DAY_MS === 0 &&
+        timeframe.end.getTime() - timeframe.start.getTime() === DAY_MS;
+      if (!wholeUtcDay) {
+        problems.push(`metrics[${index}] ${metric.metricKey} is declared in ${field} but its timeframe is not one whole UTC day`);
       }
     }
   });

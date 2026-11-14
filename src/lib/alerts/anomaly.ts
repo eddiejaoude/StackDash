@@ -8,7 +8,9 @@
  * - Only spend (verified and estimated) and usage count. Allowances, credit balances, and revenue
  *   are levels, not daily activity, and point in time readings (a star count) are gauges, so
  *   neither is ever flagged. Nor is a provider's declared projection for the period
- *   (`isDeclaredProjection`, #223): a re-estimate is not money spent that day.
+ *   (`isDeclaredProjection`, #223): a re-estimate is not money spent that day. Nor is a declared
+ *   daily total that is not signups (`ProviderAdapter.dailyTotals`, GitHub's new stars per day,
+ *   #413): it feeds achievements, and a launch day is not usage to warn about.
  * - A metric's daily amount comes from its stored rows. When an account's rows never cover more
  *   than one UTC day, each row is that day's amount, dated by the period's first day. Otherwise
  *   the rows are a running total over a period that starts on a UTC day boundary (month to date,
@@ -208,15 +210,16 @@ function isLongerThanADay(row: AnomalyRow): boolean {
 
 /**
  * The rows detection checks: declared projections (`projectedSpend`) left out first, as
- * `countedSnapshots` leaves them out, then the dashboard's breakdown and sub-window drops, applied
- * to each snapshot date's rows on their own (across dates, a later month to date reading would
- * cover every earlier one and leave no history), then only spend and usage over a period that
- * starts on a UTC day boundary with an amount.
+ * `countedSnapshots` leaves them out, and declared daily totals (`dailyTotals`), then the
+ * dashboard's breakdown and sub-window drops, applied to each snapshot date's rows on their own
+ * (across dates, a later month to date reading would cover every earlier one and leave no
+ * history), then only spend and usage over a period that starts on a UTC day boundary with an
+ * amount.
  */
-export function checkedRows<T extends AnomalyRow>(rows: readonly T[], projectedSpend: readonly string[]): T[] {
+export function checkedRows<T extends AnomalyRow>(rows: readonly T[], projectedSpend: readonly string[], dailyTotals: readonly string[]): T[] {
   const byDate = new Map<string, T[]>();
   for (const row of rows) {
-    if (isDeclaredProjection(row, projectedSpend)) continue;
+    if (isDeclaredProjection(row, projectedSpend) || dailyTotals.includes(row.metric_key)) continue;
     const dayRows = byDate.get(row.snapshot_date);
     if (dayRows === undefined) byDate.set(row.snapshot_date, [row]);
     else dayRows.push(row);
@@ -286,10 +289,11 @@ function buildSeries(
   rows: readonly AnomalyRow[],
   connections: readonly AnomalyConnection[],
   projectedSpend: readonly string[],
+  dailyTotals: readonly string[],
 ): Series[] {
   const providers = new Map(connections.map((connection) => [connection.id, connection.provider]));
   const series = new Map<string, Series>();
-  for (const row of checkedRows(rows, projectedSpend)) {
+  for (const row of checkedRows(rows, projectedSpend, dailyTotals)) {
     const provider = providers.get(row.connection_id);
     const measure = measureOf(row);
     if (provider === undefined || measure === null) continue;
@@ -330,8 +334,9 @@ function seriesAmounts(cells: readonly Cell[], days: readonly string[]): (number
  * Every unusual series for the summary of `date` (`YYYY-MM-DD`, UTC), from rows narrowed to the
  * workspace and to `anomalySnapshotRange(date)`. A running total is checked on `date`, a series
  * with a one day period on the day before, and each anomaly is dated by the day it checked. Rows
- * of connections not listed are ignored, and so are muted metrics and the adapters' declared
- * projections (`projectedSpend`). Sorted by provider name, then label.
+ * of connections not listed are ignored, and so are muted metrics, the adapters' declared
+ * projections (`projectedSpend`), and their declared daily totals (`dailyTotals`). Sorted by
+ * provider name, then label.
  */
 export function findAnomalies(input: {
   date: string;
@@ -340,10 +345,12 @@ export function findAnomalies(input: {
   mutes: readonly AnomalyMute[];
   /** Estimated spend metric keys the adapters declare projections (`ProviderAdapter.projectedSpend`). */
   projectedSpend: readonly string[];
+  /** Usage metric keys the adapters declare daily totals that are not signups (`ProviderAdapter.dailyTotals`). */
+  dailyTotals: readonly string[];
 }): Anomaly[] {
   const muted = new Set(input.mutes.map((mute) => `${mute.provider} ${mute.metric_key}`));
   const anomalies: Anomaly[] = [];
-  for (const series of buildSeries(input.rows, input.connections, input.projectedSpend)) {
+  for (const series of buildSeries(input.rows, input.connections, input.projectedSpend, input.dailyTotals)) {
     if (muted.has(`${series.provider} ${series.metricKey}`)) continue;
     const cells = [...series.accounts.values()].map(toCell);
     const accrual: Accrual = cells.some((cell) => cell.accrual === "period_to_date") ? "period_to_date" : "daily";
