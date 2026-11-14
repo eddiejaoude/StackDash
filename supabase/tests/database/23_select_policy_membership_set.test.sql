@@ -124,7 +124,7 @@ insert into public.project_pages (project_id, workspace_id, slug, enabled)
 select ('283000' || ws || '1-0000-4000-8000-000000000000')::uuid, id, 'page-' || ws, true from rls283.ws;
 
 insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes, created_by)
-select id, 'Key ' || ws, encode(sha256(convert_to('rls-283-key-' || ws, 'UTF8')), 'hex'), 'dmk_rls283k' || ws,
+select id, 'Key ' || ws, encode(sha256(convert_to('rls-283-key-' || ws, 'UTF8')), 'hex'), 'sd_rls283k' || ws,
        '{usage:read}', owner_id
 from rls283.ws;
 

@@ -3,7 +3,7 @@
 -- Every function here reads across all workspaces and auth.users, so each is security definer,
 -- pins an empty search_path, and is executable by the service role only. The app calls them from
 -- src/lib/data/admin.ts after requireSuperAdmin() (src/lib/auth/super-admin.ts) has checked the
--- signed-in user against DEVMACRO_SUPER_ADMIN_EMAILS; the database never learns who the super
+-- signed-in user against STACKDASH_SUPER_ADMIN_EMAILS; the database never learns who the super
 -- admins are. Nothing here returns personal data: counts, workspace names, and job error codes only.
 --
 -- Event counts sum activity_event_daily_counts (20261106090000), which the triggers keep equal to

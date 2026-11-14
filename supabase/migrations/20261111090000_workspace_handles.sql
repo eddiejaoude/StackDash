@@ -249,7 +249,7 @@ begin
   select coalesce(w.handle, w.slug) into v_workspace_address from public.workspaces w where w.id = p_workspace_id;
   perform public.record_publication_event(
     p_workspace_id,
-    case when v_was_enabled then 'devmacro.project_page_updated' else 'devmacro.project_page_enabled' end,
+    case when v_was_enabled then 'stackdash.project_page_updated' else 'stackdash.project_page_enabled' end,
     case when v_was_enabled then 'Updated the public project page' else 'Turned on the public project page' end,
     'Project ' || v_project_name || '. Address /@' || v_workspace_address || '/' || p_slug || '. '
       || case when p_indexable then 'Search engines may index it.' else 'Search engines are asked not to index it.' end,

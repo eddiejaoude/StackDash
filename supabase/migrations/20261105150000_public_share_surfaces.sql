@@ -7,7 +7,7 @@
 --   constraint refuses anything that is not a SHA-256 hex digest, so a raw IP can never be stored.
 --   Nobody reads it through the Data API; the retention job deletes rows older than a day.
 -- * published_metric_views counts, per project, metric, surface, and UTC day, how many times
---   DevMacro served the badge or card of a live publication. Counted per metric rather than per
+--   StackDash served the badge or card of a live publication. Counted per metric rather than per
 --   publication row, so changing the rounding (which republishes) keeps the count. Members read it
 --   through the Data API; only record_published_metric_view writes it, run by the server with the
 --   service role. Deleting the project deletes its counts; the retention job keeps 13 months.

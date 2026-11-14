@@ -227,7 +227,7 @@ select public.save_project_page('a9100002-0000-4000-8000-000000000001', 'a910000
   'a9100001-0000-4000-8000-000000000001', 'acme-web', true);
 select is(
   (select body from public.activity_events
-   where workspace_id = 'a9100002-0000-4000-8000-000000000001' and type_id = 'devmacro.project_page_enabled'),
+   where workspace_id = 'a9100002-0000-4000-8000-000000000001' and type_id = 'stackdash.project_page_enabled'),
   'Project Acme web. Address /@acme-labs/acme-web. Search engines may index it.',
   'save_project_page: the audit event names the handle address while the workspace has a handle');
 select public.publish_metric('a9100002-0000-4000-8000-000000000001', 'a9100003-0000-4000-8000-000000000001',

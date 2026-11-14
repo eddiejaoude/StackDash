@@ -83,7 +83,7 @@ insert into public.activity_events (workspace_id, connection_id, provider, type_
 values
   ('a25000a0-0000-4000-8000-000000000000', 'a25000a1-0000-4000-8000-000000000000', 'vercel', 'vercel.deployment_ready', 'info', 'Deployed', '2026-11-01T10:00:00Z', 'admin-1'),
   ('a25000a0-0000-4000-8000-000000000000', 'a25000a1-0000-4000-8000-000000000000', 'vercel', 'vercel.deployment_ready', 'info', 'Deployed', '2026-11-01T11:00:00Z', 'admin-2'),
-  ('a25000a0-0000-4000-8000-000000000000', null, null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-11-02T08:00:00Z', 'admin-3');
+  ('a25000a0-0000-4000-8000-000000000000', null, null, 'stackdash.daily_summary', 'info', 'Daily summary', '2026-11-02T08:00:00Z', 'admin-3');
 
 -- ---------------------------------------------------------------------------
 -- Totals: the change the fixtures made, field by field.

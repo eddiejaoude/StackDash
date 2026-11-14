@@ -1,7 +1,7 @@
 -- Read-only public REST API with scoped keys (#162). Grant model: see 20261031090000_tenancy.sql.
 --
 -- A key belongs to one workspace and carries one or more read scopes. The plaintext key
--- ("dmk_" + 43 base64url characters) is shown once when it is created and never stored: the table
+-- ("sd_" + 43 base64url characters) is shown once when it is created and never stored: the table
 -- keeps its SHA-256 hex digest (token_hash, the lookup key) and a short display prefix. This follows
 -- BackTalk's api_keys (its migration 0034): hash only, display prefix, revoke instead of delete,
 -- last_used_at, and a key that stops working once the member who created it leaves the workspace.
@@ -28,9 +28,9 @@ create table public.api_keys (
   token_hash text not null
     constraint api_keys_token_hash_key unique
     constraint api_keys_token_hash_format check (token_hash ~ '^[0-9a-f]{64}$'),
-  -- "dmk_" plus the first 8 characters of the secret part: enough to tell keys apart, useless to
+  -- "sd_" plus the first 8 characters of the secret part: enough to tell keys apart, useless to
   -- authenticate with.
-  token_prefix text not null constraint api_keys_token_prefix_format check (token_prefix ~ '^dmk_[A-Za-z0-9_-]{8}$'),
+  token_prefix text not null constraint api_keys_token_prefix_format check (token_prefix ~ '^sd_[A-Za-z0-9_-]{8}$'),
   -- At least one scope and no nulls. No upper bound: adding a value to api_key_scope must not make
   -- a key holding every scope invalid. Duplicates are harmless to `= any (scopes)`.
   scopes public.api_key_scope[] not null constraint api_keys_scopes_valid

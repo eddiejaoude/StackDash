@@ -1,7 +1,7 @@
 -- Reads for the year in review slides (issue #262): the busiest day, the most active provider, and
 -- the longest run of successful deployments of one calendar year, for the members of a workspace.
 -- Decision record (which figures are safe to show):
--- https://github.com/eddiejaoude/DevMacro/issues/262#issuecomment-6790096177
+-- https://github.com/eddiejaoude/StackDash/issues/262#issuecomment-6790096177
 --
 -- Both functions count in the database and return a handful of rows, because the figures need
 -- every event of the year and PostgREST has no GROUP BY without db aggregates, which this project
@@ -11,7 +11,7 @@
 --   timeline_connection_event_counts: a non-member gets nothing, and the activity_events select
 --   policy does not run once per row. Every row read is still scoped to p_workspace_id and to
 --   p_account_ids, the workspace's included accounts (the public metric engine's scope), so events
---   with no account, such as DevMacro's daily summaries, never count.
+--   with no account, such as StackDash's daily summaries, never count.
 -- * The window is half open, occurred_at >= p_from and < p_until, at most 366 days long, so the
 --   day rows stay one per London day of one year.
 -- * Every call is planned for its own arguments, as in activity_event_counts: a generic plan
@@ -33,7 +33,7 @@
 -- 74,557 rows left after the payment filter, then one HashAggregate for both buckets: 33 to 45 ms
 -- (31 to 32 ms through the function as a member). The time grows with the workspace's own events
 -- in the year: a workspace holding nearly the whole table took 755 ms for one million events, as a
--- sequential scan. Budget discussion: https://github.com/eddiejaoude/DevMacro/issues/262
+-- sequential scan. Budget discussion: https://github.com/eddiejaoude/StackDash/issues/262
 create function public.year_review_event_counts(
   p_workspace_id uuid,
   p_account_ids uuid[],

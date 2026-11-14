@@ -115,7 +115,7 @@ begin
   select w.slug into v_workspace_slug from public.workspaces w where w.id = p_workspace_id;
   perform public.record_publication_event(
     p_workspace_id,
-    case when v_was_enabled then 'devmacro.project_page_updated' else 'devmacro.project_page_enabled' end,
+    case when v_was_enabled then 'stackdash.project_page_updated' else 'stackdash.project_page_enabled' end,
     case when v_was_enabled then 'Updated the public project page' else 'Turned on the public project page' end,
     'Project ' || v_project_name || '. Address /@' || v_workspace_slug || '/' || p_slug || '. '
       || case when p_indexable then 'Search engines may index it.' else 'Search engines are asked not to index it.' end,
@@ -156,7 +156,7 @@ begin
 
   perform public.record_publication_event(
     p_workspace_id,
-    'devmacro.project_page_disabled',
+    'stackdash.project_page_disabled',
     'Turned off the public project page',
     'Project ' || v_project_name || '. The page is no longer public.',
     'project_page:' || gen_random_uuid()::text

@@ -130,10 +130,10 @@ select is(
 
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metric_published'
+   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'stackdash.metric_published'
      and title = 'Published GitHub stars' and provider is null),
   1,
-  'publish_metric: the audit event is in the timeline, as a DevMacro event');
+  'publish_metric: the audit event is in the timeline, as a StackDash event');
 
 select is(
   public.publish_metric('a8000002-0000-4000-8000-000000000001', 'a8000003-0000-4000-8000-000000000001',
@@ -143,7 +143,7 @@ select is(
 
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metric_published'),
+   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'stackdash.metric_published'),
   1,
   'publish_metric: an unchanged publish writes no second event');
 
@@ -196,7 +196,7 @@ select is(
 
 select is(
   (select body from public.activity_events
-   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metric_published'
+   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'stackdash.metric_published'
      and title = 'Published Downloads (self-reported)'),
   'Project Acme web. 4,200 downloads.',
   'publish_self_reported_metric: the audit event names the project and the value');
@@ -296,7 +296,7 @@ select is(
   'unpublish_metric: an admin unpublishes a metric');
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metric_unpublished'
+   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'stackdash.metric_unpublished'
      and title = 'Unpublished GitHub stars'),
   1,
   'unpublish_metric: the audit event is in the timeline');
@@ -342,7 +342,7 @@ select is(
   'unpublish_all_metrics: nothing in the workspace is live afterwards');
 select is(
   (select body from public.activity_events
-   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metrics_unpublished_all'
+   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'stackdash.metrics_unpublished_all'
      and title = 'Unpublished everything'),
   '2 metrics are no longer public.',
   'unpublish_all_metrics: one "Unpublished everything" event says how many');

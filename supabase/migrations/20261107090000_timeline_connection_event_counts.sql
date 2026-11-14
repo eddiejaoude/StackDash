@@ -20,7 +20,7 @@
 -- timeline lists across all of its pages. An empty array means no filter on that column, except
 -- p_hidden_type_ids, which always excludes what it lists. p_account_ids null means every account,
 -- and an empty array means none. The window is half open: occurred_at >= p_from and < p_until,
--- and a null bound is open. Events with no connection (DevMacro's own, such as daily summaries)
+-- and a null bound is open. Events with no connection (StackDash's own, such as daily summaries)
 -- belong to no badge.
 --
 -- The window and account filters are "(p_x is null or ...)" predicates, which only a plan made

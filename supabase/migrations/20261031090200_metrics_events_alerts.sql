@@ -62,7 +62,7 @@ create table public.usage_snapshots (
   constraint usage_snapshots_value_finite check (
     value is null or (value >= 0 and value < 'Infinity'::double precision)
   ),
-  -- An estimate is calculated by DevMacro and must name its price list.
+  -- An estimate is calculated by StackDash and must name its price list.
   constraint usage_snapshots_estimate_provenance check (
     kind <> 'estimated_spend' or (pricing_source is not null and provenance_source = 'derived')
   ),
@@ -82,8 +82,8 @@ create trigger usage_snapshots_set_updated_at before update on public.usage_snap
   for each row execute function public.set_updated_at();
 
 -- ── activity_events ─────────────────────────────────────────────────────────────
--- Events DevMacro generates itself (devmacro.daily_summary, devmacro.alert_triggered,
--- devmacro.sync_failed, devmacro.allowance_reset) have provider null.
+-- Events StackDash generates itself (stackdash.daily_summary, stackdash.alert_triggered,
+-- stackdash.sync_failed, stackdash.allowance_reset) have provider null.
 
 create table public.activity_events (
   id uuid primary key default gen_random_uuid(),

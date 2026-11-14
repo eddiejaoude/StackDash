@@ -75,7 +75,7 @@ values
    'vercel', 'vercel.deployment_ready', 'info', 'Clock change deploy', '2026-03-29T01:30:00Z', 'buckets-spring-2'),
   ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
    'vercel', 'vercel.deployment_ready', 'info', 'Clock change deploy', '2026-03-29T10:59:59Z', 'buckets-spring-3'),
-  -- 2026-04-01: one event per filter. A's ready and failed deploys, B's release and DevMacro's
+  -- 2026-04-01: one event per filter. A's ready and failed deploys, B's release and StackDash's
   -- sync failure about B (provider and account null), and a daily summary with no connection.
   ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
    'vercel', 'vercel.deployment_ready', 'info', 'Deployed', '2026-04-01T08:00:00Z', 'buckets-filter-1'),
@@ -84,9 +84,9 @@ values
   ('d37700a0-0000-4000-8000-000000000000', 'd37700b1-0000-4000-8000-000000000000', 'd37700b2-0000-4000-8000-000000000000',
    'github', 'github.release_published', 'info', 'Released', '2026-04-01T09:00:00Z', 'buckets-filter-3'),
   ('d37700a0-0000-4000-8000-000000000000', 'd37700b1-0000-4000-8000-000000000000', null,
-   null, 'devmacro.sync_failed', 'warning', 'Sync failed', '2026-04-01T09:15:00Z', 'buckets-filter-4'),
+   null, 'stackdash.sync_failed', 'warning', 'Sync failed', '2026-04-01T09:15:00Z', 'buckets-filter-4'),
   ('d37700a0-0000-4000-8000-000000000000', null, null,
-   null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-04-01T10:00:00Z', 'buckets-filter-5'),
+   null, 'stackdash.daily_summary', 'info', 'Daily summary', '2026-04-01T10:00:00Z', 'buckets-filter-5'),
   -- 2026-05-01: mixed severities. 03:00 to 04:00 UTC holds 2 critical, 3 warning, 1 info, and 1
   -- success event; 07:00 to 08:00 holds 1 critical event.
   ('d37700a0-0000-4000-8000-000000000000', 'd37700a1-0000-4000-8000-000000000000', 'd37700a2-0000-4000-8000-000000000000',
@@ -295,7 +295,7 @@ select is(
 
 select is(
   (select array_agg(events order by bucket_start) from public.timeline_activity_buckets(
-     'd37700a0-0000-4000-8000-000000000000', p_hidden_type_ids => array['vercel.deployment_ready', 'devmacro.sync_failed'],
+     'd37700a0-0000-4000-8000-000000000000', p_hidden_type_ids => array['vercel.deployment_ready', 'stackdash.sync_failed'],
      p_from => '2026-04-01T00:00:00Z', p_until => '2026-04-01T12:00:00Z')),
   array[0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0]::bigint[],
   'timeline_activity_buckets: hidden types are excluded');
@@ -312,7 +312,7 @@ select is(
      'd37700a0-0000-4000-8000-000000000000', p_providers => array['github']::public.provider_id[],
      p_from => '2026-04-01T00:00:00Z', p_until => '2026-04-01T12:00:00Z')),
   array[0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]::bigint[],
-  'timeline_activity_buckets: a provider filter matches the event provider, so a DevMacro event drops out');
+  'timeline_activity_buckets: a provider filter matches the event provider, so a StackDash event drops out');
 
 select is(
   (select array_agg(events order by bucket_start) from public.timeline_activity_buckets(

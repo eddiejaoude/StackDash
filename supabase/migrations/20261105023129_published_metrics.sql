@@ -120,7 +120,7 @@ $$;
 
 revoke execute on function public.require_published_metrics_admin(uuid, uuid) from public, anon, authenticated;
 
--- The audit event every publication change writes to the timeline. DevMacro's own event, so no
+-- The audit event every publication change writes to the timeline. StackDash's own event, so no
 -- provider, connection, or account. The dedupe key names the row (or the batch), so a retry of the
 -- same statement cannot write it twice.
 create function public.record_publication_event(
@@ -201,7 +201,7 @@ begin
   returning id into v_id;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.metric_published', p_title, p_body, 'metric_published:' || v_id::text
+    p_workspace_id, 'stackdash.metric_published', p_title, p_body, 'metric_published:' || v_id::text
   );
   return 'published';
 end;
@@ -265,7 +265,7 @@ begin
   returning id into v_id;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.metric_published', p_title, p_body, 'metric_published:' || v_id::text
+    p_workspace_id, 'stackdash.metric_published', p_title, p_body, 'metric_published:' || v_id::text
   );
   return 'published';
 end;
@@ -310,7 +310,7 @@ begin
   end if;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.metric_unpublished', p_title, null, 'metric_unpublished:' || v_id::text
+    p_workspace_id, 'stackdash.metric_unpublished', p_title, null, 'metric_unpublished:' || v_id::text
   );
   return 'unpublished';
 end;
@@ -344,7 +344,7 @@ begin
   if v_count > 0 then
     perform public.record_publication_event(
       p_workspace_id,
-      'devmacro.metrics_unpublished_all',
+      'stackdash.metrics_unpublished_all',
       'Unpublished everything',
       case when v_count = 1 then '1 metric is no longer public.' else v_count::text || ' metrics are no longer public.' end,
       'metrics_unpublished_all:' || gen_random_uuid()::text

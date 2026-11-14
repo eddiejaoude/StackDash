@@ -51,9 +51,9 @@ values
    'fake', 'fake.deploy.succeeded', 'success', 'Deploy', '2026-10-21T00:00:00Z', 'markers-next-day'),
   ('a80000a0-0000-4000-8000-000000000000', 'a80000c0-0000-4000-8000-000000000000', 'a80000e0-0000-4000-8000-000000000000',
    'fake', 'fake.signup', 'info', 'New signup', '2026-10-20T12:00:00Z', 'markers-signup'),
-  -- DevMacro's own event: no provider, no account.
+  -- StackDash's own event: no provider, no account.
   ('a80000a0-0000-4000-8000-000000000000', null, null,
-   null, 'devmacro.alert_triggered', 'warning', 'Alert', '2026-10-20T12:00:00Z', 'markers-alert');
+   null, 'stackdash.alert_triggered', 'warning', 'Alert', '2026-10-20T12:00:00Z', 'markers-alert');
 
 -- ---------------------------------------------------------------------------
 -- Shape: security definer with an empty search_path, members only.
@@ -128,7 +128,7 @@ select results_eq(
   $$
     select provider::text, event_count
     from public.activity_event_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['devmacro.alert_triggered']
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['stackdash.alert_triggered']
     )
   $$,
   $$ values (null::text, 1::bigint) $$,
@@ -137,7 +137,7 @@ select results_eq(
 select is_empty(
   $$
     select 1 from public.activity_event_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['devmacro.alert_triggered'], array['fake']::public.provider_id[]
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['stackdash.alert_triggered'], array['fake']::public.provider_id[]
     )
   $$,
   'activity_event_counts: a provider filter leaves out events with no provider, as the timeline does');
@@ -162,7 +162,7 @@ select is_empty(
 select is(
   (
     select sum(event_count)::int from public.activity_event_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded', 'devmacro.alert_triggered'],
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded', 'stackdash.alert_triggered'],
       '{}', array['a80000e0-0000-4000-8000-000000000000']::uuid[]
     )
   ),
@@ -183,7 +183,7 @@ set local request.jwt.claims to '{"sub": "a8000002-0000-4000-8000-000000000000",
 select is_empty(
   $$
     select 1 from public.activity_event_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'day', array['fake.deploy.succeeded', 'devmacro.alert_triggered']
+      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'day', array['fake.deploy.succeeded', 'stackdash.alert_triggered']
     )
   $$,
   'activity_event_counts: a non-member counts nothing in another workspace');
@@ -191,7 +191,7 @@ select is_empty(
 select is_empty(
   $$
     select 1 from public.activity_event_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'month', array['fake.deploy.succeeded', 'devmacro.alert_triggered']
+      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'month', array['fake.deploy.succeeded', 'stackdash.alert_triggered']
     )
   $$,
   'activity_event_counts: a non-member counts nothing by month either');

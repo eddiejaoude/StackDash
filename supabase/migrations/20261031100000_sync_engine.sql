@@ -146,7 +146,7 @@ grant execute on function public.enqueue_due_syncs(int) to service_role;
 
 -- ── latest_usage_resets ─────────────────────────────────────────────────────────
 -- The reset time on the most recent snapshot of each metric of one external account, so the sync
--- can tell when a billing period rolled over (devmacro.allowance_reset). Walks the
+-- can tell when a billing period rolled over (stackdash.allowance_reset). Walks the
 -- (external_account_id, metric_key, snapshot_date) unique index.
 
 create function public.latest_usage_resets(p_workspace_id uuid, p_external_account_id uuid)

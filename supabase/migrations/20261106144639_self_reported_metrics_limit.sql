@@ -68,7 +68,7 @@ begin
   returning id into v_id;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.metric_published', p_title, p_body, 'metric_published:' || v_id::text
+    p_workspace_id, 'stackdash.metric_published', p_title, p_body, 'metric_published:' || v_id::text
   );
   return 'published';
 end;

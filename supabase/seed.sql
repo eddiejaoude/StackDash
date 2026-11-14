@@ -134,5 +134,5 @@ insert into public.activity_events (
    'https://example.com/deployments/0', now() - interval '1 day 3 hours', 'fake:deployment:0'),
   ('70000000-0000-4000-8000-000000000004', '20000000-0000-4000-8000-000000000001',
    null, null, null,
-   'devmacro.daily_summary', 'info', 'Daily summary', 'Spend so far this month: 10.75 USD.',
-   null, now() - interval '1 day', 'devmacro:daily_summary:seed');
+   'stackdash.daily_summary', 'info', 'Daily summary', 'Spend so far this month: 10.75 USD.',
+   null, now() - interval '1 day', 'stackdash:daily_summary:seed');

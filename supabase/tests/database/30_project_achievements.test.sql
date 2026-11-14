@@ -116,15 +116,15 @@ select results_eq(
 
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.achievement_earned'
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.achievement_earned'
      and provider is null and connection_id is null and external_account_id is null and severity = 'success'),
   3,
-  'record_project_achievements: one DevMacro success event per earned achievement');
+  'record_project_achievements: one StackDash success event per earned achievement');
 
 select results_eq(
   $$
     select title, occurred_at, dedupe_key from public.activity_events
-    where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.achievement_earned'
+    where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.achievement_earned'
       and dedupe_key like '%vercel.deployments.10'
   $$,
   $$ values ('10 Vercel deployments recorded'::text, '2026-03-01T10:00:00Z'::timestamptz,
@@ -152,7 +152,7 @@ select results_eq(
 
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.achievement_earned'),
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.achievement_earned'),
   3,
   'record_project_achievements: a repeat writes no second event');
 
@@ -332,12 +332,12 @@ select results_eq(
   $$
     select type_id, title, body from public.activity_events
     where workspace_id = 'a9000002-0000-4000-8000-000000000001'
-      and type_id in ('devmacro.achievement_published', 'devmacro.achievement_unpublished')
+      and type_id in ('stackdash.achievement_published', 'stackdash.achievement_unpublished')
     order by type_id, title
   $$,
-  $$ values ('devmacro.achievement_published'::text, 'Published 1,000 GitHub stars'::text, 'Project Project A.'::text),
-            ('devmacro.achievement_published'::text, 'Published 10 Vercel deployments recorded'::text, 'Project Project A.'::text),
-            ('devmacro.achievement_unpublished'::text, 'Unpublished 10 Vercel deployments recorded'::text, 'Project Project A.'::text) $$,
+  $$ values ('stackdash.achievement_published'::text, 'Published 1,000 GitHub stars'::text, 'Project Project A.'::text),
+            ('stackdash.achievement_published'::text, 'Published 10 Vercel deployments recorded'::text, 'Project Project A.'::text),
+            ('stackdash.achievement_unpublished'::text, 'Unpublished 10 Vercel deployments recorded'::text, 'Project Project A.'::text) $$,
   'publish_achievement, unpublish_achievement: each change writes one audit event naming the project, an unchanged call none');
 
 select throws_ok(
@@ -374,7 +374,7 @@ select is(
 
 select is(
   (select body from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metrics_unpublished_all'),
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.metrics_unpublished_all'),
   '2 achievements are no longer public.',
   'unpublish_all_metrics: the audit event names what it took down');
 
@@ -414,7 +414,7 @@ select is(
 select results_eq(
   $$
     select split_part(dedupe_key, ':', 2) from public.activity_events
-    where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.achievement_earned'
+    where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.achievement_earned'
   $$,
   $$ values ('a9000003-0000-4000-8000-000000000002'::text) $$,
   'project deletion: deletes its timeline events and leaves the other project''s');

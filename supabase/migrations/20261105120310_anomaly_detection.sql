@@ -1,6 +1,6 @@
 -- Anomaly detection (#169): the per-workspace switch and the per-metric mutes. Detection itself
 -- runs in the daily summary job (src/lib/alerts/anomaly.ts, src/lib/jobs/daily-summary.ts) with
--- the service role and writes devmacro.anomaly_detected events to activity_events.
+-- the service role and writes stackdash.anomaly_detected events to activity_events.
 
 -- On by default: detection needs no setup. Admins turn it off with the same update policy that
 -- lets them rename the workspace (workspaces_update); the column grant is the only new access.

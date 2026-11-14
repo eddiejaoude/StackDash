@@ -102,7 +102,7 @@ values
   ('b20100a0-0000-4000-8000-000000000000', 'b20100c2-0000-4000-8000-000000000000', 'b20100e2-0000-4000-8000-000000000000',
    'fake', 'fake.deploy.succeeded', 'success', 'Deploy', '2026-10-20T14:00:00Z', 'rollup-other-account'),
   ('b20100a0-0000-4000-8000-000000000000', null, null,
-   null, 'devmacro.alert_triggered', 'warning', 'Alert', '2026-10-20T15:00:00Z', 'rollup-alert'),
+   null, 'stackdash.alert_triggered', 'warning', 'Alert', '2026-10-20T15:00:00Z', 'rollup-alert'),
   -- Older than the retention cut used below.
   ('b20100a0-0000-4000-8000-000000000000', 'b20100c1-0000-4000-8000-000000000000', 'b20100e1-0000-4000-8000-000000000000',
    'fake', 'fake.deploy.succeeded', 'success', 'Deploy', '2025-09-15T08:00:00Z', 'rollup-old-one'),
@@ -120,10 +120,10 @@ select results_eq(
   $$,
   $$
     values
-      ('devmacro.alert_triggered', null::text, null::uuid, 1),
       ('fake.deploy.succeeded', 'fake', 'b20100e1-0000-4000-8000-000000000000'::uuid, 2),
       ('fake.deploy.succeeded', 'fake', 'b20100e2-0000-4000-8000-000000000000'::uuid, 1),
-      ('fake.signup', 'fake', 'b20100e1-0000-4000-8000-000000000000'::uuid, 1)
+      ('fake.signup', 'fake', 'b20100e1-0000-4000-8000-000000000000'::uuid, 1),
+      ('stackdash.alert_triggered', null::text, null::uuid, 1)
   $$,
   'rollup after inserts: one row per UTC day, type, provider, and account, events with no provider under null');
 
@@ -192,7 +192,7 @@ select results_eq(
     select bucket_start, provider::text, type_id, event_count
     from public.activity_event_counts(
       'b20100a0-0000-4000-8000-000000000000', '2025-01-01', 'month',
-      array['fake.deploy.succeeded', 'fake.signup', 'devmacro.alert_triggered']
+      array['fake.deploy.succeeded', 'fake.signup', 'stackdash.alert_triggered']
     )
     order by 1, 2, 3
   $$,
@@ -201,7 +201,7 @@ select results_eq(
     from public.activity_events e
     where e.workspace_id = 'b20100a0-0000-4000-8000-000000000000'
       and e.occurred_at >= '2025-01-01T00:00:00Z'
-      and e.type_id = any (array['fake.deploy.succeeded', 'fake.signup', 'devmacro.alert_triggered'])
+      and e.type_id = any (array['fake.deploy.succeeded', 'fake.signup', 'stackdash.alert_triggered'])
     group by 1, 2, 3
     order by 1, 2, 3
   $$,
@@ -240,7 +240,7 @@ select is_empty(
   $$
     select 1 from public.activity_event_counts(
       'b20100a0-0000-4000-8000-000000000000', '2025-01-01', 'month',
-      array['fake.deploy.succeeded', 'fake.signup', 'devmacro.alert_triggered']
+      array['fake.deploy.succeeded', 'fake.signup', 'stackdash.alert_triggered']
     )
   $$,
   'activity_event_counts: a non-member counts nothing from the rollup');

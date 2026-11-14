@@ -69,9 +69,9 @@ values
    'stripe', 'stripe.charge.succeeded', 'success', 'Payment succeeded', '2026-07-01T12:00:00Z', 'review-11'),
   ('e26200a0-0000-4000-8000-000000000000', 'e26200b1-0000-4000-8000-000000000000', 'e26200b2-0000-4000-8000-000000000000',
    'stripe', 'stripe.customer.created', 'info', 'New customer', '2026-07-01T13:00:00Z', 'review-12'),
-  -- DevMacro's own daily summary: no account, so it never counts.
+  -- StackDash's own daily summary: no account, so it never counts.
   ('e26200a0-0000-4000-8000-000000000000', null, null,
-   null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-07-01T08:00:00Z', 'review-13');
+   null, 'stackdash.daily_summary', 'info', 'Daily summary', '2026-07-01T08:00:00Z', 'review-13');
 
 -- ---------------------------------------------------------------------------
 -- Shape: security definer behind a membership check, empty search_path, members only.

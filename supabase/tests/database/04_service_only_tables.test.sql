@@ -221,7 +221,7 @@ select is(
   public.hook_before_user_created(
     '{"metadata": {"name": "before-user-created"}, "user": {"email": "rls-service-uninvited@example.com"}}'::jsonb
   ) -> 'error' ->> 'message',
-  'This email has not been invited to the DevMacro test.',
+  'This email has not been invited to the StackDash test.',
   'invite hook: the rejection message tells the user they have not been invited');
 
 select ok(

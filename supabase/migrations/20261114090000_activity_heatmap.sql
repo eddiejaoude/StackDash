@@ -3,13 +3,13 @@
 -- PostgREST has no GROUP BY without db aggregates, which this project leaves off.
 --
 -- * Buckets come from occurred_at, never created_at: a sync inserts a provider's events in one
---   burst, so created_at says when DevMacro polled, not when anything happened.
+--   burst, so created_at says when StackDash polled, not when anything happened.
 -- * Weekday and hour are read in p_time_zone (the app passes TIMELINE_TIME_ZONE, Europe/London),
 --   whatever the session time zone is, so a cell agrees with the timeline's times. isodow is 1
 --   (Monday) to 7 (Sunday) and hour 0 to 23. A clock change hour counts in the local hour it
 --   showed: 01:30 BST and 01:30 GMT on the autumn change day both land in hour 1.
 -- * Filters mirror the timeline query (src/lib/data/timeline.ts), as activity_event_counts does:
---   p_providers empty means any provider, otherwise events with no provider (DevMacro's own) are
+--   p_providers empty means any provider, otherwise events with no provider (StackDash's own) are
 --   left out; p_account_ids null means any account, otherwise events with no account are left out.
 --   p_type_ids and p_severities are alternatives: an event matches when its type is listed or its
 --   severity is, and both empty means every event. The heatmap's failures group is critical

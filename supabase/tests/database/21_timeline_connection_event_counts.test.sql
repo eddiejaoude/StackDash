@@ -55,14 +55,14 @@ values
   -- A: the instant the window ends, outside it.
   ('d24500a0-0000-4000-8000-000000000000', 'd24500a1-0000-4000-8000-000000000000', 'd24500a2-0000-4000-8000-000000000000',
    'vercel', 'vercel.deployment_ready', 'info', 'Deployed', '2026-11-06T00:00:00Z', 'badge-4'),
-  -- B: a provider event, and DevMacro's own sync failure about B (provider null, connection set).
+  -- B: a provider event, and StackDash's own sync failure about B (provider null, connection set).
   ('d24500a0-0000-4000-8000-000000000000', 'd24500b1-0000-4000-8000-000000000000', 'd24500b2-0000-4000-8000-000000000000',
    'github', 'github.release_published', 'info', 'Released', '2026-11-04T12:00:00Z', 'badge-5'),
   ('d24500a0-0000-4000-8000-000000000000', 'd24500b1-0000-4000-8000-000000000000', null,
-   null, 'devmacro.sync_failed', 'warning', 'Sync failed', '2026-11-04T13:00:00Z', 'badge-6'),
+   null, 'stackdash.sync_failed', 'warning', 'Sync failed', '2026-11-04T13:00:00Z', 'badge-6'),
   -- No connection: a daily summary belongs to no badge.
   ('d24500a0-0000-4000-8000-000000000000', null, null,
-   null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-11-04T08:00:00Z', 'badge-7'),
+   null, 'stackdash.daily_summary', 'info', 'Daily summary', '2026-11-04T08:00:00Z', 'badge-7'),
   -- W2: one Stripe event, which no count for W may include.
   ('d24500c0-0000-4000-8000-000000000000', 'd24500c1-0000-4000-8000-000000000000', null,
    'stripe', 'stripe.payment_succeeded', 'success', 'Payment', '2026-11-04T09:00:00Z', 'badge-8');
@@ -104,7 +104,7 @@ select results_eq(
     order by display_name
   $$,
   $$ values ('GitHub badge'::text, 'github'::public.provider_id, 2::bigint), ('Vercel badge'::text, 'vercel'::public.provider_id, 4::bigint) $$,
-  'timeline_connection_event_counts: no filters counts every event per connection, DevMacro events about a connection included');
+  'timeline_connection_event_counts: no filters counts every event per connection, StackDash events about a connection included');
 
 select is(
   (select sum(events)::int from public.timeline_connection_event_counts('d24500a0-0000-4000-8000-000000000000')),
@@ -122,7 +122,7 @@ select results_eq(
 select results_eq(
   $$
     select display_name, events from public.timeline_connection_event_counts(
-      'd24500a0-0000-4000-8000-000000000000', p_hidden_type_ids => array['vercel.deployment_ready', 'devmacro.sync_failed'])
+      'd24500a0-0000-4000-8000-000000000000', p_hidden_type_ids => array['vercel.deployment_ready', 'stackdash.sync_failed'])
     order by display_name
   $$,
   $$ values ('GitHub badge'::text, 1::bigint), ('Vercel badge'::text, 1::bigint) $$,
@@ -143,7 +143,7 @@ select results_eq(
       'd24500a0-0000-4000-8000-000000000000', p_providers => array['github']::public.provider_id[])
   $$,
   $$ values ('GitHub badge'::text, 1::bigint) $$,
-  'timeline_connection_event_counts: a provider filter matches the event provider, as the list does, so a DevMacro event drops out');
+  'timeline_connection_event_counts: a provider filter matches the event provider, as the list does, so a StackDash event drops out');
 
 select results_eq(
   $$

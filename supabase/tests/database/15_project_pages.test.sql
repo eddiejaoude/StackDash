@@ -117,7 +117,7 @@ select is(
   'save_project_page: an owner turns a page on');
 select is(
   (select body from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.project_page_enabled'
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.project_page_enabled'
      and title = 'Turned on the public project page' and provider is null),
   'Project Acme web. Address /@pagetestaa/acme-web. Search engines are asked not to index it.',
   'save_project_page: the audit event names the project, the address, and the indexing choice');
@@ -128,7 +128,7 @@ select is(
   'save_project_page: saving the same settings again changes nothing');
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id like 'devmacro.project_page_%'),
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id like 'stackdash.project_page_%'),
   1,
   'save_project_page: an unchanged save writes no second event');
 select throws_ok(
@@ -168,7 +168,7 @@ select is(
   'save_project_page: an admin changes a page that is on');
 select is(
   (select count(*)::int from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.project_page_updated'
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.project_page_updated'
      and body = 'Project Acme web. Address /@pagetestaa/acme-web. Search engines may index it.'),
   1,
   'save_project_page: the change writes an "Updated" audit event');
@@ -248,7 +248,7 @@ select is(
   'disable_project_page: an admin turns a page off');
 select is(
   (select body from public.activity_events
-   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'devmacro.project_page_disabled'
+   where workspace_id = 'a9000002-0000-4000-8000-000000000001' and type_id = 'stackdash.project_page_disabled'
      and title = 'Turned off the public project page'),
   'Project Acme web. The page is no longer public.',
   'disable_project_page: the audit event names the project');

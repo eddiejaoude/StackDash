@@ -6,8 +6,8 @@
 -- * A project earns an achievement once: (project_id, achievement_id) is unique and the only write
 --   path, record_project_achievements(), inserts with on conflict do nothing. A repeated or
 --   concurrent evaluation can neither duplicate an achievement nor move its earned_at.
--- * Earning one writes one devmacro.achievement_earned timeline event in the same transaction,
---   dated to earned_at, with the dedupe key achievement:<project id>:<achievement id>. DevMacro's
+-- * Earning one writes one stackdash.achievement_earned timeline event in the same transaction,
+--   dated to earned_at, with the dedupe key achievement:<project id>:<achievement id>. StackDash's
 --   own event, so no provider, connection, or account (20261031090200_metrics_events_alerts.sql).
 --   Deleting the achievement (with its project or workspace) deletes that event.
 -- * Achievements are private. An owner or admin publishes one by adding a row to
@@ -21,7 +21,7 @@
 -- daily total, dated to its day and never shown with a time).
 create type public.achievement_date_precision as enum ('instant', 'day');
 
--- What the stored evidence proves. 'crossed': DevMacro holds the event or reading that reached the
+-- What the stored evidence proves. 'crossed': StackDash holds the event or reading that reached the
 -- threshold. 'at_least': the first stored reading was already at or above it, so the achievement
 -- says "Recorded at least <threshold>" rather than claiming the crossing happened then.
 create type public.achievement_evidence as enum ('crossed', 'at_least');
@@ -183,7 +183,7 @@ begin
       workspace_id, connection_id, external_account_id, provider, type_id, severity, title, body, occurred_at, dedupe_key
     )
     select
-      p_workspace_id, null, null, null, 'devmacro.achievement_earned', 'success', e.title, e.description, e.earned_at,
+      p_workspace_id, null, null, null, 'stackdash.achievement_earned', 'success', e.title, e.description, e.earned_at,
       public.achievement_event_dedupe_key(p_project_id, e.achievement_id)
     from earned e
     on conflict (workspace_id, dedupe_key) do nothing
@@ -200,7 +200,7 @@ grant execute on function public.record_project_achievements(uuid, uuid, jsonb) 
 -- (require_published_metrics_admin, 20261105023129_published_metrics.sql). Publish returns
 -- 'published', 'unchanged' (already published), or 'not_found' (the project has not earned it).
 -- Unpublish returns 'unpublished', 'unchanged' (not published), or 'not_found'. A change writes
--- the devmacro.achievement_published or devmacro.achievement_unpublished audit event in the same
+-- the stackdash.achievement_published or stackdash.achievement_unpublished audit event in the same
 -- transaction, as publishing a metric does; an unchanged call writes none.
 
 create function public.publish_achievement(
@@ -238,7 +238,7 @@ begin
   end if;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.achievement_published', 'Published ' || v_public_title,
+    p_workspace_id, 'stackdash.achievement_published', 'Published ' || v_public_title,
     'Project ' || v_project_name || '.', 'achievement_published:' || gen_random_uuid()::text
   );
   return 'published';
@@ -281,7 +281,7 @@ begin
   end if;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.achievement_unpublished', 'Unpublished ' || v_public_title,
+    p_workspace_id, 'stackdash.achievement_unpublished', 'Unpublished ' || v_public_title,
     'Project ' || v_project_name || '.', 'achievement_unpublished:' || gen_random_uuid()::text
   );
   return 'unpublished';
@@ -355,7 +355,7 @@ begin
   if v_metrics + v_achievements > 0 then
     perform public.record_publication_event(
       p_workspace_id,
-      'devmacro.metrics_unpublished_all',
+      'stackdash.metrics_unpublished_all',
       'Unpublished everything',
       concat_ws(
         ' and ',

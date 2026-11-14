@@ -18,7 +18,7 @@
 -- The two new counts are filtered aggregates over the same materialized list and the same grouped
 -- pass, which now carries each matching event's severity beside its time. They follow the
 -- function's filters: with a severity filter of info only, both are 0. They are never more than
--- events. Before and after explain analyze numbers: https://github.com/eddiejaoude/DevMacro/issues/397
+-- events. Before and after explain analyze numbers: https://github.com/eddiejaoude/StackDash/issues/397
 --
 -- Everything else is as 20261112212026 describes it: the filters, the bounds, the slices, the
 -- membership check before any bound is worked out, security invoker, and a plan made for each

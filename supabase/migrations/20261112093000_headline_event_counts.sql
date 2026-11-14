@@ -4,7 +4,7 @@
 -- window took 326 to 426 ms over 1,000,000 synthetic events. headline_event_counts sums
 -- activity_event_daily_counts (20261106090000_activity_event_daily_counts.sql) behind one membership
 -- check, like activity_event_counts. Before and after explain analyze numbers:
--- https://github.com/eddiejaoude/DevMacro/issues/320
+-- https://github.com/eddiejaoude/StackDash/issues/320
 --
 -- Same counts as before for the same windows. The headline's windows are UTC calendar dates with both
 -- ends inclusive (DateRange in src/lib/dashboard/headline.ts), and count_activity_events was always

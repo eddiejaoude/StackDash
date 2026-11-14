@@ -151,7 +151,7 @@ begin
   return jsonb_build_object(
     'error', jsonb_build_object(
       'http_code', 403,
-      'message', 'This email has not been invited to the DevMacro test.'
+      'message', 'This email has not been invited to the StackDash test.'
     )
   );
 end;

@@ -10,7 +10,7 @@
 -- means every account, and an empty array means none. p_title_pattern is a case-insensitive
 -- regular expression the app builds with titleSearchPattern (src/lib/timeline/query.ts), escaped so
 -- it matches literally; null means no search. The window is half open, occurred_at >= p_from and
--- < p_until, and a null bound is open. Unlike the badges, events with no connection (DevMacro's
+-- < p_until, and a null bound is open. Unlike the badges, events with no connection (StackDash's
 -- own, such as daily summaries) count, because the list shows them. The app passes its date
 -- filter here, never the selected slice, so the histogram keeps its full context.
 --

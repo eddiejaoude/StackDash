@@ -9,7 +9,7 @@
 --   workspaces and connections, set null from external_accounts) keep it equal to the events
 --   without knowing it exists. Only rows an insert really added reach the trigger's transition
 --   table, so a dedupe conflict (on conflict do nothing) counts nothing. Decision record:
---   https://github.com/eddiejaoude/DevMacro/issues/201#issuecomment-6687534075
+--   https://github.com/eddiejaoude/StackDash/issues/201#issuecomment-6687534075
 -- * Members read it through the Data API like activity_events; nobody writes it but the trigger
 --   function and the rebuild below, not even the service role.
 -- * activity_event_counts now sums at most one row per day, type, provider, and account. Measured

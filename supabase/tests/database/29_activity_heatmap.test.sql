@@ -63,9 +63,9 @@ values
    'vercel', 'vercel.deployment.succeeded', 'success', 'Deployed', '2026-06-05T14:59:59.999999Z', 'heatmap-fri-3'),
   ('d41400a0-0000-4000-8000-000000000000', 'd41400a1-0000-4000-8000-000000000000', 'd41400a2-0000-4000-8000-000000000000',
    'vercel', 'vercel.deployment.failed', 'critical', 'Deploy failed', '2026-06-05T15:00:00Z', 'heatmap-fri-4'),
-  -- Saturday 2026-06-06 10:00 BST: DevMacro's own sync failure, no provider and no account.
+  -- Saturday 2026-06-06 10:00 BST: StackDash's own sync failure, no provider and no account.
   ('d41400a0-0000-4000-8000-000000000000', 'd41400b1-0000-4000-8000-000000000000', null,
-   null, 'devmacro.sync_failed', 'warning', 'Sync failed', '2026-06-06T09:00:00Z', 'heatmap-sat-1'),
+   null, 'stackdash.sync_failed', 'warning', 'Sync failed', '2026-06-06T09:00:00Z', 'heatmap-sat-1'),
   -- Sunday 2026-06-07 23:30 UTC is Monday 00:30 BST: the zone decides the weekday.
   ('d41400a0-0000-4000-8000-000000000000', 'd41400b1-0000-4000-8000-000000000000', 'd41400b2-0000-4000-8000-000000000000',
    'github', 'github.stars.milestone', 'success', 'Milestone', '2026-06-07T23:30:00Z', 'heatmap-mon-1'),
@@ -160,7 +160,7 @@ select results_eq(
 
 select results_eq(
   $$ select isodow, hour, events from public.activity_heatmap('d41400a0-0000-4000-8000-000000000000', '2026-06-01T00:00:00Z', 'Europe/London',
-       p_type_ids => array['vercel.deployment.failed', 'devmacro.sync_failed'],
+       p_type_ids => array['vercel.deployment.failed', 'stackdash.sync_failed'],
        p_severities => array['critical']::public.event_severity[]) $$,
   $$ values (1, 9, 1::bigint), (5, 16, 1::bigint), (6, 10, 1::bigint) $$,
   'activity_heatmap: types and severities are alternatives, and an event matching both counts once');

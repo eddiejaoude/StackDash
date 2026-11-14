@@ -137,19 +137,19 @@ values
 insert into public.api_keys (id, workspace_id, name, token_hash, token_prefix, scopes, created_by, revoked_at)
 values
   ('a1620000-0000-4000-8000-000000000020', 'a1620000-0000-4000-8000-000000000010', 'Full A',
-   api_test.hash('pgtap-api-key-a'), 'dmk_pgtapKyA', '{usage:read,events:read,alerts:read,connections:read}',
+   api_test.hash('pgtap-api-key-a'), 'sd_pgtapKyA', '{usage:read,events:read,alerts:read,connections:read}',
    'a1620000-0000-4000-8000-000000000001', null),
   ('a1620000-0000-4000-8000-000000000021', 'a1620000-0000-4000-8000-000000000010', 'Usage A',
-   api_test.hash('pgtap-api-key-a-usage'), 'dmk_pgtapKyU', '{usage:read}',
+   api_test.hash('pgtap-api-key-a-usage'), 'sd_pgtapKyU', '{usage:read}',
    'a1620000-0000-4000-8000-000000000001', null),
   ('a1620000-0000-4000-8000-000000000022', 'a1620000-0000-4000-8000-000000000010', 'Revoked A',
-   api_test.hash('pgtap-api-key-a-revoked'), 'dmk_pgtapKyR', '{usage:read,events:read,alerts:read,connections:read}',
+   api_test.hash('pgtap-api-key-a-revoked'), 'sd_pgtapKyR', '{usage:read,events:read,alerts:read,connections:read}',
    'a1620000-0000-4000-8000-000000000001', now()),
   ('a1620000-0000-4000-8000-000000000023', 'a1620000-0000-4000-8000-000000000010', 'Admin A',
-   api_test.hash('pgtap-api-key-a-admin'), 'dmk_pgtapKyD', '{usage:read,events:read,alerts:read,connections:read}',
+   api_test.hash('pgtap-api-key-a-admin'), 'sd_pgtapKyD', '{usage:read,events:read,alerts:read,connections:read}',
    'a1620000-0000-4000-8000-000000000002', null),
   ('b1620000-0000-4000-8000-000000000020', 'b1620000-0000-4000-8000-000000000010', 'Full B',
-   api_test.hash('pgtap-api-key-b'), 'dmk_pgtapKyB', '{usage:read,events:read,alerts:read,connections:read}',
+   api_test.hash('pgtap-api-key-b'), 'sd_pgtapKyB', '{usage:read,events:read,alerts:read,connections:read}',
    'b1620000-0000-4000-8000-000000000001', null);
 
 -- ---------------------------------------------------------------------------
@@ -327,28 +327,28 @@ select throws_ok($$ select token_hash from public.api_keys $$, '42501'::char(5),
   'manage: the owner of A cannot read token_hash');
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('b1620000-0000-4000-8000-000000000010', 'Planted', api_test.hash('pgtap-planted'), 'dmk_pgtapPln', '{usage:read}') $$,
+     values ('b1620000-0000-4000-8000-000000000010', 'Planted', api_test.hash('pgtap-planted'), 'sd_pgtapPln', '{usage:read}') $$,
   '42501'::char(5), null::text,
   'manage: the owner of A cannot create a key in workspace B');
 select lives_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('a1620000-0000-4000-8000-000000000010', 'New A', api_test.hash('pgtap-api-key-a-new'), 'dmk_pgtapKyN', '{events:read}') $$,
+     values ('a1620000-0000-4000-8000-000000000010', 'New A', api_test.hash('pgtap-api-key-a-new'), 'sd_pgtapKyN', '{events:read}') $$,
   'manage: the owner of A creates a key in workspace A');
-select is((select created_by from public.api_keys where token_prefix = 'dmk_pgtapKyN'),
+select is((select created_by from public.api_keys where token_prefix = 'sd_pgtapKyN'),
   'a1620000-0000-4000-8000-000000000001'::uuid,
   'manage: a new key is recorded in its creator''s name');
 select is(
   api_test.affected($$ update public.api_keys set revoked_at = timestamptz '2000-01-01 00:00:00+00'
-                       where token_prefix = 'dmk_pgtapKyN' $$),
+                       where token_prefix = 'sd_pgtapKyN' $$),
   1,
   'manage: the owner of A revokes a key of workspace A');
 select is(
   (select array[revoked_at = now(), revoked_by = 'a1620000-0000-4000-8000-000000000001'::uuid]
-   from public.api_keys where token_prefix = 'dmk_pgtapKyN'),
+   from public.api_keys where token_prefix = 'sd_pgtapKyN'),
   array[true, true],
   'manage: the database stamps the revoke time and who revoked it, whatever the caller sent');
 select throws_ok(
-  $$ update public.api_keys set revoked_at = null where token_prefix = 'dmk_pgtapKyN' $$,
+  $$ update public.api_keys set revoked_at = null where token_prefix = 'sd_pgtapKyN' $$,
   '23514'::char(5), null::text,
   'manage: a revoked key cannot be brought back');
 select throws_ok($$ update public.api_keys set name = 'Renamed' where id = 'a1620000-0000-4000-8000-000000000020' $$,
@@ -364,7 +364,7 @@ select is_empty($$ select id from public.api_keys $$,
   'manage: a viewer of A cannot list the keys of workspace A');
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('a1620000-0000-4000-8000-000000000010', 'Viewer key', api_test.hash('pgtap-viewer'), 'dmk_pgtapVwr', '{usage:read}') $$,
+     values ('a1620000-0000-4000-8000-000000000010', 'Viewer key', api_test.hash('pgtap-viewer'), 'sd_pgtapVwr', '{usage:read}') $$,
   '42501'::char(5), null::text,
   'manage: a viewer cannot create a key');
 select cmp_ok(
@@ -383,7 +383,7 @@ select results_eq($$ select id from public.api_keys $$,
 -- ---------------------------------------------------------------------------
 select lives_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('b1620000-0000-4000-8000-000000000010', 'New B', api_test.hash('pgtap-api-key-b-new'), 'dmk_pgtapKyM', '{usage:read}') $$,
+     values ('b1620000-0000-4000-8000-000000000010', 'New B', api_test.hash('pgtap-api-key-b-new'), 'sd_pgtapKyM', '{usage:read}') $$,
   'limit: the owner of B creates a key in workspace B');
 
 set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000001", "role": "authenticated"}';
@@ -393,12 +393,12 @@ set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000001",
 select lives_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
      select 'a1620000-0000-4000-8000-000000000010', 'Cap ' || i, api_test.hash('pgtap-cap-' || i),
-            'dmk_pgtapC' || lpad(i::text, 2, '0'), '{usage:read}'
+            'sd_pgtapC' || lpad(i::text, 2, '0'), '{usage:read}'
      from generate_series(1, 17) as i $$,
   'limit: an admin creates keys up to the 20th that is not revoked');
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'dmk_pgtapC18', '{usage:read}') $$,
+     values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'sd_pgtapC18', '{usage:read}') $$,
   '54000'::char(5), null::text,
   'limit: a 21st key that is not revoked is refused with program_limit_exceeded');
 
@@ -407,13 +407,13 @@ select throws_ok(
 set local request.jwt.claims to '{"sub": "b1620000-0000-4000-8000-000000000001", "role": "authenticated"}';
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('a1620000-0000-4000-8000-000000000010', 'Planted', api_test.hash('pgtap-planted-full'), 'dmk_pgtapPlF', '{usage:read}') $$,
+     values ('a1620000-0000-4000-8000-000000000010', 'Planted', api_test.hash('pgtap-planted-full'), 'sd_pgtapPlF', '{usage:read}') $$,
   '42501'::char(5), null::text,
   'limit: the owner of B gets insufficient_privilege, not the limit, for a full workspace A');
 set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000003", "role": "authenticated"}';
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('a1620000-0000-4000-8000-000000000010', 'Viewer key', api_test.hash('pgtap-viewer-full'), 'dmk_pgtapVwF', '{usage:read}') $$,
+     values ('a1620000-0000-4000-8000-000000000010', 'Viewer key', api_test.hash('pgtap-viewer-full'), 'sd_pgtapVwF', '{usage:read}') $$,
   '42501'::char(5), null::text,
   'limit: a viewer of A gets insufficient_privilege, not the limit, for a full workspace A');
 
@@ -422,7 +422,7 @@ reset role;
 reset request.jwt.claims;
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes, created_by)
-     values ('a1620000-0000-4000-8000-000000000010', 'Service key', api_test.hash('pgtap-service-full'), 'dmk_pgtapSvF', '{usage:read}',
+     values ('a1620000-0000-4000-8000-000000000010', 'Service key', api_test.hash('pgtap-service-full'), 'sd_pgtapSvF', '{usage:read}',
              'a1620000-0000-4000-8000-000000000001') $$,
   '54000'::char(5), null::text,
   'limit: the service role is counted too, so a 21st key is refused without a signed-in user');
@@ -430,11 +430,11 @@ select throws_ok(
 set local role authenticated;
 set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000001", "role": "authenticated"}';
 
-update public.api_keys set revoked_at = now() where token_prefix = 'dmk_pgtapC01';
+update public.api_keys set revoked_at = now() where token_prefix = 'sd_pgtapC01';
 
 select lives_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
-     values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'dmk_pgtapC18', '{usage:read}') $$,
+     values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'sd_pgtapC18', '{usage:read}') $$,
   'limit: revoking a key frees its place');
 
 reset role;
@@ -445,7 +445,7 @@ reset request.jwt.claims;
 -- ---------------------------------------------------------------------------
 select throws_ok(
   $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes, created_by)
-     values ('b1620000-0000-4000-8000-000000000010', 'No scopes', api_test.hash('pgtap-no-scopes'), 'dmk_pgtapNoS', '{}',
+     values ('b1620000-0000-4000-8000-000000000010', 'No scopes', api_test.hash('pgtap-no-scopes'), 'sd_pgtapNoS', '{}',
              'b1620000-0000-4000-8000-000000000001') $$,
   '23514'::char(5), null::text,
   'scopes check: a key with no scopes is refused');

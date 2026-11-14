@@ -6,7 +6,7 @@
 --   its first day.
 -- * Filters mirror the timeline query (src/lib/data/timeline.ts), so a marker counts exactly the
 --   events its timeline link lists: p_providers empty means any provider, otherwise events with no
---   provider (DevMacro's own, such as devmacro.alert_triggered) are left out; p_account_ids null
+--   provider (StackDash's own, such as stackdash.alert_triggered) are left out; p_account_ids null
 --   means any account, otherwise events with no account are left out.
 -- * security definer with one membership check up front, so a non-member counts nothing and no
 --   row is read for them. As security invoker, the activity_events select policy called
