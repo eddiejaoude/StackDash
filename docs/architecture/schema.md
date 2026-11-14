@@ -47,7 +47,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261112212026_timeline_activity_buckets.sql` | `timeline_activity_buckets` (security invoker): how many events match the timeline's filters across all of its pages, in at most 12 equal slices of time, for the timeline's activity overview |
 | `20261113100000_timeline_activity_bucket_severities.sql` | `timeline_activity_buckets` also returns `critical_events` and `warning_events` per slice, after its original columns, so the activity overview can stack severity in each bar |
 | `20261114090000_activity_heatmap.sql` | `activity_heatmap` (security invoker): events per weekday and hour of day in a given time zone since a given instant, with the timeline's filters, for the dashboard's activity heatmap |
-| `20261114120000_project_achievements.sql` | `project_achievements`, `project_achievement_publications`, `achievement_date_precision`, `achievement_evidence`, and the record, publish, unpublish, and public read functions for permanent project achievements (#413) |
+| `20261114120000_project_achievements.sql` | `project_achievements`, `project_achievement_publications`, `achievement_date_precision`, `achievement_evidence`, and the record, publish, unpublish, and public read functions for permanent project achievements |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -369,7 +369,7 @@ Badges and cards read published values through the engine and add two tables. Ho
 
 ## Project achievements
 
-`project_achievements` holds what a project has earned (#413). What each adapter declares and how the rules are counted is in [Public metrics](public-metrics.md) and `docs/adapters.md`, "Achievements".
+`project_achievements` holds what a project has earned. What each adapter declares and how the rules are counted is in [Public metrics](public-metrics.md) and `docs/adapters.md`, "Achievements".
 
 - The database stores earned rows, never definitions. The private title, public title, and description are copied from the adapter's definition when earned, so an achievement removed from its adapter later stays earned with its stored titles.
 - `project_achievements_project_achievement_key` makes `(project_id, achievement_id)` unique. The only write path, `record_project_achievements(workspace_id, project_id, achievements)`, inserts with `on conflict do nothing`, so a repeated sync, a backfill, or two evaluators at once can neither duplicate an achievement nor move its `earned_at`. It returns the ids it newly earned, and nothing for a project outside the workspace.
