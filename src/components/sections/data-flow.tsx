@@ -80,6 +80,31 @@ const CENTER = { x: 350, y: 260 } as const;
 const ORBIT = { rx: 270, ry: 200 } as const;
 const INNER_ORBIT = { rx: 150, ry: 110 } as const;
 
+// Rough stage-pixel extents for the parked-packet clearance below: the widest card is about 136
+// by 42, a label is 22 tall, and the dot's glow reaches about 8 px from its center.
+// e2e/data-flow.spec.ts measures the real boxes and fails if a parked packet touches a card.
+const CARD_HALF = { x: 68, y: 21 } as const;
+const DOT_REACH = 8;
+const LABEL_HALF_HEIGHT = 11;
+// On a mostly vertical line the next cards round the orbit sit about a card height lower than the
+// node, so its labels are clear of their row once the dot is this far below the node.
+const NEIGHBOR_ROW_CLEARANCE = 64;
+
+/**
+ * How far along its line a packet parks under reduced motion: the first point where it is clear of
+ * its own card. A mostly horizontal line clears it sideways (the dot past the card's edge) or
+ * vertically (the label below or above the card), whichever comes first; a mostly vertical line
+ * goes on until its labels are below the neighboring cards' row.
+ */
+function parkDistance(dx: number, dy: number, mostlyVertical: boolean): string {
+  const length = Math.hypot(dx, dy);
+  const along = (offset: number, component: number) => offset / (Math.abs(component) / length);
+  const clearance = mostlyVertical
+    ? along(NEIGHBOR_ROW_CLEARANCE, dy)
+    : Math.min(along(CARD_HALF.x + DOT_REACH, dx), along(CARD_HALF.y + LABEL_HALF_HEIGHT, dy));
+  return `${Math.ceil((clearance / length) * 100)}%`;
+}
+
 // The sources with packets, clockwise from the top. They are spread evenly around the orbit and
 // every other source fills the slots between them, in liveProviderIds order, so the moving labels
 // never bunch on one side.
@@ -110,12 +135,13 @@ interface SourceNode extends SourceDetail {
    * below the neighboring cards' row (the fade-in in globals.css).
    */
   labelSide: "left" | "right";
+  /** Where this line's packets park under reduced motion (parkDistance), as an offset-distance. */
+  park: string;
   /**
-   * Under reduced motion a line's packets park 28% along it. A mostly vertical line parks at 32%,
-   * where its labels are below the neighboring cards' row. A line's second packet parks
-   * beside its first, one label higher or lower: a mostly vertical line stacks toward the center,
-   * along itself, and a mostly horizontal line stacks away from the center's row, so its label
-   * never reaches over the center circle.
+   * Under reduced motion a line's second packet parks beside its first, one label higher or lower.
+   * A mostly vertical line stacks toward the center, along itself. A mostly horizontal line stacks
+   * up, nudged toward the center, so its dot clears its own card: stacking down would put the
+   * bottom lines' dots on their cards.
    */
   axis: "vertical" | "horizontal";
   stack: "up" | "down";
@@ -134,8 +160,9 @@ const nodes: readonly SourceNode[] = orbitOrder().map((id, slot) => {
     x,
     y,
     labelSide: x > CENTER.x ? "left" : "right",
+    park: parkDistance(CENTER.x - x, CENTER.y - y, mostlyVertical),
     axis: mostlyVertical ? "vertical" : "horizontal",
-    stack: mostlyVertical === towardCenterIsDown ? "down" : "up",
+    stack: mostlyVertical && towardCenterIsDown ? "down" : "up",
     ...sourceDetails[id],
   };
 });
@@ -209,18 +236,20 @@ function Stage() {
       ))}
 
       <div
-        className="flow-core absolute flex size-[150px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-panel"
+        className="flow-core absolute z-20 flex size-[150px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-panel"
         style={{ left: CENTER.x, top: CENTER.y }}
       >
         <Core />
       </div>
 
-      {/* Packets draw last, so a label that fades out over the center circle's edge sits on top of
-          it. Under reduced motion a line's second packet stacks beside its first (data-stack). */}
+      {/* Moving packets paint under the center circle (z-20 above, z-index in globals.css), so a
+          label slides into the hub instead of covering the wordmark. Parked packets paint above it.
+          Under reduced motion a line's second packet stacks beside its first (data-stack). */}
       {nodes.flatMap((node) =>
         node.packets.map((packet, index) => (
           <div
             key={`${node.id}-${packet.label}`}
+            data-testid="flow-packet"
             className="flow-packet flex items-center gap-2"
             data-label-side={node.labelSide}
             data-axis={node.axis}
@@ -228,6 +257,7 @@ function Stage() {
             style={{
               offsetPath: `path('M ${node.x} ${node.y} L ${CENTER.x} ${CENTER.y}')`,
               animationDelay: `${packet.delay}s`,
+              "--park": node.park,
             }}
           >
             <span className={`flow-packet-dot size-2 shrink-0 rounded-full ${severityDot[packet.severity]}`} />

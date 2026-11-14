@@ -9,6 +9,8 @@ const providerNames = liveProviderIds.map((id) => PROVIDER_NAMES[id]);
 const PICTURE_NAME = /^Events from .* flow into one DevMacro timeline\.$/;
 
 interface Box {
+  /** A card's source name or a packet's label, for the failure message. */
+  name: string;
   x: number;
   y: number;
   width: number;
@@ -19,16 +21,17 @@ async function boxes(locator: Locator): Promise<Box[]> {
   return locator.evaluateAll((elements) =>
     elements.map((element) => {
       const { x, y, width, height } = element.getBoundingClientRect();
-      return { x, y, width, height };
+      const name = element.querySelector("p")?.textContent ?? element.textContent ?? "";
+      return { name, x, y, width, height };
     }),
   );
 }
 
-// Borders that touch are fine; a pixel of real overlap is not.
+// Borders that touch are fine, and so is the dot's 1 px glow; 2 px of real overlap is not.
 function overlaps(a: Box, b: Box): boolean {
   const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-  return width > 1 && height > 1;
+  return width > 2 && height > 2;
 }
 
 test.describe("hero data-flow constellation", () => {
@@ -80,25 +83,29 @@ test.describe("hero data-flow constellation", () => {
   }
 
   // The orbit is derived from liveProviderIds, so a new provider moves every slot. With the packets
-  // parked, every label has to stay readable: clear of every source's card and of every other label.
-  test("parked packet labels cover no source and no other label", async ({ page }) => {
+  // parked, every packet (dot and label) has to stay clear of every source's card, and every label
+  // clear of every other label.
+  test("parked packets cover no source and no other label", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
 
     const picture = page.getByRole("img", { name: PICTURE_NAME });
     const cards = await boxes(picture.getByTestId("flow-node"));
+    const packets = await boxes(picture.getByTestId("flow-packet"));
     const labels = await boxes(picture.getByTestId("flow-label"));
     expect(cards).toHaveLength(providerNames.length);
-    expect(labels.length).toBeGreaterThan(0);
+    expect(packets.length).toBeGreaterThan(0);
 
     const collisions: string[] = [];
+    for (const packet of packets) {
+      for (const card of cards) {
+        if (overlaps(packet, card)) collisions.push(`"${packet.name}" covers the ${card.name} card`);
+      }
+    }
     labels.forEach((label, index) => {
-      cards.forEach((card, cardIndex) => {
-        if (overlaps(label, card)) collisions.push(`label ${index} covers card ${cardIndex}`);
-      });
-      labels.slice(index + 1).forEach((other, offset) => {
-        if (overlaps(label, other)) collisions.push(`label ${index} covers label ${index + offset + 1}`);
-      });
+      for (const other of labels.slice(index + 1)) {
+        if (overlaps(label, other)) collisions.push(`"${label.name}" covers "${other.name}"`);
+      }
     });
     expect(collisions).toEqual([]);
   });
