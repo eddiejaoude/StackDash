@@ -133,30 +133,76 @@ test.describe("hero data-flow constellation in motion", () => {
     await page.goto("/");
   });
 
+  async function countOf(core: Locator): Promise<number> {
+    const match = /([\d,]+) events/.exec((await core.textContent()) ?? "");
+    if (!match?.[1]) throw new Error("The center shows no event count");
+    return Number(match[1].replaceAll(",", ""));
+  }
+
+  test("events arriving by themselves raise the count and pulse the center in their color", async ({ page }) => {
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    const core = picture.getByTestId("flow-core-text").filter({ visible: true });
+    await expect(core).toContainText("1,287 events");
+
+    // GitHub's first looping packet ("PR #128 merged", a success) reaches the center 4 s in.
+    await expect.poll(() => countOf(core), { timeout: 10_000 }).toBeGreaterThan(1287);
+    await expect(picture.locator('[data-pulse="success"]').first()).toHaveCSS("border-top-color", "rgb(62, 207, 142)");
+  });
+
   test("a source sends its next example event by mouse or keyboard, and the center counts it", async ({ page }) => {
     const picture = page.getByRole("group", { name: PICTURE_NAME });
-    const count = picture.getByTestId("flow-core-text").filter({ visible: true });
-    await expect(count).toContainText("1,287 events");
+    const core = picture.getByTestId("flow-core-text").filter({ visible: true });
+    // Paused, nothing arrives by itself, so every change to the count is a sent event. Sent packets
+    // still travel, and the cards stop drifting.
+    await picture.getByRole("button", { name: "Pause animation" }).click();
+    const before = await countOf(core);
 
     const github = picture.getByRole("button", { name: /^GitHub\b/ });
-    // A card drifts until the pointer is on it, so Playwright would wait for it to settle forever.
-    // Pointing at it first stops the drift, as it does for a visitor.
-    await github.hover({ force: true });
     await github.click();
     await expect(picture.getByText("Sent an example GitHub event: PR #128 merged.")).toBeAttached();
     await expect(picture.locator("[data-sent]")).toHaveCount(1);
     // The packet runs once to the center, then the count goes up and the packet is gone.
-    await expect(count).toContainText("1,288 events");
+    await expect.poll(() => countOf(core)).toBe(before + 1);
     await expect(picture.locator("[data-sent]")).toHaveCount(0);
 
     // Each source moves on to its next event.
     await github.click();
     await expect(picture.getByText("Sent an example GitHub event: acme/cli hit 1,000 ★.")).toBeAttached();
 
-    await picture.getByRole("button", { name: /^Vercel\b/ }).focus();
+    // The center pulses in the arriving event's color: Resend's first event is a warning.
+    await picture.getByRole("button", { name: /^Resend\b/ }).focus();
     await page.keyboard.press("Enter");
-    await expect(picture.getByText("Sent an example Vercel event: Deploy ready · acme-web.")).toBeAttached();
-    await expect(count).toContainText("1,290 events");
+    await expect(picture.getByText("Sent an example Resend event: Emails at 75% of quota.")).toBeAttached();
+    await expect(picture.locator('[data-pulse="warning"]')).toHaveCSS("border-top-color", "rgb(245, 166, 35)");
+    await expect.poll(() => countOf(core)).toBe(before + 3);
+  });
+
+  test("a pulled source stretches on an elastic, springs back, and sends one event", async ({ page }) => {
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    const core = picture.getByTestId("flow-core-text").filter({ visible: true });
+    await picture.getByRole("button", { name: "Pause animation" }).click();
+    const before = await countOf(core);
+
+    const github = picture.getByRole("button", { name: /^GitHub\b/ });
+    const home = await github.boundingBox();
+    if (!home) throw new Error("GitHub's card has no box");
+    await page.mouse.move(home.x + home.width / 2, home.y + home.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(home.x + home.width / 2 + 200, home.y + home.height / 2, { steps: 12 });
+
+    // 200 px of pull moves the card a little, and never further than the elastic allows.
+    const pulled = await github.boundingBox();
+    if (!pulled) throw new Error("GitHub's card has no box while pulled");
+    expect(pulled.x - home.x).toBeGreaterThan(10);
+    expect(pulled.x - home.x).toBeLessThan(40);
+
+    await page.mouse.up();
+    await expect(picture.getByText("Sent an example GitHub event: PR #128 merged.")).toBeAttached();
+    await expect.poll(async () => Math.abs(((await github.boundingBox())?.x ?? Infinity) - home.x)).toBeLessThan(0.5);
+    // One event, not two: the click a browser fires after the drag is not sent again.
+    await expect.poll(() => countOf(core)).toBe(before + 1);
+    await expect(picture.locator("[data-sent]")).toHaveCount(0);
+    expect(await countOf(core)).toBe(before + 1);
   });
 
   test("Pause stops every loop in the picture and Resume starts them again", async ({ page }) => {

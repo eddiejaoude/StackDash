@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useId, useImperativeHandle, useRef, useState, type PointerEvent, type Ref } from "react";
 
 import { PlatformLogo } from "@/components/icons";
 import { CENTER, INNER_ORBIT, ORBIT } from "@/components/sections/data-flow-geometry";
@@ -61,6 +61,17 @@ const MAX_TILT_DEG = 5;
 // Each card drifts round a small circle (flow-drift in globals.css). Periods and phases differ by
 // slot so neighboring cards never move in step.
 const DRIFT_SECONDS = [7, 8.5, 10] as const;
+// Dragging a card: it follows the pointer, but ever more stiffly, and never gets further than
+// DRAG_REACH stage pixels from its place. A pointer has to move DRAG_THRESHOLD stage pixels
+// before a press counts as a drag rather than a click.
+const DRAG_REACH = 36;
+const DRAG_THRESHOLD = 4;
+// The spring that pulls a released card home: underdamped, so it overshoots and wobbles for
+// about a second.
+const SPRING_STIFFNESS = 260;
+const SPRING_DAMPING = 9;
+// Arrival pulses kept at once. Under reduced motion they never animate, so nothing removes them.
+const MAX_PULSES = 4;
 
 export function FlowSourceMark({ platform }: { platform: Platform | null }) {
   return platform === null ? null : <PlatformLogo platform={platform} width={14} height={14} className="shrink-0" />;
@@ -73,6 +84,51 @@ export function FlowCore({ count }: { count: number }) {
       <Wordmark loading="lazy" />
       <p className="font-mono text-xs tabular-nums text-foreground">{eventCount.format(count)} events</p>
       <p className="font-mono text-[10px] text-muted">Illustrative</p>
+    </div>
+  );
+}
+
+interface HubHandle {
+  /** One event reached the center: count it and pulse in its severity's color. */
+  arrive: (severity: FlowSeverity) => void;
+}
+
+/**
+ * The center circle. It keeps its own count and pulses, so the many arrivals a minute re-render
+ * only this, not the whole stage.
+ */
+function Hub({ initialCount, ref }: { initialCount: number; ref: Ref<HubHandle> }) {
+  const [count, setCount] = useState(initialCount);
+  const [pulses, setPulses] = useState<readonly { key: number; severity: FlowSeverity }[]>([]);
+  const nextPulse = useRef(0);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      arrive(severity) {
+        setCount((current) => current + 1);
+        const key = nextPulse.current++;
+        setPulses((current) => [...current.slice(1 - MAX_PULSES), { key, severity }]);
+      },
+    }),
+    [],
+  );
+
+  return (
+    <div
+      aria-hidden="true"
+      className="flow-core absolute z-20 flex size-[150px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-panel"
+      style={{ left: CENTER.x, top: CENTER.y }}
+    >
+      {pulses.map((pulse) => (
+        <span
+          key={pulse.key}
+          data-pulse={pulse.severity}
+          className="flow-pulse"
+          onAnimationEnd={() => setPulses((current) => current.filter((other) => other.key !== pulse.key))}
+        />
+      ))}
+      <FlowCore count={count} />
     </div>
   );
 }
@@ -90,7 +146,8 @@ function Packet({
   stack?: FlowNode["stack"] | undefined;
   delay?: number;
   sent?: boolean;
-  onArrive?: () => void;
+  /** A looping packet arrives at the end of each cycle; a sent one when its single run ends. */
+  onArrive: () => void;
 }) {
   return (
     <div
@@ -106,7 +163,8 @@ function Packet({
         animationDelay: delay === undefined ? undefined : `${delay}s`,
         "--park": node.park,
       }}
-      onAnimationEnd={onArrive}
+      onAnimationIteration={sent ? undefined : onArrive}
+      onAnimationEnd={sent ? onArrive : undefined}
     >
       <span className={`flow-packet-dot size-2 shrink-0 rounded-full ${severityDot[event.severity]}`} />
       <span
@@ -119,32 +177,68 @@ function Packet({
   );
 }
 
+interface Drag {
+  node: FlowNode;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  /** Screen pixels per stage pixel, read when the press starts. */
+  scale: number;
+  dx: number;
+  dy: number;
+  moved: boolean;
+}
+
+/** Pulls a raw pointer offset in toward the card's place: free at first, never past DRAG_REACH. */
+function stretch(dx: number, dy: number): [number, number] {
+  const distance = Math.hypot(dx, dy);
+  if (distance === 0) return [0, 0];
+  const reach = DRAG_REACH * Math.tanh(distance / DRAG_REACH);
+  return [(dx / distance) * reach, (dy / distance) * reach];
+}
+
 /**
  * The interactive constellation, from the sm breakpoint up.
  *
  * - Hovering or focusing a source spotlights it.
- * - Hovering the picture holds the looping packets still.
- * - Clicking a source sends its next example event to the center.
+ * - Clicking a source, or pulling it and letting go, sends its next example event to the center.
+ *   A pulled card stretches out on an elastic and springs back.
+ * - The center counts every event that reaches it and pulses in the event's color.
  * - A mouse pointer tilts the stage.
  * - A Pause control stops every loop.
  *
- * Motion lives in globals.css. Reduced motion turns it off there, and here it skips the tilt and
- * the travelling packet a click would send.
+ * Motion lives in globals.css. Reduced motion turns it off there, and here it skips the tilt, the
+ * spring, and the travelling packet a click would send.
  */
 export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[]; initialCount: number }) {
   const hintId = useId();
   const [paused, setPaused] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const [sent, setSent] = useState<readonly SentPacket[]>([]);
-  const [count, setCount] = useState(initialCount);
   const [announcement, setAnnouncement] = useState("");
+  const hub = useRef<HubHandle>(null);
   // Which of its events each source sends next, and a key per sent packet. Neither renders.
   const nextEvent = useRef(new Map<string, number>());
   const nextKey = useRef(0);
+  const stageRef = useRef<HTMLDivElement>(null);
   const tiltRef = useRef<HTMLDivElement>(null);
   const tiltFrame = useRef(0);
+  // Dragging writes straight to each card and its line, once per pointer move or spring frame, so
+  // it never re-renders React.
+  const cards = useRef(new Map<string, HTMLLIElement>());
+  const lines = useRef(new Map<string, SVGLineElement>());
+  const drag = useRef<Drag | null>(null);
+  const springs = useRef(new Map<string, number>());
+  // The click a browser fires after a drag ends on the card; the drag already sent the event.
+  const swallowClick = useRef(false);
 
-  useEffect(() => () => cancelAnimationFrame(tiltFrame.current), []);
+  useEffect(() => {
+    const running = springs.current;
+    return () => {
+      cancelAnimationFrame(tiltFrame.current);
+      for (const frame of running.values()) cancelAnimationFrame(frame);
+    };
+  }, []);
 
   // Written straight to the element, once per frame, so pointer moves never re-render React.
   function setTilt(x: number, y: number) {
@@ -174,23 +268,112 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
     setAnnouncement(`Sent an example ${node.name} event: ${event.label}.`);
     // Under reduced motion nothing travels, so the event lands at once.
     if (window.matchMedia(REDUCED_MOTION_QUERY).matches) {
-      setCount((current) => current + 1);
+      hub.current?.arrive(event.severity);
       return;
     }
     const key = nextKey.current++;
     setSent((current) => [...current, { key, node, event }]);
   }
 
-  function arrive(key: number) {
-    setSent((current) => current.filter((packet) => packet.key !== key));
-    setCount((current) => current + 1);
+  function arriveSent(packet: SentPacket) {
+    setSent((current) => current.filter((other) => other.key !== packet.key));
+    hub.current?.arrive(packet.event.severity);
+  }
+
+  // Moves a card, and the end of its line with it, by an offset in stage pixels.
+  function place(node: FlowNode, dx: number, dy: number) {
+    const card = cards.current.get(node.id);
+    card?.style.setProperty("left", `${node.x + dx}px`);
+    card?.style.setProperty("top", `${node.y + dy}px`);
+    lines.current.get(node.id)?.setAttribute("x1", String(node.x + dx));
+    lines.current.get(node.id)?.setAttribute("y1", String(node.y + dy));
+  }
+
+  function springHome(node: FlowNode, fromX: number, fromY: number) {
+    if (window.matchMedia(REDUCED_MOTION_QUERY).matches) {
+      place(node, 0, 0);
+      return;
+    }
+    let x = fromX;
+    let y = fromY;
+    let vx = 0;
+    let vy = 0;
+    // The first frame has no previous timestamp, so it steps one 60 Hz frame.
+    let last: number | null = null;
+    const step = (now: number) => {
+      const seconds = last === null ? 1 / 60 : Math.min(0.032, (now - last) / 1000);
+      last = now;
+      vx += (-SPRING_STIFFNESS * x - SPRING_DAMPING * vx) * seconds;
+      vy += (-SPRING_STIFFNESS * y - SPRING_DAMPING * vy) * seconds;
+      x += vx * seconds;
+      y += vy * seconds;
+      if (Math.hypot(x, y) < 0.1 && Math.hypot(vx, vy) < 1) {
+        place(node, 0, 0);
+        springs.current.delete(node.id);
+        return;
+      }
+      place(node, x, y);
+      springs.current.set(node.id, requestAnimationFrame(step));
+    };
+    springs.current.set(node.id, requestAnimationFrame(step));
+  }
+
+  // Touch is left to scroll the page; a tap still clicks.
+  function startDrag(node: FlowNode, event: PointerEvent<HTMLButtonElement>) {
+    swallowClick.current = false;
+    if (event.pointerType === "touch" || event.button !== 0) return;
+    cancelAnimationFrame(springs.current.get(node.id) ?? 0);
+    springs.current.delete(node.id);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const stageWidth = stageRef.current?.getBoundingClientRect().width ?? 700;
+    drag.current = {
+      node,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scale: stageWidth / 700,
+      dx: 0,
+      dy: 0,
+      moved: false,
+    };
+  }
+
+  function moveDrag(event: PointerEvent<HTMLButtonElement>) {
+    const current = drag.current;
+    if (current === null || current.pointerId !== event.pointerId) return;
+    const rawX = (event.clientX - current.startX) / current.scale;
+    const rawY = (event.clientY - current.startY) / current.scale;
+    if (!current.moved && Math.hypot(rawX, rawY) < DRAG_THRESHOLD) return;
+    current.moved = true;
+    [current.dx, current.dy] = stretch(rawX, rawY);
+    place(current.node, current.dx, current.dy);
+  }
+
+  // Letting go of a pulled card sends an event, as a click does. A cancelled drag only springs back.
+  function endDrag(event: PointerEvent<HTMLButtonElement>, released: boolean) {
+    const current = drag.current;
+    if (current === null || current.pointerId !== event.pointerId) return;
+    drag.current = null;
+    if (!current.moved) return;
+    springHome(current.node, current.dx, current.dy);
+    if (!released) return;
+    swallowClick.current = true;
+    send(current.node);
+  }
+
+  function click(node: FlowNode) {
+    if (swallowClick.current) {
+      swallowClick.current = false;
+      return;
+    }
+    send(node);
   }
 
   return (
     <div className="hidden sm:block">
       <div className="flow-frame" onPointerMove={tiltTowardPointer} onPointerLeave={() => setTilt(0, 0)}>
         <div ref={tiltRef} className="flow-tilt">
-          <div className="flow-stage" data-paused={paused || undefined} data-active={active ?? undefined}>
+          <div ref={stageRef} className="flow-stage" data-paused={paused || undefined} data-active={active ?? undefined}>
             <svg aria-hidden="true" className="absolute inset-0" width="700" height="520" viewBox="0 0 700 520" fill="none">
               <ellipse
                 cx={CENTER.x}
@@ -204,6 +387,12 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
               {nodes.map((node) => (
                 <line
                   key={node.id}
+                  ref={(element) => {
+                    if (element) lines.current.set(node.id, element);
+                    return () => {
+                      lines.current.delete(node.id);
+                    };
+                  }}
                   data-source={node.id}
                   data-on={active === node.id || undefined}
                   x1={node.x}
@@ -217,14 +406,28 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
 
             <ul aria-label="Sources">
               {nodes.map((node, slot) => (
-                <li key={node.id} className="absolute" style={{ left: node.x, top: node.y }}>
+                <li
+                  key={node.id}
+                  ref={(element) => {
+                    if (element) cards.current.set(node.id, element);
+                    return () => {
+                      cards.current.delete(node.id);
+                    };
+                  }}
+                  className="absolute"
+                  style={{ left: node.x, top: node.y }}
+                >
                   <button
                     type="button"
                     data-testid="flow-node"
                     data-source={node.id}
                     data-on={active === node.id || undefined}
                     aria-describedby={hintId}
-                    onClick={() => send(node)}
+                    onClick={() => click(node)}
+                    onPointerDown={(event) => startDrag(node, event)}
+                    onPointerMove={moveDrag}
+                    onPointerUp={(event) => endDrag(event, true)}
+                    onPointerCancel={(event) => endDrag(event, false)}
                     onPointerEnter={() => setActive(node.id)}
                     onPointerLeave={() => setActive(null)}
                     onFocus={() => setActive(node.id)}
@@ -245,13 +448,7 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
               ))}
             </ul>
 
-            <div
-              aria-hidden="true"
-              className="flow-core absolute z-20 flex size-[150px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-panel"
-              style={{ left: CENTER.x, top: CENTER.y }}
-            >
-              <FlowCore count={count} />
-            </div>
+            <Hub ref={hub} initialCount={initialCount} />
 
             {/* Moving packets paint under the center circle (z-20 above, z-index in globals.css), so a
                 label slides into the hub instead of covering the wordmark. Parked packets paint above
@@ -265,11 +462,12 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
                     event={packet}
                     delay={packet.delay}
                     stack={index === 0 ? undefined : node.stack}
+                    onArrive={() => hub.current?.arrive(packet.severity)}
                   />
                 )),
               )}
               {sent.map((packet) => (
-                <Packet key={packet.key} node={packet.node} event={packet.event} sent onArrive={() => arrive(packet.key)} />
+                <Packet key={packet.key} node={packet.node} event={packet.event} sent onArrive={() => arriveSent(packet)} />
               ))}
             </div>
           </div>

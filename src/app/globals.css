@@ -604,14 +604,22 @@ summary {
   filter: opacity(0.35);
 }
 
-/* Hovering the picture holds the looping packets still so a label can be read. The Pause control
- * (data-paused) stops every loop: packets, drift and glow. A packet a visitor sent keeps going,
- * because it is the answer to their click. */
-.flow-frame:hover .flow-packet:not([data-sent]),
+/* The Pause control (data-paused) stops every loop: packets, drift and glow. A packet a visitor
+ * sent keeps going, because it is the answer to their click or pull. */
 .flow-stage[data-paused] .flow-packet:not([data-sent]),
 .flow-stage[data-paused] .flow-source,
 .flow-stage[data-paused] .flow-core {
   animation-play-state: paused;
+}
+
+/* A card can be pulled on an elastic (FlowStage moves it and springs it back). Beats the global
+ * pointer cursor for buttons. */
+.flow-stage .flow-source {
+  cursor: grab;
+}
+
+.flow-stage .flow-source:active {
+  cursor: grabbing;
 }
 
 /* A packet rides the line from its node's center to the center circle's. The dot sits on the line
@@ -678,6 +686,47 @@ summary {
   }
 }
 
+/* An event reaching the center: a ring in the event's severity color spreads out from the circle
+ * and fades. Hub in data-flow-stage.tsx adds one per arrival and removes it when it ends. */
+.flow-pulse {
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  border: 2px solid var(--pulse);
+  box-shadow:
+    0 0 24px 2px color-mix(in srgb, var(--pulse) 55%, transparent),
+    inset 0 0 18px color-mix(in srgb, var(--pulse) 35%, transparent);
+  pointer-events: none;
+  animation: flow-pulse 0.8s ease-out forwards;
+}
+
+.flow-pulse[data-pulse="success"] {
+  --pulse: var(--success);
+}
+
+.flow-pulse[data-pulse="warning"] {
+  --pulse: var(--warning);
+}
+
+.flow-pulse[data-pulse="danger"] {
+  --pulse: var(--danger);
+}
+
+.flow-pulse[data-pulse="summary"] {
+  --pulse: var(--muted);
+}
+
+@keyframes flow-pulse {
+  from {
+    opacity: 0.9;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 1.35;
+  }
+}
+
 /* A packet a visitor sent by clicking a source: it starts where its line clears the card, runs
  * once, and slides under the center circle, where FlowStage removes it and counts the event. */
 .flow-packet-sent {
@@ -735,6 +784,10 @@ summary {
   .flow-source,
   .flow-line {
     transition: none;
+  }
+  /* The arrival ring only exists while it spreads; the count still changes. */
+  .flow-pulse {
+    display: none;
   }
   /* Every packet parks with its label showing, so the picture still reads, at the first point on
    * its line clear of its own card (--park, from parkDistance in data-flow.tsx; on a mostly
