@@ -39,6 +39,7 @@ function setup(start = "2026-10-15T00:05:00.000Z") {
     logError: () => "REF-TEST0000",
     log: silent,
     evaluateAlerts: async () => ({ triggered: 0 }),
+    evaluateAchievements: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
   return { store, deps, now };

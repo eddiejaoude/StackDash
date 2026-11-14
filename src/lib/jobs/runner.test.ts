@@ -54,6 +54,7 @@ function deps(store: MemoryJobStore, now: () => Date): SyncDeps {
     logError: () => "REF-TEST0000",
     log: silent,
     evaluateAlerts: async () => ({ triggered: 0 }),
+    evaluateAchievements: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
 }

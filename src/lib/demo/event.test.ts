@@ -258,6 +258,7 @@ async function setup(
       for (const trigger of fresh) recorded.add(`${trigger.ruleId}:${trigger.cycleKey}`);
       return { triggered: fresh.length };
     },
+    evaluateAchievements: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
   const target: DemoEventTarget = {

@@ -167,6 +167,7 @@ describe("replayClock", () => {
       logError: () => "REF-TEST0000",
       log: silent,
       evaluateAlerts: async () => {},
+      evaluateAchievements: async () => 0,
       notifications: () => memoryNotificationDeps(),
     };
     const start = new Date("2026-11-02T23:59:50.000Z");
@@ -249,6 +250,7 @@ describe("replayHistory with every simulated provider in the registry", () => {
       evaluateAlerts: async (_workspaceId, at) => {
         alertClocks.push(at.toISOString());
       },
+      evaluateAchievements: async () => 0,
       notifications: () => memoryNotificationDeps(),
     };
     await replayHistory({

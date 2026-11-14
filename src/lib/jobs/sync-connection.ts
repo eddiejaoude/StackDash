@@ -47,6 +47,9 @@ export type SyncDeps = Readonly<{
   log: Logger;
   // evaluateWorkspaceAlerts from src/lib/alerts/run.ts in production; injected so tests stub it.
   evaluateAlerts: (workspaceId: string, now: Date) => Promise<unknown>;
+  // evaluateConnectionAchievements from src/lib/achievements/run.ts in production (#413); injected
+  // so tests stub it.
+  evaluateAchievements: (workspaceId: string, connectionId: string, now: Date) => Promise<unknown>;
   // Built per alert_dispatch or digest job (createNotificationDeps in production), so a broken
   // email configuration fails that job only.
   notifications: () => NotificationDeps;
@@ -105,6 +108,17 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
     await deps.evaluateAlerts(key.workspaceId, deps.now());
   } catch (error) {
     deps.logError("sync.alert_evaluation_failed", error, { jobId: job.id, workspaceId: key.workspaceId });
+  }
+  // Achievements (#413) of the projects this connection's accounts belong to, from the fresh
+  // evidence. Likewise never fails the sync: earning is idempotent, so the next sync catches up.
+  try {
+    await deps.evaluateAchievements(key.workspaceId, key.connectionId, deps.now());
+  } catch (error) {
+    deps.logError("sync.achievement_evaluation_failed", error, {
+      jobId: job.id,
+      workspaceId: key.workspaceId,
+      connectionId: key.connectionId,
+    });
   }
   return { status: "succeeded" };
 }

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { evaluateConnectionAchievements } from "@/lib/achievements/run";
 import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import { evaluateWorkspaceAlerts } from "@/lib/alerts/run";
 import { log, logError } from "@/lib/log/logger";
@@ -56,6 +57,7 @@ export function createJobDeps(): SyncDeps {
     logError,
     log,
     evaluateAlerts: evaluateWorkspaceAlerts,
+    evaluateAchievements: evaluateConnectionAchievements,
     notifications: createNotificationDeps,
   };
 }

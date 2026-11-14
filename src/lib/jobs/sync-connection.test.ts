@@ -41,10 +41,20 @@ type Harness = {
   failureEvents: () => MemoryEvent[];
   references: string[];
   alertCalls: Array<{ workspaceId: string; now: string }>;
+  // Each achievement evaluation, with how many events were stored when it ran.
+  achievementCalls: Array<{ workspaceId: string; connectionId: string; now: string; storedEvents: number }>;
 };
 
 function setup(
-  options: { start?: string; mode?: FakeMode; accounts?: number; adapter?: ProviderAdapter; random?: number; alertsFail?: boolean } = {},
+  options: {
+    start?: string;
+    mode?: FakeMode;
+    accounts?: number;
+    adapter?: ProviderAdapter;
+    random?: number;
+    alertsFail?: boolean;
+    achievementsFail?: boolean;
+  } = {},
 ): Harness {
   let clock = new Date(options.start ?? "2026-10-14T10:00:00.000Z");
   const now = () => clock;
@@ -62,6 +72,7 @@ function setup(
   store.credentials.set(connection.id, credential(options.mode ?? "ok"));
   const references: string[] = [];
   const alertCalls: Harness["alertCalls"] = [];
+  const achievementCalls: Harness["achievementCalls"] = [];
   const adapter = options.adapter ?? fakeAdapter;
   const deps: SyncDeps = {
     store,
@@ -87,6 +98,11 @@ function setup(
       if (options.alertsFail === true) throw new Error("alert evaluation failed");
       return { triggered: 0 };
     },
+    evaluateAchievements: async (workspaceId, connectionId, at) => {
+      achievementCalls.push({ workspaceId, connectionId, now: at.toISOString(), storedEvents: store.events.length });
+      if (options.achievementsFail === true) throw new Error("achievement evaluation failed");
+      return 0;
+    },
     notifications: () => memoryNotificationDeps(),
   };
   return {
@@ -105,6 +121,7 @@ function setup(
     failureEvents: () => store.events.filter((event) => event.type_id === SYNC_FAILED_TYPE_ID),
     references,
     alertCalls,
+    achievementCalls,
   };
 }
 
@@ -388,6 +405,50 @@ describe("sync job: alert evaluation (#65)", () => {
     expect(lastSyncJob(harness).status).toBe("succeeded");
     expect(connectionOf(harness).status).toBe("active");
     expect(harness.references).toHaveLength(1);
+  });
+});
+
+describe("sync job: achievement evaluation (#413)", () => {
+  it("evaluates the connection's achievements after each successful sync, once its evidence is stored", async () => {
+    const harness = setup();
+    await harness.tick();
+    expect(harness.achievementCalls).toEqual([
+      {
+        workspaceId: WORKSPACE_ID,
+        connectionId: harness.connectionId,
+        now: "2026-10-14T10:00:00.000Z",
+        storedEvents: harness.store.events.length,
+      },
+    ]);
+    expect(harness.achievementCalls[0]?.storedEvents).toBeGreaterThan(0);
+    await harness.store.enqueueSync({ workspaceId: WORKSPACE_ID, connectionId: harness.connectionId });
+    await harness.tick();
+    expect(harness.achievementCalls).toHaveLength(2);
+  });
+
+  it("does not evaluate achievements when the sync fails or is retried", async () => {
+    const harness = setup({ mode: "unavailable", random: 0 });
+    for (let attempt = 1; attempt <= 5; attempt += 1) await harness.tick();
+    const revoked = setup({ mode: "revoked" });
+    await revoked.tick();
+    expect(harness.achievementCalls).toHaveLength(0);
+    expect(revoked.achievementCalls).toHaveLength(0);
+  });
+
+  it("logs an achievement evaluation error without failing the sync", async () => {
+    const harness = setup({ achievementsFail: true });
+    await harness.tick();
+    expect(harness.achievementCalls).toHaveLength(1);
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).status).toBe("active");
+    expect(harness.references).toHaveLength(1);
+  });
+
+  it("still evaluates achievements when the alert evaluation failed", async () => {
+    const harness = setup({ alertsFail: true });
+    await harness.tick();
+    expect(harness.achievementCalls).toHaveLength(1);
+    expect(lastSyncJob(harness).status).toBe("succeeded");
   });
 });
 

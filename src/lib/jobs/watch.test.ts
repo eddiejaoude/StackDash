@@ -323,6 +323,7 @@ function syncDeps(store: MemoryJobStore, getAdapter: SyncDeps["getAdapter"], now
     logError: () => "REF-TEST",
     log: { info: () => {}, warn: () => {}, error: () => {} },
     evaluateAlerts: async () => undefined,
+    evaluateAchievements: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
 }
