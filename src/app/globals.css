@@ -628,7 +628,7 @@ summary {
  * down from the top it is below the neighboring cards' row. It fades out from 58% to 68%. The
  * label runs ahead of the dot, so on every line its leading end reaches the center circle while
  * the label is still fully shown. Moving packets paint under the circle (z-index 10 under the
- * circle's z-20 in data-flow.tsx), so the label slides into the hub and the wordmark stays
+ * z-20 on Hub in data-flow-stage.tsx), so the label slides into the hub and the wordmark stays
  * readable. */
 .flow-packet {
   /* Decoration that passes over the cards, often while invisible: it must never take a click. */

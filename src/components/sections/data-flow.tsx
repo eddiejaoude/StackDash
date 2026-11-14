@@ -23,10 +23,10 @@ interface SourceDetail {
 
 // Illustrative only. One entry per live adapter: a new provider in liveProviderIds fails the type
 // check here until it has a caption and events, and then joins the constellation and the text
-// alternative on its own. Wording follows the hero feed (feedEvents in live-event-feed.tsx),
-// shortened, so the hero tells one story, and each source's events stay within what its adapter
-// reads (docs/providers). Resend mirrors Vercel across the orbit and their labels point at each
-// other, so their delays sit a second apart.
+// alternative on its own. Every event is one its adapter reads (docs/providers), worded like the
+// hero feed (feedEvents in live-event-feed.tsx) where the feed has the same event, so the hero
+// tells one story. Resend mirrors Vercel across the orbit and their labels point at each other,
+// so their delays sit a second apart.
 const sourceDetails: Record<LiveProviderId, SourceDetail> = {
   vercel: {
     caption: "Deploys · spend",
@@ -39,9 +39,9 @@ const sourceDetails: Record<LiveProviderId, SourceDetail> = {
   github: {
     caption: "Billing · repos",
     events: [
-      { label: "PR #128 merged", severity: "success", delay: 0 },
+      { label: "New fork of acme/api", severity: "success", delay: 0 },
       { label: "acme/cli hit 1,000 ★", severity: "success", delay: 2 },
-      { label: "New fork of acme/api", severity: "success" },
+      { label: "Actions minutes past 50%", severity: "warning" },
     ],
   },
   resend: {
@@ -71,7 +71,7 @@ const sourceDetails: Record<LiveProviderId, SourceDetail> = {
     caption: "Deploys · usage",
     events: [
       { label: "App deploy live · acme-api", severity: "success" },
-      { label: "Droplet rebooted · db-1", severity: "summary" },
+      { label: "Droplet power cycled · db-1", severity: "warning" },
     ],
   },
   posthog: {
@@ -111,8 +111,8 @@ const sourceDetails: Record<LiveProviderId, SourceDetail> = {
   },
 };
 
-// Rough stage-pixel extents for the parked-packet clearance below. A card that sends packets today
-// is about 138 by 41 (the caption sets the width, so GitLab's is 162), a label is 22 tall, and the
+// Rough stage-pixel extents for the parked-packet clearance below. A card with looping packets is
+// about 138 by 41 (the caption sets the width, so GitLab's is 162), a label is 22 tall, and the
 // dot's glow reaches about 8 px from its center. e2e/data-flow.spec.ts measures the real boxes and
 // fails if a parked packet touches a card or a label covers the center text.
 const CARD_HALF = { x: 68, y: 21 } as const;
@@ -187,6 +187,7 @@ const nodes: readonly FlowNode[] = orbitOrder().map((id, slot) => {
 });
 
 const sourceNames = new Intl.ListFormat("en-US", { type: "conjunction" }).format(nodes.map((node) => node.name));
+const pictureLabel = `Events from ${sourceNames} flow into one ${site.name} timeline.`;
 
 // Matches the hero feed's opening counter: EVENTS_TODAY_BEFORE_FEED plus INITIAL_SEQ in
 // live-event-feed.tsx. A client module's constants are not values in a server component, so it is
@@ -194,10 +195,11 @@ const sourceNames = new Intl.ListFormat("en-US", { type: "conjunction" }).format
 const ILLUSTRATIVE_EVENT_COUNT = 1287;
 
 // Below sm the scaled stage would shrink its labels past reading, so phones get the same story
-// without motion or controls: every source, an arrow, and the timeline they land on.
+// as one static picture, without motion or controls: every source, an arrow, and the timeline
+// they land on.
 function CompactFlow() {
   return (
-    <div aria-hidden="true" className="flex flex-col items-center gap-4 sm:hidden">
+    <div role="img" aria-label={pictureLabel} className="flex flex-col items-center gap-4 sm:hidden">
       <ul className="grid w-full grid-cols-2 gap-2">
         {nodes.map((node) => (
           <li key={node.id} className="flex items-center gap-2 rounded-xl border border-line-strong bg-panel px-3 py-2">
@@ -219,12 +221,16 @@ function CompactFlow() {
   );
 }
 
-/** Every live source feeding one timeline: an illustrative constellation beside the hero heading. */
+/**
+ * Every live source feeding one timeline: an illustrative constellation beside the hero heading.
+ * Each layout carries the same text alternative: the phone picture as an image, the interactive
+ * stage as a group around its source buttons.
+ */
 export function DataFlow() {
   return (
-    <div role="group" aria-label={`Events from ${sourceNames} flow into one ${site.name} timeline.`}>
+    <div>
       <CompactFlow />
-      <FlowStage nodes={nodes} initialCount={ILLUSTRATIVE_EVENT_COUNT} />
+      <FlowStage nodes={nodes} initialCount={ILLUSTRATIVE_EVENT_COUNT} label={pictureLabel} />
     </div>
   );
 }

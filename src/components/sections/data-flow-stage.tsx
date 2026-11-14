@@ -139,6 +139,7 @@ function Packet({
   stack,
   delay,
   sent,
+  on,
   onArrive,
 }: {
   node: FlowNode;
@@ -146,6 +147,8 @@ function Packet({
   stack?: FlowNode["stack"] | undefined;
   delay?: number;
   sent?: boolean;
+  /** Its source is spotlighted, so it stays bright while the others dim. */
+  on: boolean;
   /** A looping packet arrives at the end of each cycle; a sent one when its single run ends. */
   onArrive: () => void;
 }) {
@@ -154,6 +157,7 @@ function Packet({
       data-testid="flow-packet"
       data-source={node.id}
       data-sent={sent || undefined}
+      data-on={on || undefined}
       data-label-side={node.labelSide}
       data-axis={node.axis}
       data-stack={stack}
@@ -210,7 +214,16 @@ function stretch(dx: number, dy: number): [number, number] {
  * Motion lives in globals.css. Reduced motion turns it off there, and here it skips the tilt, the
  * spring, and the travelling packet a click would send.
  */
-export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[]; initialCount: number }) {
+export function FlowStage({
+  nodes,
+  initialCount,
+  label,
+}: {
+  nodes: readonly FlowNode[];
+  initialCount: number;
+  /** The picture's text alternative, on the group around the source buttons. */
+  label: string;
+}) {
   const hintId = useId();
   const [paused, setPaused] = useState(false);
   const [active, setActive] = useState<string | null>(null);
@@ -249,10 +262,13 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
     });
   }
 
+  // Pointer capture during a pull keeps moves arriving from outside the frame, so the position is
+  // clamped to the frame's edges and the tilt never passes MAX_TILT_DEG.
   function tiltTowardPointer(event: PointerEvent<HTMLDivElement>) {
     if (event.pointerType !== "mouse" || paused || window.matchMedia(REDUCED_MOTION_QUERY).matches) return;
     const box = event.currentTarget.getBoundingClientRect();
-    setTilt(((event.clientX - box.left) / box.width) * 2 - 1, ((event.clientY - box.top) / box.height) * 2 - 1);
+    const edge = (offset: number, size: number) => Math.max(-1, Math.min(1, (offset / size) * 2 - 1));
+    setTilt(edge(event.clientX - box.left, box.width), edge(event.clientY - box.top, box.height));
   }
 
   function togglePaused() {
@@ -324,14 +340,16 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
     if (event.pointerType === "touch" || event.button !== 0) return;
     cancelAnimationFrame(springs.current.get(node.id) ?? 0);
     springs.current.delete(node.id);
+    const stage = stageRef.current;
+    if (stage === null) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    const stageWidth = stageRef.current?.getBoundingClientRect().width ?? 700;
     drag.current = {
       node,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      scale: stageWidth / 700,
+      // Screen pixels per stage pixel: the stage's drawn width over its layout width.
+      scale: stage.getBoundingClientRect().width / stage.offsetWidth,
       dx: 0,
       dy: 0,
       moved: false,
@@ -370,9 +388,9 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
   }
 
   return (
-    <div className="hidden sm:block">
+    <div role="group" aria-label={label} className="hidden sm:block">
       <div className="flow-frame" onPointerMove={tiltTowardPointer} onPointerLeave={() => setTilt(0, 0)}>
-        <div ref={tiltRef} className="flow-tilt">
+        <div ref={tiltRef} data-testid="flow-tilt" className="flow-tilt">
           <div ref={stageRef} className="flow-stage" data-paused={paused || undefined} data-active={active ?? undefined}>
             <svg aria-hidden="true" className="absolute inset-0" width="700" height="520" viewBox="0 0 700 520" fill="none">
               <ellipse
@@ -430,7 +448,11 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
                     onPointerCancel={(event) => endDrag(event, false)}
                     onPointerEnter={() => setActive(node.id)}
                     onPointerLeave={() => setActive(null)}
-                    onFocus={() => setActive(node.id)}
+                    // A tap focuses the button after its pointerleave, so only a focus the browser
+                    // marks (a keyboard one) spotlights; otherwise the spotlight would stick on touch.
+                    onFocus={(event) => {
+                      if (event.currentTarget.matches(":focus-visible")) setActive(node.id);
+                    }}
                     onBlur={() => setActive(null)}
                     className="flow-source flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-xl border border-line-strong bg-panel px-3 py-1.5 text-left"
                     style={{
@@ -462,12 +484,20 @@ export function FlowStage({ nodes, initialCount }: { nodes: readonly FlowNode[];
                     event={packet}
                     delay={packet.delay}
                     stack={index === 0 ? undefined : node.stack}
+                    on={active === node.id}
                     onArrive={() => hub.current?.arrive(packet.severity)}
                   />
                 )),
               )}
               {sent.map((packet) => (
-                <Packet key={packet.key} node={packet.node} event={packet.event} sent onArrive={() => arriveSent(packet)} />
+                <Packet
+                  key={packet.key}
+                  node={packet.node}
+                  event={packet.event}
+                  sent
+                  on={active === packet.node.id}
+                  onArrive={() => arriveSent(packet)}
+                />
               ))}
             </div>
           </div>

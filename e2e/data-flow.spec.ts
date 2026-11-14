@@ -48,10 +48,11 @@ test.describe("hero data-flow constellation", () => {
       await page.goto("/");
 
       // One text alternative for the whole picture, inside the hero, listing every source the adapters
-      // support.
+      // support: an image on a phone, where the picture is static, and a group around the source
+      // buttons from sm up.
       const picture = page
         .getByRole("region", { name: "One timeline and one alert for your whole developer stack." })
-        .getByRole("group", { name: PICTURE_NAME });
+        .getByRole(viewport.width < 640 ? "img" : "group", { name: PICTURE_NAME });
       await expect(picture).toBeVisible();
       // Reduced motion stops everything in the picture: the packets, the drift, and the glow.
       expect(await picture.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(0);
@@ -144,7 +145,7 @@ test.describe("hero data-flow constellation in motion", () => {
     const core = picture.getByTestId("flow-core-text").filter({ visible: true });
     await expect(core).toContainText("1,287 events");
 
-    // GitHub's first looping packet ("PR #128 merged", a success) reaches the center 4 s in.
+    // GitHub's first looping packet ("New fork of acme/api", a success) reaches the center 4 s in.
     await expect.poll(() => countOf(core), { timeout: 10_000 }).toBeGreaterThan(1287);
     await expect(picture.locator('[data-pulse="success"]').first()).toHaveCSS("border-top-color", "rgb(62, 207, 142)");
   });
@@ -159,7 +160,7 @@ test.describe("hero data-flow constellation in motion", () => {
 
     const github = picture.getByRole("button", { name: /^GitHub\b/ });
     await github.click();
-    await expect(picture.getByText("Sent an example GitHub event: PR #128 merged.")).toBeAttached();
+    await expect(picture.getByText("Sent an example GitHub event: New fork of acme/api.")).toBeAttached();
     await expect(picture.locator("[data-sent]")).toHaveCount(1);
     // The packet runs once to the center, then the count goes up and the packet is gone.
     await expect.poll(() => countOf(core)).toBe(before + 1);
@@ -197,7 +198,7 @@ test.describe("hero data-flow constellation in motion", () => {
     expect(pulled.x - home.x).toBeLessThan(40);
 
     await page.mouse.up();
-    await expect(picture.getByText("Sent an example GitHub event: PR #128 merged.")).toBeAttached();
+    await expect(picture.getByText("Sent an example GitHub event: New fork of acme/api.")).toBeAttached();
     await expect.poll(async () => Math.abs(((await github.boundingBox())?.x ?? Infinity) - home.x)).toBeLessThan(0.5);
     // One event, not two: the click a browser fires after the drag is not sent again.
     await expect.poll(() => countOf(core)).toBe(before + 1);
@@ -219,5 +220,72 @@ test.describe("hero data-flow constellation in motion", () => {
 
     await picture.getByRole("button", { name: "Resume animation" }).click();
     await expect.poll(loopStates).toEqual(["running"]);
+  });
+
+  test("a hovered or keyboard-focused source stays bright with its packets while the others dim", async ({
+    page,
+  }) => {
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    const stripe = picture.getByRole("button", { name: /^Stripe\b/ });
+    const polar = picture.getByRole("button", { name: /^Polar\b/ });
+
+    await stripe.hover({ force: true });
+    await expect(polar).toHaveCSS("filter", "opacity(0.35)");
+    await expect(stripe).toHaveCSS("filter", "none");
+    for (const packet of await picture.locator('[data-testid="flow-packet"][data-source="stripe"]').all()) {
+      await expect(packet).toHaveCSS("filter", "none");
+    }
+    // The packet a click sends travels bright, not dimmed with the rest.
+    await stripe.click();
+    await expect(picture.locator("[data-sent]")).toHaveCSS("filter", "none");
+
+    // From the keyboard, the focused source is the bright one.
+    await page.mouse.move(0, 0);
+    await page.keyboard.press("Tab");
+    const focused = picture.locator("button[data-on]");
+    await expect(focused).toBeFocused();
+    await expect(stripe).toHaveCSS("filter", "opacity(0.35)");
+  });
+
+  test("the stage tilts toward a mouse pointer, never past 5 degrees, and not while paused", async ({ page }) => {
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    const tilt = picture.getByTestId("flow-tilt");
+    const angles = () =>
+      tilt.evaluate((element) =>
+        ["--tilt-x", "--tilt-y"].map((name) => Number.parseFloat(element.style.getPropertyValue(name) || "0")),
+      );
+    const frame = await tilt.boundingBox();
+    if (!frame) throw new Error("The stage has no box");
+
+    await page.mouse.move(frame.x + frame.width * 0.95, frame.y + frame.height * 0.5);
+    await expect.poll(async () => (await angles())[0]).toBeGreaterThan(3);
+
+    // A pull keeps the pointer captured, so moves arrive from far outside the frame.
+    const stripe = picture.getByRole("button", { name: /^Stripe\b/ });
+    await stripe.hover({ force: true });
+    await page.mouse.down();
+    await page.mouse.move(1, 799, { steps: 10 });
+    await expect.poll(async () => (await angles())[0]).toBeLessThan(-3);
+    for (const angle of await angles()) expect(Math.abs(angle)).toBeLessThanOrEqual(5);
+    await page.mouse.up();
+
+    await picture.getByRole("button", { name: "Pause animation" }).click();
+    await page.mouse.move(frame.x + frame.width * 0.95, frame.y + frame.height * 0.1);
+    await expect.poll(angles).toEqual([0, 0]);
+  });
+});
+
+test.describe("hero data-flow constellation on a touch screen", () => {
+  // A phone in landscape is wide enough for the interactive stage.
+  test.use({ hasTouch: true, viewport: { width: 844, height: 390 } });
+
+  test("a tap sends an event and leaves no spotlight behind", async ({ page }) => {
+    await page.goto("/");
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    // Nothing stops a card drifting under a finger, so the tap does not wait for it to settle.
+    await picture.getByRole("button", { name: /^GitHub\b/ }).tap({ force: true });
+    await expect(picture.getByText("Sent an example GitHub event: New fork of acme/api.")).toBeAttached();
+    await expect(picture.locator("[data-on]")).toHaveCount(0);
+    await expect(picture.getByRole("button", { name: /^Polar\b/ })).toHaveCSS("filter", "none");
   });
 });
