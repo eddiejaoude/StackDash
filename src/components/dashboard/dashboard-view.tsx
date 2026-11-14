@@ -325,6 +325,7 @@ export function DashboardView({
   headline,
   alerts,
   trends,
+  heatmap,
   declared,
   markSimulated,
 }: {
@@ -345,8 +346,10 @@ export function DashboardView({
   headline: ReactNode;
   /** The unacknowledged alerts row, placed after the totals so the numbers lead the page. */
   alerts: ReactNode;
-  /** The Trends section, last; the page streams it in behind its own Suspense boundary (#263). */
+  /** The Trends section; the page streams it in behind its own Suspense boundary (#263). */
   trends: ReactNode;
+  /** The activity heatmap, last; the page streams it in behind its own Suspense boundary (#414). */
+  heatmap: ReactNode;
   /** What each provider's adapter declares it reports, so its card leaves out the rest (#269). */
   declared: (provider: ProviderId) => DeclaredFields;
   /** False when the page says "Simulated" once for every card, total, and chart (#269). */
@@ -433,6 +436,8 @@ export function DashboardView({
       </Section>
 
       {trends}
+
+      {heatmap}
     </>
   );
 }

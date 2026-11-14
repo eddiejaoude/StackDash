@@ -9,6 +9,7 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
+import { ActivityHeatmapSection, ActivityHeatmapSkeleton } from "@/components/dashboard/activity-heatmap";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView, renderedSeries, TrendsSection, TrendsSkeleton } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
@@ -37,6 +38,7 @@ import {
   type HeadlineStrip as HeadlineStripData,
   type HeadlineWindowKind,
 } from "@/lib/dashboard/headline";
+import { HEAT_FILTERS, heatGrid, type HeatCountRow, type HeatFilter } from "@/lib/dashboard/heatmap";
 import {
   bucketEventCounts,
   canonicalHidden,
@@ -62,6 +64,7 @@ import {
 import { recentAnomalies, whatChanged } from "@/lib/dashboard/what-changed";
 import { getAnomalyControls, getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { type DashboardData, getDashboardData, getWorkspaceScope } from "@/lib/data/dashboard";
+import { getActivityHeatmap } from "@/lib/data/heatmap";
 import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
 import { getTrendData, getTrendEventCounts, type TrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
@@ -81,15 +84,16 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 export const metadata: Metadata = { title: "Dashboard" };
 
 // The page's one URL schema: the shared scope filter, the trend period, the hidden event marker
-// categories, the providers whose other trend series are open, and the headline window. Unknown or
-// malformed values fall back to the defaults rather than erroring, because the URL is user-editable;
-// other keys are ignored.
+// categories, the providers whose other trend series are open, the headline window, and the
+// heatmap's event group. Unknown or malformed values fall back to the defaults rather than
+// erroring, because the URL is user-editable; other keys are ignored.
 const searchParamsSchema = ScopeSearchParamsSchema.extend({
   trend: z.enum(["daily", "monthly"]).catch("daily"),
   [HIDE_MARKER_PARAM]: repeatedParam(isMarkerCategory, MARKER_CATEGORIES.length),
   // A list of providers, read like the provider filter.
   [EXPAND_TRENDS_PARAM]: ScopeSearchParamsSchema.shape.provider,
   window: z.enum(HEADLINE_WINDOW_KINDS).catch("week"),
+  heat: z.enum(HEAT_FILTERS).catch("all"),
 });
 
 type DashboardViewParams = Readonly<{
@@ -97,18 +101,21 @@ type DashboardViewParams = Readonly<{
   hidden: readonly MarkerCategory[];
   expanded: readonly ProviderId[];
   window: HeadlineWindowKind;
+  heat: HeatFilter;
 }>;
 
 /**
  * The page's own URL state. The defaults (the daily trend, every marker shown, every provider's
- * other trends closed, this week) stay out of the URL, so a demo link carries only what differs.
+ * other trends closed, this week, every event in the heatmap) stay out of the URL, so a demo link
+ * carries only what differs.
  */
-function viewParams({ trend, hidden, expanded, window }: DashboardViewParams): Record<string, string | readonly string[]> {
+function viewParams({ trend, hidden, expanded, window, heat }: DashboardViewParams): Record<string, string | readonly string[]> {
   return {
     ...(trend === "daily" ? {} : { trend }),
     ...(hidden.length === 0 ? {} : { [HIDE_MARKER_PARAM]: hidden }),
     ...(expanded.length === 0 ? {} : { [EXPAND_TRENDS_PARAM]: expanded }),
     ...(window === "week" ? {} : { window }),
+    ...(heat === "all" ? {} : { heat }),
   };
 }
 
@@ -126,7 +133,8 @@ function dashboardHref(basePath: string, scope: ScopeFilters, view: DashboardVie
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it. Inside the dashboard,
 // Trends has a boundary of its own (#263): the monthly view reads 13 months of snapshots, and the
-// headline strip, cards, and By project do not wait for that read.
+// headline strip, cards, and By project do not wait for that read. The activity heatmap (#414) has
+// its own as well, so neither waits for the other.
 export default function DashboardPage(props: PageProps<"/w/[workspace]/dashboard">) {
   return (
     <Suspense fallback={<PageSkeleton label="Loading the dashboard" />}>
@@ -145,6 +153,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
     hidden: canonicalHidden(parsed[HIDE_MARKER_PARAM]),
     expanded: canonicalExpanded(parsed[EXPAND_TRENDS_PARAM]),
     window: parsed.window,
+    heat: parsed.heat,
   };
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
@@ -187,13 +196,15 @@ async function DashboardContent({
   const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
-  // The trend rows and the markers' counts are not awaited here: Trends awaits them behind its
-  // own Suspense boundary (#263). They start now, with the rest, so nothing waits on another read.
-  // The empty state below never awaits them, and a rejection can land before Trends awaits; Next's
-  // process-wide unhandledRejection handler logs either case and carries on, which is accepted
-  // here. Do not add a .catch or move these below the Promise.all, which would serialize the reads.
+  // The trend rows, the markers' counts, and the heatmap's counts are not awaited here: Trends and
+  // the heatmap await them behind their own Suspense boundaries (#263, #414). They start now, with
+  // the rest, so nothing waits on another read. The empty state below never awaits them, and a
+  // rejection can land before a section awaits; Next's process-wide unhandledRejection handler
+  // logs either case and carries on, which is accepted here. Do not add a .catch or move these
+  // below the Promise.all, which would serialize the reads.
   const trendData = getTrendData(workspace.id, trend, now, scope);
   const viewCounts = getTrendEventCounts(workspace.id, trend, now, scope, shown);
+  const heatCounts = getActivityHeatmap(workspace.id, view.heat, now, scope);
   // The summary names every category's events by day; the charts' own read already is that when
   // they show the daily trend with no category hidden.
   const dayCounts =
@@ -327,6 +338,20 @@ async function DashboardContent({
             />
           </Suspense>
         }
+        heatmap={
+          <Suspense fallback={<ActivityHeatmapSkeleton />}>
+            <DashboardHeatmapContent
+              counts={heatCounts}
+              filter={view.heat}
+              hrefs={{
+                all: dashboardHref(dashboardPath, scope, { ...view, heat: "all" }),
+                deploys: dashboardHref(dashboardPath, scope, { ...view, heat: "deploys" }),
+                signups: dashboardHref(dashboardPath, scope, { ...view, heat: "signups" }),
+                failures: dashboardHref(dashboardPath, scope, { ...view, heat: "failures" }),
+              }}
+            />
+          </Suspense>
+        }
       />
     </ArrivalScope>
   );
@@ -401,6 +426,19 @@ async function DashboardTrendsContent({
       }}
     />
   );
+}
+
+/** The activity heatmap, awaited behind its own Suspense boundary (#414). */
+async function DashboardHeatmapContent({
+  counts,
+  filter,
+  hrefs,
+}: {
+  counts: Promise<HeatCountRow[]>;
+  filter: HeatFilter;
+  hrefs: Readonly<Record<HeatFilter, string>>;
+}) {
+  return <ActivityHeatmapSection grid={heatGrid(await counts)} filter={filter} hrefs={hrefs} />;
 }
 
 /** Shaped like the first screen (the closed filter bar and the headline strip's first row), so nothing jumps. */
