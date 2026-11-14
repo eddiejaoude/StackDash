@@ -515,7 +515,8 @@ describe("sync", () => {
         },
       },
     };
-    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 105 }) });
+    // Closed at 00:10, within the bound a day's star event needs (`DAY_CLOSE_MAX_DELAY_MS`).
+    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 105 }) }, { now: new Date("2026-10-31T00:10:00Z") });
     const result = await githubAdapter.sync(syncInput(JSON.stringify(previous)), ctx);
 
     expect(validateAdapterEvents(githubAdapter.eventTypes, result.events).ok).toBe(true);
@@ -868,7 +869,7 @@ describe("sync: new stars over one UTC day", () => {
     { closedAt: "2026-10-31T02:01:00Z", counted: false },
     { closedAt: "2026-10-31T23:50:00Z", counted: false },
   ])(
-    "counts a day closed at $closedAt only within two poll intervals of its end: $counted (boundary: late first sync)",
+    "closes a day at $closedAt only within two poll intervals of its end: $counted (boundary: late first sync)",
     async ({ closedAt, counted }) => {
       const now = new Date(closedAt);
       const repos = [
@@ -877,15 +878,15 @@ describe("sync: new stars over one UTC day", () => {
       ];
       const previous = { "5000001": baseline(YESTERDAY, 90), "5000002": baseline(YESTERDAY, 40) };
       const result = await syncStars(repos, previous, now);
-      // A late close would take in the next day's stars too, so it reports no total rather than
-      // up to ~48 hours as one day. The per-repository day events are unchanged either way.
+      // A late close would take in the next day's stars too, so it reports neither a total nor the
+      // per-repository day events, which Weekend stargazers and Steady glow read, rather than up to
+      // ~48 hours as one day.
       expect(result.metrics.filter((item) => item.metricKey === GAINED)).toEqual(
         counted ? [expect.objectContaining({ value: 10, retrievedAt: now })] : [],
       );
-      expect(result.events.map((event) => event.dedupeKey)).toEqual([
-        "github.stars.daily:5000001:2026-10-30",
-        "github.stars.daily:5000002:2026-10-30",
-      ]);
+      expect(result.events.map((event) => event.dedupeKey)).toEqual(
+        counted ? ["github.stars.daily:5000001:2026-10-30", "github.stars.daily:5000002:2026-10-30"] : [],
+      );
     },
   );
 

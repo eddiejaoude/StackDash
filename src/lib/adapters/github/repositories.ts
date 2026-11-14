@@ -27,10 +27,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const POLL_INTERVAL_SECONDS = 3600;
 // A repository's baseline is its count at the first sync of a day, and the first sync of the next
 // day closes it, so a late close (a connection waiting in needs_attention, a job runner down across
-// midnight) folds the next day's stars into the closed one: up to ~48 hours read as one day, which
-// could earn Trending falsely. So a closed day adds to `github.stars.gained.daily` only when the
-// closing sync ran within two poll intervals of the day's end (one missed or slow poll), and a
-// reading never covers more than 26 hours. A later close undercounts the day; it never overclaims.
+// midnight) folds the next day's stars into the closed one: up to ~48 hours read as one day. That
+// could earn Trending, Weekend stargazers, or Steady glow for a day with no new star. So a closed
+// day produces its `github.stars.daily` event and adds to `github.stars.gained.daily` only when the
+// closing sync ran within two poll intervals of the day's end (one missed or slow poll), and neither
+// ever covers more than 26 hours. A later close leaves the day without either (the stars still show
+// in the star counts), so it undercounts a day and never overclaims one.
+// Decided by Eddie on #413.
 const DAY_CLOSE_MAX_DELAY_MS = 2 * POLL_INTERVAL_SECONDS * 1000;
 
 export const eventTypeIds = {
@@ -142,24 +145,26 @@ function starEvents({ repo, count, previous, externalAccountId, now }: RepoConte
 
   if (previous.day < today) {
     // The baseline day closed: its net change runs from its first poll to the first poll today.
-    // Unstars reduce it, so only a positive net change is an event.
+    // Unstars reduce it, so only a positive net change is an event. Only a close soon after the day
+    // ended covers about one UTC day (`DAY_CLOSE_MAX_DELAY_MS`); a later one, or an older baseline,
+    // gives no event and adds to no day's total. A loss adds 0 rather than cancelling another
+    // repository's gain.
     const net = count - previous.dayCount;
     const dayEnd = new Date(Date.parse(`${previous.day}T00:00:00Z`) + DAY_MS);
-    if (net > 0) {
-      events.push({
-        typeId: eventTypeIds.starsDaily,
-        occurredAt: dayEnd,
-        severity: "info",
-        title: `${repo.full_name} gained ${net} ${net === 1 ? "star" : "stars"} on ${previous.day}`,
-        externalAccountId,
-        dedupeKey: `${eventTypeIds.starsDaily}:${repo.id}:${previous.day}`,
-        url: repo.html_url,
-      });
+    if (now.getTime() - dayEnd.getTime() <= DAY_CLOSE_MAX_DELAY_MS) {
+      if (net > 0) {
+        events.push({
+          typeId: eventTypeIds.starsDaily,
+          occurredAt: dayEnd,
+          severity: "info",
+          title: `${repo.full_name} gained ${net} ${net === 1 ? "star" : "stars"} on ${previous.day}`,
+          externalAccountId,
+          dedupeKey: `${eventTypeIds.starsDaily}:${repo.id}:${previous.day}`,
+          url: repo.html_url,
+        });
+      }
+      yesterdayGain = Math.max(net, 0);
     }
-    // Only a close soon after the day ended covers about one UTC day (`DAY_CLOSE_MAX_DELAY_MS`); a
-    // later one, or an older baseline, adds to no day's total. A loss adds 0 rather than cancelling
-    // another repository's gain.
-    if (now.getTime() - dayEnd.getTime() <= DAY_CLOSE_MAX_DELAY_MS) yesterdayGain = Math.max(net, 0);
     state = { ...state, day: today, dayCount: count };
   } else if (previous.day > today) {
     // A baseline from the future means the clock moved back; start the day again.

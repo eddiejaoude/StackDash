@@ -160,7 +160,7 @@ A usage metric DevMacro derives from the `/stargazers/count` snapshots, declared
 
 - A repository on its first sync, including one just added to the installation, only sets its baseline: its existing stars are never counted as new.
 - A repository whose baseline is older than yesterday (syncs were missed) adds nothing, because its change spans several days.
-- A repository adds to the day only when the sync that closes it runs within two poll intervals (2 hours) of the day's end, by 02:00 UTC. A later first sync (a connection waiting for attention, a job runner down across midnight) would take in the next day's stars too, so the repository adds nothing to that day, and no reading is written when no repository closed the day in time. A reading therefore runs from the first sync of its day to at most 02:00 UTC the next day, never more than 26 hours: a late day is undercounted, never overclaimed. The `github.stars.daily` event still reports every closed day.
+- A repository adds to the day only when the sync that closes it runs within two poll intervals (2 hours) of the day's end, by 02:00 UTC. A later first sync (a connection waiting for attention, a job runner down across midnight) would take in the next day's stars too, so the repository adds nothing to that day, and no reading is written when no repository closed the day in time. A reading therefore runs from the first sync of its day to at most 02:00 UTC the next day, never more than 26 hours: a late day is undercounted, never overclaimed. The `github.stars.daily` event follows the same bound (see Timeline events).
 - When repositories closed the day without new stars, the reading is 0. When no repository closed a day on a sync (every later sync that day), no reading is written, so the first sync's reading stands.
 - It is an achievement input, not usage to watch: the unusual spend and usage checks never read it, and alert settings does not offer it to mute (see `dailyTotals` in [Adapters](../adapters.md#the-adapter-interface)).
 
@@ -176,7 +176,7 @@ A usage metric DevMacro derives from the `/stargazers/count` snapshots, declared
 
 | Event | Source | Rule |
 |---|---|---|
-| New stars | Daily snapshot of `/stargazers/count` | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross |
+| New stars | Daily snapshot of `/stargazers/count` | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross. Only when the first sync of the next day runs by 02:00 UTC: a later close would report up to two days as one, so that day gets no event. Its stars still show in the star counts (`github.stars.total` and each repository's) |
 | Star milestone | `/stargazers/count` | When the count first reaches 100, 500, 1,000, then every further 1,000. Fire once per milestone per repository, even if the count dips and rises again |
 | New fork | `/forks` (newest first) | One event per new fork id, at its `created_at`. Summarize per day if there are many |
 | Spend started | `/usage/summary` | First non-zero `netAmount` for a product in a month: included usage has run out |
