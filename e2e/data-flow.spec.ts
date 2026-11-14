@@ -27,11 +27,11 @@ async function boxes(locator: Locator): Promise<Box[]> {
   );
 }
 
-// Borders that touch are fine, and so is the dot's 1 px glow; 2 px of real overlap is not.
+// Borders that touch are fine; a pixel of real overlap is not.
 function overlaps(a: Box, b: Box): boolean {
   const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-  return width > 2 && height > 2;
+  return width > 1 && height > 1;
 }
 
 test.describe("hero data-flow constellation", () => {
@@ -84,8 +84,8 @@ test.describe("hero data-flow constellation", () => {
 
   // The orbit is derived from liveProviderIds, so a new provider moves every slot. With the packets
   // parked, every packet (dot and label) has to stay clear of every source's card, and every label
-  // clear of every other label.
-  test("parked packets cover no source and no other label", async ({ page }) => {
+  // clear of every other label and of the center circle's text, which parked packets paint above.
+  test("parked packets cover no source, no other label, and no center text", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
 
@@ -93,8 +93,11 @@ test.describe("hero data-flow constellation", () => {
     const cards = await boxes(picture.getByTestId("flow-node"));
     const packets = await boxes(picture.getByTestId("flow-packet"));
     const labels = await boxes(picture.getByTestId("flow-label"));
+    // The phone layout renders the center text too, hidden at this width.
+    const [centerText, ...extraCenterText] = await boxes(picture.getByTestId("flow-core-text").filter({ visible: true }));
     expect(cards).toHaveLength(providerNames.length);
     expect(packets.length).toBeGreaterThan(0);
+    if (!centerText || extraCenterText.length > 0) throw new Error("Expected exactly one visible center text");
 
     const collisions: string[] = [];
     for (const packet of packets) {
@@ -103,6 +106,7 @@ test.describe("hero data-flow constellation", () => {
       }
     }
     labels.forEach((label, index) => {
+      if (overlaps(label, centerText)) collisions.push(`"${label.name}" covers the center text`);
       for (const other of labels.slice(index + 1)) {
         if (overlaps(label, other)) collisions.push(`"${label.name}" covers "${other.name}"`);
       }

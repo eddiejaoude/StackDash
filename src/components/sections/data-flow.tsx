@@ -80,14 +80,16 @@ const CENTER = { x: 350, y: 260 } as const;
 const ORBIT = { rx: 270, ry: 200 } as const;
 const INNER_ORBIT = { rx: 150, ry: 110 } as const;
 
-// Rough stage-pixel extents for the parked-packet clearance below: the widest card is about 136
-// by 42, a label is 22 tall, and the dot's glow reaches about 8 px from its center.
-// e2e/data-flow.spec.ts measures the real boxes and fails if a parked packet touches a card.
+// Rough stage-pixel extents for the parked-packet clearance below. A card that sends packets today
+// is about 138 by 41 (the caption sets the width, so GitLab's is 162), a label is 22 tall, and the
+// dot's glow reaches about 8 px from its center. e2e/data-flow.spec.ts measures the real boxes and
+// fails if a parked packet touches a card or a label covers the center text.
 const CARD_HALF = { x: 68, y: 21 } as const;
 const DOT_REACH = 8;
 const LABEL_HALF_HEIGHT = 11;
-// On a mostly vertical line the next cards round the orbit sit about a card height lower than the
-// node, so its labels are clear of their row once the dot is this far below the node.
+// On a mostly vertical line the next cards around the orbit sit 32 px lower than the node today.
+// Its labels are clear of their row once the dot is that far below the node, plus half a card and
+// half a label: 32 + 21 + 11.
 const NEIGHBOR_ROW_CLEARANCE = 64;
 
 /**
@@ -181,7 +183,7 @@ function ProviderMark({ id }: { id: LiveProviderId }) {
 
 function Core() {
   return (
-    <div className="flex flex-col items-center gap-1.5 text-center">
+    <div data-testid="flow-core-text" className="flex flex-col items-center gap-1.5 text-center">
       <Wordmark loading="lazy" />
       <p className="font-mono text-xs text-foreground">{ILLUSTRATIVE_EVENT_COUNT} events</p>
       <p className="font-mono text-[10px] text-muted">Illustrative</p>
