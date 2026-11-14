@@ -136,7 +136,7 @@ describe("GET /badge/[projectId]/achievement-[id].svg (#413)", () => {
     expect(response.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
     expect(response.headers.get("set-cookie")).toBeNull();
     const svg = await response.text();
-    expect(svg).toContain(">Vercel</text>");
+    expect(svg).toContain(">🏆 Vercel</text>");
     expect(svg).toContain(">10 Vercel deployments recorded</text>");
     expect(loadPublishedAchievement).toHaveBeenCalledWith(PROJECT_ID, "vercel.deployments.10");
     expect(loadPublishedMetric).not.toHaveBeenCalled();

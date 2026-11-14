@@ -95,9 +95,9 @@ describe("achievementBadgeContent (#413)", () => {
     publishedAt: AT,
   };
 
-  it("labels the badge with the provider and shows the public title, with when it was earned in its title", () => {
+  it("labels the badge with a trophy and the provider and shows the public title, with when it was earned in its title", () => {
     expect(achievementBadgeContent(achievement)).toEqual({
-      label: "GitHub",
+      label: "🏆 GitHub",
       message: "Kilostar: 1,024 GitHub stars",
       tone: "achievement",
       title: "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Earned 2026-11-05 12:00 GMT.",
@@ -146,6 +146,12 @@ describe("textWidth and escapeXml", () => {
   it("measures nothing as zero and wide letters wider than narrow ones", () => {
     expect(textWidth("")).toBe(0);
     expect(textWidth("mmm")).toBeGreaterThan(textWidth("iii"));
+  });
+
+  it("gives an emoji the room of a wide letter, so the trophy in a label never overflows its half", () => {
+    expect(textWidth("🏆")).toBeGreaterThan(textWidth("W"));
+    // The presentation selector draws nothing of its own.
+    expect(textWidth("⚠️")).toBe(textWidth("⚠"));
   });
 
   it("leaves plain text alone", () => {

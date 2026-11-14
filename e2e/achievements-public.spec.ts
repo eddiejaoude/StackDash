@@ -217,7 +217,7 @@ test.describe("published achievements on public surfaces", () => {
     const { workspace, projectId } = await seedPublishedAchievements("Achievements badge");
     const api = await anonymous(baseURL);
     try {
-      const svg = await expectBadge(api, `/badge/${projectId}/achievement-vercel.deployments.10.svg`, "Vercel", "10 Vercel deployments recorded");
+      const svg = await expectBadge(api, `/badge/${projectId}/achievement-vercel.deployments.10.svg`, "🏆 Vercel", "10 Vercel deployments recorded");
       expect(svg).toContain("<title>Vercel achievement on DevMacro: 10 Vercel deployments recorded. Earned 2026-10-20 10:15 BST.</title>");
       expectNothingPrivate(svg);
       await expectCard(api, `/card/${projectId}/achievement-vercel.deployments.10.png`);

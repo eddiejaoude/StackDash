@@ -68,14 +68,14 @@ export function badgeContent(metric: PublishedEngineMetric | null): BadgeContent
 }
 
 /**
- * What the badge of a published achievement says: the provider's name, then the public title,
- * never the private one. Null (unknown, not earned, not published, or a malformed id) is the same
- * neutral Unpublished badge a metric gets, titled for an achievement.
+ * What the badge of a published achievement says: a trophy and the provider's name, then the public
+ * title, never the private one. Null (unknown, not earned, not published, or a malformed id) is the
+ * same neutral Unpublished badge a metric gets, titled for an achievement.
  */
 export function achievementBadgeContent(achievement: PublishedAchievement | null): BadgeContent {
   if (achievement === null) return { ...UNPUBLISHED, title: "This achievement is not published on DevMacro." };
   return {
-    label: achievement.providerName,
+    label: `🏆 ${achievement.providerName}`,
     message: achievement.publicTitle,
     tone: "achievement",
     title: `${achievementBadgeAltText(achievement)} ${achievementEarnedText(achievement)}.`,
@@ -87,13 +87,17 @@ export function achievementBadgeContent(achievement: PublishedAchievement | null
 const NARROW = new Set("ijl'|!.,:;");
 const SEMI_NARROW = new Set("frt()[] -/");
 const WIDE = new Set("mwMW%");
-const CHAR_WIDTHS_PX = { narrow: 3.4, semiNarrow: 4.3, lower: 6.3, upper: 7.5, digit: 7, wide: 10, plus: 9.2 } as const;
+const CHAR_WIDTHS_PX = { narrow: 3.4, semiNarrow: 4.3, lower: 6.3, upper: 7.5, digit: 7, wide: 10, plus: 9.2, emoji: 14 } as const;
+const EMOJI = /\p{Extended_Pictographic}/u;
+const VARIATION_SELECTOR = "\uFE0F";
 
 /** Approximate rendered width of `text` in the badge font, in pixels. */
 export function textWidth(text: string): number {
   let width = 0;
   for (const char of text) {
-    if (NARROW.has(char)) width += CHAR_WIDTHS_PX.narrow;
+    if (char === VARIATION_SELECTOR) continue;
+    if (EMOJI.test(char)) width += CHAR_WIDTHS_PX.emoji;
+    else if (NARROW.has(char)) width += CHAR_WIDTHS_PX.narrow;
     else if (SEMI_NARROW.has(char)) width += CHAR_WIDTHS_PX.semiNarrow;
     else if (WIDE.has(char)) width += CHAR_WIDTHS_PX.wide;
     else if (char === "+") width += CHAR_WIDTHS_PX.plus;
