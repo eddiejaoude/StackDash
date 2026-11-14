@@ -14,13 +14,13 @@ const sizeClasses: Record<NonNullable<WordmarkProps["size"]>, string> = {
   site: "h-5 w-auto sm:h-7",
 };
 
-/** The official DevMacro wordmark, sized for compact app chrome or the public site. */
+/** The official StackDash wordmark, sized for compact app chrome or the public site. */
 export function Wordmark({ loading = "eager", size = "compact" }: WordmarkProps) {
   return (
     <Image
-      src="/brand/devmacro-logo-dark-no-tagline.svg"
+      src="/brand/stackdash-logo-dark-no-tagline.svg"
       alt={site.name}
-      width={363}
+      width={377}
       height={76}
       className={sizeClasses[size]}
       loading={loading}
