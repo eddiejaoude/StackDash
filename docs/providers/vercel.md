@@ -2,19 +2,19 @@
 
 Provider id: `vercel`. Verification: documentation only. Docs checked 2026-10-31.
 
-DevMacro reads your Vercel billing charges and deployments for one team or Hobby account. It installs as a Vercel Integration with four scopes, all at Read level, and billing is available on Pro and Enterprise teams only.
+StackDash reads your Vercel billing charges and deployments for one team or Hobby account. It installs as a Vercel Integration with four scopes, all at Read level, and billing is available on Pro and Enterprise teams only.
 
-DevMacro connects to Vercel through a **Vercel Integration** (a "connectable account" integration, external installation flow). The integration gets a long-lived access token for one Vercel scope (a team or a Hobby account), limited to the API scopes chosen in the Integrations Console. DevMacro uses it to poll billing charges (FOCUS format) and deployments.
+StackDash connects to Vercel through a **Vercel Integration** (a "connectable account" integration, external installation flow). The integration gets a long-lived access token for one Vercel scope (a team or a Hobby account), limited to the API scopes chosen in the Integrations Console. StackDash uses it to poll billing charges (FOCUS format) and deployments.
 
 ## Connection
 
 ### Flow summary
 
-1. DevMacro sends the browser to the install URL with a `state` value it stored server side.
+1. StackDash sends the browser to the install URL with a `state` value it stored server side.
 2. The user signs in to Vercel, picks the scope (Hobby account or a team), picks **all projects** or **selected projects**, and reviews the requested permissions.
 3. Vercel redirects to the integration's Redirect URL with `code`, `configurationId`, `teamId` (teams only), `next`, `state`, and `source`.
-4. DevMacro's callback checks `state`, then exchanges `code` server side for an access token.
-5. DevMacro stores the token, `installation_id` (same value as `configurationId`), `team_id`, and `user_id` against the workspace connection.
+4. StackDash's callback checks `state`, then exchanges `code` server side for an access token.
+5. StackDash stores the token, `installation_id` (same value as `configurationId`), `team_id`, and `user_id` against the workspace connection.
 
 | Item | Value |
 |---|---|
@@ -37,17 +37,17 @@ DevMacro connects to Vercel through a **Vercel Integration** (a "connectable acc
 | `code` | Authorization code to exchange | `jMIukZ1DBCKXHje3X14BCkU0` |
 | `teamId` | Team id, only when a team was selected | `team_LLHUOMOoDlqOp8wPE4kFo9pE` |
 | `configurationId` | Id of this installation ("configuration") | `icfg_6uKSUQ359QCbPfECTAY9murE` |
-| `next` | Encoded URL to send the user to once setup on DevMacro's side is done | `https%3A%2F%2Fvercel.com%2F…` |
-| `state` | The value DevMacro passed to `/new` | `xyzABC123` |
+| `next` | Encoded URL to send the user to once setup on StackDash's side is done | `https%3A%2F%2Fvercel.com%2F…` |
+| `state` | The value StackDash passed to `/new` | `xyzABC123` |
 | `source` | Where the install started: `external`, `marketplace`, or `deploy-button` | `external` |
 
 Rules for the callback:
 
-- Reject a callback whose `state` is missing or does not match the stored value. Installs started from the Vercel side (`source=marketplace` or `deploy-button`) carry no DevMacro state and cannot be tied to a workspace. The integration is unlisted (Community badge), so these should be rare.
+- Reject a callback whose `state` is missing or does not match the stored value. Installs started from the Vercel side (`source=marketplace` or `deploy-button`) carry no StackDash state and cannot be tied to a workspace. The integration is unlisted (Community badge), so these should be rare.
 - The installing user's scope is in `teamId` and again in the token response `team_id`. Prefer the token response and check the two match.
 - `configurationId` and `installation_id` are the same `icfg_…` id. Vercel never reuses configuration ids, and a reinstall creates a new one.
 - Vercel allows one installation per scope. If the integration is already installed in the chosen scope, Vercel reuses the existing configuration. Key the stored connection on `(configurationId)` and update it in place.
-- The Redirect URL is opened in a popup during installation. If DevMacro sets `Cross-Origin-Opener-Policy`, the callback route must send `unsafe-none` so the Vercel dashboard can watch the popup. Vercel's guidance is to finish by redirecting to `next`.
+- The Redirect URL is opened in a popup during installation. If StackDash sets `Cross-Origin-Opener-Policy`, the callback route must send `unsafe-none` so the Vercel dashboard can watch the popup. Vercel's guidance is to finish by redirecting to `next`.
 
 ### Team context on every request
 
@@ -56,16 +56,16 @@ When `team_id` is not null, append `teamId=<team_id>` to every API call. A missi
 ### Disconnect, uninstall, and revocation
 
 - **No token revocation endpoint is documented for integration tokens.** Uninstalling the integration is the only documented way to invalidate the token.
-- `DELETE /v1/integrations/configuration/{id}` removes an installation and all its resources, but it needs the `integration-configuration` scope at **Read/Write**. DevMacro does not request that scope, so it cannot uninstall itself.
-- DevMacro "disconnect" therefore means: delete the stored token, then tell the user to uninstall in Vercel (Dashboard, **Integrations**, **Manage** next to the integration, **Settings**, **Uninstall Integration**).
-- A user can uninstall from Vercel at any time. Without webhooks (Post-MVP), DevMacro learns about it on the next poll when calls start failing. The exact status code after uninstall is not documented (see Unverified).
+- `DELETE /v1/integrations/configuration/{id}` removes an installation and all its resources, but it needs the `integration-configuration` scope at **Read/Write**. StackDash does not request that scope, so it cannot uninstall itself.
+- StackDash "disconnect" therefore means: delete the stored token, then tell the user to uninstall in Vercel (Dashboard, **Integrations**, **Manage** next to the integration, **Settings**, **Uninstall Integration**).
+- A user can uninstall from Vercel at any time. Without webhooks (Post-MVP), StackDash learns about it on the next poll when calls start failing. The exact status code after uninstall is not documented (see Unverified).
 - **Disabled installations.** The token belongs to the developer who installed the integration. If that person leaves the team, the installation is disabled: API calls fail with `403` and `code: "integration_configuration_disabled"`. Team owners get 30 days to transfer ownership, then the installation is deleted. Treat this code as "needs reconnection" and show it to the user, never retry.
 
 ## Scopes requested
 
-Vercel integration scopes are set once in the Integrations Console (not per authorize request). Each scope has a level of `None`, `Read`, or `Read/Write`. DevMacro sets everything to `None` except:
+Vercel integration scopes are set once in the Integrations Console (not per authorize request). Each scope has a level of `None`, `Read`, or `Read/Write`. StackDash sets everything to `None` except:
 
-| Scope | Level | Read-only | Why DevMacro needs it | Read endpoints it unlocks |
+| Scope | Level | Read-only | Why StackDash needs it | Read endpoints it unlocks |
 |---|---|---|---|---|
 | `billing` | Read | Yes | Usage and cost charges. **Only available to Pro and Enterprise teams** | `GET /v1/billing/charges`, `GET /v1/billing/contract-commitments` |
 | `deployment` | Read | Yes | Deployment events for the timeline | `GET /v6/deployments` (listed by the scopes page; the reference documents `GET /v7/deployments`), `GET /v13/deployments/{idOrUrl}`, `GET /v2/deployments/{idOrUrl}/events`, `GET /v6/deployments/{id}/files`, `GET /v2/deployments/{id}/aliases` |
@@ -90,7 +90,7 @@ All calls are `GET` on `https://api.vercel.com` with `Authorization: Bearer <tok
 | `billing.plan` | `hobby`, `pro`, or `enterprise` (nullable object). Skip billing calls when not `pro` or `enterprise` |
 | `membership.role` | Role of the token's user on the team (`OWNER`, `MEMBER`, `DEVELOPER`, `SECURITY`, `BILLING`, `VIEWER`, `VIEWER_FOR_PLUS`, `CONTRIBUTOR`). See the role restriction on billing below |
 
-For a Hobby install (`team_id` null) there is no team to read, and DevMacro does not request the `user` scope. Label the connection from the token response.
+For a Hobby install (`team_id` null) there is no team to read, and StackDash does not request the `user` scope. Label the connection from the token response.
 
 ### 2. Billing charges (FOCUS v1.3)
 
@@ -130,7 +130,7 @@ Row fields (required unless noted):
 | `RegionId`, `RegionName` | string, optional | Region |
 | `Tags` | object of strings | Charge metadata "including the Vercel ProjectId and ProjectName". Exact key names are not documented |
 
-Mapping to DevMacro's money rules:
+Mapping to StackDash's money rules:
 
 - Convert `BilledCost` and `EffectiveCost` to integer minor units (cents) for `USD` only after aggregating; never store the float. The values can carry more than two decimal places for small usage lines (not confirmed, see Unverified). Recommended: parse each amount from the raw JSON text as a decimal string, sum per `(day, SkuId, currency)` in an integer at a fixed finer precision, and round to cents once at the end.
 - Reject (and log) any row whose `BillingCurrency` is not `USD` rather than assuming dollars. Never sum across currencies.
@@ -164,7 +164,7 @@ Freshness: not documented. Poll a trailing window (for example the last 3 UTC da
 
 Response: `{ deployments: [...], pagination: { count, next, prev } }`. `pagination.next` is a millisecond timestamp ("must be used to request the next page"), null on the last page. Pass it as `until` for the next page [inference from the field descriptions].
 
-Fields DevMacro keeps (required in schema unless noted):
+Fields StackDash keeps (required in schema unless noted):
 
 | Field | Meaning |
 |---|---|
@@ -189,24 +189,24 @@ Freshness: live API data. Poll with `since` set to the last seen `created` minus
 
 `GET /v10/projects` (scope `project`). Query: `since`, `until` (updated time, ms), `from` (continuation), `limit`, `search`, `teamId`. The body is either an array or `{ projects, pagination }`, so parse both shapes.
 
-Use only the list endpoint. `GET /v9/projects/{idOrName}` returns an `env` array of environment variable records (`key`, `value`, `decrypted`, `target`, and more). DevMacro must never call it (see Permission risks).
+Use only the list endpoint. `GET /v9/projects/{idOrName}` returns an `env` array of environment variable records (`key`, `value`, `decrypted`, `target`, and more). StackDash must never call it (see Permission risks).
 
 ## Achievements
 
-DevMacro evaluates these for each project the Vercel accounts are assigned to, from the Vercel data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the Vercel accounts are assigned to, from the Vercel data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 The deployment ladder is the same on Railway, DigitalOcean, and GitLab. It counts `vercel.deployment.succeeded` events, and a `vercel.deployment.failed` event breaks a run of deployments in a row. Days, hours, and weekdays are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `vercel.deployments.first` | First Vercel deployment recorded | Earned when DevMacro records the first successful Vercel deployment. |
-| `vercel.deployments.10` | 10 Vercel deployments recorded | Earned when DevMacro records the 10th successful Vercel deployment. |
-| `vercel.deployments.100` | 100 Vercel deployments recorded | Earned when DevMacro records the 100th successful Vercel deployment. |
-| `vercel.deployments.streak_10` | 10 Vercel deployments in a row | Earned when DevMacro records 10 successful Vercel deployments in a row, with no failed deployment between them. |
-| `vercel.deployments.night_owl` | Night owl: a Vercel deployment between midnight and 5 am | Earned when DevMacro records a successful Vercel deployment between midnight and 5 am London time. |
-| `vercel.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful Vercel deployment on a Friday between 4 pm and midnight London time. |
-| `vercel.deployments.busy_day` | Busy day: 10 Vercel deployments in one day | Earned when DevMacro records 10 successful Vercel deployments on one London calendar day. |
-| `vercel.deployments.weekly_rhythm` | Weekly rhythm: a Vercel deployment on 7 days in a row | Earned when DevMacro records a successful Vercel deployment on each of 7 consecutive London calendar days. |
+| `vercel.deployments.first` | First Vercel deployment recorded | Earned when StackDash records the first successful Vercel deployment. |
+| `vercel.deployments.10` | 10 Vercel deployments recorded | Earned when StackDash records the 10th successful Vercel deployment. |
+| `vercel.deployments.100` | 100 Vercel deployments recorded | Earned when StackDash records the 100th successful Vercel deployment. |
+| `vercel.deployments.streak_10` | 10 Vercel deployments in a row | Earned when StackDash records 10 successful Vercel deployments in a row, with no failed deployment between them. |
+| `vercel.deployments.night_owl` | Night owl: a Vercel deployment between midnight and 5 am | Earned when StackDash records a successful Vercel deployment between midnight and 5 am London time. |
+| `vercel.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when StackDash records a successful Vercel deployment on a Friday between 4 pm and midnight London time. |
+| `vercel.deployments.busy_day` | Busy day: 10 Vercel deployments in one day | Earned when StackDash records 10 successful Vercel deployments on one London calendar day. |
+| `vercel.deployments.weekly_rhythm` | Weekly rhythm: a Vercel deployment on 7 days in a row | Earned when StackDash records a successful Vercel deployment on each of 7 consecutive London calendar days. |
 
 ## Verified vs estimated vs unavailable
 
@@ -215,8 +215,8 @@ The deployment ladder is the same on Railway, DigitalOcean, and GitLab. It count
 | Daily charges per service and SKU (`BilledCost`) | Verified | Provider-reported, USD, 1 day granularity. Days in an open billing period can still change |
 | Daily effective cost (`EffectiveCost`) | Verified | Provider-reported amortized cost |
 | Usage quantities (`ConsumedQuantity` + `ConsumedUnit`) | Verified | Units are free text per row; show as given |
-| Month-to-date spend | Verified | Sum of daily `BilledCost` rows in the period, computed by DevMacro from provider values |
-| Projected month-end spend | Estimated | Linear projection by DevMacro. Label it estimated |
+| Month-to-date spend | Verified | Sum of daily `BilledCost` rows in the period, computed by StackDash from provider values |
+| Projected month-end spend | Estimated | Linear projection by StackDash. Label it estimated |
 | Spend per project | Verified when `Tags` carries the project | Rows without project tags stay team-level |
 | Deployment counts, failures, build duration | Verified | From deployment timestamps and states |
 | Enterprise commitment allocation | Verified (Enterprise only) | `GET /v1/billing/contract-commitments` |
@@ -254,7 +254,7 @@ The connection flow should read `billing.plan` after install and tell Hobby user
 
 ## Webhooks (Post-MVP)
 
-Not used in the MVP: DevMacro polls. Notes for later:
+Not used in the MVP: StackDash polls. Notes for later:
 
 - One Webhook URL per integration, set in the Integrations Console, with event checkboxes. Integration events include `deployment.created`, `deployment.error`, `deployment.canceled`, `deployment.succeeded`, `deployment.ready`, `project.created`, `project.removed`, `integration-configuration.removed`, `integration-configuration.permission-upgraded`, `integration-configuration.scope-change-confirmed`, `integration-configuration.transferred`, `domain.created`.
 - Envelope: `{ type, id, createdAt, region, payload }`. Deployment payloads carry `payload.team.id`, `payload.user.id`, `payload.deployment.{id,url,name,meta}`, `payload.links.{deployment,project}`, `payload.target`, `payload.project.id`, `payload.plan`, `payload.regions`.
@@ -279,9 +279,9 @@ Webhook-only (Post-MVP): instant rollback (`deployment.rollback`), promotion (`d
 
 Disclose these in the connection flow before redirecting:
 
-- **Deployment read is broad.** Vercel describes it as retrieving deployments "including build logs, a list of files and builds, and the file structure for a specific deployment". The token can list deployed files and read build logs, which can include secrets that leak into logs. DevMacro calls only the list endpoint.
-- **Project read exposes environment variable records.** `GET /v9/projects/{idOrName}` is in the `project` Read scope and its response includes an `env` array with `key`, `value`, and a `decrypted` flag. Whether values come back decrypted for an integration token is not documented. DevMacro must never call that endpoint, and a code review rule should enforce it.
-- **Team read includes member listing** (`GET /v2/teams/{teamId}/members`), so names and emails of teammates are reachable. DevMacro does not call it.
+- **Deployment read is broad.** Vercel describes it as retrieving deployments "including build logs, a list of files and builds, and the file structure for a specific deployment". The token can list deployed files and read build logs, which can include secrets that leak into logs. StackDash calls only the list endpoint.
+- **Project read exposes environment variable records.** `GET /v9/projects/{idOrName}` is in the `project` Read scope and its response includes an `env` array with `key`, `value`, and a `decrypted` flag. Whether values come back decrypted for an integration token is not documented. StackDash must never call that endpoint, and a code review rule should enforce it.
+- **Team read includes member listing** (`GET /v2/teams/{teamId}/members`), so names and emails of teammates are reachable. StackDash does not call it.
 - **Billing read** covers all charges for the team, every project included, regardless of which projects the user selected at install [inference: the endpoint is team-scoped and takes no project filter].
 - The token is long-lived with no expiry and no refresh. A leaked token works until the user uninstalls. Encrypt it at rest and never send it to the browser (Vercel also warns to call the API server side only).
 - The token acts as the installing developer. If that person's role changes, data access changes with it, and if they leave the team, the installation is disabled.
@@ -296,16 +296,16 @@ Disclose these in the connection flow before redirecting:
 - Billing data freshness is undocumented.
 - Endpoint version drift: the scopes page lists `/v6/deployments` and `/v9/projects`; the current reference documents `/v7/deployments` and `/v10/projects`. Use the reference versions and confirm the scope covers them in testing.
 - `GET /v7/deployments` `url` can be null for incomplete uploads even though the schema marks it required. Model it as nullable.
-- The integration's Redirect URL is a single field, so one integration serves one DevMacro origin. Local development needs its own integration (localhost redirect URLs are allowed) [inference].
-- Unlisted integrations carry a **Community** badge. Listing on the public marketplace needs at least 500 active installations and a review. DevMacro does not need listing: installs work through the `/new` link.
+- The integration's Redirect URL is a single field, so one integration serves one StackDash origin. Local development needs its own integration (localhost redirect URLs are allowed) [inference].
+- Unlisted integrations carry a **Community** badge. Listing on the public marketplace needs at least 500 active installations and a review. StackDash does not need listing: installs work through the `/new` link.
 
 ## Self-hosted registration steps
 
-Every DevMacro deployment registers its own Vercel integration, because the client secret and Redirect URL belong to one deployment.
+Every StackDash deployment registers its own Vercel integration, because the client secret and Redirect URL belong to one deployment.
 
 1. In the Vercel dashboard, pick the team that will own the integration, open **Integrations**, then **Integrations Console**, then **Create**.
 2. Fill in the required profile fields: **Name** (max 64 characters), **URL Slug** (max 32), **Developer**, **Contact email**, **Support contact email** (public), **Short Description** (max 40), **Logo** (square PNG, at least 256 px, not transparent), **Category** (for example Dev Tools), **Website**, **Documentation URL**, **EULA URL**, **Privacy Policy URL**, **Support URL**, **Overview** (max 768), and at least one **Feature media** image (16:9, 1920x1080 PNG).
-3. **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`, where `<SITE_URL>` is the public origin of the DevMacro deployment (for local development use `http://localhost:3000/api/connections/vercel/callback` in a separate integration).
+3. **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`, where `<SITE_URL>` is the public origin of the StackDash deployment (for local development use `http://localhost:3000/api/connections/vercel/callback` in a separate integration).
 4. **API Scopes**: set `billing` to Read, `deployment` to Read, `project` to Read, `team` to Read, everything else to None.
 5. Leave **Webhook URL** and **Configuration URL** empty for the MVP.
 6. Accept the Vercel Integrations Marketplace Agreement and submit.
@@ -362,7 +362,7 @@ One JSONL line from `GET /v1/billing/charges`. The documentation example renders
 }
 ```
 
-`GET /v7/deployments`, trimmed to the fields DevMacro keeps (documentation example, numeric fields shown as strings there):
+`GET /v7/deployments`, trimmed to the fields StackDash keeps (documentation example, numeric fields shown as strings there):
 
 ```json
 {
@@ -430,7 +430,7 @@ Fixtures for tests must be recorded from a real Pro test team and sanitized; the
 
 Could not be confirmed from documentation on 2026-10-31. Check each with a test install before building on it:
 
-- Whether the external installation flow also runs in a popup, and whether redirecting to `next` or straight to DevMacro gives the better result.
+- Whether the external installation flow also runs in a popup, and whether redirecting to `next` or straight to StackDash gives the better result.
 - The status code and error body returned for a token whose installation was uninstalled (as opposed to disabled).
 - Whether any endpoint can revoke an integration token. `DELETE /v3/user/tokens/{tokenId}` exists for user tokens; its use with integration tokens is not documented.
 - Whether installing with the `billing` scope on a Hobby account succeeds (with billing calls failing), or is blocked.
@@ -480,4 +480,4 @@ All checked 2026-10-31.
 
 ## Go or no-go for the MVP
 
-**Go.** Every piece DevMacro needs is documented and reachable with read-only scopes from a self-serve integration: daily charges in FOCUS format with explicit currency and periods, deployments with clear states for the timeline, and the plan from the team record. The token never expires, so there is no refresh logic to get wrong. The costs are known and manageable: billing works only for Pro and Enterprise teams and for installers with an eligible role (the flow must say so), the `deployment` and `project` read scopes reach more than DevMacro uses (disclose it, and never call the build log, file, or project detail endpoints), and freshness, precision, and uninstall behavior must be confirmed with a Pro test team before fixtures are recorded.
+**Go.** Every piece StackDash needs is documented and reachable with read-only scopes from a self-serve integration: daily charges in FOCUS format with explicit currency and periods, deployments with clear states for the timeline, and the plan from the team record. The token never expires, so there is no refresh logic to get wrong. The costs are known and manageable: billing works only for Pro and Enterprise teams and for installers with an eligible role (the flow must say so), the `deployment` and `project` read scopes reach more than StackDash uses (disclose it, and never call the build log, file, or project detail endpoints), and freshness, precision, and uninstall behavior must be confirmed with a Pro test team before fixtures are recorded.

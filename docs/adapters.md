@@ -1,11 +1,11 @@
 # Write a provider adapter
 
-A provider adapter connects DevMacro to one provider's API: it runs the OAuth connection, reads usage, spend, revenue, and activity on a schedule, and maps them onto DevMacro's metric and event model. This guide takes you from a copy of the example adapter to a pull request: the interface, capabilities, metric kinds, provenance rules, security requirements, tests, every file a new provider touches, and how adapters are reviewed.
+A provider adapter connects StackDash to one provider's API: it runs the OAuth connection, reads usage, spend, revenue, and activity on a schedule, and maps them onto StackDash's metric and event model. This guide takes you from a copy of the example adapter to a pull request: the interface, capabilities, metric kinds, provenance rules, security requirements, tests, every file a new provider touches, and how adapters are reviewed.
 
 ## Before you start
 
-- **Ask first.** Open an issue with the **Adapter request** template. It asks for the provider's OAuth support, the scopes, the data DevMacro would read, what those scopes also allow, and the known limits. A maintainer answers with go or no-go before any code is written, because some providers cannot be connected the way DevMacro requires.
-- **OAuth only.** A user connects a provider through the provider's OAuth authorization code flow. DevMacro never asks anyone to paste an API key, so a provider without OAuth cannot have an adapter.
+- **Ask first.** Open an issue with the **Adapter request** template. It asks for the provider's OAuth support, the scopes, the data StackDash would read, what those scopes also allow, and the known limits. A maintainer answers with go or no-go before any code is written, because some providers cannot be connected the way StackDash requires.
+- **OAuth only.** A user connects a provider through the provider's OAuth authorization code flow. StackDash never asks anyone to paste an API key, so a provider without OAuth cannot have an adapter.
 - **Polling only.** An adapter is called on a schedule and reads what changed. Webhooks are not supported yet.
 - **Read only.** Ask for the narrowest read scopes that cover what the adapter reads. A scope that can also write needs a reason the user sees before connecting.
 - **No new dependencies.** Adapters call the provider's HTTP API with the shared `fetchJson` helper and parse responses with `zod`. Adding a provider SDK or any other package is a maintainer decision: raise it on the adapter request issue first.
@@ -14,7 +14,7 @@ A provider adapter connects DevMacro to one provider's API: it runs the OAuth co
 
 **Every adapter is reviewed by a maintainer before it is released, and an adapter is never run untrusted with production secrets.**
 
-Until a maintainer has reviewed and merged it, your adapter runs only on your own machine: in unit tests against recorded fixtures and, if you choose, against your own sandbox account with your own OAuth app. The local simulator never calls your adapter: with `DEVMACRO_SIMULATE_PROVIDERS=1` the app swaps every live adapter for its simulated profile, which makes up its data, so data on screen there does not mean your code ran. Your adapter never receives a production OAuth client secret or a user's token: those exist only in the environment of a deployed instance, which runs merged code only. Never ask for production credentials to test an adapter, and never paste a real token, client secret, or private response into an issue, a pull request, a fixture, or a log. When you test against your sandbox account, keep its secret in your git-ignored `.env.local`, and scrub every response before it becomes a fixture.
+Until a maintainer has reviewed and merged it, your adapter runs only on your own machine: in unit tests against recorded fixtures and, if you choose, against your own sandbox account with your own OAuth app. The local simulator never calls your adapter: with `STACKDASH_SIMULATE_PROVIDERS=1` the app swaps every live adapter for its simulated profile, which makes up its data, so data on screen there does not mean your code ran. Your adapter never receives a production OAuth client secret or a user's token: those exist only in the environment of a deployed instance, which runs merged code only. Never ask for production credentials to test an adapter, and never paste a real token, client secret, or private response into an issue, a pull request, a fixture, or a log. When you test against your sandbox account, keep its secret in your git-ignored `.env.local`, and scrub every response before it becomes a fixture.
 
 ## Quick start
 
@@ -100,12 +100,12 @@ Metrics are validated by `AdapterMetricSchema` (`src/lib/adapters/metrics.ts`) b
 | `included_allowance` | `value` and `unit` | What the plan includes for that quantity |
 | `remaining_allowance` | `value` and `unit` | What is left of the allowance, never below zero |
 | `verified_spend` | `amountMinor` and `currency` | Money the provider itself reports as charged |
-| `estimated_spend` | `amountMinor` and `currency` | Money DevMacro calculates from usage and a price list |
+| `estimated_spend` | `amountMinor` and `currency` | Money StackDash calculates from usage and a price list |
 | `credit_balance` | `amountMinor` and `currency`, may be negative | Prepaid credit or a balance owed |
 | `revenue` | `amountMinor` and `currency`, may be negative | Money earned in a period, net of refunds |
 | `recurring_revenue` | `amountMinor` and `currency` | A run rate at one moment, such as monthly recurring revenue. Never summed into revenue |
 
-`budget` is also a kind, but budgets are set by users in DevMacro and an adapter can never emit one.
+`budget` is also a kind, but budgets are set by users in StackDash and an adapter can never emit one.
 
 Every metric also carries:
 
@@ -123,7 +123,7 @@ Money is an integer in minor units (cents, pence) with its ISO 4217 currency, ne
 Every metric says where it came from in `provenance`:
 
 - `source: "provider_api"`: the provider reported the figure. `endpoint` names the origin and path it came from, with placeholders for ids and never a query string, because query strings can carry tokens.
-- `source: "derived"`: DevMacro calculated it. An `estimated_spend` metric must be derived and must name its price list in `pricingSource`, with the date it was checked, because the user deserves to know what an estimate rests on.
+- `source: "derived"`: StackDash calculated it. An `estimated_spend` metric must be derived and must name its price list in `pricingSource`, with the date it was checked, because the user deserves to know what an estimate rests on.
 
 The dashboard labels figures verified or estimated from the kind, so never report an estimate as `verified_spend`. A figure that predicts the whole billing period, rather than what has been spent so far, is a projection: declare its key in `projectedSpend` so no total counts it as money already spent.
 
@@ -141,7 +141,7 @@ Read events with a cursor: an opaque string the adapter returns from one sync an
 
 ## Achievements
 
-An achievement is a permanent outcome a project earns from its providers' data, such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `achievements`, beside `eventTypes`. After each successful sync, DevMacro evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and metric snapshots it has stored for all of the project's accounts of that provider. A project earns each achievement once, and members publish the ones they want to show. An achievement earned while any of those accounts is on a simulated connection is stored as simulated.
+An achievement is a permanent outcome a project earns from its providers' data, such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `achievements`, beside `eventTypes`. After each successful sync, StackDash evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and metric snapshots it has stored for all of the project's accounts of that provider. A project earns each achievement once, and members publish the ones they want to show. An achievement earned while any of those accounts is on a simulated connection is stored as simulated.
 
 Before you add or change achievements, read the achievements of adapters of the same kind and keep ids, thresholds, and wording parallel.
 
@@ -152,7 +152,7 @@ The kinds today are deployment hosts (Vercel, Railway, DigitalOcean, GitLab, and
 | `id` | The adapter id, then a stable name: `vercel.deployments.10`. It is stored on every earned row, so it never changes. Use the same name as adapters of the same kind |
 | `title` | What members see in the project's Achievements section and on the timeline. At most 80 characters (`ACHIEVEMENT_TITLE_MAX`), so it fits a card and a badge |
 | `publicTitle` | What a public page, card, badge, and share text show once it is published. Never an account name, a repository name, or an amount. The same as `title` unless the title says something private |
-| `description` | One sentence on how it is earned, such as "Earned when DevMacro records the 10th successful Vercel deployment." |
+| `description` | One sentence on how it is earned, such as "Earned when StackDash records the 10th successful Vercel deployment." |
 | `rule` | One rule from the set below |
 
 Rules are a closed set (`src/lib/adapters/achievements.ts`), so an adapter composes them rather than writing code:
@@ -169,7 +169,7 @@ Rules are a closed set (`src/lib/adapters/achievements.ts`), so an adapter compo
 
 The evidence decides the wording and the date:
 
-- An event achievement says "recorded", because an adapter may backfill limited history or set a baseline on its first sync. DevMacro never claims it saw a project's first-ever deployment, signup, payment, or fork.
+- An event achievement says "recorded", because an adapter may backfill limited history or set a baseline on its first sync. StackDash never claims it saw a project's first-ever deployment, signup, payment, or fork.
 - An event threshold is dated to the event that reached it.
 - A snapshot threshold is dated to the first stored reading that proves it. When no earlier reading below the threshold is stored, its evidence is "at least" and it is shown as "Recorded at least 100" (for a threshold of 100), rather than claiming the crossing happened then.
 - A daily total threshold is dated to the day, never to a time.
@@ -277,7 +277,7 @@ Registering makes the adapter available to users, and it touches files across th
 | `src/lib/providers.ts` | The name in `PROVIDER_NAMES` and the platform in `PROVIDER_PLATFORMS` |
 | `src/lib/site.ts` | The platform in the `Platform` union |
 | `src/components/icons.tsx` | The brand mark in `PLATFORM_MARKS`, with its brand rules in the comment |
-| `src/lib/connections/revoke.ts` | The steps to remove DevMacro at the provider in `MANUAL_REVOKE_STEPS`, when the provider has them |
+| `src/lib/connections/revoke.ts` | The steps to remove StackDash at the provider in `MANUAL_REVOKE_STEPS`, when the provider has them |
 | `supabase/migrations/<version>_provider_<id>.sql` | `alter type public.provider_id add value if not exists '<id>';` |
 | `supabase/tests/database/<NN>_<id>_provider.test.sql` | A pgTAP test that the id is a `provider_id` |
 | `src/lib/supabase/database.types.ts` | Regenerated with `npm run db:types` after the migration is applied |
@@ -314,7 +314,7 @@ Every provider has a page in `docs/providers/<id>.md`, published at `/docs/provi
 
 Provider id: `<id>`. Verification: documentation only. Docs checked <YYYY-MM-DD>.
 
-DevMacro reads <what, in one sentence>. It asks for <the scopes, and whether they are read only>.
+StackDash reads <what, in one sentence>. It asks for <the scopes, and whether they are read only>.
 
 ## Go or no-go
 
@@ -343,7 +343,7 @@ DevMacro reads <what, in one sentence>. It asks for <the scopes, and whether the
 
 ### Disconnect and revoke
 
-<From DevMacro, and by hand at the provider.>
+<From StackDash, and by hand at the provider.>
 
 ## Permissions
 
@@ -355,7 +355,7 @@ DevMacro reads <what, in one sentence>. It asks for <the scopes, and whether the
 
 ## Data
 
-<One section per endpoint read: what it returns, what DevMacro keeps, and how it maps to metrics.>
+<One section per endpoint read: what it returns, what StackDash keeps, and how it maps to metrics.>
 
 ### Units, freshness, retention
 
@@ -384,7 +384,7 @@ DevMacro reads <what, in one sentence>. It asks for <the scopes, and whether the
 
 ## Permission risks
 
-<What each scope also allows beyond what DevMacro reads, shown on the connect screen before the user grants access.>
+<What each scope also allows beyond what StackDash reads, shown on the connect screen before the user grants access.>
 
 ## Limitations
 

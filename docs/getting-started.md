@@ -1,29 +1,29 @@
 # Getting started
 
-This guide takes you from signing in to a workspace that shows your stack: connect a provider, read the timeline and the dashboard, get an alert before a bill surprises you, and publish a number you are proud of. Each step names the buttons and headings exactly as DevMacro shows them.
+This guide takes you from signing in to a workspace that shows your stack: connect a provider, read the timeline and the dashboard, get an alert before a bill surprises you, and publish a number you are proud of. Each step names the buttons and headings exactly as StackDash shows them.
 
 ## 1. Sign in
 
-Open your DevMacro site and select **Sign in**, then **Continue with GitHub**, and approve DevMacro on GitHub. DevMacro is invite only during the test: sign in with the GitHub account whose primary email was invited. Any other account is refused with "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again."
+Open your StackDash site and select **Sign in**, then **Continue with GitHub**, and approve StackDash on GitHub. StackDash is invite only during the test: sign in with the GitHub account whose primary email was invited. Any other account is refused with "This GitHub account's email has not been invited to StackDash. Ask for an invite, then try again."
 
 You land on the **Timeline** of your personal workspace. The navigation along the top of every workspace page holds **Timeline**, **Dashboard**, **Connections**, **Alerts**, **Projects**, and **Settings**.
 
 ## 2. Explore with sample data
 
-A new workspace has nothing to show yet, so the timeline says **No activity yet**. On a site that simulates providers (only a local install with `DEVMACRO_SIMULATE_PROVIDERS=1`, never a production deployment), owners and admins of a workspace with no connections also see **Explore with sample data**. Select it to connect every simulated provider to this workspace with this week's made-up history. The timeline opens with **Sample data added**, and everything that data shows is labeled **Simulated**.
+A new workspace has nothing to show yet, so the timeline says **No activity yet**. On a site that simulates providers (only a local install with `STACKDASH_SIMULATE_PROVIDERS=1`, never a production deployment), owners and admins of a workspace with no connections also see **Explore with sample data**. Select it to connect every simulated provider to this workspace with this week's made-up history. The timeline opens with **Sample data added**, and everything that data shows is labeled **Simulated**.
 
-When you are done looking around, open each simulated connection from **Connections** and select **Delete connection and history**. A site that simulates providers simulates every provider, so real providers connect only after the person who runs the site removes `DEVMACRO_SIMULATE_PROVIDERS` and restarts DevMacro. Skip this step if your site does not offer the button.
+When you are done looking around, open each simulated connection from **Connections** and select **Delete connection and history**. A site that simulates providers simulates every provider, so real providers connect only after the person who runs the site removes `STACKDASH_SIMULATE_PROVIDERS` and restarts StackDash. Skip this step if your site does not offer the button.
 
 ## 3. Connect your first provider
 
 Only owners and admins of a workspace connect providers. Every member sees what is connected.
 
 1. Open **Connections**. Under **Add a provider**, each card lists the **Data collected** and says whether the provider asks for read access only.
-2. Select **Connect** and the provider's name, for example **Connect Vercel**. The next page lists the **Permissions** the provider will ask you to grant and the **Data collected**. A provider that has no read-only permission for that data asks you to tick **I understand DevMacro gets full access to my** account first.
-3. Select **Continue to** the provider, for example **Continue to Vercel**, and approve DevMacro on the provider's own consent screen.
-4. Back in DevMacro, you land on the new connection's page, which says the provider is connected, for example **Vercel connected**, and links to **Open the timeline**. The connection is also listed under **Connected providers** on **Connections**. Its first sync is queued at once; until it finishes, the timeline says **Events are on their way**.
+2. Select **Connect** and the provider's name, for example **Connect Vercel**. The next page lists the **Permissions** the provider will ask you to grant and the **Data collected**. A provider that has no read-only permission for that data asks you to tick **I understand StackDash gets full access to my** account first.
+3. Select **Continue to** the provider, for example **Continue to Vercel**, and approve StackDash on the provider's own consent screen.
+4. Back in StackDash, you land on the new connection's page, which says the provider is connected, for example **Vercel connected**, and links to **Open the timeline**. The connection is also listed under **Connected providers** on **Connections**. Its first sync is queued at once; until it finishes, the timeline says **Events are on their way**.
 
-A card that says **Not set up on this instance** belongs to a provider the person who runs your site has not registered yet. Each provider has its own page in these docs, for example [Vercel](providers/vercel.md), with what DevMacro reads, what each permission allows, and what is verified or estimated.
+A card that says **Not set up on this instance** belongs to a provider the person who runs your site has not registered yet. Each provider has its own page in these docs, for example [Vercel](providers/vercel.md), with what StackDash reads, what each permission allows, and what is verified or estimated.
 
 ## 4. Read the timeline and the dashboard
 
@@ -37,8 +37,8 @@ Above the feed, **Activity overview** counts every event that matches your filte
 
 The **Dashboard** adds up spend, usage, and allowances across every connected provider:
 
-- The headline at the top compares **This week** or **This month** with the same days of the period before: **Revenue**, **Spend**, **Revenue minus spend**, **Signups**, **Cost per signup**, and **Deploys**. A figure DevMacro cannot work out says why instead of showing a number.
-- Below it, each provider has a card with its spend, its allowances and how much of each is left, and when they reset. **Verified spend** is the amount the provider reported. **Estimated spend** is calculated by DevMacro from the provider's published prices, and says so.
+- The headline at the top compares **This week** or **This month** with the same days of the period before: **Revenue**, **Spend**, **Revenue minus spend**, **Signups**, **Cost per signup**, and **Deploys**. A figure StackDash cannot work out says why instead of showing a number.
+- Below it, each provider has a card with its spend, its allowances and how much of each is left, and when they reset. **Verified spend** is the amount the provider reported. **Estimated spend** is calculated by StackDash from the provider's published prices, and says so.
 
 ## 5. Set an alert
 
@@ -64,4 +64,4 @@ How each public number is counted is in [Public metrics](architecture/public-met
 
 - Read your workspace from your own scripts with the [REST API](api.md).
 - Ask an AI assistant about your workspace through the [MCP server](mcp.md).
-- Run DevMacro yourself: [Deploy to Vercel and Supabase](operations/deploy.md).
+- Run StackDash yourself: [Deploy to Vercel and Supabase](operations/deploy.md).

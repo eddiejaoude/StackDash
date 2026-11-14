@@ -2,7 +2,7 @@
 
 Provider id: `railway`. Verification: documentation only. Docs checked 2026-11-05.
 
-DevMacro reads the Railway workspaces you pick, their projects and deployments, and their billing when Railway allows it. It asks for viewer access to those workspaces and your Railway sign-in.
+StackDash reads the Railway workspaces you pick, their projects and deployments, and their billing when Railway allows it. It asks for viewer access to those workspaces and your Railway sign-in.
 
 ## Go or no-go
 
@@ -12,7 +12,7 @@ No Railway account has been used yet. Every claim below comes from Railway's doc
 
 ## Connection
 
-OAuth 2.0 authorization code flow with PKCE (`S256`), as a **Web (confidential)** app with `client_secret_basic`. Railway recommends PKCE for web apps too, so DevMacro always sends it.
+OAuth 2.0 authorization code flow with PKCE (`S256`), as a **Web (confidential)** app with `client_secret_basic`. Railway recommends PKCE for web apps too, so StackDash always sends it.
 
 | Item | Value |
 |---|---|
@@ -22,25 +22,25 @@ OAuth 2.0 authorization code flow with PKCE (`S256`), as a **Web (confidential)*
 | Token URL | `POST https://backboard.railway.com/oauth/token` |
 | Revoke URL | None. The discovery document lists no revocation endpoint |
 | API URL | `POST https://backboard.railway.com/graphql/v2` (GraphQL) |
-| Scopes DevMacro requests | `openid email profile offline_access workspace:viewer` |
+| Scopes StackDash requests | `openid email profile offline_access workspace:viewer` |
 | Access token | Opaque, `expires_in: 3600` (one hour) |
 | Refresh token | Only with `offline_access` and `prompt=consent`. Rotates; a new one lives one year from issue |
-| ID token | JWT (`ES256`). Returned and ignored: DevMacro never reads identity claims |
+| ID token | JWT (`ES256`). Returned and ignored: StackDash never reads identity claims |
 | Client secret | Shown once when the app is created |
 
 ### Authorize request
 
-Query parameters: `response_type=code`, `client_id`, `redirect_uri` (exact match with a registered URI, including scheme, host, port, and path), `scope` (space separated, `openid` required), `state` (DevMacro caps it at 1024 characters), `code_challenge`, `code_challenge_method=S256`, and `prompt=consent`.
+Query parameters: `response_type=code`, `client_id`, `redirect_uri` (exact match with a registered URI, including scheme, host, port, and path), `scope` (space separated, `openid` required), `state` (StackDash caps it at 1024 characters), `code_challenge`, `code_challenge_method=S256`, and `prompt=consent`.
 
 `prompt=consent` is required, not cosmetic: without it a returning user can skip the consent screen through automatic approval, and then Railway issues no refresh token. It also lets the user change which workspaces they share every time they connect.
 
-On the consent screen the user picks **which workspaces** the app can see. One DevMacro connection covers the workspaces picked; each one becomes an account on the connection.
+On the consent screen the user picks **which workspaces** the app can see. One StackDash connection covers the workspaces picked; each one becomes an account on the connection.
 
-The discovery document advertises `authorization_response_iss_parameter_supported: true`, and the documented callback carries `iss=https://backboard.railway.com`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), DevMacro rejects a callback whose `iss` is missing or anything else, before calling the token endpoint. A denied request comes back with an `error` parameter instead of a code.
+The discovery document advertises `authorization_response_iss_parameter_supported: true`, and the documented callback carries `iss=https://backboard.railway.com`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), StackDash rejects a callback whose `iss` is missing or anything else, before calling the token endpoint. A denied request comes back with an `error` parameter instead of a code.
 
 ### Token exchange
 
-Form encoded, client authenticated with HTTP Basic (`client_id:client_secret`). Body: `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`. The code is short lived and single use. The response holds `access_token`, `expires_in`, `id_token`, `refresh_token`, `scope`, and `token_type: "Bearer"`. DevMacro refuses a response without a refresh token, because the connection would stop working after an hour.
+Form encoded, client authenticated with HTTP Basic (`client_id:client_secret`). Body: `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`. The code is short lived and single use. The response holds `access_token`, `expires_in`, `id_token`, `refresh_token`, `scope`, and `token_type: "Bearer"`. StackDash refuses a response without a refresh token, because the connection would stop working after an hour.
 
 ### Refresh and rotation
 
@@ -50,8 +50,8 @@ The sync runner refreshes before expiry, saves the rotated credential before any
 
 ### Disconnect
 
-- From DevMacro: there is no revocation endpoint, so DevMacro deletes the stored tokens and tells the user to remove its access in Railway.
-- From Railway: where a user reviews and removes an authorized app is not documented (see Unverified). The disconnect screen gives the generic step: remove DevMacro's access in your Railway account settings.
+- From StackDash: there is no revocation endpoint, so StackDash deletes the stored tokens and tells the user to remove its access in Railway.
+- From Railway: where a user reviews and removes an authorized app is not documented (see Unverified). The disconnect screen gives the generic step: remove StackDash's access in your Railway account settings.
 - An app deleted or a grant removed in Railway makes the next token refresh or API call fail, and the connection asks for a reconnect.
 
 ### API calls
@@ -67,8 +67,8 @@ All requested scopes are read only. Railway scopes cap the access level: a `work
 | Scope | Why |
 |---|---|
 | `openid` | Required by Railway for every request |
-| `email` | Required by Railway, with `profile`, before `me { workspaces }` lists the shared workspaces. DevMacro never calls `/oauth/me` and never selects `email` |
-| `profile` | Same requirement as `email`. DevMacro never selects `name` or `avatar` |
+| `email` | Required by Railway, with `profile`, before `me { workspaces }` lists the shared workspaces. StackDash never calls `/oauth/me` and never selects `email` |
+| `profile` | Same requirement as `email`. StackDash never selects `name` or `avatar` |
 | `offline_access` | Refresh tokens, so hourly syncs keep working after the one hour access token expires |
 | `workspace:viewer` | Viewer access to the workspaces the user picks: projects, deployments, usage, and billing where viewer access allows it |
 
@@ -99,7 +99,7 @@ Statuses in the schema (checked 2026-11-05): `BUILDING`, `CRASHED`, `DEPLOYING`,
 ### Billing: one query per workspace
 
 ```graphql
-query DevMacroBilling($workspaceId: String!, $measurements: [MetricMeasurement!]!) {
+query StackDashBilling($workspaceId: String!, $measurements: [MetricMeasurement!]!) {
   workspace(workspaceId: $workspaceId) {
     plan
     customer { billingPeriod { start end } currentUsage creditBalance }
@@ -129,7 +129,7 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 ### Units, money, and rounding
 
 - Money: `currentUsage` and `creditBalance` are JSON numbers, read as US dollars (see Unverified). Each is read at 12 decimal places, converted exactly, and rounded once to cents, half to even (`src/lib/money.ts`).
-- Estimate: Railway's `estimatedUsage` is described as "the estimated total cost of the project at the end of the current billing cycle" but returns one quantity per measurement and project. DevMacro multiplies each by the unit price and rounds the sum once. Unit prices from the [pricing page](https://docs.railway.com/pricing/plans) (checked 2026-11-05): CPU $0.000463 per vCPU per minute, memory $0.000231 per GB per minute, egress $0.05 per GB, volume storage $0.000003472222222 per GB per minute. Builds are free and not measured.
+- Estimate: Railway's `estimatedUsage` is described as "the estimated total cost of the project at the end of the current billing cycle" but returns one quantity per measurement and project. StackDash multiplies each by the unit price and rounds the sum once. Unit prices from the [pricing page](https://docs.railway.com/pricing/plans) (checked 2026-11-05): CPU $0.000463 per vCPU per minute, memory $0.000231 per GB per minute, egress $0.05 per GB, volume storage $0.000003472222222 per GB per minute. Builds are free and not measured.
 - Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom, but `Workspace.plan` is `Plan!` and the enum holds only `FREE`, `HOBBY`, and `PRO`, so an Enterprise workspace reports one of those (most likely `PRO`) and its estimated bill and plan limits then use that plan's figures, a Pro bill for a custom contract. Both are unverified for Enterprise. It is the only estimated spend metric, and it is declared a projection for the whole period, so no reading of spend counts it as money spent so far.
 - Reset: every billing period metric carries the period end as its reset time.
 - Quantities: CPU and memory are priced per minute, so their measurements are read as vCPU-minutes and GB-minutes; egress is in GB.
@@ -155,20 +155,20 @@ The first sync looks back 7 days. The cursor is the latest status time seen; eac
 
 ## Achievements
 
-DevMacro evaluates these for each project the Railway accounts are assigned to, from the Railway data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the Railway accounts are assigned to, from the Railway data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 The deployment ladder is the same on Vercel, DigitalOcean, and GitLab. It counts `railway.deployment.deployed` events, and a `railway.deployment.failed` event breaks a run of deployments in a row; a crash after a deployment does not. Days, hours, and weekdays are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `railway.deployments.first` | First Railway deployment recorded | Earned when DevMacro records the first successful Railway deployment. |
-| `railway.deployments.10` | 10 Railway deployments recorded | Earned when DevMacro records the 10th successful Railway deployment. |
-| `railway.deployments.100` | 100 Railway deployments recorded | Earned when DevMacro records the 100th successful Railway deployment. |
-| `railway.deployments.streak_10` | 10 Railway deployments in a row | Earned when DevMacro records 10 successful Railway deployments in a row, with no failed deployment between them. |
-| `railway.deployments.night_owl` | Night owl: a Railway deployment between midnight and 5 am | Earned when DevMacro records a successful Railway deployment between midnight and 5 am London time. |
-| `railway.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful Railway deployment on a Friday between 4 pm and midnight London time. |
-| `railway.deployments.busy_day` | Busy day: 10 Railway deployments in one day | Earned when DevMacro records 10 successful Railway deployments on one London calendar day. |
-| `railway.deployments.weekly_rhythm` | Weekly rhythm: a Railway deployment on 7 days in a row | Earned when DevMacro records a successful Railway deployment on each of 7 consecutive London calendar days. |
+| `railway.deployments.first` | First Railway deployment recorded | Earned when StackDash records the first successful Railway deployment. |
+| `railway.deployments.10` | 10 Railway deployments recorded | Earned when StackDash records the 10th successful Railway deployment. |
+| `railway.deployments.100` | 100 Railway deployments recorded | Earned when StackDash records the 100th successful Railway deployment. |
+| `railway.deployments.streak_10` | 10 Railway deployments in a row | Earned when StackDash records 10 successful Railway deployments in a row, with no failed deployment between them. |
+| `railway.deployments.night_owl` | Night owl: a Railway deployment between midnight and 5 am | Earned when StackDash records a successful Railway deployment between midnight and 5 am London time. |
+| `railway.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when StackDash records a successful Railway deployment on a Friday between 4 pm and midnight London time. |
+| `railway.deployments.busy_day` | Busy day: 10 Railway deployments in one day | Earned when StackDash records 10 successful Railway deployments on one London calendar day. |
+| `railway.deployments.weekly_rhythm` | Weekly rhythm: a Railway deployment on 7 days in a row | Earned when StackDash records a successful Railway deployment on each of 7 consecutive London calendar days. |
 
 ## Verified, estimated, unavailable
 
@@ -179,7 +179,7 @@ The deployment ladder is the same on Vercel, DigitalOcean, and GitLab. It counts
 | CPU, memory, egress, and volume used this billing period | Verified quantities; units unverified |
 | Usage cost so far (`currentUsage`) | Verified, but cached by Railway and possibly behind |
 | Credit balance and billing period | Verified |
-| Bill for the whole period | Estimated (DevMacro: Railway's quantity estimate times published prices, plus the plan fee). Stored, but never shown or counted as spend this billing period |
+| Bill for the whole period | Estimated (StackDash: Railway's quantity estimate times published prices, plus the plan fee). Stored, but never shown or counted as spend this billing period |
 | Plan limits per service | Estimated (from the plan and the pricing page) |
 | Any billing value when Railway refuses viewer access to billing | Unavailable; deployments still sync |
 | Invoices, payment methods, usage limits | Not collected |
@@ -187,29 +187,29 @@ The deployment ladder is the same on Vercel, DigitalOcean, and GitLab. It counts
 
 ## Rate limits
 
-From the [Public API page](https://docs.railway.com/integrations/api): 100 requests per hour on Free, 1,000 on Hobby, 10,000 on Pro, custom on Enterprise; 10 requests per second on Hobby and 50 on Pro. Headers: `RateLimit-Policy`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` once the window is used up. An exceeded limit is HTTP 429; DevMacro honors `Retry-After`.
+From the [Public API page](https://docs.railway.com/integrations/api): 100 requests per hour on Free, 1,000 on Hobby, 10,000 on Pro, custom on Enterprise; 10 requests per second on Hobby and 50 on Pro. Headers: `RateLimit-Policy`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` once the window is used up. An exceeded limit is HTTP 429; StackDash honors `Retry-After`.
 
 Budget per workspace per sync: one projects request, one deployments request per ten projects, and one billing request, so four requests for a workspace of up to ten projects. A project that created more than 50 deployments since the last sync costs one more deployments request per further page of 50, up to five pages. The adapter polls hourly and runs requests one after another, because the limit is shared with the user's own tokens and scripts. Whether the limit counts per token, per user, or per workspace is unverified.
 
 ## Webhooks
 
-Not used. Railway's notification webhooks are not signed, so DevMacro cannot tell a real delivery from a forged one. Deployments are polled.
+Not used. Railway's notification webhooks are not signed, so StackDash cannot tell a real delivery from a forged one. Deployments are polled.
 
 ## Permission risks
 
 Disclosed on the connect screen before redirecting:
 
-- **`workspace:viewer`** reads everything a viewer can see in the chosen workspaces, not only what DevMacro reads. That may include logs and service settings (unverified for viewer access). DevMacro only lists projects, deployments, and billing.
-- **`email` and `profile`** let the token read the user's email address, name, and avatar. DevMacro never reads them: no query selects those fields and `/oauth/me` is never called.
+- **`workspace:viewer`** reads everything a viewer can see in the chosen workspaces, not only what StackDash reads. That may include logs and service settings (unverified for viewer access). StackDash only lists projects, deployments, and billing.
+- **`email` and `profile`** let the token read the user's email address, name, and avatar. StackDash never reads them: no query selects those fields and `/oauth/me` is never called.
 - **`offline_access`** issues a refresh token valid for a year from its last rotation, the longest-lived secret in this adapter. It is encrypted at rest with the other credentials.
-- Railway has no revocation endpoint, so disconnecting in DevMacro deletes the tokens but the user must remove the app in Railway to end the grant.
+- Railway has no revocation endpoint, so disconnecting in StackDash deletes the tokens but the user must remove the app in Railway to end the grant.
 
 ## Limitations
 
 - Billing may be unreadable with viewer access. When Railway answers `Not Authorized`, the connection syncs deployments, shows billing as unavailable, and lists `workspace:viewer` under missing permissions although the user granted it: it is the permission billing is read through, and reconnecting does not help, because only a workspace admin can read billing in Railway's dashboard.
 - At most 50 projects per workspace, and per project the deployments created in the sync window up to five pages of 50; past that the sync logs `railway.deployments.page_cap_reached` and older deployments in the window are skipped.
 - Enterprise workspaces report `FREE`, `HOBBY`, or `PRO` (the schema has no other plan value), so their estimated bill and plan limits use that plan's published figures, not the custom contract. Unverified.
-- DevMacro polls hourly, and Railway reports only each deployment's latest status with the time it entered it. A status that changed and changed again between two polls shows only the latest one, apart from the building event. In particular, a deployment that succeeded and was replaced before a poll saw it is first seen as removed: it reaches the timeline as "started building" and "succeeded, then was removed", never as a separate "succeeded" event, because nothing dates the success. On a service that deploys several times an hour, most successful deployments arrive this way. Telling that a removed deployment succeeded relies on `canRollback`, which turns false once the plan's image retention ends (24 hours on Free), so after a longer sync outage replaced deployments show as removed only.
+- StackDash polls hourly, and Railway reports only each deployment's latest status with the time it entered it. A status that changed and changed again between two polls shows only the latest one, apart from the building event. In particular, a deployment that succeeded and was replaced before a poll saw it is first seen as removed: it reaches the timeline as "started building" and "succeeded, then was removed", never as a separate "succeeded" event, because nothing dates the success. On a service that deploys several times an hour, most successful deployments arrive this way. Telling that a removed deployment succeeded relies on `canRollback`, which turns false once the plan's image retention ends (24 hours on Free), so after a longer sync outage replaced deployments show as removed only.
 - A deployment created before the sync window is re-read only while it is on the page where paging stops: the first page of 50 that reaches a deployment older than the window. With removed deployments included, that page holds roughly the newest 50 deployments of the project's history, or fewer older ones when deployments in the window fill part of it. Once about 50 newer deployments, removed ones included, exist in its project, a later crash or removal of an older long-running deployment is missed, however many pages the sync reads. A production deployment that runs for weeks and then crashes is exactly this case. When the five page cap is reached first, no older deployment is re-read at all.
 - No link from an event to Railway's dashboard.
 
@@ -219,13 +219,13 @@ Only a workspace admin can create an OAuth app. Each deployment registers its ow
 
 1. Pick the deployment's public URL, `<SITE_URL>`. The redirect URI is `<SITE_URL>/api/connections/railway/callback`.
 2. In Railway, open the workspace's **Settings**, then **Developer**, and choose **New OAuth App**.
-3. **Name**: something users recognize on the consent screen, for example `DevMacro`.
+3. **Name**: something users recognize on the consent screen, for example `StackDash`.
 4. **Redirect URI**: `<SITE_URL>/api/connections/railway/callback`. For local development add `http://localhost:3000/api/connections/railway/callback` too; Railway lets one app register several URIs and matches them exactly.
 5. **App type**: **Web (Confidential)**.
 6. Create the app and copy the client secret at once: it is shown only once.
 7. Set `RAILWAY_CLIENT_ID` and `RAILWAY_CLIENT_SECRET` in the server environment (see [Register the OAuth apps](../operations/oauth-apps.md#railway-oauth-app)).
 
-Scopes are not configured on the app: DevMacro sends them with each authorize request. Dynamic client registration (`POST /oauth/register`) exists, but those clients are managed only through a registration access token and never appear in the dashboard, so DevMacro uses the dashboard app.
+Scopes are not configured on the app: StackDash sends them with each authorize request. Dynamic client registration (`POST /oauth/register`) exists, but those clients are managed only through a registration access token and never appear in the dashboard, so StackDash uses the dashboard app.
 
 ## Sample responses
 
@@ -276,7 +276,7 @@ All samples are from documentation, not recorded. Values are synthetic. The unit
 }
 ```
 
-Billing (shaped from the schema; amounts in dollars is the reading DevMacro assumes):
+Billing (shaped from the schema; amounts in dollars is the reading StackDash assumes):
 
 ```json
 {

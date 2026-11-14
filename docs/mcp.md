@@ -2,31 +2,31 @@
 
 The MCP server lets an AI assistant such as Claude Code, Claude Desktop, or Cursor answer questions about one workspace from its own data: what changed in the stack this week, how much of an allowance is left, which alerts fired. It only reads. No tool can change anything in a workspace, and no answer contains a provider credential.
 
-It speaks the [Model Context Protocol](https://modelcontextprotocol.io/specification/2026-07-28) over the Streamable HTTP transport at `/api/mcp` on your DevMacro site, and serves clients of the 2025 protocol revisions as well as 2026-07-28. Self-hosted installs serve the same endpoint; nothing about it depends on the hosted instance.
+It speaks the [Model Context Protocol](https://modelcontextprotocol.io/specification/2026-07-28) over the Streamable HTTP transport at `/api/mcp` on your StackDash site, and serves clients of the 2025 protocol revisions as well as 2026-07-28. Self-hosted installs serve the same endpoint; nothing about it depends on the hosted instance.
 
 ## Create a key
 
 The server uses the same API keys as the [REST API](api.md). Give a key for an assistant every scope, so it can answer any question about the workspace. A key without `usage:read` never sees an amount: `get_usage` refuses it, and `list_events` and `list_alerts` withhold the text and money that can quote one (see [What a tool returns](#what-a-tool-returns)).
 
-The quickest way is **Settings**, under **AI assistants**: an owner or admin selects **Create assistant key**, and DevMacro creates a key named `AI assistant` with every scope. It is an ordinary API key: it counts toward the workspace's 20 keys that are not revoked, it is listed under **API keys**, and it is revoked there. A workspace that already has 20 gets the same message as the API keys section, saying to revoke one first; a viewer sees no button and is told to ask an owner or admin.
+The quickest way is **Settings**, under **AI assistants**: an owner or admin selects **Create assistant key**, and StackDash creates a key named `AI assistant` with every scope. It is an ordinary API key: it counts toward the workspace's 20 keys that are not revoked, it is listed under **API keys**, and it is revoked there. A workspace that already has 20 gets the same message as the API keys section, saying to revoke one first; a viewer sees no button and is told to ask an owner or admin.
 
-The new key is shown once, with a button to copy it, and the snippets below it fill in this site's server URL. The Claude Desktop and other clients snippets also hold the new key, because those clients keep it in their own configuration anyway. The Claude Code and Cursor snippets never do: put the key in `DEVMACRO_API_KEY` as described below. Once you select **Hide key**, or leave the page, the key cannot be shown again; revoke it and create another if you lose it.
+The new key is shown once, with a button to copy it, and the snippets below it fill in this site's server URL. The Claude Desktop and other clients snippets also hold the new key, because those clients keep it in their own configuration anyway. The Claude Code and Cursor snippets never do: put the key in `STACKDASH_API_KEY` as described below. Once you select **Hide key**, or leave the page, the key cannot be shown again; revoke it and create another if you lose it.
 
 To choose the scopes yourself, create the key under **API keys** instead; see [Create a key](api.md#create-a-key) for the details.
 
 ## Connect a client
 
-Claude Code and Cursor read the key from the environment each time they connect, so their configuration holds only the variable's name. Claude Desktop keeps the key in its own config file, so do not share that file. Put the key in `DEVMACRO_API_KEY` in your shell profile, and set `DEVMACRO_URL` to your DevMacro site, for example `https://your-devmacro-site.example.com` or `http://localhost:3000` for a local install.
+Claude Code and Cursor read the key from the environment each time they connect, so their configuration holds only the variable's name. Claude Desktop keeps the key in its own config file, so do not share that file. Put the key in `STACKDASH_API_KEY` in your shell profile, and set `STACKDASH_URL` to your StackDash site, for example `https://your-stackdash-site.example.com` or `http://localhost:3000` for a local install.
 
 ### Claude Code
 
 ```bash
-claude mcp add --transport http devmacro "$DEVMACRO_URL/api/mcp" \
-  --header 'Authorization: Bearer ${DEVMACRO_API_KEY}'
+claude mcp add --transport http stackdash "$STACKDASH_URL/api/mcp" \
+  --header 'Authorization: Bearer ${STACKDASH_API_KEY}'
 claude mcp list
 ```
 
-The single quotes keep your shell from expanding `${DEVMACRO_API_KEY}`, so Claude Code saves the reference, not the key, and reads the variable each time it connects; `claude mcp list` and `/mcp` show the reference by name ([Claude Code, MCP](https://code.claude.com/docs/en/mcp), "Environment variable expansion in .mcp.json"). `claude mcp list` shows `devmacro` as connected. Add `--scope project` to share the server through the project's `.mcp.json`; each person's key stays in their own environment.
+The single quotes keep your shell from expanding `${STACKDASH_API_KEY}`, so Claude Code saves the reference, not the key, and reads the variable each time it connects; `claude mcp list` and `/mcp` show the reference by name ([Claude Code, MCP](https://code.claude.com/docs/en/mcp), "Environment variable expansion in .mcp.json"). `claude mcp list` shows `stackdash` as connected. Add `--scope project` to share the server through the project's `.mcp.json`; each person's key stays in their own environment.
 
 ### Claude Desktop
 
@@ -35,9 +35,9 @@ Open **Settings**, then **Developer**, then **Edit Config**, and add the server 
 ```json
 {
   "mcpServers": {
-    "devmacro": {
+    "stackdash": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://your-devmacro-site.example.com/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+      "args": ["-y", "mcp-remote", "https://your-stackdash-site.example.com/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
       "env": { "AUTH_HEADER": "Bearer paste-your-key-here" }
     }
   }
@@ -46,7 +46,7 @@ Open **Settings**, then **Developer**, then **Edit Config**, and add the server 
 
 Then quit and restart Claude Desktop. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) connects Claude Desktop's local servers to a remote one and needs Node.js. The header goes through `AUTH_HEADER` because Claude Desktop on Windows does not escape spaces in `args` (mcp-remote README, "Custom Headers"). It accepts `http://localhost` for a local install.
 
-The key sits in `claude_desktop_config.json` in plain text. To keep it in a separate file you can lock down, put the line `Authorization: Bearer <your key>` in a file only you can read, and pass `"--header-file", "/path/to/devmacro-headers.txt"` in `args` in place of the `--header` pair and the `env` entry (mcp-remote README, "Custom Headers").
+The key sits in `claude_desktop_config.json` in plain text. To keep it in a separate file you can lock down, put the line `Authorization: Bearer <your key>` in a file only you can read, and pass `"--header-file", "/path/to/stackdash-headers.txt"` in `args` in place of the `--header` pair and the `env` entry (mcp-remote README, "Custom Headers").
 
 For an instance on the public internet, a custom connector also works where your Claude plan offers request headers (a beta): **Customize**, **Connectors**, **Add custom connector**, the server URL, **No sign-in**, then an `authorization` request header with the value `Bearer` and your key ([Claude, custom connectors](https://claude.com/docs/connectors/custom/add-unlisted)). Claude connects to a custom connector from Anthropic's cloud, so it cannot reach a server on your own computer or private network.
 
@@ -57,19 +57,19 @@ Add the server to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` in a project:
 ```json
 {
   "mcpServers": {
-    "devmacro": {
-      "url": "https://your-devmacro-site.example.com/api/mcp",
-      "headers": { "Authorization": "Bearer ${env:DEVMACRO_API_KEY}" }
+    "stackdash": {
+      "url": "https://your-stackdash-site.example.com/api/mcp",
+      "headers": { "Authorization": "Bearer ${env:STACKDASH_API_KEY}" }
     }
   }
 }
 ```
 
-Cursor reads `DEVMACRO_API_KEY` from the environment it was started from ([Cursor, MCP, config interpolation](https://cursor.com/docs/mcp)).
+Cursor reads `STACKDASH_API_KEY` from the environment it was started from ([Cursor, MCP, config interpolation](https://cursor.com/docs/mcp)).
 
 ### Other clients
 
-Any client that speaks Streamable HTTP works: give it the URL `$DEVMACRO_URL/api/mcp` and send `Authorization: Bearer <key>` on every request. The endpoint keeps no sessions, so every message is a POST; `GET` and `DELETE` answer `405`.
+Any client that speaks Streamable HTTP works: give it the URL `$STACKDASH_URL/api/mcp` and send `Authorization: Bearer <key>` on every request. The endpoint keeps no sessions, so every message is a POST; `GET` and `DELETE` answer `405`.
 
 ## Tools
 
@@ -85,7 +85,7 @@ The arguments are the REST API's query parameters, with the same limits: `limit`
 
 ## Resources
 
-Each provider page in [`docs/providers/`](providers) is a Markdown resource at `devmacro://docs/providers/<provider>`, for example `devmacro://docs/providers/resend`. An assistant reads them to explain what a metric means, how DevMacro reads it, and whether it is verified or estimated.
+Each provider page in [`docs/providers/`](providers) is a Markdown resource at `stackdash://docs/providers/<provider>`, for example `stackdash://docs/providers/resend`. An assistant reads them to explain what a metric means, how StackDash reads it, and whether it is verified or estimated.
 
 ## Prompts
 
@@ -98,17 +98,17 @@ Prompts are questions ready to ask: a client lists them, for example as slash co
 
 The period is the `days` UTC days ending today on the server's clock (7 for the weekly review), and the prompts also read the day before them as the starting reading, because a day's spend is its reading minus the previous day's. So the tool calls cover `days + 1` dates: for 7 days ending 2026-11-05, `from` is 2026-10-29. Arguments arrive as text, as MCP requires: `days` is a whole number from 1 to 90, and an unknown provider, an unknown argument, or a `days` outside that range is refused with an invalid params error (`-32602`) before anything is read.
 
-In Claude Code, type `/` to find them as `/devmacro:weekly_stack_review (MCP)`, or run `/mcp__devmacro__why_did_spend_change 30 vercel`; arguments go in the order of the table, separated by spaces ([Claude Code, MCP](https://code.claude.com/docs/en/mcp), "Use MCP prompts as commands"). A key without `usage:read` still gets both prompts; the spend steps then answer with the scope error, and the prompt tells the assistant to say which scope would show them rather than guess.
+In Claude Code, type `/` to find them as `/stackdash:weekly_stack_review (MCP)`, or run `/mcp__stackdash__why_did_spend_change 30 vercel`; arguments go in the order of the table, separated by spaces ([Claude Code, MCP](https://code.claude.com/docs/en/mcp), "Use MCP prompts as commands"). A key without `usage:read` still gets both prompts; the spend steps then answer with the scope error, and the prompt tells the assistant to say which scope would show them rather than guess.
 
 ## What a tool returns
 
 Every tool answers with JSON, both as `structuredContent` (with an `outputSchema` in the tool list) and as text for clients that read only text:
 
-- `read_at`: when DevMacro read the answer from its database.
+- `read_at`: when StackDash read the answer from its database.
 - `data` and `next_cursor`: one page of rows, as in the REST API, with the same fields and units. Money is `amount_minor` in the currency's minor unit plus an ISO 4217 `currency`; quantities are `value` plus `unit`; `provenance` is `verified` or `estimated`; `simulated` marks data the provider simulator made up.
-- `get_usage` rows keep `retrieved_at`, when DevMacro fetched the number from the provider, and add `display`, the amount or quantity formatted for people (`$12.50`, `1,200 emails`), so an assistant never reads cents as dollars.
+- `get_usage` rows keep `retrieved_at`, when StackDash fetched the number from the provider, and add `display`, the amount or quantity formatted for people (`$12.50`, `1,200 emails`), so an assistant never reads cents as dollars.
 - `list_alerts` rows add `display` for the amount a spend alert measured.
-- `withheld`: on `list_events` and `list_alerts`, null for a key with `usage:read`. For a key without it, it lists the fields set to null in every row, names `usage:read` as the scope that would return them, and says why. Event titles and bodies are withheld because providers and DevMacro's own daily summaries and spend alerts quote amounts there; an alert's `message`, `threshold_label`, `observed_amount_minor`, `currency`, and `display` because a spend or budget alert quotes money.
+- `withheld`: on `list_events` and `list_alerts`, null for a key with `usage:read`. For a key without it, it lists the fields set to null in every row, names `usage:read` as the scope that would return them, and says why. Event titles and bodies are withheld because providers and StackDash's own daily summaries and spend alerts quote amounts there; an alert's `message`, `threshold_label`, `observed_amount_minor`, `currency`, and `display` because a spend or budget alert quotes money.
 
 ## Errors and limits
 
@@ -119,7 +119,7 @@ Every tool answers with JSON, both as `structuredContent` (with an `outputSchema
 
 ## Try it against the demo data
 
-On a local install with the simulated providers on (`DEVMACRO_SIMULATE_PROVIDERS=1`), `npm run demo:seed -- --member you@example.com` builds a demo workspace with 90 days of history and adds your account as an admin (see the header of `scripts/demo-seed.ts`). In that workspace's settings, under **AI assistants**, select **Create assistant key**, connect Claude Code as above with `DEVMACRO_URL=http://localhost:3000`, and run `/mcp__devmacro__weekly_stack_review`, or ask, for example, "Which projects are in my DevMacro workspace, and how much Resend quota is left?"
+On a local install with the simulated providers on (`STACKDASH_SIMULATE_PROVIDERS=1`), `npm run demo:seed -- --member you@example.com` builds a demo workspace with 90 days of history and adds your account as an admin (see the header of `scripts/demo-seed.ts`). In that workspace's settings, under **AI assistants**, select **Create assistant key**, connect Claude Code as above with `STACKDASH_URL=http://localhost:3000`, and run `/mcp__stackdash__weekly_stack_review`, or ask, for example, "Which projects are in my StackDash workspace, and how much Resend quota is left?"
 
 `npm run demo:seed` replaces the demo workspace each time it runs. To try the server without it, use the seed workspace Acme instead: add yourself to it as in [Try it against the local seed data](api.md#try-it-against-the-local-seed-data), then create the assistant key in its settings. Its answers are smaller: one project, one connection, and a few days of snapshots.
 

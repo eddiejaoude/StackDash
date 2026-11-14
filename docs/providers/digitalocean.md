@@ -2,17 +2,17 @@
 
 Provider id: `digitalocean`. Verification: documentation only. Docs checked 2026-11-05.
 
-DevMacro reads your DigitalOcean balance, month-to-date usage, invoices, daily spend, Droplet actions, and App Platform deployments. It asks for five read-only scopes, one connection per team, and nothing that can write.
+StackDash reads your DigitalOcean balance, month-to-date usage, invoices, daily spend, Droplet actions, and App Platform deployments. It asks for five read-only scopes, one connection per team, and nothing that can write.
 
 **Nothing on this page has been tried against a real DigitalOcean account yet.** Registering apps on real platforms is deferred, so the adapter is built from the official API reference and the OpenAPI specification, and its tests run on samples taken from them. Every claim that only a real account can confirm is listed under [Unverified](#unverified).
 
 ## Go or no-go
 
-**Go, after the checks under Unverified.** A DigitalOcean OAuth app with five read-only scopes covers everything DevMacro reads: the account balance and month-to-date usage, invoices with line items, daily spend by SKU from Billing Insights, Droplet actions, and App Platform deployments. Nothing needs a write scope. One grant covers one DigitalOcean team, so a person with several teams makes several connections.
+**Go, after the checks under Unverified.** A DigitalOcean OAuth app with five read-only scopes covers everything StackDash reads: the account balance and month-to-date usage, invoices with line items, daily spend by SKU from Billing Insights, Droplet actions, and App Platform deployments. Nothing needs a write scope. One grant covers one DigitalOcean team, so a person with several teams makes several connections.
 
 ## Connection
 
-OAuth 2.0 authorization code flow. DevMacro registers a **confidential client** (it has a backend that keeps the client secret) and also sends PKCE (`S256`), which the OAuth page allows for confidential clients "for additional protection".
+OAuth 2.0 authorization code flow. StackDash registers a **confidential client** (it has a backend that keeps the client secret) and also sends PKCE (`S256`), which the OAuth page allows for confidential clients "for additional protection".
 
 | Item | Value |
 |---|---|
@@ -29,19 +29,19 @@ OAuth 2.0 authorization code flow. DevMacro registers a **confidential client** 
 
 ### Authorize
 
-Query parameters: `client_id`, `redirect_uri` (must match a registered callback URL), `response_type=code`, `scope` (the five scopes, space separated), `state`, `code_challenge`, `code_challenge_method=S256`. DevMacro always sends `scope`: without it, the consent screen offers **Manage permissions**, where the user can pick any scope, including write scopes.
+Query parameters: `client_id`, `redirect_uri` (must match a registered callback URL), `response_type=code`, `scope` (the five scopes, space separated), `state`, `code_challenge`, `code_challenge_method=S256`. StackDash always sends `scope`: without it, the consent screen offers **Manage permissions**, where the user can pick any scope, including write scopes.
 
 The user signs in, chooses the team, and approves. DigitalOcean redirects back with `code` and `state` only. A mismatched `state` aborts the connection.
 
 ### Token exchange
 
-`POST /v1/oauth/token` with `grant_type=authorization_code`, `code`, `client_id`, `client_secret`, `redirect_uri`, `code_verifier`. DevMacro sends them as an `application/x-www-form-urlencoded` body. The documentation's example puts them in the query string instead; the body keeps the client secret out of URLs and logs, and the refresh example on the same page uses a form body, but the body form for this grant is unverified.
+`POST /v1/oauth/token` with `grant_type=authorization_code`, `code`, `client_id`, `client_secret`, `redirect_uri`, `code_verifier`. StackDash sends them as an `application/x-www-form-urlencoded` body. The documentation's example puts them in the query string instead; the body keeps the client secret out of URLs and logs, and the refresh example on the same page uses a form body, but the body form for this grant is unverified.
 
-The response carries `access_token`, `token_type` (`bearer`), `expires_in`, `refresh_token`, `scope`, and `info` with `name`, `email`, `uuid`, `team_uuid`, and `team_name`. DevMacro keeps only `info.team_uuid`, as the connection's team. It never stores the name or email. When `info.team_uuid` is missing, it reads the team from `GET /v2/account` instead.
+The response carries `access_token`, `token_type` (`bearer`), `expires_in`, `refresh_token`, `scope`, and `info` with `name`, `email`, `uuid`, `team_uuid`, and `team_name`. StackDash keeps only `info.team_uuid`, as the connection's team. It never stores the name or email. When `info.team_uuid` is missing, it reads the team from `GET /v2/account` instead.
 
 ### Refresh and rotation
 
-`POST /v1/oauth/token` with `grant_type=refresh_token` and `refresh_token`. DevMacro also sends `client_id` and `client_secret`, because RFC 6749 section 6 asks a confidential client to authenticate; the documented example sends only the first two (unverified). The response has the same shape as the exchange: a new access token **and a new refresh token**.
+`POST /v1/oauth/token` with `grant_type=refresh_token` and `refresh_token`. StackDash also sends `client_id` and `client_secret`, because RFC 6749 section 6 asks a confidential client to authenticate; the documented example sends only the first two (unverified). The response has the same shape as the exchange: a new access token **and a new refresh token**.
 
 A refresh token works exactly once, and refreshing invalidates the old access token. So:
 
@@ -53,14 +53,14 @@ A refresh token works exactly once, and refreshing invalidates the old access to
 
 ### Disconnect and revoke
 
-- From DevMacro: `POST /v1/oauth/revoke` with `Authorization: Bearer <access token>` and body `token=<access token>`. The response is an empty JSON object. Whether revoking the access token also invalidates its refresh token is unverified; DevMacro deletes both either way.
-- From DigitalOcean: team members can remove an authorized application in the control panel (the "Authorized Applications" role permission covers it; the exact click path is unverified). Without webhooks, DevMacro finds out on the next sync, when the API answers `401`.
+- From StackDash: `POST /v1/oauth/revoke` with `Authorization: Bearer <access token>` and body `token=<access token>`. The response is an empty JSON object. Whether revoking the access token also invalidates its refresh token is unverified; StackDash deletes both either way.
+- From DigitalOcean: team members can remove an authorized application in the control panel (the "Authorized Applications" role permission covers it; the exact click path is unverified). Without webhooks, StackDash finds out on the next sync, when the API answers `401`.
 
 ## Permissions
 
 All read-only. Nothing in this list can create, change, or delete anything.
 
-| Scope | Why DevMacro asks | Endpoints DevMacro calls |
+| Scope | Why StackDash asks | Endpoints StackDash calls |
 |---|---|---|
 | `billing:read` | Balance, month-to-date usage, invoices, line items, daily spend by SKU | `GET /v2/customers/my/balance`, `GET /v2/customers/my/invoices`, `GET /v2/customers/my/invoices/{invoice_uuid}`, `GET /v2/billing/{account_urn}/insights/{start_date}/{end_date}` |
 | `actions:read` | Droplet creates, resizes, power cycles, and deletes | `GET /v2/actions` |
@@ -70,7 +70,7 @@ All read-only. Nothing in this list can create, change, or delete anything.
 
 Not requested: anything ending in `:create`, `:update`, `:delete`, `:admin`, or `:access_console`, and the `api:read` alias, which grows to cover every new read endpoint DigitalOcean adds.
 
-Every event type DevMacro reads is readable with these scopes. No event type was left out for needing a write scope.
+Every event type StackDash reads is readable with these scopes. No event type was left out for needing a write scope.
 
 ## Data
 
@@ -79,11 +79,11 @@ Every event type DevMacro reads is readable with these scopes. No event type was
 Fields: `month_to_date_usage`, `account_balance`, `month_to_date_balance` (the documented sum of the other two), `generated_at`. Amounts are decimal strings in US dollars.
 
 - `digitalocean.spend.month_to_date`: verified spend, `month_to_date_usage`, for the billing month of `generated_at` (UTC), up to the end of the current UTC day. Right after midnight on the 1st the balance can still be last month's; its period then ends on the 1st, so it never counts as this month's spend.
-- `digitalocean.credit.balance`: credit balance, `account_balance` negated, at `generated_at`. Because `month_to_date_balance = account_balance + month_to_date_usage`, a positive `account_balance` is owed and a credit is negative; DevMacro shows credit as positive (unverified).
+- `digitalocean.credit.balance`: credit balance, `account_balance` negated, at `generated_at`. Because `month_to_date_balance = account_balance + month_to_date_usage`, a positive `account_balance` is owed and a credit is negative; StackDash shows credit as positive (unverified).
 
 ### Invoices: `GET /v2/customers/my/invoices` and `GET /v2/customers/my/invoices/{invoice_uuid}`
 
-Invoices are generated on the 1st of each month. The list has `invoice_uuid`, `amount`, and `invoice_period` (`YYYY-MM`), plus an `invoice_preview` for the current month, which DevMacro does not read (the balance has the same figure). Line items have `product`, `amount`, `description`, `resource_id`, `project_name`, and more; DevMacro reads only `product` and `amount`.
+Invoices are generated on the 1st of each month. The list has `invoice_uuid`, `amount`, and `invoice_period` (`YYYY-MM`), plus an `invoice_preview` for the current month, which StackDash does not read (the balance has the same figure). Line items have `product`, `amount`, `description`, `resource_id`, `project_name`, and more; StackDash reads only `product` and `amount`.
 
 - `digitalocean.invoice.latest`: verified spend, the latest invoice's total, for its billing month. That month has ended by the time it is read, so the invoice is never counted as current spend: spend totals, alerts, projections, and the daily summary (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`) and the headline strip count the month to date usage instead.
 - `digitalocean.invoice.issued` event for each new invoice, dated the 1st of the following month, with the five largest products in the body. A first sync announces only the latest invoice. A later sync announces at most the 3 newest unannounced invoices and moves the cursor past the rest, so after a long outage the older ones never appear; it logs `digitalocean.invoices.new_cap_reached` with the number skipped.
@@ -100,7 +100,7 @@ Billing Insights only hold spend from 2025-12-01 onward. A `404` from this endpo
 
 ### Droplet actions: `GET /v2/actions` (and names from `GET /v2/droplets`)
 
-Each action has `id`, `status` (`in-progress`, `completed`, `errored`), `type`, `started_at`, `completed_at`, `resource_id`, `resource_type`, and `region_slug`. DevMacro keeps finished Droplet actions of four types:
+Each action has `id`, `status` (`in-progress`, `completed`, `errored`), `type`, `started_at`, `completed_at`, `resource_id`, `resource_type`, and `region_slug`. StackDash keeps finished Droplet actions of four types:
 
 | Action `type` | Event | Severity |
 |---|---|---|
@@ -122,7 +122,7 @@ Deployment phases: `UNKNOWN`, `PENDING_BUILD`, `BUILDING`, `PENDING_DEPLOY`, `DE
 | `ACTIVE`, or `SUPERSEDED` with every progress step successful | `digitalocean.deployment.succeeded` | Success |
 | `ERROR` | `digitalocean.deployment.failed` | Critical |
 
-Finished events are dated at `phase_last_updated_at`, or `updated_at` when that is the zero time (`0001-01-01T00:00:00Z`, as in the documentation's example). Canceled deployments have only the started event. DevMacro reads the app's `spec.name` and never the rest of the spec or the deployment's `cause`, which can carry commit messages.
+Finished events are dated at `phase_last_updated_at`, or `updated_at` when that is the zero time (`0001-01-01T00:00:00Z`, as in the documentation's example). Canceled deployments have only the started event. StackDash reads the app's `spec.name` and never the rest of the spec or the deployment's `cause`, which can carry commit messages.
 
 Only apps whose `last_deployment_created_at` falls in the sync window are read, at most 25 per sync, 20 deployments each.
 
@@ -138,22 +138,22 @@ The first sync looks back 7 days for actions and deployments. Later syncs start 
 
 ## Achievements
 
-DevMacro evaluates these for each project the DigitalOcean accounts are assigned to, from the DigitalOcean data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the DigitalOcean accounts are assigned to, from the DigitalOcean data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 The deployment ladder is the same on Vercel, Railway, and GitLab. It counts `digitalocean.deployment.succeeded` events, and a `digitalocean.deployment.failed` event breaks a run of deployments in a row. The droplet achievements count `digitalocean.droplet.created` events. Days, hours, and weekdays are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `digitalocean.deployments.first` | First DigitalOcean deployment recorded | Earned when DevMacro records the first successful DigitalOcean deployment. |
-| `digitalocean.deployments.10` | 10 DigitalOcean deployments recorded | Earned when DevMacro records the 10th successful DigitalOcean deployment. |
-| `digitalocean.deployments.100` | 100 DigitalOcean deployments recorded | Earned when DevMacro records the 100th successful DigitalOcean deployment. |
-| `digitalocean.deployments.streak_10` | 10 DigitalOcean deployments in a row | Earned when DevMacro records 10 successful DigitalOcean deployments in a row, with no failed deployment between them. |
-| `digitalocean.deployments.night_owl` | Night owl: a DigitalOcean deployment between midnight and 5 am | Earned when DevMacro records a successful DigitalOcean deployment between midnight and 5 am London time. |
-| `digitalocean.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful DigitalOcean deployment on a Friday between 4 pm and midnight London time. |
-| `digitalocean.deployments.busy_day` | Busy day: 10 DigitalOcean deployments in one day | Earned when DevMacro records 10 successful DigitalOcean deployments on one London calendar day. |
-| `digitalocean.deployments.weekly_rhythm` | Weekly rhythm: a DigitalOcean deployment on 7 days in a row | Earned when DevMacro records a successful DigitalOcean deployment on each of 7 consecutive London calendar days. |
-| `digitalocean.droplets.first` | First droplet created | Earned when DevMacro records the first new DigitalOcean droplet. |
-| `digitalocean.droplets.fleet` | Fleet commander: 10 droplets created | Earned when DevMacro records the 10th new DigitalOcean droplet. |
+| `digitalocean.deployments.first` | First DigitalOcean deployment recorded | Earned when StackDash records the first successful DigitalOcean deployment. |
+| `digitalocean.deployments.10` | 10 DigitalOcean deployments recorded | Earned when StackDash records the 10th successful DigitalOcean deployment. |
+| `digitalocean.deployments.100` | 100 DigitalOcean deployments recorded | Earned when StackDash records the 100th successful DigitalOcean deployment. |
+| `digitalocean.deployments.streak_10` | 10 DigitalOcean deployments in a row | Earned when StackDash records 10 successful DigitalOcean deployments in a row, with no failed deployment between them. |
+| `digitalocean.deployments.night_owl` | Night owl: a DigitalOcean deployment between midnight and 5 am | Earned when StackDash records a successful DigitalOcean deployment between midnight and 5 am London time. |
+| `digitalocean.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when StackDash records a successful DigitalOcean deployment on a Friday between 4 pm and midnight London time. |
+| `digitalocean.deployments.busy_day` | Busy day: 10 DigitalOcean deployments in one day | Earned when StackDash records 10 successful DigitalOcean deployments on one London calendar day. |
+| `digitalocean.deployments.weekly_rhythm` | Weekly rhythm: a DigitalOcean deployment on 7 days in a row | Earned when StackDash records a successful DigitalOcean deployment on each of 7 consecutive London calendar days. |
+| `digitalocean.droplets.first` | First droplet created | Earned when StackDash records the first new DigitalOcean droplet. |
+| `digitalocean.droplets.fleet` | Fleet commander: 10 droplets created | Earned when StackDash records the 10th new DigitalOcean droplet. |
 
 ## Verified, estimated, unavailable
 
@@ -180,18 +180,18 @@ DigitalOcean has no general outbound webhooks for billing, actions, or deploymen
 
 Disclosed on the connect screen before redirecting:
 
-- **`app:read`** also reads app settings, including environment variable values that are not marked secret, and build and runtime logs, which can contain secrets. DevMacro reads only app names and deployment status.
-- **`billing:read`** also downloads invoice PDF and CSV files, which show the billing address. DevMacro never downloads them.
-- **`droplet:read`** also reads Droplet details: IP addresses, sizes, tags, backups, snapshots, and neighbors. DevMacro reads only Droplet names.
+- **`app:read`** also reads app settings, including environment variable values that are not marked secret, and build and runtime logs, which can contain secrets. StackDash reads only app names and deployment status.
+- **`billing:read`** also downloads invoice PDF and CSV files, which show the billing address. StackDash never downloads them.
+- **`droplet:read`** also reads Droplet details: IP addresses, sizes, tags, backups, snapshots, and neighbors. StackDash reads only Droplet names.
 - **`actions:read`** covers the action history of every resource type in the team, not only Droplets.
-- **`account:read`** also reads the signed-in user's name and email address. DevMacro reads only the team.
+- **`account:read`** also reads the signed-in user's name and email address. StackDash reads only the team.
 - The refresh token is long-lived in practice: each refresh mints a new one. It is stored encrypted with the access token and never logged.
 
 ## Limitations
 
 - No spend allowance or free tier data.
 - Billing Insights are estimates and start on 2025-12-01.
-- The action list's order is not documented. DevMacro assumes newest first and stops reading once a page reaches back past the sync window, so an oldest-first list would hide recent actions.
+- The action list's order is not documented. StackDash assumes newest first and stops reading once a page reaches back past the sync window, so an oldest-first list would hide recent actions.
 - The Droplet list skips GPU Droplets unless asked for them, so a GPU Droplet's events show its id.
 - An action or deployment that runs for more than an hour past a newer one may be missed when it finishes.
 - One grant is one team. Several teams need several connections.
@@ -202,7 +202,7 @@ Disclosed on the connect screen before redirecting:
 Each deployment registers its own OAuth app, because the callback URL and client secret belong to one deployment. Field names below are from the OAuth page and are unverified until a real app is registered.
 
 1. Sign in to the DigitalOcean control panel with the team that should own the app, open **API**, then **OAuth Applications**, and choose **Register OAuth application** ([direct link](https://cloud.digitalocean.com/account/api/applications/new)).
-2. **Name**: for example `DevMacro (your name)`. **Homepage URL**: `<SITE_URL>`. **Description**: what the app reads.
+2. **Name**: for example `StackDash (your name)`. **Homepage URL**: `<SITE_URL>`. **Description**: what the app reads.
 3. **Callback URL**: `<SITE_URL>/api/connections/digitalocean/callback`. For local development register a separate app with `http://localhost:3000/api/connections/digitalocean/callback`.
 4. Register, then open the app's **View** dialog and copy the **Client ID** and **Client Secret**.
 5. Set the environment variables, server only, never with a `NEXT_PUBLIC_` prefix:
@@ -214,7 +214,7 @@ Each deployment registers its own OAuth app, because the callback URL and client
 
 6. Connect a test team in a test workspace and check that the connection becomes active with no missing permissions.
 
-Scopes are not configured on the app: DevMacro sends them with every authorize request.
+Scopes are not configured on the app: StackDash sends them with every authorize request.
 
 ## Sample responses
 
@@ -335,7 +335,7 @@ Confirm with a test team before the adapter is offered to users:
 4. That the space separated `scope` parameter on the authorize URL is how granular scopes are requested.
 5. The sign of `account_balance` for a team with credit (negative is inferred from the documented sum).
 6. That the billing period is the UTC calendar month, and that invoices are dated the 1st in UTC.
-7. That the invoice list is newest first (DevMacro sorts the first page itself, but reads only one page of 20).
+7. That the invoice list is newest first (StackDash sorts the first page itself, but reads only one page of 20).
 8. That `GET /v2/actions` is newest first, and that deleting a Droplet records an action of type `destroy`.
 9. Whether `actions:read` alone lists Droplet actions, or `droplet:read` is also needed.
 10. Whether Billing Insights by `do:team:<uuid>` work for a team inside an organization, and which status a team without insights gets.

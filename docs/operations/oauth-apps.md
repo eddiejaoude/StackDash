@@ -1,18 +1,18 @@
 # Register the OAuth apps
 
-Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs twelve registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts. PostHog's is a document the deployment serves itself, with nothing to create in PostHog.
+Connections are OAuth only: StackDash never asks users for API keys. Each deployment therefore needs twelve registrations: one GitHub OAuth app for signing in to StackDash, and one app per provider for connecting accounts. PostHog's is a document the deployment serves itself, with nothing to create in PostHog.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
-`<SITE_URL>` below is the deployment's public origin with no trailing slash, the same value as `NEXT_PUBLIC_SITE_URL` (for example `https://devmacro.example.com`). Every provider callback is `<SITE_URL>/api/connections/<provider>/callback`. The app builds the redirect URI from `NEXT_PUBLIC_SITE_URL` when it is set and from the request origin otherwise, and providers compare it byte for byte with the registered value, so set `NEXT_PUBLIC_SITE_URL` before testing a connection.
+`<SITE_URL>` below is the deployment's public origin with no trailing slash, the same value as `NEXT_PUBLIC_SITE_URL` (for example `https://stackdash.example.com`). Every provider callback is `<SITE_URL>/api/connections/<provider>/callback`. The app builds the redirect URI from `NEXT_PUBLIC_SITE_URL` when it is set and from the request origin otherwise, and providers compare it byte for byte with the registered value, so set `NEXT_PUBLIC_SITE_URL` before testing a connection.
 
 All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Set them per environment in the host (Vercel: see [Deploy, environment variables](deploy.md#environment-variables)), or in `.env.local` for local development. Never commit them.
 
 ## Hosted and self-hosted
 
-- **Hosted DevMacro**: the hosted instance has one registration per app, owned by the DevMacro account or organization, with callbacks on its production origin. Hosted users connect through these apps and never create their own.
-- **Self-hosted DevMacro**: every install registers its own apps with the same permissions, because the callback URLs, client secrets, and private keys belong to one deployment. Never reuse the hosted apps' credentials.
-- **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`DEVMACRO_ENABLE_FAKE_PROVIDER=1`, never in production). To try every provider locally without registering any app, simulate them (`DEVMACRO_SIMULATE_PROVIDERS=1`, local only and refused on a Vercel production deployment): each connection is labeled "Simulated" and its data is made up on your machine.
+- **Hosted StackDash**: the hosted instance has one registration per app, owned by the StackDash account or organization, with callbacks on its production origin. Hosted users connect through these apps and never create their own.
+- **Self-hosted StackDash**: every install registers its own apps with the same permissions, because the callback URLs, client secrets, and private keys belong to one deployment. Never reuse the hosted apps' credentials.
+- **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`STACKDASH_ENABLE_FAKE_PROVIDER=1`, never in production). To try every provider locally without registering any app, simulate them (`STACKDASH_SIMULATE_PROVIDERS=1`, local only and refused on a Vercel production deployment): each connection is labeled "Simulated" and its data is made up on your machine.
 - **Webhooks** are Post-MVP. Leave every webhook setting empty or inactive.
 
 ## Summary
@@ -26,7 +26,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
 | DigitalOcean OAuth app | DigitalOcean control panel, API, OAuth Applications | `<SITE_URL>/api/connections/digitalocean/callback` | `billing:read`, `actions:read`, `app:read`, `droplet:read`, `account:read` (sent with each authorize request) | `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` |
-| PostHog client ID metadata document | Nothing to create: DevMacro serves the document at `<SITE_URL>/oauth/posthog/client-metadata` | `<SITE_URL>/api/connections/posthog/callback` (listed in the document) | `billing:read`, `organization:read`, `project:read`, `query:read` | `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` |
+| PostHog client ID metadata document | Nothing to create: StackDash serves the document at `<SITE_URL>/oauth/posthog/client-metadata` | `<SITE_URL>/api/connections/posthog/callback` (listed in the document) | `billing:read`, `organization:read`, `project:read`, `query:read` | `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` |
 | Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read` | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
 | Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
 | Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
@@ -36,11 +36,11 @@ A provider whose variables are missing shows as not configured in the connection
 
 ## GitHub OAuth app for sign-in
 
-Signing in to DevMacro goes through Supabase Auth with GitHub. This is a classic **OAuth app**, separate from the GitHub App below.
+Signing in to StackDash goes through Supabase Auth with GitHub. This is a classic **OAuth app**, separate from the GitHub App below.
 
 1. GitHub, **Settings, Developer settings, OAuth Apps, New OAuth App** ([direct link](https://github.com/settings/developers)). Use the organization's developer settings to own it as an organization.
-2. **Application name**: for example `DevMacro`. **Homepage URL**: `<SITE_URL>`.
-3. **Authorization callback URL**: `https://<project-ref>.supabase.co/auth/v1/callback`, the Supabase project's Auth callback, not a DevMacro URL. Locally it is `http://127.0.0.1:55421/auth/v1/callback` (from `supabase/config.toml`), in a separate OAuth app.
+2. **Application name**: for example `StackDash`. **Homepage URL**: `<SITE_URL>`.
+3. **Authorization callback URL**: `https://<project-ref>.supabase.co/auth/v1/callback`, the Supabase project's Auth callback, not a StackDash URL. Locally it is `http://127.0.0.1:55421/auth/v1/callback` (from `supabase/config.toml`), in a separate OAuth app.
 4. Leave **Enable Device Flow** unchecked. Register, then **Generate a new client secret**.
 5. Hosted: paste the client ID and secret in the Supabase dashboard, **Authentication, Sign In / Providers, GitHub** ([Deploy, step 3](deploy.md#github-sign-in-provider)). Locally: `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` and `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` in `supabase/.env.local`, read by the Supabase CLI only.
 
@@ -54,11 +54,11 @@ Settings that must match the code:
 
 - **Callback URL**: `<SITE_URL>/api/connections/github/callback`.
 - **Setup URL**: the same `<SITE_URL>/api/connections/github/callback`, with **Redirect on update** checked.
-- **Request user authorization (OAuth) during installation**: unchecked (it disables the setup URL; DevMacro runs the user authorization itself, with PKCE).
+- **Request user authorization (OAuth) during installation**: unchecked (it disables the setup URL; StackDash runs the user authorization itself, with PKCE).
 - **Expire user authorization tokens**: checked. **Enable Device Flow**: unchecked.
 - **Webhook**: **Active** unchecked.
 - **Permissions**: Repository, Metadata: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Everything else: No access.
-- **Where can this GitHub App be installed?**: **Any account** for hosted DevMacro or a shared install; **Only on this account** for a single-user self-host.
+- **Where can this GitHub App be installed?**: **Any account** for hosted StackDash or a shared install; **Only on this account** for a single-user self-host.
 
 Variables: `GITHUB_APP_ID` (App ID), `GITHUB_APP_SLUG` (from `https://github.com/apps/<slug>`), `GITHUB_APP_CLIENT_ID` (Client ID, not the App ID), `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` (the downloaded PEM; `\n` escapes are accepted when the host stores single-line values). Delete the downloaded PEM file once it is stored.
 
@@ -102,7 +102,7 @@ Settings that must match the code:
 
 Variables: `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET`.
 
-This is unrelated to the Supabase project that hosts DevMacro itself; register it in whichever organization should own the app.
+This is unrelated to the Supabase project that hosts StackDash itself; register it in whichever organization should own the app.
 
 ## Resend OAuth client
 
@@ -123,13 +123,13 @@ Settings that must match the code:
 
 - DigitalOcean control panel, **API**, **OAuth Applications**, **Register OAuth application** ([link](https://cloud.digitalocean.com/account/api/applications/new)), signed in with the team that should own the app.
 - **Callback URL**: `<SITE_URL>/api/connections/digitalocean/callback`.
-- Scopes are not set on the app: DevMacro sends `billing:read actions:read app:read droplet:read account:read` with every authorize request, so the consent screen never offers more.
+- Scopes are not set on the app: StackDash sends `billing:read actions:read app:read droplet:read account:read` with every authorize request, so the consent screen never offers more.
 
 Variables: `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` (from the app's **View** dialog).
 
 ## PostHog client ID metadata document
 
-Reads organization spend, projected spend, usage against each product's free allocation and billing limit, and signups per project per day. PostHog registers third-party apps by client ID metadata document: the client id is the URL of a JSON document this deployment serves, so there is no form to fill in and no client secret. DevMacro signs its token requests with its own key instead (`private_key_jwt`). Full steps: [PostHog, Self-hosted registration](../providers/posthog.md#self-hosted-registration). Scopes and what they also allow: [PostHog, Permissions](../providers/posthog.md#permissions) and [Permission risks](../providers/posthog.md#permission-risks).
+Reads organization spend, projected spend, usage against each product's free allocation and billing limit, and signups per project per day. PostHog registers third-party apps by client ID metadata document: the client id is the URL of a JSON document this deployment serves, so there is no form to fill in and no client secret. StackDash signs its token requests with its own key instead (`private_key_jwt`). Full steps: [PostHog, Self-hosted registration](../providers/posthog.md#self-hosted-registration). Scopes and what they also allow: [PostHog, Permissions](../providers/posthog.md#permissions) and [Permission risks](../providers/posthog.md#permission-risks).
 
 Settings that must match the code:
 
@@ -141,7 +141,7 @@ Variables: `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` (a P-256 or RS
 
 ## Polar OAuth client
 
-Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted DevMacro; the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
+Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted StackDash; the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
 
 Settings that must match the code:
 
@@ -154,7 +154,7 @@ Variables: `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`.
 
 ## Sentry integration
 
-Reads error counts by outcome, new, regressed, and resolved issues, and releases, per project. A Sentry public integration on the integration platform; DevMacro uses its OAuth install flow and never asks for an auth token. Full steps: [Sentry, Self-hosted registration](../providers/sentry.md#self-hosted-registration). Permissions and what they also allow: [Sentry, Permissions](../providers/sentry.md#permissions) and [Permission risks](../providers/sentry.md#permission-risks).
+Reads error counts by outcome, new, regressed, and resolved issues, and releases, per project. A Sentry public integration on the integration platform; StackDash uses its OAuth install flow and never asks for an auth token. Full steps: [Sentry, Self-hosted registration](../providers/sentry.md#self-hosted-registration). Permissions and what they also allow: [Sentry, Permissions](../providers/sentry.md#permissions) and [Permission risks](../providers/sentry.md#permission-risks).
 
 Settings that must match the code:
 
@@ -166,7 +166,7 @@ Settings that must match the code:
 
 Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
 
-Until Sentry publishes it, a public integration can only be installed by the organization that created it. Hosted DevMacro needs Sentry's publication review before other organizations can connect; a self-hosted install registers its own integration in its own organization and needs no review.
+Until Sentry publishes it, a public integration can only be installed by the organization that created it. Hosted StackDash needs Sentry's publication review before other organizations can connect; a self-hosted install registers its own integration in its own organization and needs no review.
 
 ## Railway OAuth app
 
@@ -175,11 +175,11 @@ Reads deployments, resource usage, usage cost, credits, and plan. Full steps: [R
 Settings that must match the code:
 
 - Created by a workspace admin: workspace **Settings**, **Developer**, **New OAuth App**.
-- **App type**: **Web (Confidential)**. DevMacro authenticates with `client_secret_basic` and always sends PKCE.
+- **App type**: **Web (Confidential)**. StackDash authenticates with `client_secret_basic` and always sends PKCE.
 - **Redirect URI**: `<SITE_URL>/api/connections/railway/callback`, matched exactly. Add a separate `http://localhost:3000/...` URI for local development.
 - Scopes are not set on the app: the authorize request asks for `openid email profile offline_access workspace:viewer` with `prompt=consent`, which Railway needs before it issues a refresh token.
 
-Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown once, right after the app is created. Railway has no token revocation endpoint, so disconnecting in DevMacro deletes the tokens and asks the user to remove the app in Railway.
+Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown once, right after the app is created. Railway has no token revocation endpoint, so disconnecting in StackDash deletes the tokens and asks the user to remove the app in Railway.
 
 ## GitLab OAuth application
 

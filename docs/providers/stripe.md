@@ -2,7 +2,7 @@
 
 Provider id: `stripe`. Verification: documentation only.
 
-DevMacro reads your Stripe revenue, Stripe fees, payouts, subscriptions, and payment and customer events, to show them next to your costs. It installs as a Stripe App with seven read-only permissions and never writes to Stripe. This is separate from DevMacro billing its own customers.
+StackDash reads your Stripe revenue, Stripe fees, payouts, subscriptions, and payment and customer events, to show them next to your costs. It installs as a Stripe App with seven read-only permissions and never writes to Stripe. This is separate from StackDash billing its own customers.
 
 All facts below come from Stripe's documentation, checked 2026-10-31. Anything not confirmed by a doc is in [Unverified](#unverified).
 
@@ -28,11 +28,11 @@ All facts below come from Stripe's documentation, checked 2026-10-31. Anything n
 
 ### How a user connects
 
-1. In DevMacro, the user picks Stripe in the provider catalog and sees the permissions and what is stored (see [Disclosure copy](#disclosure-copy)).
-2. DevMacro redirects to the install link with a fresh `state`.
+1. In StackDash, the user picks Stripe in the provider catalog and sees the permissions and what is stored (see [Disclosure copy](#disclosure-copy)).
+2. StackDash redirects to the install link with a fresh `state`.
 3. On Stripe, the user picks an account, reviews the permissions, and installs the app. The user needs Apps administrator rights on that account.
 4. Stripe redirects to `<SITE_URL>/api/connections/stripe/callback?code=ac_...&state=...`.
-5. DevMacro checks `state`, then exchanges the code for tokens on the server.
+5. StackDash checks `state`, then exchanges the code for tokens on the server.
 
 ### Install link
 
@@ -72,7 +72,7 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 | Test mode link | App developer account's test mode secret key |
 | Sandbox link | The app's managed sandbox secret key |
 
-- Stripe's docs say to carry the link type in `state`. DevMacro should store the environment server-side in the pending connection row keyed by `state`, so `state` stays an opaque token.
+- Stripe's docs say to carry the link type in `state`. StackDash should store the environment server-side in the pending connection row keyed by `state`, so `state` stays an opaque token.
 - Stripe warns that a restricted key, an access token, or a refresh token in place of the secret key fails with a permissions error. So the exchange needs a full secret key, not a restricted key. See [Permission risks](#permission-risks).
 
 Response fields:
@@ -121,7 +121,7 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 - Users uninstall the app in the Stripe Dashboard: **Settings** > **Installed apps**, the app's menu, **Uninstall**. Only an administrator can do this.
 - Stripe sends `apps.install.deleted` and `account.application.deauthorized` when an account uninstalls the app. Both are webhook events, so they are Post-MVP. On API versions before 2026-09-30 the install events are named `app.install.created`, `app.install.updated`, and `app.install.deleted`.
 - Stripe documents no token revocation endpoint for Stripe Apps OAuth. Connect's `POST https://connect.stripe.com/oauth/deauthorize` is documented for Connect OAuth only; do not use it here (see [Unverified](#unverified)).
-- So in the MVP, "Disconnect" in DevMacro deletes the stored tokens and synced Stripe data, then tells the user to uninstall the app in the Stripe Dashboard to remove DevMacro's access on Stripe's side.
+- So in the MVP, "Disconnect" in StackDash deletes the stored tokens and synced Stripe data, then tells the user to uninstall the app in the Stripe Dashboard to remove StackDash's access on Stripe's side.
 - Without webhooks, an uninstall shows up as a failed refresh or a failed API call with a valid token. Mark the connection as needing reconnection and stop syncing it.
 
 ### External testers and review
@@ -135,7 +135,7 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 
 ## Packaging the Stripe App
 
-A Stripe App is a small project built and uploaded with the Stripe CLI and its `apps` plugin. DevMacro's app only exists to request permissions and issue OAuth tokens. It has no UI in the Stripe Dashboard.
+A Stripe App is a small project built and uploaded with the Stripe CLI and its `apps` plugin. StackDash's app only exists to request permissions and issue OAuth tokens. It has no UI in the Stripe Dashboard.
 
 Tooling, as documented on 2026-10-31:
 
@@ -147,11 +147,11 @@ Commands:
 
 ```bash
 stripe login
-stripe apps create devmacro-connector
-cd devmacro-connector
-stripe apps grant permission "event_read" "Read payment, customer, subscription, and refund events to show them on your DevMacro timeline"
+stripe apps create stackdash-connector
+cd stackdash-connector
+stripe apps grant permission "event_read" "Read payment, customer, subscription, and refund events to show them on your StackDash timeline"
 stripe apps grant permission "charge_read" "Read payment and refund amounts to show revenue"
-stripe apps grant permission "customer_read" "Count new customers. DevMacro does not store customer names or emails"
+stripe apps grant permission "customer_read" "Count new customers. StackDash does not store customer names or emails"
 stripe apps grant permission "subscription_read" "Count new and canceled subscriptions"
 stripe apps grant permission "invoice_read" "Read paid invoice amounts to show revenue"
 stripe apps grant permission "balance_read" "Read your balance and Stripe fees"
@@ -163,19 +163,19 @@ Manifest (`stripe-app.json`, the v1 manifest that `stripe apps create` generates
 
 ```json
 {
-  "id": "com.example.devmacro-connector",
+  "id": "com.example.stackdash-connector",
   "version": "0.0.1",
-  "name": "DevMacro connector",
+  "name": "StackDash connector",
   "icon": "./icon.png",
   "distribution_type": "public",
   "stripe_api_access_type": "oauth",
   "allowed_redirect_uris": [
-    "https://devmacro.example.com/api/connections/stripe/callback"
+    "https://stackdash.example.com/api/connections/stripe/callback"
   ],
   "permissions": [
-    { "permission": "event_read", "purpose": "Read payment, customer, subscription, and refund events to show them on your DevMacro timeline" },
+    { "permission": "event_read", "purpose": "Read payment, customer, subscription, and refund events to show them on your StackDash timeline" },
     { "permission": "charge_read", "purpose": "Read payment and refund amounts to show revenue" },
-    { "permission": "customer_read", "purpose": "Count new customers. DevMacro does not store customer names or emails" },
+    { "permission": "customer_read", "purpose": "Count new customers. StackDash does not store customer names or emails" },
     { "permission": "subscription_read", "purpose": "Count new and canceled subscriptions" },
     { "permission": "invoice_read", "purpose": "Read paid invoice amounts to show revenue" },
     { "permission": "balance_read", "purpose": "Read your balance and Stripe fees" },
@@ -207,7 +207,7 @@ Account restrictions for the account that owns the app:
 
 ## Permissions
 
-| Permission | Why DevMacro needs it | What it also allows |
+| Permission | Why StackDash needs it | What it also allows |
 |---|---|---|
 | `event_read` | Poll `GET /v1/events` for the timeline | Lists and retrieves all event types. Event payloads embed full objects, including customer emails and billing details |
 | `charge_read` | Charges and refunds for revenue and refund counts | Full charge objects, including `billing_details` and `receipt_email` |
@@ -217,19 +217,19 @@ Account restrictions for the account that owns the app:
 | `balance_read` | Current balance and balance transactions (fees) | Balance only |
 | `payout_read` | Payout amounts and dates | Payout objects, including the destination bank account id |
 
-No write permission is requested. `balance_transaction_source_read` is not requested: DevMacro does not expand `source` on balance transactions.
+No write permission is requested. `balance_transaction_source_read` is not requested: StackDash does not expand `source` on balance transactions.
 
 ### Permission risks
 
-- `customer_read`, `charge_read`, `invoice_read`, and `event_read` let DevMacro read personal data about the user's customers. DevMacro discards it at the parse boundary (see [Privacy](#privacy)), but the access is real and must be disclosed.
-- Stripe's permission model is per object type. There is no field-level restriction, so data minimization is DevMacro's job.
-- The code exchange and every refresh use the app developer account's full secret key. Whoever runs a DevMacro instance holds a live secret key for their app's Stripe account. Use a dedicated Stripe account that only owns the app and processes no payments, so that key can move no money.
+- `customer_read`, `charge_read`, `invoice_read`, and `event_read` let StackDash read personal data about the user's customers. StackDash discards it at the parse boundary (see [Privacy](#privacy)), but the access is real and must be disclosed.
+- Stripe's permission model is per object type. There is no field-level restriction, so data minimization is StackDash's job.
+- The code exchange and every refresh use the app developer account's full secret key. Whoever runs a StackDash instance holds a live secret key for their app's Stripe account. Use a dedicated Stripe account that only owns the app and processes no payments, so that key can move no money.
 
 ### Disclosure copy
 
 Shown before connecting:
 
-> DevMacro asks for read-only access to your Stripe account: events, payments and refunds, customers, subscriptions, invoices, balance, and payouts. Stripe does not offer narrower access, so this includes your customers' names and emails. DevMacro stores only amounts, currencies, dates, statuses, and Stripe ids. It never stores customer names, emails, addresses, or card details. You can remove access at any time by uninstalling the app in your Stripe Dashboard.
+> StackDash asks for read-only access to your Stripe account: events, payments and refunds, customers, subscriptions, invoices, balance, and payouts. Stripe does not offer narrower access, so this includes your customers' names and emails. StackDash stores only amounts, currencies, dates, statuses, and Stripe ids. It never stores customer names, emails, addresses, or card details. You can remove access at any time by uninstalling the app in your Stripe Dashboard.
 
 ## Data
 
@@ -249,7 +249,7 @@ All list endpoints share cursor pagination: `limit` (1 to 100, default 10), `sta
 ### Fees
 
 - `fee` is the total fee on a balance transaction in the smallest currency unit, positive when assessed. `fee_details` breaks it down: each entry has `amount`, `currency`, `type`, `application`, and `description`. Documented `type` values: `application_fee`, `payment_method_passthrough_fee`, `stripe_fee`, `tax`, `withheld_tax`.
-- DevMacro's "Stripe fees" is the sum of `fee_details[].amount` where `type` is `stripe_fee` or `payment_method_passthrough_fee`, plus `tax` on those fees, grouped by `currency`. Keep `application_fee` separate: that goes to a Connect platform, not Stripe.
+- StackDash's "Stripe fees" is the sum of `fee_details[].amount` where `type` is `stripe_fee` or `payment_method_passthrough_fee`, plus `tax` on those fees, grouped by `currency`. Keep `application_fee` separate: that goes to a Connect platform, not Stripe.
 - Some fees arrive as their own balance transactions with `type` `stripe_fee`, `stripe_fx_fee`, or `tax_fee` and a negative `amount`. Count those too, as `-amount`, so fees billed outside a charge are not missed.
 - Balance transactions are in the account's settlement currency. If a charge is in EUR and the account settles in USD, the balance transaction is in USD with an `exchange_rate`. Do not store `exchange_rate` (a float) and never convert currencies.
 
@@ -271,7 +271,7 @@ All list endpoints share cursor pagination: `limit` (1 to 100, default 10), `sta
 | `customer.subscription.deleted` | Subscription ended | `id`, `status`, `currency`, `canceled_at`, `ended_at` |
 | `charge.refunded` | Refund, full or partial | `id`, `amount`, `amount_refunded`, `currency`, `refunded`, `created` |
 
-The adapter polls `charge.succeeded`, `charge.failed`, and `charge.refunded` for payments (Unverified item 1), reading `amount`, `amount_refunded`, `currency`, `refunded`, and `failure_code` from the charge. Payment titles carry the amount and its currency, formatted with the currency's own number of minor digits, one payment at a time and never summed: "Payment succeeded: $49.00", "Payment failed: ¥1,900", "Payment refunded: €49.00", and "Payment partially refunded: $9.00 of $49.00 so far". Stripe sends `charge.refunded` for every refund of a charge and `amount_refunded` is the running total, so a partial refund's title says "so far". A charge without an amount or currency gets the title alone. A failed payment's body is its `failure_code` as a plain sentence ("The card issuer declined the payment."); a code DevMacro does not list reads "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it." The code itself is never shown.
+The adapter polls `charge.succeeded`, `charge.failed`, and `charge.refunded` for payments (Unverified item 1), reading `amount`, `amount_refunded`, `currency`, `refunded`, and `failure_code` from the charge. Payment titles carry the amount and its currency, formatted with the currency's own number of minor digits, one payment at a time and never summed: "Payment succeeded: $49.00", "Payment failed: ¥1,900", "Payment refunded: €49.00", and "Payment partially refunded: $9.00 of $49.00 so far". Stripe sends `charge.refunded` for every refund of a charge and `amount_refunded` is the running total, so a partial refund's title says "so far". A charge without an amount or currency gets the title alone. A failed payment's body is its `failure_code` as a plain sentence ("The card issuer declined the payment."); a code StackDash does not list reads "Stripe gave a reason StackDash does not recognize. Open the payment in your Stripe Dashboard to see it." The code itself is never shown.
 
 Polling algorithm:
 
@@ -286,27 +286,27 @@ Polling algorithm:
 - Amounts: integers in the smallest currency unit. Zero-decimal currencies (for example JPY) have no minor unit, so `100` means 100 yen. Store as `amountMinor` plus currency; formatting needs the currency's exponent.
 - Currency: Stripe returns lowercase three-letter ISO codes. Normalize to uppercase ISO 4217 at the boundary.
 - Timestamps: Unix seconds, UTC. `available_on` and `arrival_date` are dates expressed as timestamps.
-- Granularity: per object. DevMacro aggregates by UTC day.
+- Granularity: per object. StackDash aggregates by UTC day.
 - Freshness: the API reflects objects as soon as they exist. A balance transaction has `status` `pending` until its `available_on`, but its `fee` is already set. Freshness on the dashboard equals the sync interval.
 
 ## Achievements
 
-DevMacro evaluates these for each project the Stripe accounts are assigned to, from the Stripe data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the Stripe accounts are assigned to, from the Stripe data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 Counts only, never amounts. The payment and subscription ladder is the same on Polar. Payments count `stripe.charge.succeeded` events, subscriptions `stripe.customer.subscription.created`, and customers `stripe.customer.created`. Days and hours are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `stripe.payments.first` | First Stripe payment recorded | Earned when DevMacro records the first successful Stripe payment. |
-| `stripe.payments.10` | 10 Stripe payments recorded | Earned when DevMacro records the 10th successful Stripe payment. |
-| `stripe.payments.100` | 100 Stripe payments recorded | Earned when DevMacro records the 100th successful Stripe payment. |
-| `stripe.payments.1000` | 1,000 Stripe payments recorded | Earned when DevMacro records the 1,000th successful Stripe payment. |
-| `stripe.payments.payday` | Payday: 10 payments in one day | Earned when DevMacro records 10 successful Stripe payments on one London calendar day. |
-| `stripe.payments.while_you_slept` | While you slept: a payment between midnight and 5 am | Earned when DevMacro records a successful Stripe payment between midnight and 5 am London time. |
-| `stripe.subscriptions.first` | First Stripe subscription recorded | Earned when DevMacro records the first new Stripe subscription. |
-| `stripe.subscriptions.10` | 10 Stripe subscriptions recorded | Earned when DevMacro records the 10th new Stripe subscription. |
-| `stripe.customers.first` | First Stripe customer recorded | Earned when DevMacro records the first new Stripe customer. |
-| `stripe.customers.100` | 100 Stripe customers recorded | Earned when DevMacro records the 100th new Stripe customer. |
+| `stripe.payments.first` | First Stripe payment recorded | Earned when StackDash records the first successful Stripe payment. |
+| `stripe.payments.10` | 10 Stripe payments recorded | Earned when StackDash records the 10th successful Stripe payment. |
+| `stripe.payments.100` | 100 Stripe payments recorded | Earned when StackDash records the 100th successful Stripe payment. |
+| `stripe.payments.1000` | 1,000 Stripe payments recorded | Earned when StackDash records the 1,000th successful Stripe payment. |
+| `stripe.payments.payday` | Payday: 10 payments in one day | Earned when StackDash records 10 successful Stripe payments on one London calendar day. |
+| `stripe.payments.while_you_slept` | While you slept: a payment between midnight and 5 am | Earned when StackDash records a successful Stripe payment between midnight and 5 am London time. |
+| `stripe.subscriptions.first` | First Stripe subscription recorded | Earned when StackDash records the first new Stripe subscription. |
+| `stripe.subscriptions.10` | 10 Stripe subscriptions recorded | Earned when StackDash records the 10th new Stripe subscription. |
+| `stripe.customers.first` | First Stripe customer recorded | Earned when StackDash records the first new Stripe customer. |
+| `stripe.customers.100` | 100 Stripe customers recorded | Earned when StackDash records the 100th new Stripe customer. |
 
 ## Rate limits and request budget
 
@@ -321,7 +321,7 @@ Counts only, never amounts. The payment and subscription ladder is the same on P
 Store only:
 
 - Connection: `stripe_user_id`, `livemode`, `scope`, encrypted `access_token` and `refresh_token`, `accessTokenExpiresAt`, connected at, last synced at.
-- Ids of Stripe objects DevMacro shows or dedupes on: event (`evt_`), charge (`ch_`), payment intent (`pi_`), balance transaction (`txn_`), invoice (`in_`), subscription (`sub_`), payout (`po_`), customer (`cus_`, only as the object id of a `customer.created` event).
+- Ids of Stripe objects StackDash shows or dedupes on: event (`evt_`), charge (`ch_`), payment intent (`pi_`), balance transaction (`txn_`), invoice (`in_`), subscription (`sub_`), payout (`po_`), customer (`cus_`, only as the object id of a `customer.created` event).
 - Amounts in minor units and their currency: `amount`, `amount_captured`, `amount_refunded`, `amount_received`, `amount_paid`, `total`, `fee`, `net`, `fee_details[].amount`, `fee_details[].currency`, balance `available` and `pending` amounts, payout `amount`.
 - Timestamps: `created`, `available_on`, `arrival_date`, `start_date`, `canceled_at`, `ended_at`, `period_start`, `period_end`.
 - Enums and flags: event `type`, `status`, `paid`, `refunded`, balance transaction `type` and `reporting_category`, `fee_details[].type`, payout `method`, `last_payment_error.code`, charge `failure_code`.
@@ -356,7 +356,7 @@ Every self-hosted instance registers its own Stripe App, because the app's redir
 5. Run `stripe apps upload` from the app directory. The authentication type is fixed after this.
 6. In the Dashboard, open **Created apps** in the account's live mode, select the app, click **Set external test version**, pick the uploaded version, and set **Access** to **Anyone with the link**.
 7. Copy the OAuth install link for each environment you want to support. The `client_id` query parameter of that link is your client id.
-8. Set the environment variables below and restart DevMacro.
+8. Set the environment variables below and restart StackDash.
 9. To go beyond 25 testers, submit the app for review and switch to the public links from the **Settings** tab after publishing.
 
 Environment variables (server only, never `NEXT_PUBLIC_`):
@@ -486,7 +486,7 @@ Confirm these with a test app and a test account before or while building the ad
 5. The error returned by the token endpoint for a used, expired, or revoked refresh token (likely an OAuth `invalid_grant`), and what an API call returns after uninstall. The adapter maps both to "needs reconnection".
 6. The query parameters on the callback when a user cancels or declines the install (Connect OAuth uses `error` and `error_description`; not documented for Stripe Apps).
 7. Whether `http://localhost` redirect URIs are accepted for test mode installs. Only live mode is documented as requiring HTTPS.
-8. Whether an uninstall immediately invalidates outstanding access tokens, and whether any API revokes a Stripe Apps OAuth grant from DevMacro's side. Connect's `/oauth/deauthorize` is not documented for Stripe Apps.
+8. Whether an uninstall immediately invalidates outstanding access tokens, and whether any API revokes a Stripe Apps OAuth grant from StackDash's side. Connect's `/oauth/deauthorize` is not documented for Stripe Apps.
 9. Whether `stripe apps upload` accepts an app with no UI views. The scaffold from `stripe apps create` includes a view, and the docs say auth-only apps should remove unnecessary UI.
 10. Whether external testing works from a live account that is not activated. Docs require activation for publishing only.
 11. Which `fee_details[].type` values cover all Stripe processing fees for every payment method (for example whether some fees post later as separate `stripe_fee` balance transactions).

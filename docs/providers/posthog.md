@@ -2,7 +2,7 @@
 
 Provider id: `posthog`. Verification: documentation only. Docs checked 2026-11-05.
 
-DevMacro reads your PostHog organization's spend, billing limits, and product usage, plus daily signups. It asks for four read-only scopes: billing, organization, project, and query.
+StackDash reads your PostHog organization's spend, billing limits, and product usage, plus daily signups. It asks for four read-only scopes: billing, organization, project, and query.
 
 ## Go or no-go
 
@@ -12,11 +12,11 @@ The biggest open question is whether PostHog grants `billing:read` to an app reg
 
 ## Connection
 
-OAuth 2.0 authorization code flow with PKCE (S256). PostHog has no app registration form for third parties: the app is a **client ID metadata document** (CIMD) that DevMacro serves itself, and the `client_id` is that document's URL. DevMacro authenticates to the token endpoint with `private_key_jwt`: a short-lived assertion signed with the deployment's private key, checked by PostHog against a JWKS that DevMacro also serves.
+OAuth 2.0 authorization code flow with PKCE (S256). PostHog has no app registration form for third parties: the app is a **client ID metadata document** (CIMD) that StackDash serves itself, and the `client_id` is that document's URL. StackDash authenticates to the token endpoint with `private_key_jwt`: a short-lived assertion signed with the deployment's private key, checked by PostHog against a JWKS that StackDash also serves.
 
 | Item | Value |
 |---|---|
-| Client id | `<SITE_URL>/oauth/posthog/client-metadata`, served by DevMacro (`POSTHOG_OAUTH_CLIENT_ID`) |
+| Client id | `<SITE_URL>/oauth/posthog/client-metadata`, served by StackDash (`POSTHOG_OAUTH_CLIENT_ID`) |
 | Metadata document | `GET <SITE_URL>/oauth/posthog/client-metadata`, JSON, `Cache-Control: public, max-age=3600` |
 | JWKS | `GET <SITE_URL>/oauth/posthog/jwks`, the public half of `POSTHOG_OAUTH_PRIVATE_KEY` |
 | Authorize URL | `GET https://oauth.posthog.com/oauth/authorize/` (region-agnostic, browser navigation) |
@@ -25,7 +25,7 @@ OAuth 2.0 authorization code flow with PKCE (S256). PostHog has no app registrat
 | Callback URL | `<SITE_URL>/api/connections/posthog/callback` |
 | API base URL | `https://us.posthog.com` or `https://eu.posthog.com`, by the region that issued the token |
 | Client authentication | `private_key_jwt`: `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer` and a fresh `client_assertion` on every token and revoke call. RS256 (RSA key) or ES256 (P-256 key), `kid` is the RFC 7638 thumbprint |
-| Access token | Prefix `pha_`, 10 hours in the guide's sample (`expires_in: 36000`); DevMacro stores the returned `expires_in` |
+| Access token | Prefix `pha_`, 10 hours in the guide's sample (`expires_in: 36000`); StackDash stores the returned `expires_in` |
 | Refresh token | Prefix `phr_`. Kept when a refresh returns none, replaced when it returns one |
 
 ### Metadata document
@@ -35,7 +35,7 @@ What `GET /oauth/posthog/client-metadata` returns, with `<SITE_URL>` filled in:
 ```json
 {
   "client_id": "<SITE_URL>/oauth/posthog/client-metadata",
-  "client_name": "DevMacro",
+  "client_name": "StackDash",
   "client_uri": "<SITE_URL>",
   "redirect_uris": ["<SITE_URL>/api/connections/posthog/callback"],
   "grant_types": ["authorization_code", "refresh_token"],
@@ -46,7 +46,7 @@ What `GET /oauth/posthog/client-metadata` returns, with `<SITE_URL>` filled in:
 }
 ```
 
-PostHog's rules for the document, all met by the route: the `client_id` URL is HTTPS with a path and no query or fragment; it answers 200 with JSON and no redirect, under 5 KB and within 5 seconds; `client_id` matches the URL character for character; `client_name` contains none of "PostHog", "official", "verified", or "trusted"; `com.posthog.scopes` is the scope ceiling, so a token can never carry more than these four read scopes. The route answers 404 when `POSTHOG_OAUTH_CLIENT_ID` or `POSTHOG_OAUTH_PRIVATE_KEY` is empty, or when `POSTHOG_OAUTH_CLIENT_ID` is not exactly its own URL (it logs `posthog.client_metadata.client_id_mismatch`), because PostHog would refuse such a document anyway. No `logo_uri` is sent; PostHog then tries `<SITE_URL>/apple-touch-icon.png`, which DevMacro does not serve, and falls back to the first letter of the name (OAuth development guide, Self-registered client logos).
+PostHog's rules for the document, all met by the route: the `client_id` URL is HTTPS with a path and no query or fragment; it answers 200 with JSON and no redirect, under 5 KB and within 5 seconds; `client_id` matches the URL character for character; `client_name` contains none of "PostHog", "official", "verified", or "trusted"; `com.posthog.scopes` is the scope ceiling, so a token can never carry more than these four read scopes. The route answers 404 when `POSTHOG_OAUTH_CLIENT_ID` or `POSTHOG_OAUTH_PRIVATE_KEY` is empty, or when `POSTHOG_OAUTH_CLIENT_ID` is not exactly its own URL (it logs `posthog.client_metadata.client_id_mismatch`), because PostHog would refuse such a document anyway. No `logo_uri` is sent; PostHog then tries `<SITE_URL>/apple-touch-icon.png`, which StackDash does not serve, and falls back to the first letter of the name (OAuth development guide, Self-registered client logos).
 
 ### Authorize request
 
@@ -56,15 +56,15 @@ PostHog's rules for the document, all met by the route: the `client_id` URL is H
 
 ### Token exchange and region
 
-`POST https://oauth.posthog.com/oauth/token/` with `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`, `client_id`, and the client assertion. The response carries `access_token`, `token_type`, `expires_in`, `refresh_token`, `scope`, and PostHog's `scoped_organizations` and `scoped_teams`. Only the fields DevMacro reads are parsed: `scoped_teams` and `id_token` are ignored whatever their shape, so neither can fail a connection. `invalid_grant` is treated as a revoked grant. A 401, or `invalid_client`, means PostHog rejected the client assertion: it could not read the JWKS, has not seen a new key yet, or the server clock drifted more than 30 seconds (Provisioning, Troubleshoot assertion errors). That is a problem with the deployment, not the user's grant, so the sync is retried with backoff and the connection is never marked revoked.
+`POST https://oauth.posthog.com/oauth/token/` with `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`, `client_id`, and the client assertion. The response carries `access_token`, `token_type`, `expires_in`, `refresh_token`, `scope`, and PostHog's `scoped_organizations` and `scoped_teams`. Only the fields StackDash reads are parsed: `scoped_teams` and `id_token` are ignored whatever their shape, so neither can fail a connection. `invalid_grant` is treated as a revoked grant. A 401, or `invalid_client`, means PostHog rejected the client assertion: it could not read the JWKS, has not seen a new key yet, or the server clock drifted more than 30 seconds (Provisioning, Troubleshoot assertion errors). That is a problem with the deployment, not the user's grant, so the sync is retried with backoff and the connection is never marked revoked.
 
 The region-agnostic host does not say which region issued the token, and the API has no region-agnostic host. Right after the exchange the adapter calls `GET /api/organizations/?limit=1` on US Cloud, then on EU Cloud: the region that answers anything but 401 (a 403 included, since the token is known there) is stored as `region` in the credential's metadata, and every later API call goes there. If both answer 401 the connection fails as revoked.
 
 ### Refresh, disconnect, and revoke
 
 - Refresh: `POST https://oauth.posthog.com/oauth/token/` with `grant_type=refresh_token`, `refresh_token`, `client_id`, and a fresh assertion. Refreshes for one connection must be serialized, as for every provider.
-- Disconnect from DevMacro: `POST https://oauth.posthog.com/oauth/revoke/` with the refresh token, `token_type_hint=refresh_token`, and the assertion. An empty 200 is success.
-- Disconnect from PostHog: the user removes DevMacro from their connected apps in PostHog. DevMacro finds out on the next sync, when the API answers 401, and marks the connection revoked.
+- Disconnect from StackDash: `POST https://oauth.posthog.com/oauth/revoke/` with the refresh token, `token_type_hint=refresh_token`, and the assertion. An empty 200 is success.
+- Disconnect from PostHog: the user removes StackDash from their connected apps in PostHog. StackDash finds out on the next sync, when the API answers 401, and marks the connection revoked.
 
 ## Permissions
 
@@ -77,7 +77,7 @@ All read-only. Each scope is the read half of a PostHog scope pair; the `:write`
 | `project:read` | Project names and ids, to know which projects to count signups for | `GET /api/organizations/{organization_id}/projects/` |
 | `query:read` | One HogQL count of new people per day per project | `POST /api/projects/{project_id}/query/` |
 
-PostHog lets the user narrow a grant to some organizations, and the token response names them in `scoped_organizations`. DevMacro keeps those ids in the credential's metadata as `organizations` (comma separated; absent when the grant covers every organization) and lists only those organizations as accounts. A refresh response without the field keeps the list.
+PostHog lets the user narrow a grant to some organizations, and the token response names them in `scoped_organizations`. StackDash keeps those ids in the credential's metadata as `organizations` (comma separated; absent when the grant covers every organization) and lists only those organizations as accounts. A refresh response without the field keeps the list.
 
 ## Data
 
@@ -111,7 +111,7 @@ Scope `project:read`. Up to 20 projects per organization are counted for signups
 
 ### Signups: `POST /api/projects/{project_id}/query/`
 
-Scope `query:read`. Body `{"query": {"kind": "HogQLQuery", "query": "..."}, "name": "DevMacro signups per day"}`:
+Scope `query:read`. Body `{"query": {"kind": "HogQLQuery", "query": "..."}, "name": "StackDash signups per day"}`:
 
 ```sql
 SELECT toDate(toTimeZone(created_at, 'UTC')) AS day, count() AS signups
@@ -145,17 +145,17 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 
 ## Achievements
 
-DevMacro evaluates these for each project the PostHog accounts are assigned to, from the PostHog data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the PostHog accounts are assigned to, from the PostHog data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 The signup ladder is the same on Supabase, but PostHog reports signups as one total per UTC day (`posthog.signups.daily`), so these add up the daily totals, are dated to the day they were reached rather than to a time, and none is based on the hour. Big day needs one day's total of 100 or more.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `posthog.signups.first` | First PostHog signup recorded | Earned when DevMacro records the first PostHog signup, counted from daily signup totals. |
-| `posthog.signups.10` | 10 PostHog signups recorded | Earned when DevMacro records the 10th PostHog signup, counted from daily signup totals. |
-| `posthog.signups.100` | 100 PostHog signups recorded | Earned when DevMacro records the 100th PostHog signup, counted from daily signup totals. |
-| `posthog.signups.1000` | 1,000 PostHog signups recorded | Earned when DevMacro records the 1,000th PostHog signup, counted from daily signup totals. |
-| `posthog.signups.big_day` | Big day: 100 signups in one day | Earned when DevMacro records a PostHog daily signup total of 100 or more. |
+| `posthog.signups.first` | First PostHog signup recorded | Earned when StackDash records the first PostHog signup, counted from daily signup totals. |
+| `posthog.signups.10` | 10 PostHog signups recorded | Earned when StackDash records the 10th PostHog signup, counted from daily signup totals. |
+| `posthog.signups.100` | 100 PostHog signups recorded | Earned when StackDash records the 100th PostHog signup, counted from daily signup totals. |
+| `posthog.signups.1000` | 1,000 PostHog signups recorded | Earned when StackDash records the 1,000th PostHog signup, counted from daily signup totals. |
+| `posthog.signups.big_day` | Big day: 100 signups in one day | Earned when StackDash records a PostHog daily signup total of 100 or more. |
 
 ## Verified, estimated, unavailable
 
@@ -184,17 +184,17 @@ None. PostHog offers no webhooks to OAuth apps, so everything is polled.
 
 Disclosed on the connect screen before redirecting:
 
-- **`billing:read`** reads the organization's billing overview, which also includes the account owner's name and email, the billing customer id, discount details, and the billing portal and invoices URLs. DevMacro drops all of those at the parse boundary and keeps only amounts, usage, limits, and the billing period.
-- **`query:read`** can run any read-only HogQL query in the granted projects, which reaches every event and person property, emails included. DevMacro runs exactly one fixed query, which returns counts per day, and never stores rows.
-- **`project:read`** returns each project's public project token (`phc_...`, the key the PostHog snippet sends events with). DevMacro drops it.
+- **`billing:read`** reads the organization's billing overview, which also includes the account owner's name and email, the billing customer id, discount details, and the billing portal and invoices URLs. StackDash drops all of those at the parse boundary and keeps only amounts, usage, limits, and the billing period.
+- **`query:read`** can run any read-only HogQL query in the granted projects, which reaches every event and person property, emails included. StackDash runs exactly one fixed query, which returns counts per day, and never stores rows.
+- **`project:read`** returns each project's public project token (`phc_...`, the key the PostHog snippet sends events with). StackDash drops it.
 - **`POSTHOG_OAUTH_PRIVATE_KEY`** signs every token request for every PostHog connection of the deployment. Store it only in the server environment, never in the database or logs. The JWKS route publishes this one key only, so rotating it is a cutover: PostHog's zero-downtime rotation needs the new key published next to the old one first, which one variable cannot do. PostHog caches the JWKS for 1 hour whatever `Cache-Control` says, and re-fetches it early when an assertion names a key id it has not seen, at most once a minute (Provisioning, Publish your keys). So for up to a minute after a rotation, token refreshes and new connections can fail; the failed syncs are retried, and no connection is marked revoked. After a leak, PostHog can keep accepting the removed key for up to an hour.
 
 ## Limitations
 
 - Billing needs an organization member with billing access; other members connect, see signups, and get `billing:read` listed as missing.
 - One page of up to 100 organizations per grant, and up to 20 projects per organization for signups.
-- The `/query` endpoint is not meant for exports, and PostHog may rate limit or reject queries that look like one. DevMacro's single aggregated count per project per day is the documented "pull aggregated data into your own app" use, but PostHog's wording reserves the right to restrict it.
-- Signup counts follow PostHog's person model: merged or deleted persons change past counts, and DevMacro keeps the count as first reported.
+- The `/query` endpoint is not meant for exports, and PostHog may rate limit or reject queries that look like one. StackDash's single aggregated count per project per day is the documented "pull aggregated data into your own app" use, but PostHog's wording reserves the right to restrict it.
+- Signup counts follow PostHog's person model: merged or deleted persons change past counts, and StackDash keeps the count as first reported.
 - One signing key at a time. Rotating `POSTHOG_OAUTH_PRIVATE_KEY` is a cutover: token calls can fail for up to a minute until PostHog re-fetches the JWKS, and are retried (Permission risks).
 - PostHog Cloud only (US and EU). A self-hosted PostHog has no billing service and would need its own host; not supported.
 
@@ -202,7 +202,7 @@ Disclosed on the connect screen before redirecting:
 
 Each deployment registers itself, because the client id is a URL on the deployment's own domain. There is nothing to create in PostHog.
 
-1. Make sure `NEXT_PUBLIC_SITE_URL` is the deployment's public HTTPS origin, for example `https://devmacro.example.com`. PostHog requires HTTPS for the metadata URL and fetches it from the internet, so a local `http://localhost` instance cannot connect a real PostHog account; use the simulated provider locally.
+1. Make sure `NEXT_PUBLIC_SITE_URL` is the deployment's public HTTPS origin, for example `https://stackdash.example.com`. PostHog requires HTTPS for the metadata URL and fetches it from the internet, so a local `http://localhost` instance cannot connect a real PostHog account; use the simulated provider locally.
 2. Generate the signing key (P-256, PKCS#8 PEM) and keep the file out of the repository:
 
    ```bash
@@ -215,7 +215,7 @@ Each deployment registers itself, because the client id is a URL on the deployme
 | Variable | Value |
 |---|---|
 | `POSTHOG_OAUTH_CLIENT_ID` | `<SITE_URL>/oauth/posthog/client-metadata`, exactly, with no trailing slash |
-| `POSTHOG_OAUTH_PRIVATE_KEY` | Full contents of `posthog-oauth.pem`. If the host cannot store multiline values, store it with `\n` escapes; DevMacro turns them back into line breaks |
+| `POSTHOG_OAUTH_PRIVATE_KEY` | Full contents of `posthog-oauth.pem`. If the host cannot store multiline values, store it with `\n` escapes; StackDash turns them back into line breaks |
 
 4. Open `<SITE_URL>/oauth/posthog/client-metadata` and `<SITE_URL>/oauth/posthog/jwks` in a browser. Both must answer JSON. A 404 from the first means a variable is empty or `POSTHOG_OAUTH_CLIENT_ID` is not exactly that URL; a 500 from the second means the key is not a usable private key.
 5. Connect PostHog from a workspace. The first authorization makes PostHog fetch and cache the document (for `max-age`, one hour). Delete the downloaded PEM file once the key is stored.

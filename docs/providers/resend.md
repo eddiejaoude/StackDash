@@ -2,15 +2,15 @@
 
 Provider id: `resend`. Verification: documentation only. Docs checked 2026-10-31.
 
-DevMacro reads your Resend email usage for the day and the month, your plan limits, and when they reset. Resend shares usage only with full access, which also allows sending email and changing your Resend team, so DevMacro asks you to agree to that first.
+StackDash reads your Resend email usage for the day and the month, your plan limits, and when they reset. Resend shares usage only with full access, which also allows sending email and changing your Resend team, so StackDash asks you to agree to that first.
 
 ## Go or no-go
 
-**Go for the MVP.** Resend has a documented account usage endpoint, `GET /usage` (released 2026-10-01), that returns daily and monthly email usage, plan limits, and reset times in one call. Remaining allowance is `limit - used`. The catch is the scope: reading usage needs `full_access`, which also lets DevMacro send email, delete domains, and change everything else in the Resend team. The connection flow must say so plainly and ask for explicit consent before redirecting.
+**Go for the MVP.** Resend has a documented account usage endpoint, `GET /usage` (released 2026-10-01), that returns daily and monthly email usage, plan limits, and reset times in one call. Remaining allowance is `limit - used`. The catch is the scope: reading usage needs `full_access`, which also lets StackDash send email, delete domains, and change everything else in the Resend team. The connection flow must say so plainly and ask for explicit consent before redirecting.
 
 ## Connection
 
-OAuth 2.1 authorization code flow with PKCE (`S256` only). DevMacro registers as a **pre-registered confidential client** (`token_endpoint_auth_method: "client_secret_basic"`), because it has a backend that can hold a secret. Resend's guide recommends pre-registration over dynamic registration for remote third-party clients.
+OAuth 2.1 authorization code flow with PKCE (`S256` only). StackDash registers as a **pre-registered confidential client** (`token_endpoint_auth_method: "client_secret_basic"`), because it has a backend that can hold a secret. Resend's guide recommends pre-registration over dynamic registration for remote third-party clients.
 
 | Item | Value |
 |---|---|
@@ -23,7 +23,7 @@ OAuth 2.1 authorization code flow with PKCE (`S256` only). DevMacro registers as
 | JWKS | `https://api.resend.com/.well-known/jwks.json` |
 | API base URL | `https://api.resend.com` |
 | Scopes | `emails:send`, `full_access`. No read-only scope exists |
-| Scope DevMacro requests | `full_access` |
+| Scope StackDash requests | `full_access` |
 | Access token | JWT signed with `ES256`, `expires_in: 900` (15 minutes). Cannot be revoked individually |
 | Refresh token | Opaque, valid 60 days from when it was last issued, rotates on every use |
 | Authorization code | Single use, expires 10 minutes after issue |
@@ -31,16 +31,16 @@ OAuth 2.1 authorization code flow with PKCE (`S256` only). DevMacro registers as
 
 ### Authorize request
 
-Query parameters: `client_id`, `response_type=code`, `redirect_uri` (exact match with a registered URI), `scope=full_access`, `state` (max 1024 characters, required by DevMacro even though Resend treats it as optional), `code_challenge`, `code_challenge_method=S256`. Do not send `resource`: it is accepted but ignored.
+Query parameters: `client_id`, `response_type=code`, `redirect_uri` (exact match with a registered URI), `scope=full_access`, `state` (max 1024 characters, required by StackDash even though Resend treats it as optional), `code_challenge`, `code_challenge_method=S256`. Do not send `resource`: it is accepted but ignored.
 
-Resend redirects the browser to its dashboard consent screen, where the user signs in and picks **which team** the app can access. One grant covers one Resend team, so one DevMacro connection maps to one Resend team.
+Resend redirects the browser to its dashboard consent screen, where the user signs in and picks **which team** the app can access. One grant covers one Resend team, so one StackDash connection maps to one Resend team.
 
-The discovery document advertises `authorization_response_iss_parameter_supported: true`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), DevMacro rejects a callback whose `iss` is missing, empty, or anything other than `https://api.resend.com`, before calling the token endpoint. The Authorize reference lists only `code` and `state` on the redirect, so this rests on the metadata flag alone (see Unverified).
+The discovery document advertises `authorization_response_iss_parameter_supported: true`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), StackDash rejects a callback whose `iss` is missing, empty, or anything other than `https://api.resend.com`, before calling the token endpoint. The Authorize reference lists only `code` and `state` on the redirect, so this rests on the metadata flag alone (see Unverified).
 
 Error handling on authorize has two shapes, and the callback must not assume it always receives an error redirect:
 
-- Before `client_id` and `redirect_uri` are validated, Resend returns a JSON error body. The user never comes back to DevMacro.
-- After validation, Resend redirects errors (`error`, `error_description`, `state`) to `redirect_uri` only for loopback, private-use scheme, or **verified** clients. An unverified `https` client gets a JSON error page instead. Resend has no self-service verification yet, so DevMacro should expect the JSON page for authorize errors and treat a missing callback as an abandoned connection.
+- Before `client_id` and `redirect_uri` are validated, Resend returns a JSON error body. The user never comes back to StackDash.
+- After validation, Resend redirects errors (`error`, `error_description`, `state`) to `redirect_uri` only for loopback, private-use scheme, or **verified** clients. An unverified `https` client gets a JSON error page instead. Resend has no self-service verification yet, so StackDash should expect the JSON page for authorize errors and treat a missing callback as an abandoned connection.
 
 ### Token exchange
 
@@ -59,12 +59,12 @@ Token errors: `400 invalid_request`, `400 invalid_scope`, `400 invalid_grant`, `
 
 ### Disconnect
 
-- From DevMacro: `POST /oauth/revoke` with Basic auth and body `token=<refresh token>&token_type_hint=refresh_token`. This revokes the whole grant, including access tokens already issued. It always returns `200` with an empty body. `token_type_hint=access_token` is rejected.
+- From StackDash: `POST /oauth/revoke` with Basic auth and body `token=<refresh token>&token_type_hint=refresh_token`. This revokes the whole grant, including access tokens already issued. It always returns `200` with an empty body. `token_type_hint=access_token` is rejected.
 - From Resend: users can review and revoke any app's access in their Resend team settings (changelog wording; exact dashboard path not documented). Team API keys can also list grants (`GET /oauth/grants`) and revoke one (`DELETE /oauth/grants/:id`).
 
 ### API calls
 
-Every request needs `Authorization: Bearer <access token>` and a `User-Agent` header. Requests without `User-Agent` are blocked with `403` and error code `1010` before they reach the API. Set something like `DevMacro/<version>`.
+Every request needs `Authorization: Bearer <access token>` and a `User-Agent` header. Requests without `User-Agent` are blocked with `403` and error code `1010` before they reach the API. Set something like `StackDash/<version>`.
 
 A token missing a required scope gets `403 invalid_permission` ("Access token is missing required scopes").
 
@@ -103,7 +103,7 @@ Every quota counts both sent and received (inbound) email, and each `To`, `CC`, 
 
 Account level delivery and engagement counts, released 2026-08-27. Optional query: `start_date`, `end_date` (ISO 8601 date or datetime), `timezone` (IANA, default UTC), `granularity` (`hourly | daily | weekly | monthly`, default `daily`), `metrics` (list), `dimensions` (`period`, `domain`, `email`, `broadcast`), `domain_id`, `email_id`, `broadcast_id`. With no parameters it returns `totals` for the last 7 days.
 
-Useful metrics for DevMacro: `sent`, `delivered`, `bounced`, `complained`, `failed`, `suppressed`, `delivery_rate`, `bounce_rate`, `complaint_rate`. Counts are integers. Rates are percentages as numbers (for example `50.0`), not fractions.
+Useful metrics for StackDash: `sent`, `delivered`, `bounced`, `complained`, `failed`, `suppressed`, `delivery_rate`, `bounce_rate`, `complaint_rate`. Counts are integers. Rates are percentages as numbers (for example `50.0`), not fractions.
 
 - Responses are cached for up to 15 minutes.
 - Data is retained 30 days on Free, Pro, and Scale. Older `start_date` values are clamped to the oldest retained date.
@@ -131,7 +131,7 @@ The quota headers carry used counts only, no limit or reset. `/usage` replaces t
 
 ### Timeline events (by polling)
 
-Resend has no event feed that DevMacro can poll for account activity. The adapter derives events by comparing each sync with the previous snapshot:
+Resend has no event feed that StackDash can poll for account activity. The adapter derives events by comparing each sync with the previous snapshot:
 
 | Event | Source | Rule |
 |---|---|---|
@@ -145,14 +145,14 @@ Resend has no event feed that DevMacro can poll for account activity. The adapte
 
 ## Achievements
 
-DevMacro evaluates these for each project the Resend accounts are assigned to, from the Resend data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the Resend accounts are assigned to, from the Resend data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 Both count `resend.domain.verified` events.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `resend.domains.first` | First Resend domain verified | Earned when DevMacro records the first verified Resend domain. |
-| `resend.domains.collector` | Domain collector: 3 domains verified | Earned when DevMacro records the 3rd verified Resend domain. |
+| `resend.domains.first` | First Resend domain verified | Earned when StackDash records the first verified Resend domain. |
+| `resend.domains.collector` | Domain collector: 3 domains verified | Earned when StackDash records the 3rd verified Resend domain. |
 
 ## Verified, estimated, unavailable
 
@@ -169,13 +169,13 @@ Both count `resend.domain.verified` events.
 | Plan name and tier | Unavailable. Not in any response. Cannot be derived from `monthly.limit` alone (Pro and Scale both offer 100,000 emails per month) | None |
 | Spend, invoices, overage charges | Unavailable. No billing API; invoices are dashboard only | None |
 | Overage cost estimate | Unavailable for the MVP. Would need the plan price, which is not exposed. Do not estimate | None |
-| History older than 30 days | Unavailable from Resend. DevMacro keeps its own snapshots | None |
+| History older than 30 days | Unavailable from Resend. StackDash keeps its own snapshots | None |
 
 ## Rate limits
 
 - Default 10 requests per second **per team**, shared with every API key and app on that team. No burst allowance: the 11th request in a one second window gets `429 rate_limit_exceeded`.
-- DevMacro shares the user's budget, so a sync must stay small: one `/usage`, one `/domains`, one or two `/emails/metrics` calls per sync. Run them sequentially, honor `retry-after`, and back off on `429`.
-- Quota errors also return `429`, with `daily_quota_exceeded` or `monthly_quota_exceeded`. These only come from send routes, which DevMacro never calls. If seen, treat them as data, not as a rate limit.
+- StackDash shares the user's budget, so a sync must stay small: one `/usage`, one `/domains`, one or two `/emails/metrics` calls per sync. Run them sequentially, honor `retry-after`, and back off on `429`.
+- Quota errors also return `429`, with `daily_quota_exceeded` or `monthly_quota_exceeded`. These only come from send routes, which StackDash never calls. If seen, treat them as data, not as a rate limit.
 - Client registration is limited to 20 per hour per IP.
 
 ## Plan restrictions
@@ -204,9 +204,9 @@ Not used in the MVP: polling only. For later:
 - Read sent and received email content and attachments, and the contact list.
 - List and revoke OAuth grants on the team (documented for team API keys; assumed to apply to a `full_access` token too).
 
-DevMacro only calls `GET /usage`, `GET /emails/metrics`, and `GET /domains`. That is a code promise, not a technical limit. The consent copy must say this plainly before the redirect, for example:
+StackDash only calls `GET /usage`, `GET /emails/metrics`, and `GET /domains`. That is a code promise, not a technical limit. The consent copy must say this plainly before the redirect, for example:
 
-> Resend only offers full access for reading usage. DevMacro will be able to send email and change or delete anything in this Resend team. DevMacro only reads usage, metrics, and domains, and you can revoke access at any time in your Resend team settings.
+> Resend only offers full access for reading usage. StackDash will be able to send email and change or delete anything in this Resend team. StackDash only reads usage, metrics, and domains, and you can revoke access at any time in your Resend team settings.
 
 Mitigations: store tokens encrypted at rest, never log tokens or `Authorization` headers, keep the adapter's HTTP client restricted to the three GET paths, request `full_access` only (never let the scope default by omitting it).
 
@@ -217,12 +217,12 @@ Mitigations: store tokens encrypted at rest, never log tokens or `Authorization`
 - No endpoint that names the connected team. The consent screen picks the team, but no documented API returns its id or name. Label the connection from user input or from the first domain name.
 - Metrics are cached up to 15 minutes and retained 30 days.
 - No API versioning yet; Resend plans calendar based version headers. Parse every response with zod and fail loudly on shape changes.
-- Authorize errors for an unverified `https` client land on a Resend JSON page, not the DevMacro callback.
+- Authorize errors for an unverified `https` client land on a Resend JSON page, not the StackDash callback.
 - Refresh token reuse revokes the grant. A bug in refresh serialization disconnects the user.
 
 ## Self-hosted registration
 
-Every DevMacro deployment registers its own client, because the redirect URI and secret belong to one deployment. Resend has no dashboard page for creating OAuth clients yet; registration is one API call.
+Every StackDash deployment registers its own client, because the redirect URI and secret belong to one deployment. Resend has no dashboard page for creating OAuth clients yet; registration is one API call.
 
 1. Pick the deployment's public URL, `<SITE_URL>`. The redirect URI is `<SITE_URL>/api/connections/resend/callback`. It must be `https` (plain `http` is only allowed for loopback addresses, so local development uses `http://127.0.0.1:<port>/api/connections/resend/callback` or `http://localhost:<port>/...`, registered as a separate URI; loopback URIs may vary the port).
 2. Register a confidential client:
@@ -230,9 +230,9 @@ Every DevMacro deployment registers its own client, because the redirect URI and
    ```bash
    curl -X POST 'https://api.resend.com/oauth/register' \
         -H 'Content-Type: application/json' \
-        -H 'User-Agent: DevMacro-setup/1.0' \
+        -H 'User-Agent: StackDash-setup/1.0' \
         -d '{
-     "client_name": "DevMacro",
+     "client_name": "StackDash",
      "client_uri": "<SITE_URL>",
      "logo_uri": "<SITE_URL>/logo.png",
      "redirect_uris": ["<SITE_URL>/api/connections/resend/callback"],
@@ -384,7 +384,7 @@ Confirm with a test account before the adapter ships:
 6. Whether `x-resend-daily-quota` and `x-resend-monthly-quota` appear on GET responses or only on send responses.
 7. Whether OAuth API calls count toward the team's shared 10 requests per second.
 8. The exact dashboard path where users revoke app access ("Team settings" per the OAuth changelog).
-9. How a pre-registered client becomes "verified" (affects authorize error redirects and how the consent screen presents DevMacro). No self-service path is documented.
+9. How a pre-registered client becomes "verified" (affects authorize error redirects and how the consent screen presents StackDash). No self-service path is documented.
 10. Access token JWT claims (for example a team id). Not documented, so not relied on.
 11. Response shapes for `/usage` on Pro and Scale plans (`daily.limit: null`, `domains.limit`, `segments.limit`).
 12. The authorize callback carries `iss=https://api.resend.com`. The discovery metadata advertises it ([RFC 9207, section 2.3](https://www.rfc-editor.org/rfc/rfc9207#section-2.3)), but the Authorize reference says the redirect carries only `code` and the original `state`. If the live redirect omits `iss`, `exchangeCode` refuses every Resend callback and no connection can complete.

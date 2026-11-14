@@ -1,7 +1,7 @@
 # Bug report (CONTRIBUTING.md, "Before you start"). Security vulnerabilities go through
 # SECURITY.md instead, never through this form.
 name: Bug report
-description: Tell us about something in DevMacro that does not work.
+description: Tell us about something in StackDash that does not work.
 title: "Bug: <short summary>"
 labels: ["bug"]
 body:
@@ -45,14 +45,14 @@ body:
       options:
         - My local setup, following the README
         - My self-hosted deployment
-        - The hosted DevMacro instance
+        - The hosted StackDash instance
     validations:
       required: true
   - type: input
     id: version
     attributes:
       label: Commit
-      description: The commit you ran (`git rev-parse --short HEAD`), if you run DevMacro yourself.
+      description: The commit you ran (`git rev-parse --short HEAD`), if you run StackDash yourself.
   - type: input
     id: environment
     attributes:

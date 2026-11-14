@@ -1,10 +1,10 @@
-# DevMacro
+# StackDash
 
 The big picture of your developer stack.
 
-DevMacro is an open-source dashboard with one timeline and one alert for your whole developer stack.
+StackDash is an open-source dashboard with one timeline and one alert for your whole developer stack.
 You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, Polar, Sentry,
-Railway, and GitLab over OAuth (never with pasted provider keys), and DevMacro syncs them on a schedule:
+Railway, and GitLab over OAuth (never with pasted provider keys), and StackDash syncs them on a schedule:
 deploys, stars, signups, payments, and errors land in one feed per workspace and project. Alerts
 reach you by email, Slack, Discord, or webhook before a limit or budget becomes a problem, with
 daily or weekly digests on the same channels. Unusual daily spend and usage is flagged on the
@@ -63,8 +63,8 @@ OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and 
 ### 2. Clone and install
 
 ```bash
-git clone https://github.com/eddiejaoude/DevMacro.git
-cd DevMacro
+git clone https://github.com/eddiejaoude/StackDash.git
+cd StackDash
 npm ci
 ```
 
@@ -86,7 +86,7 @@ never sign in through GitHub. Step 7 sets up real GitHub sign-in.
 
 The first start downloads the images, applies every migration in `supabase/migrations/`, and loads
 `supabase/seed.sql`. If the stack is already running, for example from another clone of this
-repository (they share the project id `devmacro`), `supabase start` says so and changes nothing:
+repository (they share the project id `stackdash`), `supabase start` says so and changes nothing:
 carry on with step 4. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
 projects:
 
@@ -120,10 +120,10 @@ supabase status -o env \
   --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY
 ```
 
-Generate the two secrets and paste them into `DEVMACRO_ENCRYPTION_KEY` and `CRON_SECRET`:
+Generate the two secrets and paste them into `STACKDASH_ENCRYPTION_KEY` and `CRON_SECRET`:
 
 ```bash
-openssl rand -base64 32   # DEVMACRO_ENCRYPTION_KEY: exactly 32 random bytes, base64
+openssl rand -base64 32   # STACKDASH_ENCRYPTION_KEY: exactly 32 random bytes, base64
 openssl rand -hex 32      # CRON_SECRET: 64 hex characters
 ```
 
@@ -131,7 +131,7 @@ Turn on the simulated providers, which the demo in step 6 connects instead of re
 says what they are). Set this line in `.env.local`:
 
 ```bash
-DEVMACRO_SIMULATE_PROVIDERS=1
+STACKDASH_SIMULATE_PROVIDERS=1
 ```
 
 Leave the provider variables empty. Every variable is described in
@@ -228,7 +228,7 @@ lets you walk through connecting and syncing without any real provider app. Set 
 `.env.local` (never in production) and restart `npm run dev`:
 
 ```bash
-DEVMACRO_ENABLE_FAKE_PROVIDER=1
+STACKDASH_ENABLE_FAKE_PROVIDER=1
 FAKE_PROVIDER_CLIENT_ID=fake-client
 FAKE_PROVIDER_CLIENT_SECRET=fake-secret
 ```
@@ -254,7 +254,7 @@ For data that keeps arriving, use step 10.
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Polar, Sentry, Railway, and GitLab
+Simulated providers let you try StackDash with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Polar, Sentry, Railway, and GitLab
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -269,7 +269,7 @@ It is for local use only: the app refuses it on a Vercel production deployment.
    it:
 
    ```bash
-   DEVMACRO_SIMULATE_PROVIDERS=1
+   STACKDASH_SIMULATE_PROVIDERS=1
    ```
 
 2. In your workspace, open **Connections** and connect several providers from the catalog, for
@@ -300,7 +300,7 @@ It is for local use only: the app refuses it on a Vercel production deployment.
 
    Each simulated connection then makes about ten times as many deployments, payments, signups,
    and other random timeline events. The default, 1, is the realistic small product. It needs
-   `--watch` and `DEVMACRO_SIMULATE_PROVIDERS=1`, and is refused before any tick runs otherwise.
+   `--watch` and `STACKDASH_SIMULATE_PROVIDERS=1`, and is refused before any tick runs otherwise.
    It scales simulated timeline events only. Provider metrics (spend, usage, quotas), daily
    summaries and other scheduled events, real providers, the sync cadence, the 100 job claim
    limit, and `npm run demo:event` incidents stay as they are. Counts the app derives from
@@ -329,7 +329,7 @@ connection cannot be reconnected with a real provider, nor a real one with the s
 Note for local use: a real connection you made before turning the flag on is never synced early
 by `--watch`, but while the flag is on its scheduled syncs are refused by the simulator. It is
 marked failed with one timeline event, and syncs again on its hourly retry once the flag is
-removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_PROVIDERS` is
+removed. That event's advice to reconnect applies only once `STACKDASH_SIMULATE_PROVIDERS` is
 removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
 recovers on its own after the flag is gone.
 
@@ -338,7 +338,7 @@ recovers on its own after the flag is gone.
 `npm run demo` from step 6 builds a whole workspace on your local stack with every simulated
 provider connected and 90 days behind it, signs you in to it, and keeps it updating live, so a demo
 is not mostly empty charts. No GitHub OAuth app is needed. It needs the stack from step 3,
-`.env.local` from step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1`, and `npm run dev` running.
+`.env.local` from step 4 with `STACKDASH_SIMULATE_PROVIDERS=1`, and `npm run dev` running.
 
 - It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
   by it, connects every simulated provider through the same code as the connect flow, spreads their
@@ -356,17 +356,17 @@ is not mostly empty charts. No GitHub OAuth app is needed. It needs the stack fr
   `demo@example.com`. Open that link in the browser to sign in as the demo account and land on the
   dashboard. The link works once and expires after an hour (`otp_expiry` in
   `supabase/config.toml`); run the command again for a new one. The link only works while
-  `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL` points at this computer,
+  `STACKDASH_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL` points at this computer,
   and only for the demo account: anywhere else, `/auth/confirm` answers every link as expired.
 - It then runs `npm run jobs:tick -- --watch` itself, carrying on from the replay's last sync
   without a gap or a repeat. Press Ctrl+C to stop it after the tick in progress.
 - `--member you@example.com` also adds an account that has already signed in with GitHub (step 7)
   as an admin of the demo workspace; repeat it for more people (an email given twice counts once,
   and `demo@example.com` is refused because it already owns the workspace). `--seed <text>` picks
-  different simulated accounts; the same seed rehearses the same demo (default `devmacro-demo`).
+  different simulated accounts; the same seed rehearses the same demo (default `stackdash-demo`).
 - Running it again deletes the demo workspace and builds a new one, so there is only ever one. It
   changes nothing outside the demo account's workspaces.
-- It refuses to run, and writes nothing, unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and
+- It refuses to run, and writes nothing, unless `STACKDASH_SIMULATE_PROVIDERS=1` is set and
   `NEXT_PUBLIC_SUPABASE_URL` points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it
   can never write to a hosted project.
 
@@ -408,9 +408,9 @@ these to `.env.local` and restart `npm run dev` (the key can be any value: the f
 set here):
 
 ```bash
-DEVMACRO_EMAIL_FROM=DevMacro alerts <alerts@example.com>
-DEVMACRO_RESEND_API_KEY=local-fake-key
-DEVMACRO_RESEND_API_URL=http://127.0.0.1:55430
+STACKDASH_EMAIL_FROM=StackDash alerts <alerts@example.com>
+STACKDASH_RESEND_API_KEY=local-fake-key
+STACKDASH_RESEND_API_URL=http://127.0.0.1:55430
 ```
 
 Start the fake in its own terminal and leave it running:
@@ -472,7 +472,7 @@ which loads `.env.local`. The suite needs no GitHub app: `e2e/global-setup.ts` r
 keys from `.env.local`, invites and creates the synthetic users `e2e-owner@example.com` and
 `e2e-viewer@example.com` through the Auth admin API with a password generated for that run, signs
 them in, and saves the sessions in `e2e/.auth/` (git ignored). The connection and sync specs use
-the fake provider, so `.env.local` must contain `DEVMACRO_ENCRYPTION_KEY`, `CRON_SECRET`, and the
+the fake provider, so `.env.local` must contain `STACKDASH_ENCRYPTION_KEY`, `CRON_SECRET`, and the
 three fake provider values from step 8, as CI writes them. The Playwright config also turns on
 the simulated providers from step 10 for its dev server, which `e2e/simulated-providers.spec.ts`
 connects and syncs through `POST /api/jobs/tick`. `e2e/real-connection-while-simulating.spec.ts`
@@ -487,7 +487,7 @@ and never reaches Resend. Playwright also sets `NEXT_PUBLIC_SITE_URL` to the app
 origin, locally and in CI, and that too takes precedence over `.env.local`:
 `e2e/social-metadata.spec.ts` reads absolute canonical and preview image addresses from it, and
 CI's production build sends no alert message without it. CI also writes
-`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1` into `.env.local`, because its production build refuses to
+`STACKDASH_ALLOW_PRIVATE_WEBHOOKS=1` into `.env.local`, because its production build refuses to
 post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without it. A local run on the dev
 server needs neither in `.env.local`.
 
@@ -520,18 +520,18 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
-| `DEVMACRO_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
-| `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
+| `STACKDASH_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
+| `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
 | `CRON_SECRET` | Bearer secret for `POST /api/jobs/tick`, at least 32 characters | Secret | Required where a scheduler calls the route |
-| `DEVMACRO_SUPER_ADMIN_EMAILS` | Comma separated email addresses of the people who can open the [instance overview](#instance-overview) at `/app/admin`, matched without regard to case against the email they sign in with | Server only | Optional (empty means nobody) |
-| `DEVMACRO_EMAIL_FROM` | Sender of alert emails, optionally with a name: `DevMacro alerts <alerts@your-domain>`, on a domain verified in the Resend account | Server only | Required with `DEVMACRO_RESEND_API_KEY` |
-| `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain. Locally any value, with the fake from step 12 | Secret | Optional (without it email is off) |
-| `DEVMACRO_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `DEVMACRO_RESEND_API_KEY`) |
-| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
-| `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes and public project pages reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
-| `DEVMACRO_OPERATOR_NAME` | Who runs this instance, named as responsible for its data on `/privacy` and `/terms`. Set all three operator variables or none: with none, both pages answer 404 and the sign-in page, footer, and sitemap do not link to them. The policy names Vercel as a processor only on Vercel (`VERCEL=1`), Resend only when alert email goes to Resend's own API (`DEVMACRO_RESEND_API_KEY` set, `DEVMACRO_RESEND_API_URL` unset or `https://api.resend.com`), and a generic email service when `DEVMACRO_RESEND_API_URL` names another server. Read at build time by the prerendered pages, together with `VERCEL` and the email variables, so rebuild after changing any of them; a half-set email configuration then fails the build | Server only | Optional (required to publish the privacy policy and terms) |
-| `DEVMACRO_OPERATOR_EMAIL` | One email address for privacy and data requests, shown on both pages | Server only | With `DEVMACRO_OPERATOR_NAME` |
-| `DEVMACRO_GOVERNING_LAW` | The law the terms of use are governed by, as it reads after "the law of", such as `England and Wales` | Server only | With `DEVMACRO_OPERATOR_NAME` |
+| `STACKDASH_SUPER_ADMIN_EMAILS` | Comma separated email addresses of the people who can open the [instance overview](#instance-overview) at `/app/admin`, matched without regard to case against the email they sign in with | Server only | Optional (empty means nobody) |
+| `STACKDASH_EMAIL_FROM` | Sender of alert emails, optionally with a name: `StackDash alerts <alerts@your-domain>`, on a domain verified in the Resend account | Server only | Required with `STACKDASH_RESEND_API_KEY` |
+| `STACKDASH_RESEND_API_KEY` | Resend API key with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain. Locally any value, with the fake from step 12 | Secret | Optional (without it email is off) |
+| `STACKDASH_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `STACKDASH_RESEND_API_KEY`) |
+| `STACKDASH_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
+| `STACKDASH_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes and public project pages reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
+| `STACKDASH_OPERATOR_NAME` | Who runs this instance, named as responsible for its data on `/privacy` and `/terms`. Set all three operator variables or none: with none, both pages answer 404 and the sign-in page, footer, and sitemap do not link to them. The policy names Vercel as a processor only on Vercel (`VERCEL=1`), Resend only when alert email goes to Resend's own API (`STACKDASH_RESEND_API_KEY` set, `STACKDASH_RESEND_API_URL` unset or `https://api.resend.com`), and a generic email service when `STACKDASH_RESEND_API_URL` names another server. Read at build time by the prerendered pages, together with `VERCEL` and the email variables, so rebuild after changing any of them; a half-set email configuration then fails the build | Server only | Optional (required to publish the privacy policy and terms) |
+| `STACKDASH_OPERATOR_EMAIL` | One email address for privacy and data requests, shown on both pages | Server only | With `STACKDASH_OPERATOR_NAME` |
+| `STACKDASH_GOVERNING_LAW` | The law the terms of use are governed by, as it reads after "the law of", such as `England and Wales` | Server only | With `STACKDASH_OPERATOR_NAME` |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
@@ -562,10 +562,10 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `RAILWAY_CLIENT_SECRET` | Railway OAuth app client secret | Secret | Optional (enables Railway) |
 | `GITLAB_CLIENT_ID` | GitLab.com OAuth application ID | Server only | Optional (enables GitLab) |
 | `GITLAB_CLIENT_SECRET` | GitLab.com OAuth application secret | Secret | Optional (enables GitLab) |
-| `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
+| `STACKDASH_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
 | `FAKE_PROVIDER_CLIENT_ID` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
-| `DEVMACRO_SIMULATE_PROVIDERS` | Set to `1` to replace the live providers with simulated ones that need no OAuth app | Local only | Optional (refused on Vercel production) |
+| `STACKDASH_SIMULATE_PROVIDERS` | Set to `1` to replace the live providers with simulated ones that need no OAuth app | Local only | Optional (refused on Vercel production) |
 | `E2E_PORT` | Port of the Playwright dev server, read from the shell (default 3100) | Test only | Optional |
 | `E2E_RESEND_PORT` | Port of the fake Resend API that Playwright starts for `e2e/alert-email.spec.ts`, read from the shell (default `E2E_PORT` plus one) | Test only | Optional |
 
@@ -609,7 +609,7 @@ variable above is set (never its value) and what that means, which provider OAut
 registered and how many workspaces use each provider, the background job queue and its failures in
 the last 24 hours, users, workspaces with their members and timeline events, and whether the
 database has this build's migrations. Super admins are the addresses in
-`DEVMACRO_SUPER_ADMIN_EMAILS`; anyone else gets page not found. A super admin reaches it from the
+`STACKDASH_SUPER_ADMIN_EMAILS`; anyone else gets page not found. A super admin reaches it from the
 Admin link in the workspace header on wider screens (the `lg` breakpoint, 1024 pixels, and up), or
 from the Admin command in the command palette at every width, which is the way in on a phone;
 neither is sent to anyone else. Each view is logged with the viewer's user id (`admin.viewed`).
@@ -624,14 +624,14 @@ full procedure is in the header of `scripts/rotate-encryption-key.ts`:
 2. Work out the id of the key in use now, the first 8 hex characters of its SHA-256:
    `printf '%s' "$OLD_KEY" | openssl base64 -d -A | shasum -a 256 | cut -c1-8` (the script also
    prints the current key id on every run).
-3. Set `DEVMACRO_ENCRYPTION_KEY` to the new key, add the old one to
-   `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key`, and deploy. New credentials use
+3. Set `STACKDASH_ENCRYPTION_KEY` to the new key, add the old one to
+   `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key`, and deploy. New credentials use
    the new key and old rows still decrypt.
 4. Once every running instance has the new configuration, run `npm run keys:rotate` with that
    environment's variables. It prints counts only and is safe to re-run; repeat until "remaining"
    is 0.
 5. After pending OAuth states sealed with the old key have expired, remove the old entry from
-   `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` and deploy again.
+   `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` and deploy again.
 
 Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1); those
 connections need reconnecting, and those alert channels need removing and adding again with their
@@ -722,7 +722,7 @@ e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   adapters.md                  writing a provider adapter: contract, harness, registration, review
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
-  getting-started.md           first steps for people using DevMacro, from sign-in to a published metric
+  getting-started.md           first steps for people using StackDash, from sign-in to a published metric
   mcp.md                       the MCP server: connecting an assistant, tools, resources, prompts
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
@@ -744,5 +744,5 @@ CONTRIBUTING.md says what that means for you. Everyone taking part follows the
 ## Third-party marks
 
 The platform logos on the landing page use path data from [Simple Icons](https://simpleicons.org)
-(CC0-1.0). The logos remain trademarks of their owners and identify the integrations DevMacro
+(CC0-1.0). The logos remain trademarks of their owners and identify the integrations StackDash
 connects to. Their use implies no endorsement.

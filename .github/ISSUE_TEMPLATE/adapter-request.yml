@@ -1,7 +1,7 @@
 # Adapter request (docs/adapters.md, "Before you start"). A maintainer answers with go or no-go
 # before anyone writes the adapter.
 name: Adapter request
-description: Ask for DevMacro to connect a new provider.
+description: Ask for StackDash to connect a new provider.
 title: "Adapter request: <provider name>"
 labels: ["enhancement", "area: integrations"]
 body:
@@ -30,7 +30,7 @@ body:
     id: oauth
     attributes:
       label: OAuth support
-      description: DevMacro connects with the OAuth authorization code flow only. It never asks for a pasted API key.
+      description: StackDash connects with the OAuth authorization code flow only. It never asks for a pasted API key.
       options:
         - Authorization code flow with PKCE
         - Authorization code flow without PKCE
@@ -47,7 +47,7 @@ body:
   - type: checkboxes
     id: capabilities
     attributes:
-      label: What DevMacro would report
+      label: What StackDash would report
       description: Tick every capability the provider's API can supply.
       options:
         - label: Usage (a quantity used in a period)
@@ -60,7 +60,7 @@ body:
     id: data
     attributes:
       label: Data collected
-      description: Each figure or event DevMacro would read, the endpoint it comes from, and its unit.
+      description: Each figure or event StackDash would read, the endpoint it comes from, and its unit.
     validations:
       required: true
   - type: textarea
@@ -74,7 +74,7 @@ body:
     id: risks
     attributes:
       label: Permission risks
-      description: Everything those scopes also allow beyond what DevMacro would read, such as writing, deleting, or reading personal data.
+      description: Everything those scopes also allow beyond what StackDash would read, such as writing, deleting, or reading personal data.
     validations:
       required: true
   - type: textarea

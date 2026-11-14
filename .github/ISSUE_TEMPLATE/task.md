@@ -1,6 +1,6 @@
 ---
 name: Task
-about: Planned work for the DevMacro board, written so anyone can pick it up cold
+about: Planned work for the StackDash board, written so anyone can pick it up cold
 title: "type(area): short imperative summary"
 labels: []
 assignees: []

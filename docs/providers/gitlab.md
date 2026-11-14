@@ -2,22 +2,22 @@
 
 Provider id: `gitlab`. Verification: documentation only. Docs checked 2026-11-05.
 
-DevMacro reads GitLab.com compute minutes, storage, and plan, plus pipelines, deployments, releases, and merged merge requests. It asks for the read-only `read_api` and `read_user` scopes.
+StackDash reads GitLab.com compute minutes, storage, and plan, plus pipelines, deployments, releases, and merged merge requests. It asks for the read-only `read_api` and `read_user` scopes.
 
-**Not yet confirmed with a real account.** Registering the OAuth application on GitLab.com is deferred, so everything below comes from GitLab's official documentation and was checked on 2026-11-05. The adapter is tested against sample responses copied from that documentation, not recorded traffic. Every claim that a real account still has to confirm is in [Unverified](#unverified). Until then, try GitLab locally with the simulator (`DEVMACRO_SIMULATE_PROVIDERS=1`).
+**Not yet confirmed with a real account.** Registering the OAuth application on GitLab.com is deferred, so everything below comes from GitLab's official documentation and was checked on 2026-11-05. The adapter is tested against sample responses copied from that documentation, not recorded traffic. Every claim that a real account still has to confirm is in [Unverified](#unverified). Until then, try GitLab locally with the simulator (`STACKDASH_SIMULATE_PROVIDERS=1`).
 
 ## Go or no-go
 
 **Go, GitLab.com only, with one estimate.** An OAuth application with the read-only `read_api` and `read_user` scopes reads compute minutes per namespace and per project, namespace storage and its limit, the plan, and activity: pipelines, deployments per environment, releases, and merged merge requests. Two limits shape it:
 
 - GitLab returns no dollar cost through these scopes, and the monthly compute quota (`shared_runners_minutes_limit`) is only returned to GitLab.com administrators. The quota is therefore derived from the plan and the pricing page, and labeled estimated.
-- Compute minutes and storage are only shown to the namespace's Owner (see [Unverified](#unverified)). DevMacro lists only namespaces the user owns (`owned_only=true`), so a member who is not an Owner gets no GitLab account at all. If GitLab still refuses the usage of a listed namespace, the connection lists it as unavailable and activity keeps arriving.
+- Compute minutes and storage are only shown to the namespace's Owner (see [Unverified](#unverified)). StackDash lists only namespaces the user owns (`owned_only=true`), so a member who is not an Owner gets no GitLab account at all. If GitLab still refuses the usage of a listed namespace, the connection lists it as unavailable and activity keeps arriving.
 
 Self-managed GitLab instances are out of scope: each would need its own OAuth app and API origin.
 
 ## Connection
 
-OAuth 2.0 authorization code flow with PKCE (S256), as a confidential application (DevMacro keeps the secret on the server).
+OAuth 2.0 authorization code flow with PKCE (S256), as a confidential application (StackDash keeps the secret on the server).
 
 | Item | Value |
 |---|---|
@@ -34,11 +34,11 @@ OAuth 2.0 authorization code flow with PKCE (S256), as a confidential applicatio
 
 ### Authorize
 
-Query: `client_id`, `redirect_uri`, `response_type=code`, `state`, `scope=read_api read_user`, `code_challenge`, `code_challenge_method=S256`. The scope is always sent: the guide describes `scope` as the list the app requests, and DevMacro never relies on what an omitted value means. `root_namespace_id` is only for groups with SAML SSO and is not sent (see [Limitations](#limitations)).
+Query: `client_id`, `redirect_uri`, `response_type=code`, `state`, `scope=read_api read_user`, `code_challenge`, `code_challenge_method=S256`. The scope is always sent: the guide describes `scope` as the list the app requests, and StackDash never relies on what an omitted value means. `root_namespace_id` is only for groups with SAML SSO and is not sent (see [Limitations](#limitations)).
 
 ### Token exchange
 
-`POST /oauth/token` with `client_id`, `client_secret`, `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`. The response holds `access_token`, `token_type` (`bearer`), `expires_in`, `refresh_token`, and `created_at`. The documented examples carry no `scope`; when GitLab sends one, DevMacro stores what was granted, otherwise the requested scopes.
+`POST /oauth/token` with `client_id`, `client_secret`, `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`. The response holds `access_token`, `token_type` (`bearer`), `expires_in`, `refresh_token`, and `created_at`. The documented examples carry no `scope`; when GitLab sends one, StackDash stores what was granted, otherwise the requested scopes.
 
 Then `GET /api/v4/user` (needs `read_user`) reads the user's id and username. They are kept on the stored credential, with the redirect URI, and nothing else from the profile is read.
 
@@ -46,12 +46,12 @@ Then `GET /api/v4/user` (needs `read_user`) reads the user's id and username. Th
 
 Access tokens expire after 2 hours. `POST /oauth/token` with `client_id`, `client_secret`, `grant_type=refresh_token`, `refresh_token`, and `redirect_uri` (the guide's example sends it and says it must match the authorize request). The refresh invalidates the old access token **and the old refresh token** and returns a new pair.
 
-DevMacro refreshes through the shared sync path (`refreshIfExpiring` in `src/lib/jobs/sync-connection.ts`): a token within 5 minutes of expiry is refreshed, the new pair is saved before anything else runs, and two syncs of one connection never run together, so two refreshes can never race and spend the same refresh token. `invalid_grant` on refresh means the grant is gone and the connection asks to be reconnected.
+StackDash refreshes through the shared sync path (`refreshIfExpiring` in `src/lib/jobs/sync-connection.ts`): a token within 5 minutes of expiry is refreshed, the new pair is saved before anything else runs, and two syncs of one connection never run together, so two refreshes can never race and spend the same refresh token. `invalid_grant` on refresh means the grant is gone and the connection asks to be reconnected.
 
 ### Disconnect and revoke
 
-- From DevMacro: `POST /oauth/revoke` with `client_id`, `client_secret`, and `token` (the refresh token, or the access token when no refresh token is stored). Success is `200` with `{}`. The stored credential is deleted either way.
-- From GitLab: avatar, **Edit profile**, **Access**, **Applications**, then **Revoke** next to DevMacro under **Authorized applications**. Without webhooks DevMacro finds out on the next sync, which fails with `401` and marks the connection as needing attention.
+- From StackDash: `POST /oauth/revoke` with `client_id`, `client_secret`, and `token` (the refresh token, or the access token when no refresh token is stored). Success is `200` with `{}`. The stored credential is deleted either way.
+- From GitLab: avatar, **Edit profile**, **Access**, **Applications**, then **Revoke** next to StackDash under **Authorized applications**. Without webhooks StackDash finds out on the next sync, which fails with `401` and marks the connection as needing attention.
 
 ## Permissions
 
@@ -75,7 +75,7 @@ One external account per **top-level namespace the user owns**: the personal nam
 One query per sync for the current UTC month (`$month` is the first day of the month):
 
 ```graphql
-query DevMacroUsage($fullPath: ID!, $namespaceId: NamespaceID!, $month: Date!, $projects: Int!) {
+query StackDashUsage($fullPath: ID!, $namespaceId: NamespaceID!, $month: Date!, $projects: Int!) {
   namespace(fullPath: $fullPath) { actualSizeLimit rootStorageStatistics { storageSize } }
   ciMinutesUsage(namespaceId: $namespaceId, date: $month, first: 1) { nodes { monthIso8601 minutes } }
   ciMinutesProjectMonthlyUsage(namespaceId: $namespaceId, date: $month, first: $projects) {
@@ -110,27 +110,27 @@ The dashboard headline's deploys count `gitlab.deployment.succeeded` as a succee
 
 ## Achievements
 
-DevMacro evaluates these for each project the GitLab accounts are assigned to, from the GitLab data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the GitLab accounts are assigned to, from the GitLab data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 The deployment ladder is the same on Vercel, Railway, and DigitalOcean. It counts `gitlab.deployment.succeeded` events, and a `gitlab.deployment.failed` event breaks a run of deployments in a row. The pipeline achievements count `gitlab.pipeline.succeeded` events, broken by `gitlab.pipeline.failed`; the merge request ones count `gitlab.merge_request.merged`, and the release ones `gitlab.release.published`. Days, hours, and weekdays are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `gitlab.deployments.first` | First GitLab deployment recorded | Earned when DevMacro records the first successful GitLab deployment. |
-| `gitlab.deployments.10` | 10 GitLab deployments recorded | Earned when DevMacro records the 10th successful GitLab deployment. |
-| `gitlab.deployments.100` | 100 GitLab deployments recorded | Earned when DevMacro records the 100th successful GitLab deployment. |
-| `gitlab.deployments.streak_10` | 10 GitLab deployments in a row | Earned when DevMacro records 10 successful GitLab deployments in a row, with no failed deployment between them. |
-| `gitlab.deployments.night_owl` | Night owl: a GitLab deployment between midnight and 5 am | Earned when DevMacro records a successful GitLab deployment between midnight and 5 am London time. |
-| `gitlab.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when DevMacro records a successful GitLab deployment on a Friday between 4 pm and midnight London time. |
-| `gitlab.deployments.busy_day` | Busy day: 10 GitLab deployments in one day | Earned when DevMacro records 10 successful GitLab deployments on one London calendar day. |
-| `gitlab.deployments.weekly_rhythm` | Weekly rhythm: a GitLab deployment on 7 days in a row | Earned when DevMacro records a successful GitLab deployment on each of 7 consecutive London calendar days. |
-| `gitlab.pipelines.100` | 100 GitLab pipelines passed | Earned when DevMacro records the 100th successful GitLab pipeline. |
-| `gitlab.pipelines.green_streak` | Green streak: 25 pipelines passed in a row | Earned when DevMacro records 25 successful GitLab pipelines in a row, with no failed pipeline between them. |
-| `gitlab.merge_requests.first` | First merge request merged | Earned when DevMacro records the first merged GitLab merge request. |
-| `gitlab.merge_requests.100` | 100 merge requests merged | Earned when DevMacro records the 100th merged GitLab merge request. |
-| `gitlab.merge_requests.marathon` | Merge marathon: 10 merge requests in one day | Earned when DevMacro records 10 merged GitLab merge requests on one London calendar day. |
-| `gitlab.releases.first` | First GitLab release published | Earned when DevMacro records the first published GitLab release. |
-| `gitlab.releases.10` | 10 GitLab releases published | Earned when DevMacro records the 10th published GitLab release. |
+| `gitlab.deployments.first` | First GitLab deployment recorded | Earned when StackDash records the first successful GitLab deployment. |
+| `gitlab.deployments.10` | 10 GitLab deployments recorded | Earned when StackDash records the 10th successful GitLab deployment. |
+| `gitlab.deployments.100` | 100 GitLab deployments recorded | Earned when StackDash records the 100th successful GitLab deployment. |
+| `gitlab.deployments.streak_10` | 10 GitLab deployments in a row | Earned when StackDash records 10 successful GitLab deployments in a row, with no failed deployment between them. |
+| `gitlab.deployments.night_owl` | Night owl: a GitLab deployment between midnight and 5 am | Earned when StackDash records a successful GitLab deployment between midnight and 5 am London time. |
+| `gitlab.deployments.friday_ship` | Shipped on a Friday afternoon | Earned when StackDash records a successful GitLab deployment on a Friday between 4 pm and midnight London time. |
+| `gitlab.deployments.busy_day` | Busy day: 10 GitLab deployments in one day | Earned when StackDash records 10 successful GitLab deployments on one London calendar day. |
+| `gitlab.deployments.weekly_rhythm` | Weekly rhythm: a GitLab deployment on 7 days in a row | Earned when StackDash records a successful GitLab deployment on each of 7 consecutive London calendar days. |
+| `gitlab.pipelines.100` | 100 GitLab pipelines passed | Earned when StackDash records the 100th successful GitLab pipeline. |
+| `gitlab.pipelines.green_streak` | Green streak: 25 pipelines passed in a row | Earned when StackDash records 25 successful GitLab pipelines in a row, with no failed pipeline between them. |
+| `gitlab.merge_requests.first` | First merge request merged | Earned when StackDash records the first merged GitLab merge request. |
+| `gitlab.merge_requests.100` | 100 merge requests merged | Earned when StackDash records the 100th merged GitLab merge request. |
+| `gitlab.merge_requests.marathon` | Merge marathon: 10 merge requests in one day | Earned when StackDash records 10 merged GitLab merge requests on one London calendar day. |
+| `gitlab.releases.first` | First GitLab release published | Earned when StackDash records the first published GitLab release. |
+| `gitlab.releases.10` | 10 GitLab releases published | Earned when StackDash records the 10th published GitLab release. |
 
 ## Verified, estimated, unavailable
 
@@ -149,18 +149,18 @@ Every metric carries its unit, period, and retrieval time; estimated ones carry 
 
 ## Rate limits
 
-GitLab.com allows 2,000 authenticated API requests a minute per user, 600 a minute on `GET /groups/:id/projects`, and 300 a minute on `GET /users/:user_id/projects`. A throttled request gets `429` with `Retry-After` in seconds, which DevMacro honors. One hourly sync is at most 1 namespace read, 1 GraphQL query, 1 project list, and 40 project requests (10 projects, 4 each), about 43 requests an hour per namespace. GraphQL queries are limited to a complexity of 250 and 100 nodes a page; the usage query asks for at most 20 project nodes.
+GitLab.com allows 2,000 authenticated API requests a minute per user, 600 a minute on `GET /groups/:id/projects`, and 300 a minute on `GET /users/:user_id/projects`. A throttled request gets `429` with `Retry-After` in seconds, which StackDash honors. One hourly sync is at most 1 namespace read, 1 GraphQL query, 1 project list, and 40 project requests (10 projects, 4 each), about 43 requests an hour per namespace. GraphQL queries are limited to a complexity of 250 and 100 nodes a page; the usage query asks for at most 20 project nodes.
 
 ## Webhooks (Post-MVP)
 
-Polling only. Project and group webhooks are created through the API with the `api` scope, which is read and write, so DevMacro does not request it. When webhooks arrive, pipeline, deployment, release, and merge request events would replace the activity polling; compute minutes and storage would stay polled.
+Polling only. Project and group webhooks are created through the API with the `api` scope, which is read and write, so StackDash does not request it. When webhooks arrive, pipeline, deployment, release, and merge request events would replace the activity polling; compute minutes and storage would stay polled.
 
 ## Permission risks
 
 Disclose these on the connect screen before redirecting:
 
-- **`read_api` is broad.** It reads everything the user can see through the API: source code through the repository files API, issues, merge request contents, CI/CD job logs, and the container and package registries, across every group and project the user belongs to. DevMacro calls only the endpoints listed in [Data](#data).
-- **`read_user`** reads the user's profile, including public email and full name. DevMacro keeps only the user id and username.
+- **`read_api` is broad.** It reads everything the user can see through the API: source code through the repository files API, issues, merge request contents, CI/CD job logs, and the container and package registries, across every group and project the user belongs to. StackDash calls only the endpoints listed in [Data](#data).
+- **`read_user`** reads the user's profile, including public email and full name. StackDash keeps only the user id and username.
 - The access token lasts 2 hours, but the refresh token has no documented expiry, so a stored refresh token keeps access alive until it is revoked. It is encrypted at rest and rotates on every refresh.
 - The client secret can exchange any code issued to the app. Store it only in the server environment, and use **Renew secret** in the application settings to rotate it.
 
@@ -171,7 +171,7 @@ Disclose these on the connect screen before redirecting:
 - Usage needs the Owner role. Every listed namespace is one the user owns; the missing permission notice is the fallback if GitLab still refuses usage for one of them.
 - Activity covers the 10 most recently active projects per namespace and one page per endpoint and project per sync.
 - Pipeline and deployment times are `updated_at`, which can be later than the finish time if the record changes afterwards.
-- Groups with SAML SSO may need `root_namespace_id` on the authorize URL; DevMacro does not send it yet.
+- Groups with SAML SSO may need `root_namespace_id` on the authorize URL; StackDash does not send it yet.
 - Namespaces owned through a group where the user is an Owner but not the creator may not be listed by `owned_only` (see [Unverified](#unverified)).
 
 ## Self-hosted registration
@@ -179,9 +179,9 @@ Disclose these on the connect screen before redirecting:
 Each deployment registers its own GitLab.com application, because the callback URL and client secret belong to one deployment.
 
 1. On GitLab.com, select your avatar, then **Edit profile**, then **Access**, then **Applications**, then **Add new application**. To own it as a group, open the group's **Settings**, then **Applications** instead.
-2. **Name**: for example `DevMacro (your name)`.
+2. **Name**: for example `StackDash (your name)`.
 3. **Redirect URI**: `<SITE_URL>/api/connections/gitlab/callback`.
-4. **Confidential**: checked. DevMacro keeps the secret on the server.
+4. **Confidential**: checked. StackDash keeps the secret on the server.
 5. **Scopes**: `read_api` and `read_user`. Nothing else.
 6. **Save application**. Copy the **Application ID** and, with **Copy**, the **Secret**.
 7. Set the environment variables:
@@ -296,9 +296,9 @@ All from GitLab's API reference (checked 2026-11-05), trimmed, with synthetic na
 
 Confirm with a real GitLab.com account and a test group once the application is registered:
 
-- That the token response carries `scope`, and in which form (space separated is assumed). Without it, DevMacro records the requested scopes.
+- That the token response carries `scope`, and in which form (space separated is assumed). Without it, StackDash records the requested scopes.
 - That the refresh request needs `redirect_uri` (the guide's example sends it; RFC 6749 does not require it) and that `invalid_grant` is the error for a spent or revoked refresh token.
-- That revoking the refresh token also ends its access token and removes DevMacro from **Authorized applications**.
+- That revoking the refresh token also ends its access token and removes StackDash from **Authorized applications**.
 - That OAuth tokens with `read_api` are accepted by the releases endpoints (their page only names personal access tokens and job tokens).
 - That `owned_only=true` lists every top-level group where the user has the Owner role, and not only groups the user created.
 - Who may read `ciMinutesUsage`, `ciMinutesProjectMonthlyUsage`, and `rootStorageStatistics` (Owner is assumed, from the Usage Quotas page). That a refused field is `null` with no error is documented ([GraphQL API, "Authorization"](https://docs.gitlab.com/api/graphql/#authorization)); which role GitLab checks for these three fields is not.

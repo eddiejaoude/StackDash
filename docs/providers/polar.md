@@ -2,19 +2,19 @@
 
 Provider id: `polar`. Verification: documentation only. Docs checked 2026-11-05 against Polar API version `2026-10`.
 
-DevMacro reads your Polar revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. It asks for six read-only scopes and never writes to Polar.
+StackDash reads your Polar revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. It asks for six read-only scopes and never writes to Polar.
 
-**Not yet confirmed with a real Polar account.** DevMacro has not registered a Polar OAuth client yet. Everything below comes from Polar's documentation, and every claim that only a real account can confirm is listed under [Unverified](#unverified). The adapter's tests run against sample responses built from the API reference, and the simulated Polar provider (`DEVMACRO_SIMULATE_PROVIDERS=1`) shows the whole flow locally without an account.
+**Not yet confirmed with a real Polar account.** StackDash has not registered a Polar OAuth client yet. Everything below comes from Polar's documentation, and every claim that only a real account can confirm is listed under [Unverified](#unverified). The adapter's tests run against sample responses built from the API reference, and the simulated Polar provider (`STACKDASH_SIMULATE_PROVIDERS=1`) shows the whole flow locally without an account.
 
 ## Go or no-go
 
-**Go for demos with the simulated provider. No-go for real connections until the Unverified list is checked with a real organization.** Polar has OAuth 2.0 with PKCE and read-only scopes for everything DevMacro reads: revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. All money comes from Polar's own analytics endpoint, so DevMacro shows Polar's numbers rather than recomputing them from orders.
+**Go for demos with the simulated provider. No-go for real connections until the Unverified list is checked with a real organization.** Polar has OAuth 2.0 with PKCE and read-only scopes for everything StackDash reads: revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. All money comes from Polar's own analytics endpoint, so StackDash shows Polar's numbers rather than recomputing them from orders.
 
 Push events would need `webhooks:write`, which is not read-only, so the timeline is polled.
 
 ## Connection
 
-OAuth 2.0 authorization code flow with PKCE (S256), as a confidential client. Polar implements OpenID Connect; DevMacro does not request `openid` because it needs no identity claims.
+OAuth 2.0 authorization code flow with PKCE (S256), as a confidential client. Polar implements OpenID Connect; StackDash does not request `openid` because it needs no identity claims.
 
 | Item | Value |
 |---|---|
@@ -26,8 +26,8 @@ OAuth 2.0 authorization code flow with PKCE (S256), as a confidential client. Po
 | API base URL | `https://api.polar.sh/v1` |
 | API version header | `Polar-Version: 2026-10` on every call, including the OAuth2 token and revoke requests (both are in the `2026-10` reference). `2026-10` was the Current version on 2026-11-05. Without it Polar uses Current, which changes every quarter. `2026-10` is removed in the first week of April 2027; see [Limitations](#limitations) |
 | Client authentication | `client_id` and `client_secret` in the form body (`client_secret_post`, as in Polar's token request reference). `client_secret_basic` is also advertised |
-| PKCE | `S256`, advertised in the discovery document. DevMacro always sends it |
-| Access token | 864000 seconds (10 days) in Polar's example; DevMacro reads `expires_in` from each response. Prefix `polar_at_` |
+| PKCE | `S256`, advertised in the discovery document. StackDash always sends it |
+| Access token | 864000 seconds (10 days) in Polar's example; StackDash reads `expires_in` from each response. Prefix `polar_at_` |
 | Refresh token | Returned with the access token. Prefix `polar_rt_`. Lifetime not documented |
 | Sandbox | A separate environment (`https://sandbox.polar.sh`, `https://sandbox-api.polar.sh/v1`) with its own OAuth clients. Not supported by the adapter; see [Limitations](#limitations) |
 
@@ -52,14 +52,14 @@ The callback carries `code` and `state`, and `iss` when Polar sends it: the disc
 
 ### Disconnect and revoke
 
-- From DevMacro: disconnecting revokes the refresh token, then the access token, at `POST /v1/oauth2/revoke` with `token`, `token_type_hint`, `client_id`, `client_secret`. Polar answers `200` with `{}`. Both are revoked because the docs do not say whether revoking one ends the other.
-- From Polar: the user can remove the app's access in their Polar account. Without webhooks DevMacro finds out on the next sync, when the API answers `401` and the connection asks to reconnect.
+- From StackDash: disconnecting revokes the refresh token, then the access token, at `POST /v1/oauth2/revoke` with `token`, `token_type_hint`, `client_id`, `client_secret`. Polar answers `200` with `{}`. Both are revoked because the docs do not say whether revoking one ends the other.
+- From Polar: the user can remove the app's access in their Polar account. Without webhooks StackDash finds out on the next sync, when the API answers `401` and the connection asks to reconnect.
 
 ## Permissions
 
 All read-only. Descriptions in the second column are Polar's own wording from the authorize schema.
 
-| Scope | Polar's description | Why DevMacro asks |
+| Scope | Polar's description | Why StackDash asks |
 |---|---|---|
 | `organizations:read` | Read your organizations | Lists the organizations the grant reaches, so each becomes an external account |
 | `metrics:read` | Read metrics | Revenue, net revenue (for Polar fees), MRR, ARR, orders, and subscription counts from `GET /v1/metrics/` |
@@ -68,7 +68,7 @@ All read-only. Descriptions in the second column are Polar's own wording from th
 | `customers:read` | Read customers | Counting new customers this month |
 | `refunds:read` | Read refunds made on your organizations | Refunds on the timeline |
 
-Not requested: `webhooks:write` (push events, not read-only), `webhooks:read` (DevMacro has no webhook to read), `openid`, `profile`, `email`, `user:read` (no identity needed), `payments:read`, `transactions:read`, `payouts:read`, and every `:write` scope.
+Not requested: `webhooks:write` (push events, not read-only), `webhooks:read` (StackDash has no webhook to read), `openid`, `profile`, `email`, `user:read` (no identity needed), `payments:read`, `transactions:read`, `payouts:read`, and every `:write` scope.
 
 ## Data
 
@@ -80,7 +80,7 @@ Not requested: `webhooks:write` (push events, not read-only), `webhooks:read` (D
 
 One call per organization per sync: `start_date` the first of the current UTC month, `end_date` today, `interval=day`, `timezone=UTC`, `organization_id`, and one `metrics` parameter for each field in the table below, so Polar runs only those queries instead of every series in its schema. The response has one period per day. Currency values are documented as "output in cents"; the response carries no currency field (see [Units](#units-freshness-retention)).
 
-| Polar field | DevMacro metric | Kind | How |
+| Polar field | StackDash metric | Kind | How |
 |---|---|---|---|
 | `revenue` | `polar.revenue.month.usd`, "Revenue before fees, this month (USD)" | `revenue` | Sum of the month's days |
 | `revenue` minus `net_revenue` | `polar.fees.month.usd`, "Polar fees, this month (USD)" | `verified_spend` | Sum of the month's days. Polar defines net revenue as "revenue after deducting Polar's platform fee and the payment processor's fee on each order" ([Analytics](https://polar.sh/docs/features/analytics)) |
@@ -125,25 +125,25 @@ Every event type here needs only a read scope; none was left out for needing a w
 - Money: integer cents in USD. The metrics endpoint has no currency field. Polar settles in USD ("Polar's settlement currency (USD)" in the organization schema), and Polar's [multi-currency design document](https://handbook.polar.sh/engineering/design-documents/multi-currency) says metrics are computed in USD. Unverified item 3.
 - Counts: orders, subscriptions, and customers, as numbers with those units.
 - Periods: UTC days from the first of the month to now. Month totals are period metrics from the first of the month to the read time, so the dashboard counts them in the current billing period. MRR, ARR, and active subscriptions are point readings at the read time.
-- Freshness: not documented. DevMacro polls hourly.
+- Freshness: not documented. StackDash polls hourly.
 - Retention: the metrics endpoint has a minimum date per organization (`GET /v1/metrics/limits`, `min_date`); a month to date is always inside it.
 
 ## Achievements
 
-DevMacro evaluates these for each project the Polar accounts are assigned to, from the Polar data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the Polar accounts are assigned to, from the Polar data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 Counts only, never amounts. The payment and subscription ladder is the same on Stripe, except for Stripe's customer achievements: Polar has no customer event. Payments count `polar.order.paid` events and subscriptions `polar.subscription.started`. Days and hours are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `polar.payments.first` | First Polar payment recorded | Earned when DevMacro records the first successful Polar payment. |
-| `polar.payments.10` | 10 Polar payments recorded | Earned when DevMacro records the 10th successful Polar payment. |
-| `polar.payments.100` | 100 Polar payments recorded | Earned when DevMacro records the 100th successful Polar payment. |
-| `polar.payments.1000` | 1,000 Polar payments recorded | Earned when DevMacro records the 1,000th successful Polar payment. |
-| `polar.payments.payday` | Payday: 10 payments in one day | Earned when DevMacro records 10 successful Polar payments on one London calendar day. |
-| `polar.payments.while_you_slept` | While you slept: a payment between midnight and 5 am | Earned when DevMacro records a successful Polar payment between midnight and 5 am London time. |
-| `polar.subscriptions.first` | First Polar subscription recorded | Earned when DevMacro records the first new Polar subscription. |
-| `polar.subscriptions.10` | 10 Polar subscriptions recorded | Earned when DevMacro records the 10th new Polar subscription. |
+| `polar.payments.first` | First Polar payment recorded | Earned when StackDash records the first successful Polar payment. |
+| `polar.payments.10` | 10 Polar payments recorded | Earned when StackDash records the 10th successful Polar payment. |
+| `polar.payments.100` | 100 Polar payments recorded | Earned when StackDash records the 100th successful Polar payment. |
+| `polar.payments.1000` | 1,000 Polar payments recorded | Earned when StackDash records the 1,000th successful Polar payment. |
+| `polar.payments.payday` | Payday: 10 payments in one day | Earned when StackDash records 10 successful Polar payments on one London calendar day. |
+| `polar.payments.while_you_slept` | While you slept: a payment between midnight and 5 am | Earned when StackDash records a successful Polar payment between midnight and 5 am London time. |
+| `polar.subscriptions.first` | First Polar subscription recorded | Earned when StackDash records the first new Polar subscription. |
+| `polar.subscriptions.10` | 10 Polar subscriptions recorded | Earned when StackDash records the 10th new Polar subscription. |
 
 ## Verified, estimated, unavailable
 
@@ -153,7 +153,7 @@ Counts only, never amounts. The payment and subscription ladder is the same on S
 | Polar fees this month | Verified: revenue minus net revenue, both from Polar. Not inferred from a price list |
 | New customers this month | Verified count of customers Polar lists as created this month |
 | Paid orders, new and canceled subscriptions, refunds | Verified events with Polar ids and times, and each order's and refund's amount in its own currency |
-| Revenue in the currency the customer paid | Unavailable: analytics are in USD only. Orders carry their own currency but are not summed by DevMacro |
+| Revenue in the currency the customer paid | Unavailable: analytics are in USD only. Orders carry their own currency but are not summed by StackDash |
 | Payout fees (Stripe's fees on Polar payouts) | Unavailable: not part of net revenue |
 | Dispute fees | Unavailable: deducted from the balance, not reported per order |
 | Customer names, emails, addresses | Never collected |
@@ -172,8 +172,8 @@ Polling only. Polar's webhook endpoints need `webhooks:write` to create, which i
 
 Disclose these on the connect screen before redirecting:
 
-- **`customers:read`** returns every customer's email, name, billing address, and tax id. DevMacro parses only `id` and `created_at` and drops the rest at the parse boundary, but the token can read all of it.
-- **`orders:read` and `subscriptions:read`** responses embed the customer and their billing details, and subscriptions carry the customer's free text cancellation comment. DevMacro keeps only ids, statuses, times, Polar's enum reason codes, and each order's and refund's amount and currency.
+- **`customers:read`** returns every customer's email, name, billing address, and tax id. StackDash parses only `id` and `created_at` and drops the rest at the parse boundary, but the token can read all of it.
+- **`orders:read` and `subscriptions:read`** responses embed the customer and their billing details, and subscriptions carry the customer's free text cancellation comment. StackDash keeps only ids, statuses, times, Polar's enum reason codes, and each order's and refund's amount and currency.
 - The token is **user-scoped**: unless the user limits it on the consent screen, it reaches every organization the user belongs to now or joins later.
 - The access token lasts 10 days and the refresh token longer. Both are encrypted at rest and revoked on disconnect.
 
@@ -191,8 +191,8 @@ Disclose these on the connect screen before redirecting:
 Each deployment registers its own OAuth client, because the redirect URI and client secret belong to one deployment.
 
 1. Polar, **Account Settings**, **Developer** ([direct link](https://polar.sh/dashboard/account/developer)), and create an OAuth 2.0 client.
-2. **Application name**: for example `DevMacro (your name)`. It is shown to users on the consent screen.
-3. **Client type**: confidential (not a public client). DevMacro keeps the secret on the server and sends PKCE as well.
+2. **Application name**: for example `StackDash (your name)`. It is shown to users on the consent screen.
+3. **Client type**: confidential (not a public client). StackDash keeps the secret on the server and sends PKCE as well.
 4. **Redirect URIs**: `<SITE_URL>/api/connections/polar/callback`. HTTPS is required except for `localhost`, so a local development client can use `http://localhost:3000/api/connections/polar/callback`.
 5. **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`. Nothing else.
 6. **Homepage URL**: `<SITE_URL>`. Optionally add the terms of service and privacy policy URLs; Polar shows them on the consent screen.

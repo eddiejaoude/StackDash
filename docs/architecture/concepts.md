@@ -6,7 +6,7 @@ A workspace holds everything. A connection is one OAuth grant to a provider, eac
 |---|---|---|---|
 | Workspace | The tenant: members, roles, and every row below | Sign-up (personal workspace) | `workspaces`, `workspace_members` |
 | Connection | One OAuth grant to one provider | An admin, on the Connections page | `connections` |
-| External account | One thing a provider bills or measures: a team, an organization, a Stripe account, a Supabase project | DevMacro, when a connection is made or reconnected | `external_accounts` |
+| External account | One thing a provider bills or measures: a team, an organization, a Stripe account, a Supabase project | StackDash, when a connection is made or reconnected | `external_accounts` |
 | Project | A group of external accounts, usually one product | An admin, on the Projects page | `projects` |
 
 ## Workspace
@@ -20,7 +20,7 @@ The workspace is the tenant and the security boundary. Every other row carries a
 
 ## Connection
 
-A connection is one OAuth grant from one provider account to one workspace. DevMacro never asks for API keys.
+A connection is one OAuth grant from one provider account to one workspace. StackDash never asks for API keys.
 
 - The connection holds the sync state: status, polling interval, next and last sync time, and missing permissions. Its tokens are encrypted in `connection_credentials`, which only the server can read.
 - The scheduler syncs one connection per job. See [Jobs](../operations/jobs.md).
@@ -28,7 +28,7 @@ A connection is one OAuth grant from one provider account to one workspace. DevM
 
 ## External account
 
-An external account is the thing a provider actually bills or measures. In the app it is called an account, and it appears under its connection on the connection's page. You never create one: when a connection is made, the provider adapter lists the accounts the grant reaches and DevMacro stores them. Reconnecting lists them again, adds any new ones, and keeps each existing account's project and included choice. Syncing never adds accounts, and nothing removes one except deleting its connection: an account the provider stops listing stays, with its history, until then.
+An external account is the thing a provider actually bills or measures. In the app it is called an account, and it appears under its connection on the connection's page. You never create one: when a connection is made, the provider adapter lists the accounts the grant reaches and StackDash stores them. Reconnecting lists them again, adds any new ones, and keeps each existing account's project and included choice. Syncing never adds accounts, and nothing removes one except deleting its connection: an account the provider stops listing stays, with its history, until then.
 
 | Provider | Kind | What one external account is |
 |---|---|---|
@@ -76,12 +76,12 @@ The delete dialog counts each of these before an owner or admin confirms.
 
 | Word | Meaning on this page | The other meaning |
 |---|---|---|
-| Account | An external account: something at a provider that DevMacro measures | Your DevMacro sign-in, managed on the Account page. Deleting it deletes the workspaces where you are the only member, and is blocked while you are the only owner of a workspace that has other members |
-| Project | A DevMacro project: your group of external accounts | A Supabase project, which DevMacro treats as an external account of kind `project`. It can be assigned to a DevMacro project like any other account |
+| Account | An external account: something at a provider that StackDash measures | Your StackDash sign-in, managed on the Account page. Deleting it deletes the workspaces where you are the only member, and is blocked while you are the only owner of a workspace that has other members |
+| Project | A StackDash project: your group of external accounts | A Supabase project, which StackDash treats as an external account of kind `project`. It can be assigned to a StackDash project like any other account |
 
 ## Example
 
-1. Sign in. DevMacro creates your personal workspace.
+1. Sign in. StackDash creates your personal workspace.
 2. Connect Vercel. That creates a connection and stores its external account, the team "My team".
 3. Connect Supabase. That stores one external account per Supabase project, including "storefront-db".
 4. Create the project Storefront and assign "My team" and "storefront-db" to it.

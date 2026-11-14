@@ -2,7 +2,7 @@
 
 Provider id: `supabase`. Verification: documentation only.
 
-DevMacro reads your Supabase organization's plan and limits, each project's health, and auth activity: signups, logins, logouts, deleted users, and daily active users. It asks for three read-only scopes, never reads database rows, and stores counts and timestamps only.
+StackDash reads your Supabase organization's plan and limits, each project's health, and auth activity: signups, logins, logouts, deleted users, and daily active users. It asks for three read-only scopes, never reads database rows, and stores counts and timestamps only.
 
 All facts below were checked against Supabase's documentation and the Management API OpenAPI spec on 2026-10-31. Anything not confirmed by those sources is marked unverified and listed in [Unverified](#unverified).
 
@@ -44,12 +44,12 @@ Query parameters ([OAuth guide](https://supabase.com/docs/guides/integrations/bu
 | `client_id` | `SUPABASE_OAUTH_CLIENT_ID` (a UUID) |
 | `redirect_uri` | `<SITE_URL>/api/connections/supabase/callback` |
 | `response_type` | `code` |
-| `state` | Opaque, unguessable value bound to the DevMacro session. `redirect_uri` and `state` together must stay under 4 kB |
+| `state` | Opaque, unguessable value bound to the StackDash session. `redirect_uri` and `state` together must stay under 4 kB |
 | `code_challenge` | Base64url SHA-256 of the code verifier |
 | `code_challenge_method` | `S256` |
 | `organization_slug` | Optional. Pre-selects an organization on the consent screen |
 
-Do not send `scope`. The guide marks it deprecated: scopes are set on the OAuth app itself. Supabase strongly recommends PKCE, and DevMacro always uses it.
+Do not send `scope`. The guide marks it deprecated: scopes are set on the OAuth app itself. Supabase strongly recommends PKCE, and StackDash always uses it.
 
 On consent, Supabase redirects to `redirect_uri` with `code` and `state`. Compare `state` with the stored value before anything else.
 
@@ -74,17 +74,17 @@ On disconnect, call `POST /v1/oauth/revoke` with JSON `{ "client_id", "client_se
 
 Scopes are configured on the OAuth app, not per request. Changing them later forces every connected user through the OAuth flow again ([OAuth scopes](https://supabase.com/docs/guides/integrations/build-a-supabase-oauth-integration/oauth-scopes)). Choose them once.
 
-| Scope | Endpoints DevMacro uses (scope from the OpenAPI `x-oauth-scope` of each operation) |
+| Scope | Endpoints StackDash uses (scope from the OpenAPI `x-oauth-scope` of each operation) |
 |---|---|
 | `organizations:read` | `GET /v1/organizations`, `GET /v1/organizations/{slug}`, `GET /v1/organizations/{slug}/entitlements` |
 | `projects:read` | `GET /v1/organizations/{slug}/projects`, `GET /v1/projects`, `GET /v1/projects/{ref}`, `GET /v1/projects/{ref}/health` |
 | `analytics:read` | `GET /v1/projects/{ref}/analytics/endpoints/logs`, `GET /v1/projects/{ref}/analytics/endpoints/metrics` |
 
-`organizations:read` also unlocks `GET /v1/organizations/{slug}/members`, which returns member `email`, `user_id`, and `user_name`. DevMacro never calls it.
+`organizations:read` also unlocks `GET /v1/organizations/{slug}/members`, which returns member `email`, `user_id`, and `user_name`. StackDash never calls it.
 
 #### Why never `database:read`
 
-`database:read` unlocks `POST /v1/projects/{ref}/database/query/read-only`, which runs arbitrary SQL "as supabase_read_only_user". In Supabase's Postgres init script that role is created `with login bypassrls` and granted `pg_read_all_data` ([initial schema](https://raw.githubusercontent.com/supabase/postgres/develop/migrations/db/init-scripts/00000000000000-initial-schema.sql), lines 19 and 20). It reads every row of every table, row level security ignored, including `auth.users` emails and phone numbers. The optional `auth.audit_log_entries` table is only reachable this way too. DevMacro needs counts, not rows, so it must not hold this scope.
+`database:read` unlocks `POST /v1/projects/{ref}/database/query/read-only`, which runs arbitrary SQL "as supabase_read_only_user". In Supabase's Postgres init script that role is created `with login bypassrls` and granted `pg_read_all_data` ([initial schema](https://raw.githubusercontent.com/supabase/postgres/develop/migrations/db/init-scripts/00000000000000-initial-schema.sql), lines 19 and 20). It reads every row of every table, row level security ignored, including `auth.users` emails and phone numbers. The optional `auth.audit_log_entries` table is only reachable this way too. StackDash needs counts, not rows, so it must not hold this scope.
 
 #### Disclosure before connecting
 
@@ -92,10 +92,10 @@ Shown to the user before the redirect, in plain words:
 
 - Read your organization name, plan, and plan limits.
 - Read your projects' names, regions, status, and service health.
-- Read your projects' logs, including auth logs, to count signups, logins, and active users. DevMacro keeps only counts and timestamps, never emails, IP addresses, or user ids.
-- DevMacro cannot read your database tables or change anything.
+- Read your projects' logs, including auth logs, to count signups, logins, and active users. StackDash keeps only counts and timestamps, never emails, IP addresses, or user ids.
+- StackDash cannot read your database tables or change anything.
 
-The third line matters: `analytics:read` returns raw log rows on request, and those rows can contain emails and IP addresses. The privacy guarantee comes from the queries DevMacro sends, not from the scope.
+The third line matters: `analytics:read` returns raw log rows on request, and those rows can contain emails and IP addresses. The privacy guarantee comes from the queries StackDash sends, not from the scope.
 
 ## Data
 
@@ -112,7 +112,7 @@ Prefer the organization-scoped list: it is paginated and its rate limit is track
 - `GET /v1/organizations/{slug}` returns `id`, `name`, `plan` (`free`, `pro`, `team`, `enterprise`, `platform`), `opt_in_tags`, `allowed_release_channels`.
 - `GET /v1/organizations/{slug}/entitlements` returns `entitlements[]`, each with `feature.key`, `feature.type` (`boolean`, `numeric`, `set`), `hasAccess`, `type`, and `config`. A numeric `config` has `enabled`, `value`, `unlimited`, `unit`.
 
-Keys DevMacro reads (from the documented enum):
+Keys StackDash reads (from the documented enum):
 
 | Key | Use |
 |---|---|
@@ -149,7 +149,7 @@ Query rules from the docs: every event is a row in `logs`; filter by source; lis
 
 The [log field reference](https://supabase.com/docs/guides/observability/log-field-reference) lists source `auth_audit_logs` ("Auth audit events") with these fields:
 
-| ClickHouse field | DevMacro |
+| ClickHouse field | StackDash |
 |---|---|
 | `timestamp` | Read |
 | `log_attributes['auth_audit_event.action']` | Read (filter and group only) |
@@ -158,11 +158,11 @@ The [log field reference](https://supabase.com/docs/guides/observability/log-fie
 | `log_attributes['auth_audit_event.user_agent']`, `request_id`, `audit_log_id`, `log_type`, `created_at`, `actor_via_sso` | Never selected |
 | `id`, `event_message`, `identifier`, `host`, `level`, `msg` | Never selected. `event_message` may embed the whole event |
 
-`auth_logs` (the Auth server's own log) also carries `auth_event.action` alongside `auth_event.traits.user_email` and `remote_addr`. DevMacro uses `auth_audit_logs` only.
+`auth_logs` (the Auth server's own log) also carries `auth_event.action` alongside `auth_event.traits.user_email` and `remote_addr`. StackDash uses `auth_audit_logs` only.
 
-Actions DevMacro counts ([auth audit logs](https://supabase.com/docs/guides/auth/audit-logs)):
+Actions StackDash counts ([auth audit logs](https://supabase.com/docs/guides/auth/audit-logs)):
 
-| Action | Documented meaning | DevMacro use |
+| Action | Documented meaning | StackDash use |
 |---|---|---|
 | `user_signedup` | New user registration | "New signup" timeline event, one per row |
 | `login` | User sign-in attempt | Daily login count; daily active users |
@@ -246,19 +246,19 @@ The metrics endpoint is the only documented path to database size with these sco
 
 ## Achievements
 
-DevMacro evaluates these for each project the Supabase accounts are assigned to, from the Supabase data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the Supabase accounts are assigned to, from the Supabase data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
 The signup ladder is the same on PostHog. It counts `supabase.auth.signup` events. Rush hour and Night owls are Supabase's own, because PostHog reports only a total per day. Days and hours are London time.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `supabase.signups.first` | First Supabase signup recorded | Earned when DevMacro records the first Supabase signup. |
-| `supabase.signups.10` | 10 Supabase signups recorded | Earned when DevMacro records the 10th Supabase signup. |
-| `supabase.signups.100` | 100 Supabase signups recorded | Earned when DevMacro records the 100th Supabase signup. |
-| `supabase.signups.1000` | 1,000 Supabase signups recorded | Earned when DevMacro records the 1,000th Supabase signup. |
-| `supabase.signups.big_day` | Big day: 100 signups in one day | Earned when DevMacro records 100 Supabase signups on one London calendar day. |
-| `supabase.signups.rush_hour` | Rush hour: 10 signups in one hour | Earned when DevMacro records 10 Supabase signups in one London clock hour. |
-| `supabase.signups.night_owls` | Night owls: a signup between midnight and 5 am | Earned when DevMacro records a Supabase signup between midnight and 5 am London time. |
+| `supabase.signups.first` | First Supabase signup recorded | Earned when StackDash records the first Supabase signup. |
+| `supabase.signups.10` | 10 Supabase signups recorded | Earned when StackDash records the 10th Supabase signup. |
+| `supabase.signups.100` | 100 Supabase signups recorded | Earned when StackDash records the 100th Supabase signup. |
+| `supabase.signups.1000` | 1,000 Supabase signups recorded | Earned when StackDash records the 1,000th Supabase signup. |
+| `supabase.signups.big_day` | Big day: 100 signups in one day | Earned when StackDash records 100 Supabase signups on one London calendar day. |
+| `supabase.signups.rush_hour` | Rush hour: 10 signups in one hour | Earned when StackDash records 10 Supabase signups in one London clock hour. |
+| `supabase.signups.night_owls` | Night owls: a signup between midnight and 5 am | Earned when StackDash records a Supabase signup between midnight and 5 am London time. |
 
 ## Polling
 
@@ -275,7 +275,7 @@ The signup ladder is the same on PostHog. It counts `supabase.auth.signup` event
 From the [Management API reference](https://supabase.com/docs/reference/api/introduction#rate-limits):
 
 - 120 requests per minute, per project or organization, per endpoint.
-- For OAuth apps the identifier is the OAuth app id, so the limit is shared by everyone calling through the app. For a hosted DevMacro, every user who connects the same Supabase project shares that project's budget.
+- For OAuth apps the identifier is the OAuth app id, so the limit is shared by everyone calling through the app. For a hosted StackDash, every user who connects the same Supabase project shares that project's budget.
 - Calls without a project or organization in the path (`GET /v1/projects`, `GET /v1/organizations`) are tracked on the identifier alone. Reading the docs, for an OAuth app this is one budget for the whole app across all users [inference]. Call them only at connect time.
 - Analytics endpoints are stricter. The exceptions table lists 30 requests per minute for `logs.all`, `usage.api-counts`, and `usage.api-requests-count`. It does not list the new `logs` endpoint. Budget 30 per minute per project for it until confirmed.
 - Over the limit, every call returns `429` for the rest of the minute. Responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (seconds). Back off using `X-RateLimit-Reset`, and stagger projects across the interval.
@@ -298,7 +298,7 @@ From the [pricing comparison](https://supabase.com/pricing):
 ## Privacy
 
 - Store counts and timestamps only. Never emails, phone numbers, IP addresses, user agents, Supabase user ids, actor names, or log row ids.
-- Never select an identifying column. Daily active users are counted with `uniqExact()` inside the query, so ids never reach DevMacro.
+- Never select an identifying column. Daily active users are counted with `uniqExact()` inside the query, so ids never reach StackDash.
 - Parse `result` with zod schemas that accept only the expected aggregate columns (`action`, `events`, `timestamp`, `active_users`). Reject anything else instead of storing it.
 - Do not log raw responses from the logs endpoint.
 - Fixtures are synthetic.
@@ -310,8 +310,8 @@ Every install registers its own OAuth app, because the client secret and callbac
 1. In the Supabase dashboard, open the organization's settings and select the **OAuth Apps** tab ([link](https://supabase.com/dashboard/org/_/apps)).
 2. Select **Add application**.
 3. Fill in the details:
-   - Name and website: your DevMacro install.
-   - Redirect URL: `<SITE_URL>/api/connections/supabase/callback`, for example `https://devmacro.example.com/api/connections/supabase/callback`. For local development, `http://localhost:3000/api/connections/supabase/callback`.
+   - Name and website: your StackDash install.
+   - Redirect URL: `<SITE_URL>/api/connections/supabase/callback`, for example `https://stackdash.example.com/api/connections/supabase/callback`. For local development, `http://localhost:3000/api/connections/supabase/callback`.
    - Scopes: Organizations read, Projects read, Analytics read. Nothing else.
 4. Select **Confirm**, then copy the client id and client secret.
 5. Set the environment variables (never commit them):

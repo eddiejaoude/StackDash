@@ -1,6 +1,6 @@
 # Deploy to Vercel and Supabase
 
-This page takes you from empty Vercel and Supabase accounts to a production deployment of your own DevMacro that the people you invite can sign in to.
+This page takes you from empty Vercel and Supabase accounts to a production deployment of your own StackDash that the people you invite can sign in to.
 
 Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for your own values. No real value belongs in this file or in the repository.
 
@@ -23,7 +23,7 @@ Order matters: the Supabase project must exist before the Vercel environment var
 
 ## 1. Create the production Supabase project
 
-1. In the [Supabase dashboard](https://supabase.com/dashboard), create a project in the organization that will own DevMacro. Pick the region closest to the Vercel functions region (Vercel defaults to Washington, D.C., `iad1`, unless you change it in the project's Functions settings).
+1. In the [Supabase dashboard](https://supabase.com/dashboard), create a project in the organization that will own StackDash. Pick the region closest to the Vercel functions region (Vercel defaults to Washington, D.C., `iad1`, unless you change it in the project's Functions settings).
 2. Save the database password in your password manager. It is needed to link the CLI and is never stored in the repository or in Vercel.
 3. Note the project ref (the subdomain of `https://<project-ref>.supabase.co`, also under Project Settings, General).
 
@@ -83,7 +83,7 @@ The sign-in page sends Supabase a `redirectTo` of `<origin>/auth/callback`; Supa
 - Hook type: **Postgres function**.
 - Schema `public`, function `hook_before_user_created`.
 
-This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-functions://postgres/public/hook_before_user_created`). With it enabled, Supabase creates a user only when their GitHub email is in `public.access_invites`; everyone else is sent back to the sign-in page with "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again."
+This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-functions://postgres/public/hook_before_user_created`). With it enabled, Supabase creates a user only when their GitHub email is in `public.access_invites`; everyone else is sent back to the sign-in page with "This GitHub account's email has not been invited to StackDash. Ask for an invite, then try again."
 
 ### Custom SMTP sender
 
@@ -119,7 +119,7 @@ Start the line with a space if your shell is set to skip such lines in history, 
 
 ## 5. Create the Vercel project
 
-1. In Vercel, **Add New, Project**, and import your fork of the DevMacro repository.
+1. In Vercel, **Add New, Project**, and import your fork of the StackDash repository.
 2. **Framework Preset**: Next.js. Root directory: the repository root. Keep the default install command, build command (`npm run build`), and output directory.
 3. **Settings, General, Node.js Version**: 22.x, the version CI uses.
 4. **Settings, Git**: production branch `main`. Every other branch and every pull request gets a preview deployment automatically. Keep **Git Fork Protection** on, so a pull request from a fork never builds with the project's secrets until someone approves it.
@@ -131,7 +131,7 @@ Preview deployments run unreviewed branch code. Point the **Preview** environmen
 
 ### Environment variables
 
-Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment. Every other variable is read on the server at runtime, except the inputs of the prerendered home page and legal pages, which are read at build time: the three operator variables, and for the privacy policy's list of processors also `VERCEL` and the email variables (`DEVMACRO_RESEND_API_KEY`, `DEVMACRO_EMAIL_FROM`, `DEVMACRO_RESEND_API_URL`). So the policy names Resend only after a deployment that was built with the email variables set, and with the operator variables set, a half-set email configuration (a key without `DEVMACRO_EMAIL_FROM`) fails `next build` instead of only showing a notice on the alerts page. A secret must never get a `NEXT_PUBLIC_` name. Vercel applies a changed variable only to the next deployment anyway.
+Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment. Every other variable is read on the server at runtime, except the inputs of the prerendered home page and legal pages, which are read at build time: the three operator variables, and for the privacy policy's list of processors also `VERCEL` and the email variables (`STACKDASH_RESEND_API_KEY`, `STACKDASH_EMAIL_FROM`, `STACKDASH_RESEND_API_URL`). So the policy names Resend only after a deployment that was built with the email variables set, and with the operator variables set, a half-set email configuration (a key without `STACKDASH_EMAIL_FROM`) fails `next build` instead of only showing a notice on the alerts page. A secret must never get a `NEXT_PUBLIC_` name. Vercel applies a changed variable only to the next deployment anyway.
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
@@ -139,18 +139,18 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | `https://<project-ref>.supabase.co` | Staging project URL | Supabase, Project Settings, API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Publishable key (`sb_publishable_...`) | Staging publishable key | Supabase, Project Settings, API Keys |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service role (secret) key | Staging key | Supabase, Project Settings, API Keys. Bypasses row level security |
-| `DEVMACRO_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
-| `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
+| `STACKDASH_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
+| `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
 | `CRON_SECRET` | Secret | Own value | Different value, or unset if staging runs no cron job | Step 6. The same value goes into the `pg_cron` job |
-| `DEVMACRO_SUPER_ADMIN_EMAILS` | Server only | The operators' sign-in emails | Optional | Who can open the instance overview at `/app/admin`, comma separated, matched without regard to case. Empty means nobody |
-| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails, an address on a domain verified in the Resend account |
-| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
-| `DEVMACRO_RESEND_API_URL` | Server only | Unset (sends to `https://api.resend.com`) | Unset | Another server that answers like Resend's API: https, or plain http only to the same computer. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts |
-| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
-| `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes. Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
-| `DEVMACRO_OPERATOR_NAME` | Server only | `<your name or organization>` | Optional: unset keeps `/privacy` and `/terms` off previews | Who runs the instance, named on the privacy policy and terms of use. Set all three operator variables or none: with none, both pages answer 404 and nothing links to them; with only some, the build fails and names the missing one. The policy names Vercel only when the build sees `VERCEL=1`, which Vercel sets only while **Settings, Environment Variables, Enable access to System Environment Variables** is checked ([system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)), so keep it checked: without it the policy says "Hosting" and nothing fails. After the first production deployment built with these and the email variables, check that `/privacy` lists Vercel and Resend |
-| `DEVMACRO_OPERATOR_EMAIL` | Server only | `<privacy contact address>` | Optional, with the name | The address for privacy and data requests, shown on both pages |
-| `DEVMACRO_GOVERNING_LAW` | Server only | `<jurisdiction>`, for example `England and Wales` | Optional, with the name | The law the terms of use are governed by, as it reads after "the law of" |
+| `STACKDASH_SUPER_ADMIN_EMAILS` | Server only | The operators' sign-in emails | Optional | Who can open the instance overview at `/app/admin`, comma separated, matched without regard to case. Empty means nobody |
+| `STACKDASH_EMAIL_FROM` | Server only | `StackDash alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails, an address on a domain verified in the Resend account |
+| `STACKDASH_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
+| `STACKDASH_RESEND_API_URL` | Server only | Unset (sends to `https://api.resend.com`) | Unset | Another server that answers like Resend's API: https, or plain http only to the same computer. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts |
+| `STACKDASH_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
+| `STACKDASH_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes. Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
+| `STACKDASH_OPERATOR_NAME` | Server only | `<your name or organization>` | Optional: unset keeps `/privacy` and `/terms` off previews | Who runs the instance, named on the privacy policy and terms of use. Set all three operator variables or none: with none, both pages answer 404 and nothing links to them; with only some, the build fails and names the missing one. The policy names Vercel only when the build sees `VERCEL=1`, which Vercel sets only while **Settings, Environment Variables, Enable access to System Environment Variables** is checked ([system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)), so keep it checked: without it the policy says "Hosting" and nothing fails. After the first production deployment built with these and the email variables, check that `/privacy` lists Vercel and Resend |
+| `STACKDASH_OPERATOR_EMAIL` | Server only | `<privacy contact address>` | Optional, with the name | The address for privacy and data requests, shown on both pages |
+| `STACKDASH_GOVERNING_LAW` | Server only | `<jurisdiction>`, for example `England and Wales` | Optional, with the name | The law the terms of use are governed by, as it reads after "the law of" |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
@@ -179,9 +179,9 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `RAILWAY_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `GITLAB_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, GitLab OAuth application](oauth-apps.md#gitlab-oauth-application) |
 | `GITLAB_CLIENT_SECRET` | Secret | Yes | Optional | Same |
-| `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
+| `STACKDASH_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
 | `FAKE_PROVIDER_CLIENT_ID`, `FAKE_PROVIDER_CLIENT_SECRET` | Test only | Unset | Unset | Fake provider used by tests |
-| `DEVMACRO_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
+| `STACKDASH_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Local CLI only | Not in Vercel | Not in Vercel | Hosted: entered in the Supabase dashboard (step 3) |
 
 "Server only" values are not secret on their own (a client ID appears in authorize URLs anyway), but they are still set without a `NEXT_PUBLIC_` prefix because only the server uses them. Mark every "Secret" row as **Sensitive** in Vercel so its value cannot be read back from the dashboard. A provider whose variables are missing is shown as not configured; the rest of the app still works.
@@ -191,15 +191,15 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 Generate each value on your own machine, paste it straight into Vercel, and keep a copy in your password manager. Generate separate values per environment.
 
 ```bash
-openssl rand -base64 32    # DEVMACRO_ENCRYPTION_KEY: exactly 32 random bytes, base64
+openssl rand -base64 32    # STACKDASH_ENCRYPTION_KEY: exactly 32 random bytes, base64
 openssl rand -hex 32       # CRON_SECRET: 64 hex characters (at least 32 are required)
 ```
 
-Losing `DEVMACRO_ENCRYPTION_KEY` makes every stored provider credential unreadable, and every connection must reconnect. `CRON_SECRET` uses hex so it can sit in an HTTP header and in SQL without quoting trouble.
+Losing `STACKDASH_ENCRYPTION_KEY` makes every stored provider credential unreadable, and every connection must reconnect. `CRON_SECRET` uses hex so it can sit in an HTTP header and in SQL without quoting trouble.
 
 ### Key rotation
 
-Rotate `DEVMACRO_ENCRYPTION_KEY` without downtime by moving the old key into `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS`, deploying, then running `npm run keys:rotate` with the production variables in the environment (the same way as `npm run invite`). The full procedure is in the header comment of `scripts/rotate-encryption-key.ts`.
+Rotate `STACKDASH_ENCRYPTION_KEY` without downtime by moving the old key into `STACKDASH_ENCRYPTION_KEYS_PREVIOUS`, deploying, then running `npm run keys:rotate` with the production variables in the environment (the same way as `npm run invite`). The full procedure is in the header comment of `scripts/rotate-encryption-key.ts`.
 
 To rotate `CRON_SECRET`, set the new value in Vercel, deploy, then update the cron job as described in [Jobs](jobs.md#register-the-pg_cron-job). Ticks fail with `401` between the two steps, and the next tick after the update catches up.
 
@@ -237,7 +237,7 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **The scheduler runs.** In the Supabase SQL editor, recent `pg_cron` runs succeed and ticks get `200` responses; [Jobs](jobs.md) lists the queries.
 - [ ] **A sync runs.** Connect one provider in a test workspace (needs that provider's app from [OAuth apps](oauth-apps.md)), then select **Sync now** or wait for the schedule. The connection shows a recent "last synced" time and `public.sync_jobs` has a `succeeded` row for it.
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
-- [ ] **Instance overview.** Sign in as an address in `DEVMACRO_SUPER_ADMIN_EMAILS` and open `https://<production-host>/app/admin`: it says nothing needs attention, the scheduler is running, and the database migrations are up to date. Signed in as anyone else, the same address answers page not found.
+- [ ] **Instance overview.** Sign in as an address in `STACKDASH_SUPER_ADMIN_EMAILS` and open `https://<production-host>/app/admin`: it says nothing needs attention, the scheduler is running, and the database migrations are up to date. Signed in as anyone else, the same address answers page not found.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
 - [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
 - [ ] **Link previews and crawl rules.** `curl -s https://<production-host>/docs | grep -oE '<(meta property="og:(title|url|image)"|link rel="canonical")[^>]*>'` prints the page's own title and production addresses, the `og:image` address answers `200` with a PNG, and `curl -s https://<production-host>/robots.txt` names `https://<production-host>/sitemap.xml` and disallows `/w/`, `/app`, `/api/`, `/auth/`, `/account`, and `/oauth`.

@@ -1,4 +1,4 @@
-# Contributing to DevMacro
+# Contributing to StackDash
 
 This guide is for anyone contributing from outside the maintainer team, and for the AI assistants
 they work with. It covers what to do before you start, how to set up and check your work, the
@@ -11,9 +11,9 @@ By taking part you agree to follow the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License and contribution terms
 
-DevMacro has no license yet. Choosing one, and deciding whether contributions need a contributor
+StackDash has no license yet. Choosing one, and deciding whether contributions need a contributor
 license agreement (CLA) or a Developer Certificate of Origin (DCO) sign-off, is still open in
-[#8](https://github.com/eddiejaoude/DevMacro/issues/8). Until it is decided:
+[#8](https://github.com/eddiejaoude/StackDash/issues/8). Until it is decided:
 
 - The repository has no `LICENSE` file, so default copyright applies and no license to use, copy,
   or modify the code is granted (see GitHub's
@@ -28,7 +28,7 @@ license agreement (CLA) or a Developer Certificate of Origin (DCO) sign-off, is 
   [SECURITY.md](SECURITY.md).
 - **Every change that is more than a typo or a one-line copy fix starts with an issue.** Search
   the open and closed issues first. Then open one from the
-  [issue chooser](https://github.com/eddiejaoude/DevMacro/issues/new/choose):
+  [issue chooser](https://github.com/eddiejaoude/StackDash/issues/new/choose):
   - **Bug report** for something that does not work.
   - **Adapter request** to connect a new provider. A maintainer answers with go or no-go before
     anyone writes the adapter.
@@ -44,7 +44,7 @@ license agreement (CLA) or a Developer Certificate of Origin (DCO) sign-off, is 
 
 ## Write a provider adapter
 
-Adapters connect DevMacro to a provider's API. The [adapter guide](docs/adapters.md) takes you
+Adapters connect StackDash to a provider's API. The [adapter guide](docs/adapters.md) takes you
 from a copy of the example adapter to a pull request: the adapter contract, the test harness, every
 file a new provider touches, the provider page template, and how adapters are reviewed. Open an
 **Adapter request** issue and wait for the go or no-go before you start.
@@ -95,7 +95,7 @@ fork gets the same checks.
 - **Every commit subject is `type(scope): imperative summary`.**
   - `type` is one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`.
   - `scope` is the issue's `area: *` label without the prefix: `area: timeline` becomes
-    `timeline`. The areas are on the [labels page](https://github.com/eddiejaoude/DevMacro/labels).
+    `timeline`. The areas are on the [labels page](https://github.com/eddiejaoude/StackDash/labels).
   - Lowercase after the colon, present tense ("add", not "added"), no trailing period, 72
     characters or fewer.
 - **The commit body says why, not what.** The diff already says what. Wrap it at 72 columns.

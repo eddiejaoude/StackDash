@@ -19,7 +19,7 @@ the maintainer's machine. If you cannot read it, you are working as an outside c
 [`CONTRIBUTING.md`](CONTRIBUTING.md), which carries the rules that apply to outside contributors,
 and do not guess at the rest.
 
-Repo: `eddiejaoude/DevMacro` (working directory `DevMacro`, so pass `-R eddiejaoude/DevMacro` to
+Repo: `eddiejaoude/StackDash` (working directory `DevMacro`, so pass `-R eddiejaoude/StackDash` to
 every `gh issue` and `gh pr` command).
 Board: project `26`, addressed as `--owner "@me"`:
 https://github.com/users/eddiejaoude/projects/26/views/1

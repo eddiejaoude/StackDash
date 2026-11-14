@@ -1,6 +1,6 @@
 # Public metrics
 
-The numbers a workspace can choose to make public, how each one is counted, and how the rest of DevMacro reads them. Badges, cards, public project pages, the weekly email, and the leaderboard all read published values through one engine, so every surface shows the same number with the same label.
+The numbers a workspace can choose to make public, how each one is counted, and how the rest of StackDash reads them. Badges, cards, public project pages, the weekly email, and the leaderboard all read published values through one engine, so every surface shows the same number with the same label.
 
 ## Rules
 
@@ -16,7 +16,7 @@ The numbers a workspace can choose to make public, how each one is counted, and 
 | Label | Meaning | Where it may appear |
 |---|---|---|
 | Verified | Counted from what the provider reported | Every surface |
-| Estimated | Calculated by DevMacro | Every surface, labeled Estimated |
+| Estimated | Calculated by StackDash | Every surface, labeled Estimated |
 | Self-reported | Typed by a person on the public metrics page | The project page only, labeled Self-reported. Never on a badge, a card that claims Verified, or a leaderboard |
 
 Every metric in the first set below is Verified.
@@ -55,16 +55,16 @@ Changing either option revokes the publication and publishes a new one, so the h
 
 ## Publishing and the audit trail
 
-Owners and admins publish on a project's public metrics page (Projects, then Public metrics). Every change writes a DevMacro event to the workspace timeline in the same transaction:
+Owners and admins publish on a project's public metrics page (Projects, then Public metrics). Every change writes a StackDash event to the workspace timeline in the same transaction:
 
 | Event type | Title | Body |
 |---|---|---|
-| `devmacro.metric_published` | Published GitHub stars | Project Acme web. Rounded down to 100, current. |
-| `devmacro.metric_published` (self-reported) | Published Downloads this month (self-reported) | Project Acme web. 4,200 downloads. |
-| `devmacro.metric_unpublished` | Unpublished GitHub stars | None |
-| `devmacro.metrics_unpublished_all` | Unpublished everything | 2 metrics and 1 achievement are no longer public. |
-| `devmacro.achievement_published` | Published 10 Vercel deployments recorded | Project Acme web. |
-| `devmacro.achievement_unpublished` | Unpublished 10 Vercel deployments recorded | Project Acme web. |
+| `stackdash.metric_published` | Published GitHub stars | Project Acme web. Rounded down to 100, current. |
+| `stackdash.metric_published` (self-reported) | Published Downloads this month (self-reported) | Project Acme web. 4,200 downloads. |
+| `stackdash.metric_unpublished` | Unpublished GitHub stars | None |
+| `stackdash.metrics_unpublished_all` | Unpublished everything | 2 metrics and 1 achievement are no longer public. |
+| `stackdash.achievement_published` | Published 10 Vercel deployments recorded | Project Acme web. |
+| `stackdash.achievement_unpublished` | Unpublished 10 Vercel deployments recorded | Project Acme web. |
 
 Achievements are published on the project's Achievements page instead (see [Achievements](#achievements)); their titles are the public title. "Unpublish everything" revokes every live metric publication and deletes every achievement publication of every project in the workspace in one transaction (`unpublish_all_metrics`), after a confirmation that names how many metrics and achievements it covers and that it reaches every project, not only the one on screen. Its result and its audit event name both counts. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics).
 
@@ -76,7 +76,7 @@ A project holds at most 100 live self-reported values, and the self-reported sec
 
 `GET /api/public/projects/<project id>/metrics` returns a project's live publications as JSON, for anyone. A project that does not exist and one with nothing published both answer `404`, so the route never reveals which projects exist. Responses are cached for 60 seconds (`Cache-Control: public, max-age=60, s-maxage=60`), so an unpublished value stops showing within a minute. It shares the per IP [rate limit](#rate-limit) with badges and cards.
 
-The route is same-origin only: it sends no `Access-Control-Allow-Origin`, so a script on another site cannot `fetch` it in a browser. Badges and cards are rendered by DevMacro's own server, and anyone can still read the JSON from a server or with curl. `formulaUrl` is an absolute URL on this DevMacro (from `NEXT_PUBLIC_SITE_URL`, else the request's origin), so a reader off-site can follow it.
+The route is same-origin only: it sends no `Access-Control-Allow-Origin`, so a script on another site cannot `fetch` it in a browser. Badges and cards are rendered by StackDash's own server, and anyone can still read the JSON from a server or with curl. `formulaUrl` is an absolute URL on this StackDash (from `NEXT_PUBLIC_SITE_URL`, else the request's origin), so a reader off-site can follow it.
 
 ```json
 {
@@ -88,7 +88,7 @@ The route is same-origin only: it sends no `Access-Control-Allow-Origin`, so a s
       "label": "GitHub stars",
       "provenance": "verified",
       "unit": "stars",
-      "formulaUrl": "https://devmacro.example.com/docs/architecture/public-metrics#github-stars",
+      "formulaUrl": "https://stackdash.example.com/docs/architecture/public-metrics#github-stars",
       "rounding": "hundreds",
       "delayDays": 0,
       "asOf": "2026-11-05T12:00:00.000Z",
@@ -157,19 +157,19 @@ The public metrics page (Projects, then Public metrics) has a Share button besid
 
 ### Rate limit
 
-The badge, card, and JSON routes and public project pages allow 120 requests per client IP per minute between them (`PUBLIC_REQUESTS_PER_MINUTE` in `src/lib/public-metrics/requests.ts`), then answer `429` with `Retry-After` until the next minute. The count lives in Postgres (`public_rate_limit_counters`), so every server instance shares it. The IP is hashed with HMAC-SHA-256 under a key derived from `DEVMACRO_ENCRYPTION_KEY` before it is stored, and the table accepts nothing but such a hash. Requests a cache answers never reach DevMacro and are not counted. Counters are deleted after a day.
+The badge, card, and JSON routes and public project pages allow 120 requests per client IP per minute between them (`PUBLIC_REQUESTS_PER_MINUTE` in `src/lib/public-metrics/requests.ts`), then answer `429` with `Retry-After` until the next minute. The count lives in Postgres (`public_rate_limit_counters`), so every server instance shares it. The IP is hashed with HMAC-SHA-256 under a key derived from `STACKDASH_ENCRYPTION_KEY` before it is stored, and the table accepts nothing but such a hash. Requests a cache answers never reach StackDash and are not counted. Counters are deleted after a day.
 
 Each surface says so in its own form, with the same words: the badge reads "Try again in a minute", the card shows "Try again in a minute" and "Too many requests from this address.", the JSON route answers `{ "error": "rate_limited" }` with that message, and a project page answers a short HTML page titled "Too many requests from this address" that names the seconds left and links to the home page. Every refusal is `no-store`.
 
 Where the IP comes from (`clientIpEnv` in `src/lib/env.ts`, `clientIp` in `requests.ts`):
 
 - On Vercel (`VERCEL=1`): `x-vercel-forwarded-for`, which Vercel sets to the client it saw and a proxy in front of Vercel cannot overwrite ([Vercel request headers](https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for), checked 2026-11-05). `x-real-ip` is never read: it adds nothing on Vercel and a client can send it anywhere else.
-- Self-hosted: `x-forwarded-for`, taking the entry `DEVMACRO_TRUSTED_PROXY_COUNT` places from the right (1 when unset). Each proxy appends the address it received the request from, so that entry is the one the outermost trusted proxy wrote, and whatever a client put to its left is ignored. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and gets a bucket per claimed address.
+- Self-hosted: `x-forwarded-for`, taking the entry `STACKDASH_TRUSTED_PROXY_COUNT` places from the right (1 when unset). Each proxy appends the address it received the request from, so that entry is the one the outermost trusted proxy wrote, and whatever a client put to its left is ignored. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and gets a bucket per claimed address.
 - A request with no address shares one `unknown` bucket.
 
 ### View counts
 
-Each time DevMacro serves a published metric's badge or card it counts one view for that project, metric, surface, and UTC day (`published_metric_views`), after the response has gone. The share dialog shows the last 7 days: "DevMacro served the badge 12 times and the card 3 times, including previews here." It counts what DevMacro served, not every reader: a cache in between (a CDN, GitHub's image proxy) serves copies for up to a minute that are not counted. Unpublishing stops the count. Counts are kept 13 months.
+Each time StackDash serves a published metric's badge or card it counts one view for that project, metric, surface, and UTC day (`published_metric_views`), after the response has gone. The share dialog shows the last 7 days: "StackDash served the badge 12 times and the card 3 times, including previews here." It counts what StackDash served, not every reader: a cache in between (a CDN, GitHub's image proxy) serves copies for up to a minute that are not counted. Unpublishing stops the count. Counts are kept 13 months.
 
 ## Year in review
 
@@ -199,7 +199,7 @@ History points are the engine's own values at each moment, computed by `computeM
 
 An owner or admin can turn on one public page per project, at `/@<workspace>/<page slug>`, on the project's public metrics page. Nothing is public by default. The schema and functions are in [Database schema](schema.md#project-pages).
 
-The `<workspace>` part is the workspace's handle once it has one, and its workspace ID otherwise. Owners and admins claim, change, or remove the handle under Settings, Public handle. A handle has 3 to 32 characters: lowercase letters and numbers with single hyphens between them. Input is trimmed and lowercased first, and every top-level route of the app plus names such as `www`, `help`, `support`, and `devmacro` are reserved (`RESERVED_HANDLES` in `src/lib/workspaces/handles.ts`, the one list). Handles are unique across workspaces, and none may equal another workspace's ID. While a workspace has a handle, its workspace ID address for a public page answers `307` to the handle address. Changing or removing a handle frees the old one at once for any workspace to claim, and links that use it answer 404; nothing redirects an old handle.
+The `<workspace>` part is the workspace's handle once it has one, and its workspace ID otherwise. Owners and admins claim, change, or remove the handle under Settings, Public handle. A handle has 3 to 32 characters: lowercase letters and numbers with single hyphens between them. Input is trimmed and lowercased first, and every top-level route of the app plus names such as `www`, `help`, `support`, and `stackdash` are reserved (`RESERVED_HANDLES` in `src/lib/workspaces/handles.ts`, the one list). Handles are unique across workspaces, and none may equal another workspace's ID. While a workspace has a handle, its workspace ID address for a public page answers `307` to the handle address. Changing or removing a handle frees the old one at once for any workspace to claim, and links that use it answer 404; nothing redirects an old handle.
 
 The page shows only what this engine publishes for the project:
 
@@ -211,13 +211,13 @@ The page shows only what this engine publishes for the project:
 | Achievements | Each published [achievement](#achievements), oldest first, with Share. Left out when none is published |
 | Milestones | "First deployment recorded", "First signup recorded", "First customer recorded", and "First successful payment recorded", from the oldest stored event, while a metric counting those events is published exactly (a rounded publication can show 0 while events exist, so it reveals no first-event milestone) and no later than that publication's `asOf`; and "Reached 100 GitHub stars" (also 1,000, 10,000, 100,000) when the published GitHub stars history crosses it, only for thresholds its rounding can show. A milestone a published achievement already states is left out (see [Achievements](#achievements)) |
 
-Choosing metrics, rounding to 10, 100, or 1,000, and showing values 7 days late are the publication options above; the page follows them. The page settings are the address, whether search engines may index it, and turning it on or off. Each change writes a DevMacro event to the timeline:
+Choosing metrics, rounding to 10, 100, or 1,000, and showing values 7 days late are the publication options above; the page follows them. The page settings are the address, whether search engines may index it, and turning it on or off. Each change writes a StackDash event to the timeline:
 
 | Event type | Title | Body |
 |---|---|---|
-| `devmacro.project_page_enabled` | Turned on the public project page | Project Acme web. Address /@acme-labs/acme-web. Search engines are asked not to index it. |
-| `devmacro.project_page_updated` | Updated the public project page | Project Acme web. Address /@k3j4h5g6f7/acme-web. Search engines may index it. |
-| `devmacro.project_page_disabled` | Turned off the public project page | Project Acme web. The page is no longer public. |
+| `stackdash.project_page_enabled` | Turned on the public project page | Project Acme web. Address /@acme-labs/acme-web. Search engines are asked not to index it. |
+| `stackdash.project_page_updated` | Updated the public project page | Project Acme web. Address /@k3j4h5g6f7/acme-web. Search engines may index it. |
+| `stackdash.project_page_disabled` | Turned off the public project page | Project Acme web. The page is no longer public. |
 
 Each body names the address the page answered at when the event was written: the handle address while the workspace had a handle, the workspace ID address otherwise. An event is history, so a later change of handle does not rewrite it.
 
@@ -231,32 +231,32 @@ A project earns permanent achievements from its providers' data (#413), such as 
 
 ### Counting
 
-- After each successful sync of a connection, DevMacro evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and usage snapshots it has stored for the project's included accounts. Nothing calls a provider.
+- After each successful sync of a connection, StackDash evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and usage snapshots it has stored for the project's included accounts. Nothing calls a provider.
 - Achievements count per provider: a project that deploys through Vercel and Railway earns "10 Vercel deployments recorded" and "10 Railway deployments recorded" separately. Cross-provider metrics such as "Deployments shipped" are unchanged.
 - A project earns each achievement once, at the first moment its stored evidence supports. `(project_id, achievement_id)` is unique and recording never overwrites, so repeated syncs, backfills, and two evaluations at once can neither duplicate an achievement nor move its date.
 - Earned is permanent. The 10th recorded deployment stays earned after it leaves a 30 day window, after the events and snapshots behind it are purged, and after the achievement is removed from its adapter, with the titles stored when it was earned.
-- "In one day", "in one hour", "between midnight and 5 am", and "on 7 days in a row" are Europe/London calendar days and clock hours, the zone of the activity heatmap, never rolling windows. Metric rules are the exception: `usage_snapshots` keeps one reading per account, metric, and UTC day, so a metric rule's day is that stored UTC day. "Trending: 10 new stars in one day" (`daily_total_threshold` on `github.stars.gained.daily`) reads the new stars of repositories DevMacro already followed over one UTC day: the London day in winter, 01:00 to 01:00 London time in summer. A repository added to the installation never counts its existing stars as new, and a day counts only when the first sync after it runs by 02:00 UTC, so a reading never covers more than 26 hours and a late or missed sync leaves the day uncounted rather than counting two days as one (see [Adapters, Achievements](../adapters.md#achievements) and [GitHub, New stars per day](../providers/github.md#new-stars-per-day-githubstarsgaineddaily)).
+- "In one day", "in one hour", "between midnight and 5 am", and "on 7 days in a row" are Europe/London calendar days and clock hours, the zone of the activity heatmap, never rolling windows. Metric rules are the exception: `usage_snapshots` keeps one reading per account, metric, and UTC day, so a metric rule's day is that stored UTC day. "Trending: 10 new stars in one day" (`daily_total_threshold` on `github.stars.gained.daily`) reads the new stars of repositories StackDash already followed over one UTC day: the London day in winter, 01:00 to 01:00 London time in summer. A repository added to the installation never counts its existing stars as new, and a day counts only when the first sync after it runs by 02:00 UTC, so a reading never covers more than 26 hours and a late or missed sync leaves the day uncounted rather than counting two days as one (see [Adapters, Achievements](../adapters.md#achievements) and [GitHub, New stars per day](../providers/github.md#new-stars-per-day-githubstarsgaineddaily)).
 
 ### Evidence limits
 
-- An event achievement says "recorded": providers backfill a limited history and some adapters set a baseline on the first sync, so the oldest event DevMacro stores may not be the very first. It is dated to the event that reached the count.
-- A snapshot threshold such as "1,000 GitHub stars" is dated to the first stored reading at or above it. When no earlier reading below it is stored, DevMacro did not see the crossing, so every surface says "Recorded at least 1,000 on" that reading's date instead of "Earned".
+- An event achievement says "recorded": providers backfill a limited history and some adapters set a baseline on the first sync, so the oldest event StackDash stores may not be the very first. It is dated to the event that reached the count.
+- A snapshot threshold such as "1,000 GitHub stars" is dated to the first stored reading at or above it. When no earlier reading below it is stored, StackDash did not see the crossing, so every surface says "Recorded at least 1,000 on" that reading's date instead of "Earned".
 - A daily total, such as PostHog's signups per day, is dated to its UTC day and shown as a date, never a time.
-- Nothing is inferred from before DevMacro's evidence, and revenue, spend, quota, email volume, failures, and logins have no achievements. Payment achievements count payments, never amounts.
+- Nothing is inferred from before StackDash's evidence, and revenue, spend, quota, email volume, failures, and logins have no achievements. Payment achievements count payments, never amounts.
 
 ### Privacy and publishing
 
 - Private by default. Every member sees the project's earned achievements in its Achievements section, and only owners and admins publish or unpublish them, one at a time there, or every one at once with "Unpublish everything".
 - Each achievement has a private title and a public title. Public surfaces read only `public_published_achievements()`, through `loadPublishedAchievements` and `loadPublishedAchievement` in `published.ts`: the id, the provider, the public title, the earned date and its precision, the evidence and threshold, whether it is simulated, and when it was published. Never the private title, the description, an account or repository name, an amount, or an achievement that is not published.
-- An achievement earned from data the provider simulator made up (any contributing account's connection is simulated) is stored as simulated and stays so. Every surface says so, as for a simulated metric: "Simulated" beside it on the Achievements page, the public project page, and its timeline entry; "(simulated)" after the title and the simulated fill on its badge; "Simulated data, not verified" on its card and in the badge and card alt text; and "Earned from simulated <provider> data on DevMacro, not verified" in a post.
+- An achievement earned from data the provider simulator made up (any contributing account's connection is simulated) is stored as simulated and stays so. Every surface says so, as for a simulated metric: "Simulated" beside it on the Achievements page, the public project page, and its timeline entry; "(simulated)" after the title and the simulated fill on its badge; "Simulated data, not verified" on its card and in the badge and card alt text; and "Earned from simulated <provider> data on StackDash, not verified" in a post.
 - A published achievement does not make a project page public on its own: the page still needs a live published metric.
 
 ### Timeline entries
 
-- Earning an achievement writes one `devmacro.achievement_earned` event to the workspace timeline, with the visible label "Achievement earned", the private title, severity success, and the earned date as its time, so a backfill lands in its place in history rather than at the top. Its dedupe key `achievement:<project id>:<achievement id>` stops a repeated evaluation from writing it twice.
-- The row shows the logo and name of the provider that earned it, read from the adapter-scoped id, with 🏆 in the logo's corner, and its pill says "Achievement" in gold where other success events say "Success". The event details show the gold "Achievement earned" label in place of a severity pill. Every other row carries its own type's emoji in the same corner (`EventType.emoji`, or DevMacro's own in `src/lib/timeline/event-emoji.ts`).
+- Earning an achievement writes one `stackdash.achievement_earned` event to the workspace timeline, with the visible label "Achievement earned", the private title, severity success, and the earned date as its time, so a backfill lands in its place in history rather than at the top. Its dedupe key `achievement:<project id>:<achievement id>` stops a repeated evaluation from writing it twice.
+- The row shows the logo and name of the provider that earned it, read from the adapter-scoped id, with 🏆 in the logo's corner, and its pill says "Achievement" in gold where other success events say "Success". The event details show the gold "Achievement earned" label in place of a severity pill. Every other row carries its own type's emoji in the same corner (`EventType.emoji`, or StackDash's own in `src/lib/timeline/event-emoji.ts`).
 - The event has no connection, so whether it is simulated comes from its achievement (`withAchievementSimulated` in `src/lib/achievements/private.ts`): a simulated achievement's row and details say "Simulated".
-- Publishing and unpublishing an achievement write `devmacro.achievement_published` and `devmacro.achievement_unpublished` audit events (see [Publishing and the audit trail](#publishing-and-the-audit-trail)).
+- Publishing and unpublishing an achievement write `stackdash.achievement_published` and `stackdash.achievement_unpublished` audit events (see [Publishing and the audit trail](#publishing-and-the-audit-trail)).
 - The entry links to the achievement in the project's Achievements section. Share opens the share dialog when the achievement is published; when it is not, owners and admins see Publish instead and other members see neither. Members can hide the event type like any other.
 - The timeline is private, so unpublishing keeps the entry. Deleting the project or its workspace deletes the achievements, their publications, and these entries.
 
@@ -302,7 +302,7 @@ The newest star count minus the star count at the end of the day 30 days ago, pe
 
 Deployments in 7 days. Verified, in deployments. Events: `digitalocean.deployment.succeeded`, `gitlab.deployment.succeeded`, `railway.deployment.deployed`, `vercel.deployment.succeeded`. Minimum history: 7 days.
 
-Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until StackDash records the environment of each deployment.
 
 The id keeps its `vercel-` prefix because published rows store it; until 2026-11 it counted Vercel deployments only, so a project with deployments on the other providers reads a higher value from then on.
 
@@ -310,7 +310,7 @@ The id keeps its `vercel-` prefix because published rows store it; until 2026-11
 
 Deployments in 30 days. Verified, in deployments. Events: `digitalocean.deployment.succeeded`, `gitlab.deployment.succeeded`, `railway.deployment.deployed`, `vercel.deployment.succeeded`. Minimum history: 30 days. The year in review's "Deployments shipped" total counts these events over the year.
 
-Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until StackDash records the environment of each deployment.
 
 The id keeps its `vercel-` prefix because published rows store it; until 2026-11 it counted Vercel deployments only, so a project with deployments on the other providers reads a higher value from then on.
 
@@ -318,7 +318,7 @@ The id keeps its `vercel-` prefix because published rows store it; until 2026-11
 
 Successful deployments in a row. Verified, in deployments. Events: `vercel.deployment.succeeded` and `vercel.deployment.failed`. Minimum history: none.
 
-Vercel deployments that succeeded since the newest failed one, counted in deployments, not days. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Vercel deployments that succeeded since the newest failed one, counted in deployments, not days. Counts deployments to every environment (production and preview) until StackDash records the environment of each deployment.
 
 ### `supabase-signups-7d`
 

@@ -2,11 +2,11 @@
 
 Provider id: `github`. Verification: documentation only. Docs checked 2026-10-31.
 
-DevMacro reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus stars, star history, and forks. It installs as a GitHub App with three read-only permissions.
+StackDash reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus stars, star history, and forks. It installs as a GitHub App with three read-only permissions.
 
 ## Go or no-go
 
-**Go for the MVP, with one scope correction.** A GitHub App with three read-only permissions covers everything DevMacro reads: organization billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star count, star history, and forks. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so personal accounts also need the user authorization step.
+**Go for the MVP, with one scope correction.** A GitHub App with three read-only permissions covers everything StackDash reads: organization billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star count, star history, and forks. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so personal accounts also need the user authorization step.
 
 The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. The landing page's Copilot row names AI Credits for the same reason.
 
@@ -31,7 +31,7 @@ GitHub App, installed on a user or organization account, plus a one-time user au
 
 ### Install
 
-1. A workspace owner or admin clicks Connect GitHub. DevMacro creates a random `state` bound to the session and workspace (short TTL, single use) and redirects to the install URL. "Sharing your GitHub App" documents `state` on the install URL as a way to correlate an installation to a user.
+1. A workspace owner or admin clicks Connect GitHub. StackDash creates a random `state` bound to the session and workspace (short TTL, single use) and redirects to the install URL. "Sharing your GitHub App" documents `state` on the install URL as a way to correlate an installation to a user.
 2. On GitHub the user picks the account (personal or organization), chooses all or selected repositories, and approves the permissions.
 3. GitHub redirects to the setup URL with `installation_id`. In practice it also sends `setup_action` (`install` or `update`) and the `state`, but `setup_action` is not in the official docs (see Unverified).
 4. **Never trust `installation_id` from the query string.** The setup URL docs warn that it can be spoofed and say to generate a user access token and check that the installation belongs to that user. So the callback does not save anything yet. It starts the web application flow below.
@@ -67,8 +67,8 @@ A user access token only has permissions both the app and the user hold. For per
 
 ### Disconnect and revoke
 
-- From DevMacro: `DELETE /app/installations/{installation_id}` with the JWT uninstalls the app from that account. Also revoke the stored user grant with `DELETE /applications/{client_id}/grant` (Basic auth `client_id:client_secret`, body `{"access_token": "..."}`), which removes every token for that user. Delete stored tokens either way.
-- From GitHub: the user can uninstall or suspend the app in account or organization settings, or revoke the user authorization. Without webhooks (Post-MVP), DevMacro finds out on the next sync: token minting or API calls fail. Treat `401` on a user token, and `404` or `403` when minting an installation token, as "needs reconnection" and stop retrying. Exact status codes for uninstalled and suspended installations are unverified.
+- From StackDash: `DELETE /app/installations/{installation_id}` with the JWT uninstalls the app from that account. Also revoke the stored user grant with `DELETE /applications/{client_id}/grant` (Basic auth `client_id:client_secret`, body `{"access_token": "..."}`), which removes every token for that user. Delete stored tokens either way.
+- From GitHub: the user can uninstall or suspend the app in account or organization settings, or revoke the user authorization. Without webhooks (Post-MVP), StackDash finds out on the next sync: token minting or API calls fail. Treat `401` on a user token, and `404` or `403` when minting an installation token, as "needs reconnection" and stop retrying. Exact status codes for uninstalled and suspended installations are unverified.
 - Revoking the user authorization does not uninstall the app.
 
 ## Permissions
@@ -109,7 +109,7 @@ Granularity: per day, product, SKU, and repository where the product has one. `n
 
 Public preview, subject to change. Aggregated over the requested period (default: current month). Extra filters: `repository` (`owner/repo`), `product`, `sku`. Response: `timePeriod` (`year`, `month`, `day`), `organization`, and `usageItems[]` with `product`, `sku`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Only the last 24 months are available. Use it for the month-to-date total per product; use `/usage` for the daily chart.
 
-DevMacro stores the same money at three levels: month to date per product (`github.spend.<product>`), per SKU (`github.spend.<product>.<sku>`), and per product per UTC day (`github.daily_spend.<product>`). Spend totals, alerts, and the daily summary count only the month to date per product. A SKU row is a breakdown of its product, and a day row lies inside the month, so neither is added again (`countedSnapshots` in `src/lib/dashboard/aggregate.ts`).
+StackDash stores the same money at three levels: month to date per product (`github.spend.<product>`), per SKU (`github.spend.<product>.<sku>`), and per product per UTC day (`github.daily_spend.<product>`). Spend totals, alerts, and the daily summary count only the month to date per product. A SKU row is a breakdown of its product, and a day row lies inside the month, so neither is added again (`countedSnapshots` in `src/lib/dashboard/aggregate.ts`).
 
 ### AI credits, organization: `GET /organizations/{org}/settings/billing/ai_credit/usage`
 
@@ -121,7 +121,7 @@ Same parameters and schema as AI credits, with `unitType: "requests"`. Legacy si
 
 ### Budgets, organization: `GET /organizations/{org}/settings/billing/budgets`
 
-Optional, same Administration read permission. Each budget has `budget_type`, `budget_product_skus` or `budget_product_sku`, `budget_scope`, `budget_amount` (**whole US dollars**, or a license count for license products), `prevent_further_usage`, `budget_alerting`. Gives DevMacro a real limit to compare spend against. Paginated (`per_page` max 100, default 10, `has_next_page`).
+Optional, same Administration read permission. Each budget has `budget_type`, `budget_product_skus` or `budget_product_sku`, `budget_scope`, `budget_amount` (**whole US dollars**, or a license count for license products), `prevent_further_usage`, `budget_alerting`. Gives StackDash a real limit to compare spend against. Paginated (`per_page` max 100, default 10, `has_next_page`).
 
 ### Personal account equivalents (user access token, Account: Plan read)
 
@@ -148,7 +148,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 ### Stargazer list: avoid
 
-`GET /repos/{owner}/{repo}/stargazers` with `Accept: application/vnd.github.star+json` adds `starred_at` per user. Since July 2026 GitHub limits this endpoint to admins and collaborators and may return empty results or `403` ([changelog](https://github.blog/changelog/2026-06-30-upcoming-access-restrictions-to-public-api-endpoints-and-ui-views/)). It also returns personal data (logins, avatars) DevMacro does not need. Use count and history instead.
+`GET /repos/{owner}/{repo}/stargazers` with `Accept: application/vnd.github.star+json` adds `starred_at` per user. Since July 2026 GitHub limits this endpoint to admins and collaborators and may return empty results or `403` ([changelog](https://github.blog/changelog/2026-06-30-upcoming-access-restrictions-to-public-api-endpoints-and-ui-views/)). It also returns personal data (logins, avatars) StackDash does not need. Use count and history instead.
 
 ### Forks: `GET /repos/{owner}/{repo}/forks`
 
@@ -156,7 +156,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 ### New stars per day: `github.stars.gained.daily`
 
-A usage metric DevMacro derives from the `/stargazers/count` snapshots, declared in the adapter's `dailyTotals`. Each repository keeps a baseline: its star count at the first sync of a UTC day. The first sync of the next day closes that day, and the reading is the sum of each repository's net change over it, counting a repository that lost stars as 0, so an unstar never cancels another repository's new stars. Its timeframe is the closed day (00:00 to 00:00 UTC), and it is stored in that sync's daily row.
+A usage metric StackDash derives from the `/stargazers/count` snapshots, declared in the adapter's `dailyTotals`. Each repository keeps a baseline: its star count at the first sync of a UTC day. The first sync of the next day closes that day, and the reading is the sum of each repository's net change over it, counting a repository that lost stars as 0, so an unstar never cancels another repository's new stars. Its timeframe is the closed day (00:00 to 00:00 UTC), and it is stored in that sync's daily row.
 
 - A repository on its first sync, including one just added to the installation, only sets its baseline: its existing stars are never counted as new.
 - A repository whose baseline is older than yesterday (syncs were missed) adds nothing, because its change spans several days.
@@ -166,7 +166,7 @@ A usage metric DevMacro derives from the `/stargazers/count` snapshots, declared
 
 ### Units, freshness, retention
 
-- Money: every amount is a JSON number in US dollars, with sub-cent prices (`pricePerUnit: 0.008`). No currency field is returned; USD is the inference from GitHub's billing docs, which price everything in USD. Convert at the parse boundary to integer cents (`amountMinor`, `currency: "USD"`) with decimal string arithmetic, never by multiplying floats. Keep `pricePerUnit` as the original decimal string. Round per line item and note that DevMacro totals can differ from GitHub's by a few cents.
+- Money: every amount is a JSON number in US dollars, with sub-cent prices (`pricePerUnit: 0.008`). No currency field is returned; USD is the inference from GitHub's billing docs, which price everything in USD. Convert at the parse boundary to integer cents (`amountMinor`, `currency: "USD"`) with decimal string arithmetic, never by multiplying floats. Keep `pricePerUnit` as the original decimal string. Round per line item and note that StackDash totals can differ from GitHub's by a few cents.
 - Quantities: `minutes`, `requests`, `credits` or `ai-credits`, and storage in GB-hours for Actions storage (GitHub's GB is 2^30 bytes). Always store the `unitType` string next to the number.
 - Dates: billing `date` is a UTC day. Star history weeks are not UTC aligned.
 - Freshness: not documented for the REST endpoints. Actions artifact storage usage updates "within 6 to 12 hours". Treat the current day as provisional and re-read it on the next sync.
@@ -185,27 +185,27 @@ A usage metric DevMacro derives from the `/stargazers/count` snapshots, declared
 
 ## Achievements
 
-DevMacro evaluates these for each project the GitHub accounts are assigned to, from the GitHub data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
+StackDash evaluates these for each project the GitHub accounts are assigned to, from the GitHub data it has stored, after each sync (see [Achievements](../adapters.md#achievements)). A project earns each one once, and it stays private until an owner or admin publishes it.
 
-The star thresholds read the stored `github.stars.total` snapshots. When the first snapshot DevMacro stored is already at or above a threshold, the achievement says "Recorded at least" that many, because DevMacro did not see the crossing. Trending reads `github.stars.gained.daily` (see [New stars per day](#new-stars-per-day-githubstarsgaineddaily)): the new stars of repositories DevMacro already followed over one UTC day, added across the GitHub accounts, and dated to that day. A repository added to the installation never counts its existing stars as new, and a day counts only when the first sync after it runs by 02:00 UTC, so a reading never covers more than 26 hours (from the day's first sync to 02:00 UTC the next day) and a late or missed sync leaves the day uncounted rather than counting two days as one. One UTC day is the London day in winter, 01:00 to 01:00 London time in summer. The fork achievements count `github.forks.new` events, and Steady glow and Weekend stargazers read `github.stars.daily`, which is emitted only for a repository whose star count rose over a UTC day (a day with no net gain has no event).
+The star thresholds read the stored `github.stars.total` snapshots. When the first snapshot StackDash stored is already at or above a threshold, the achievement says "Recorded at least" that many, because StackDash did not see the crossing. Trending reads `github.stars.gained.daily` (see [New stars per day](#new-stars-per-day-githubstarsgaineddaily)): the new stars of repositories StackDash already followed over one UTC day, added across the GitHub accounts, and dated to that day. A repository added to the installation never counts its existing stars as new, and a day counts only when the first sync after it runs by 02:00 UTC, so a reading never covers more than 26 hours (from the day's first sync to 02:00 UTC the next day) and a late or missed sync leaves the day uncounted rather than counting two days as one. One UTC day is the London day in winter, 01:00 to 01:00 London time in summer. The fork achievements count `github.forks.new` events, and Steady glow and Weekend stargazers read `github.stars.daily`, which is emitted only for a repository whose star count rose over a UTC day (a day with no net gain has no event).
 
 `github.stars.daily` is dated to the end of its UTC day: 00:00 UTC the next day, which is always the next London date. Saturday's and Sunday's stars therefore arrive as Sunday and Monday events, so Weekend stargazers looks for a two-day run that starts on a Sunday. Steady glow needs no such change: every day moves by one, so 7 consecutive days stay consecutive.
 
 | Id | Title | How it is earned |
 |---|---|---|
-| `github.stars.10` | 10 GitHub stars | Earned when DevMacro records 10 or more stars across the connected GitHub repositories. |
-| `github.stars.100` | 100 GitHub stars | Earned when DevMacro records 100 or more stars across the connected GitHub repositories. |
-| `github.stars.1000` | 1,000 GitHub stars | Earned when DevMacro records 1,000 or more stars across the connected GitHub repositories. |
-| `github.stars.10000` | 10,000 GitHub stars | Earned when DevMacro records 10,000 or more stars across the connected GitHub repositories. |
-| `github.stars.777` | Lucky sevens: 777 GitHub stars | Earned when DevMacro records 777 or more stars across the connected GitHub repositories. |
-| `github.stars.1024` | Kilostar: 1,024 GitHub stars | Earned when DevMacro records 1,024 or more stars across the connected GitHub repositories. |
-| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when GitHub repositories DevMacro already followed gain 10 or more new stars between them over one UTC day. |
-| `github.stars.steady_glow` | Steady glow: new stars on 7 days in a row | Earned when DevMacro records new stars on a connected GitHub repository on each of 7 consecutive days. |
-| `github.stars.weekend` | Weekend stargazers: new stars on a Saturday and the Sunday after it | Earned when DevMacro records new stars on a connected GitHub repository on a Saturday and on the Sunday after it. |
-| `github.forks.first` | First fork recorded | Earned when DevMacro records the first new fork of a connected GitHub repository. |
-| `github.forks.10` | 10 forks recorded | Earned when DevMacro records the 10th new fork of a connected GitHub repository. |
-| `github.forks.100` | 100 forks recorded | Earned when DevMacro records the 100th new fork of a connected GitHub repository. |
-| `github.forks.party` | Fork party: 5 forks in one day | Earned when DevMacro records 5 new forks of the connected GitHub repositories on one London calendar day. |
+| `github.stars.10` | 10 GitHub stars | Earned when StackDash records 10 or more stars across the connected GitHub repositories. |
+| `github.stars.100` | 100 GitHub stars | Earned when StackDash records 100 or more stars across the connected GitHub repositories. |
+| `github.stars.1000` | 1,000 GitHub stars | Earned when StackDash records 1,000 or more stars across the connected GitHub repositories. |
+| `github.stars.10000` | 10,000 GitHub stars | Earned when StackDash records 10,000 or more stars across the connected GitHub repositories. |
+| `github.stars.777` | Lucky sevens: 777 GitHub stars | Earned when StackDash records 777 or more stars across the connected GitHub repositories. |
+| `github.stars.1024` | Kilostar: 1,024 GitHub stars | Earned when StackDash records 1,024 or more stars across the connected GitHub repositories. |
+| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when GitHub repositories StackDash already followed gain 10 or more new stars between them over one UTC day. |
+| `github.stars.steady_glow` | Steady glow: new stars on 7 days in a row | Earned when StackDash records new stars on a connected GitHub repository on each of 7 consecutive days. |
+| `github.stars.weekend` | Weekend stargazers: new stars on a Saturday and the Sunday after it | Earned when StackDash records new stars on a connected GitHub repository on a Saturday and on the Sunday after it. |
+| `github.forks.first` | First fork recorded | Earned when StackDash records the first new fork of a connected GitHub repository. |
+| `github.forks.10` | 10 forks recorded | Earned when StackDash records the 10th new fork of a connected GitHub repository. |
+| `github.forks.100` | 100 forks recorded | Earned when StackDash records the 100th new fork of a connected GitHub repository. |
+| `github.forks.party` | Fork party: 5 forks in one day | Earned when StackDash records 5 new forks of the connected GitHub repositories on one London calendar day. |
 
 ## Verified, estimated, unavailable
 
@@ -217,7 +217,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 | Star count, fork count, new fork ids and times | Verified |
 | Star history per week | Verified counts; days are approximate because boundaries are not UTC |
 | Daily new stars from count snapshots | Verified net change at poll time; gross stars per day unavailable |
-| Month-end spend projection | Estimated (DevMacro extrapolation) |
+| Month-end spend projection | Estimated (StackDash extrapolation) |
 | Included allowance remaining (for example "$12 of Actions compute left") | Estimated: `discountAmount` is returned, the plan allowance is not; it would come from GitHub's pricing docs |
 | Invoices, payment history, plan name | Unavailable through these permissions |
 | Per user and per workflow usage | Unavailable (detailed report is web only; AI credit `user` filter exists for orgs) |
@@ -246,8 +246,8 @@ Polling only for the MVP. When webhooks arrive:
 
 Disclose these on the connect screen before redirecting:
 
-- **Organization Administration read** is broader than billing. It also reads organization Actions settings and permissions, hosted runner details, code security configurations, security managers, secret scanning custom patterns, interaction limits, the organization's app installations, and Copilot seat assignments (`/orgs/{org}/copilot/billing/seats`, which lists members). DevMacro calls only the billing endpoints, but the token can read the rest.
-- **Repository Metadata read** on private repositories also exposes the collaborator list and permissions, contributors, commit comments, repository events, and languages. DevMacro reads only repository details, stars, and forks.
+- **Organization Administration read** is broader than billing. It also reads organization Actions settings and permissions, hosted runner details, code security configurations, security managers, secret scanning custom patterns, interaction limits, the organization's app installations, and Copilot seat assignments (`/orgs/{org}/copilot/billing/seats`, which lists members). StackDash calls only the billing endpoints, but the token can read the rest.
+- **Repository Metadata read** on private repositories also exposes the collaborator list and permissions, contributors, commit comments, repository events, and languages. StackDash reads only repository details, stars, and forks.
 - **Account Plan read** (personal accounts) reads that user's billing usage and plan. It is held through a refresh token valid for 6 months, the longest-lived secret in this adapter. Encrypt it at rest.
 - The **private key** can mint tokens for every installation of the app. It never expires. Store it only in the server environment, never in the database or logs; rotate by adding a new key, deploying, then deleting the old one.
 - Installation tokens default to every permission and repository the installation has. Always narrow `permissions` when minting.
@@ -261,7 +261,7 @@ Disclose these on the connect screen before redirecting:
 - No per-workflow or per-user detail through the API (organization owners cannot see per-user AI usage in the UI either; the API `user` filter exists).
 - Only 24 months of history for summary, AI credit, and premium request data.
 - Star history days are not UTC aligned; daily star events come from count snapshots and are net.
-- The stargazer list is restricted; DevMacro never knows who starred.
+- The stargazer list is restricted; StackDash never knows who starred.
 - One installation per account. A user with a personal account and two organizations installs three times and gets three connections.
 - Enterprise accounts are out of scope.
 
@@ -270,11 +270,11 @@ Disclose these on the connect screen before redirecting:
 Each deployment registers its own GitHub App, because the private key, client secret, and URLs belong to one deployment.
 
 1. GitHub, profile picture, **Settings**, **Developer settings**, **GitHub Apps**, **New GitHub App**. To own it as an organization, use the organization's **Settings**, **Developer settings** instead.
-2. **GitHub App name**: for example `DevMacro (your name)`. The URL-safe form shown on the app's public page (`https://github.com/apps/<slug>`) is `GITHUB_APP_SLUG`.
+2. **GitHub App name**: for example `StackDash (your name)`. The URL-safe form shown on the app's public page (`https://github.com/apps/<slug>`) is `GITHUB_APP_SLUG`.
 3. **Homepage URL**: `<SITE_URL>`.
 4. **Callback URL**: `<SITE_URL>/api/connections/github/callback`.
 5. Leave **Expire user authorization tokens** checked. Leave **Request user authorization (OAuth) during installation** unchecked (it disables the setup URL). Leave **Enable Device Flow** unchecked.
-6. **Setup URL**: `<SITE_URL>/api/connections/github/callback`. Check **Redirect on update**, so adding or removing repositories returns to DevMacro.
+6. **Setup URL**: `<SITE_URL>/api/connections/github/callback`. Check **Redirect on update**, so adding or removing repositories returns to StackDash.
 7. **Webhook**: uncheck **Active** for the MVP.
 8. **Permissions**: Repository, Metadata: Read-only (preselected). Organization, Administration: Read-only. Account, Plan: Read-only. Leave everything else at No access.
 9. **Where can this GitHub App be installed?**: **Any account** for a shared deployment, **Only on this account** for a single-user self-host.
@@ -519,7 +519,7 @@ Confirm with a test organization and a test personal account before the adapter 
 - Freshness of billing usage (how long after usage it appears) and of star counts.
 - Status codes when minting a token for a deleted or suspended installation.
 - Whether the user token exchange returns JSON by default or needs `Accept: application/json` (documented for OAuth apps; the GitHub App page does not say).
-- Whether an installation token counts as "admin or collaborator" for the restricted stargazer list. DevMacro does not plan to call it, so this only matters if plans change.
+- Whether an installation token counts as "admin or collaborator" for the restricted stargazer list. StackDash does not plan to call it, so this only matters if plans change.
 - Whether `/stargazers/history` counts stars that were later removed.
 
 ## Sources
