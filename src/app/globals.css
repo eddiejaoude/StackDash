@@ -514,6 +514,82 @@ summary {
   }
 }
 
+/*
+ * Hero data-flow constellation (src/components/sections/data-flow.tsx). The stage is drawn at
+ * 700 by 520 because offset-path takes pixels, then scaled to the frame's width: tan(atan2())
+ * turns the length ratio 100cqw / 700px into a plain number.
+ */
+.flow-frame {
+  position: relative;
+  container-type: inline-size;
+  max-width: 700px;
+  aspect-ratio: 700 / 520;
+  margin-inline: auto;
+}
+
+.flow-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 700px;
+  height: 520px;
+  transform-origin: 0 0;
+  scale: tan(atan2(100cqw, 700px));
+}
+
+/* A packet rides the line from its node to the center. The dot's center sits on the line and the
+ * label sits beside it, upright, on the side facing the center so it clears its own node. It is
+ * gone by 68%, before it would reach the center circle. */
+.flow-packet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  offset-rotate: 0deg;
+  offset-anchor: 4px 50%;
+  opacity: 0;
+  animation: flow-packet 4s linear infinite both;
+}
+
+.flow-packet[data-label-side="left"] {
+  flex-direction: row-reverse;
+  offset-anchor: calc(100% - 4px) 50%;
+}
+
+@keyframes flow-packet {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  58% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 0;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+.flow-packet-dot {
+  box-shadow: 0 0 8px 1px currentColor;
+}
+
+.flow-core {
+  box-shadow: 0 0 24px 0 var(--accent-soft);
+  animation: flow-breathe 3s ease-in-out infinite;
+}
+
+@keyframes flow-breathe {
+  50% {
+    box-shadow: 0 0 48px 6px rgba(255, 93, 59, 0.28);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -537,8 +613,26 @@ summary {
   .arrival-count,
   .arrival-bar,
   .arrival-draw,
-  .slide-enter {
+  .slide-enter,
+  .flow-packet,
+  .flow-core {
     animation: none;
+  }
+  /* Every packet parks with its label showing, so the picture still reads. A line's two packets
+   * would stack at one distance, so the first parks near its node with its label toward the
+   * center and the second parks halfway with its label turned back toward the node. */
+  .flow-packet {
+    offset-distance: 22%;
+    opacity: 1;
+  }
+  .flow-packet[data-park="far"] {
+    offset-distance: 50%;
+    flex-direction: row-reverse;
+    offset-anchor: calc(100% - 4px) 50%;
+  }
+  .flow-packet[data-park="far"][data-label-side="left"] {
+    flex-direction: row;
+    offset-anchor: 4px 50%;
   }
   /* The rings only exist while they animate; a list row's "Receiving" label stays without them. */
   .live-ready,

@@ -1,6 +1,7 @@
 import { ArrowRightIcon, BellIcon, EyeIcon, GaugeIcon, TimelineIcon } from "@/components/icons";
 import type { Icon } from "@/components/icon-card";
 import { GitHubButton } from "@/components/github-button";
+import { DataFlow } from "@/components/sections/data-flow";
 import { HeroPreview } from "@/components/sections/hero-preview";
 import { site } from "@/lib/site";
 
@@ -91,6 +92,10 @@ export function Hero() {
             </li>
           ))}
         </ul>
+
+        <div className="mt-24 sm:mt-32">
+          <DataFlow />
+        </div>
       </div>
     </section>
   );
