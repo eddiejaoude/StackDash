@@ -23,7 +23,7 @@ const heroFeatures: readonly HeroFeature[] = [
 const FEATURES_START_MS = 1400;
 const FEATURES_STAGGER_MS = 90;
 
-/** Hero: one promise, one primary action, and a moving picture of the dashboard. */
+/** Hero: one promise and one primary action beside the sources that feed it, then a moving picture of the dashboard. */
 export function Hero() {
   return (
     <section id="top" aria-labelledby="hero-title" className="relative overflow-hidden">
@@ -36,39 +36,45 @@ export function Hero() {
         className="pointer-events-none absolute left-1/2 top-[-10%] h-[560px] w-[min(960px,100vw)] -translate-x-1/2 rounded-full bg-accent/10 blur-[140px]"
       />
       <div className="relative mx-auto w-full max-w-6xl px-6 pb-24 pt-14 sm:pt-20">
-        <div className="mx-auto max-w-3xl text-center">
-          <p className="rise inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
-            <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
-            Open source · In development
-          </p>
+        <div className="grid items-center gap-16 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-10">
+          <div className="mx-auto max-w-3xl text-center lg:mx-0 lg:text-left">
+            <p className="rise inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
+              <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+              Open source · In development
+            </p>
 
-          <h1
-            id="hero-title"
-            className="rise mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl"
-          >
-            {site.headline}.
-          </h1>
-
-          <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted">
-            Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
-            from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
-            usage or spend crosses a line you set, and publishes the stats you choose, each labeled with its
-            source. Spend shows where the provider reports it.
-          </p>
-
-          <div className="rise-late mt-10 flex flex-wrap items-center justify-center gap-4">
-            <GitHubButton />
-            <a
-              href="#how-it-works"
-              className="inline-flex items-center gap-2 rounded-lg border border-line px-5 py-3 text-sm font-medium text-muted transition-colors hover:border-line-strong hover:text-foreground"
+            <h1
+              id="hero-title"
+              className="rise mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-5xl"
             >
-              See how it works
-              <ArrowRightIcon />
-            </a>
+              {site.headline}.
+            </h1>
+
+            <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted lg:mx-0 lg:text-base lg:leading-7">
+              Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
+              from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
+              usage or spend crosses a line you set, and publishes the stats you choose, each labeled with its
+              source. Spend shows where the provider reports it.
+            </p>
+
+            <div className="rise-late mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+              <GitHubButton />
+              <a
+                href="#how-it-works"
+                className="inline-flex items-center gap-2 rounded-lg border border-line px-5 py-3 text-sm font-medium text-muted transition-colors hover:border-line-strong hover:text-foreground"
+              >
+                See how it works
+                <ArrowRightIcon />
+              </a>
+            </div>
+            <p className="rise-late mt-3 font-mono text-xs text-muted">
+              Read-only access where providers allow it · self-hostable · hosted version planned
+            </p>
           </div>
-          <p className="rise-late mt-3 font-mono text-xs text-muted">
-            Read-only access where providers allow it · self-hostable · hosted version planned
-          </p>
+
+          <div className="rise-late">
+            <DataFlow />
+          </div>
         </div>
 
         <div className="mt-16">
@@ -92,10 +98,6 @@ export function Hero() {
             </li>
           ))}
         </ul>
-
-        <div className="mt-24 sm:mt-32">
-          <DataFlow />
-        </div>
       </div>
     </section>
   );

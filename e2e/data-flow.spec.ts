@@ -19,12 +19,11 @@ test.describe("hero data-flow constellation", () => {
       await page.setViewportSize(viewport);
       await page.goto("/");
 
-      const section = page.getByRole("region", { name: /sources in\. One timeline out\./ });
-      await expect(section.getByRole("heading", { level: 2 })).toHaveText(
-        `${providerNames.length} sources in. One timeline out.`,
-      );
-      // One text alternative for the whole picture, listing every source the adapters support.
-      const picture = section.getByRole("img", { name: /^Events from .* flow into one DevMacro timeline\.$/ });
+      // One text alternative for the whole picture, inside the hero, listing every source the adapters
+      // support.
+      const picture = page
+        .getByRole("region", { name: "One timeline and one alert for your whole developer stack." })
+        .getByRole("img", { name: /^Events from .* flow into one DevMacro timeline\.$/ });
       await expect(picture).toBeVisible();
       for (const name of providerNames) {
         await expect(picture).toHaveAccessibleName(new RegExp(`\\b${name}\\b`));

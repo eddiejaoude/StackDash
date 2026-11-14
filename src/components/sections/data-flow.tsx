@@ -128,12 +128,6 @@ const sourceNames = new Intl.ListFormat("en-US", { type: "conjunction" }).format
 // restated here.
 const ILLUSTRATIVE_EVENT_COUNT = "1,287";
 
-const claims: readonly { keyword: string; rest: string }[] = [
-  { keyword: "oauth", rest: `all ${nodes.length} sources connect without a pasted API key` },
-  { keyword: "rls", rest: "row level security on every table" },
-  { keyword: "pg_cron", rest: "scheduled syncs" },
-];
-
 function ProviderMark({ id }: { id: LiveProviderId }) {
   const platform = providerPlatform(id);
   return platform === null ? null : <PlatformLogo platform={platform} width={14} height={14} className="shrink-0" />;
@@ -252,42 +246,18 @@ function CompactFlow() {
   );
 }
 
-/** Every live source feeding one timeline: copy on the left, an illustrative constellation on the right. */
+/** Every live source feeding one timeline: an illustrative constellation beside the hero heading. */
 export function DataFlow() {
   return (
-    <section
-      id="data-flow"
-      aria-labelledby="data-flow-title"
-      className="grid scroll-mt-24 items-center gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]"
-    >
-      <div>
-        <p className="font-mono text-xs text-accent">How it flows</p>
-        <h2 id="data-flow-title" className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-          {nodes.length} sources in. One timeline out.
-        </h2>
-        <p className="mt-4 text-base leading-7 text-muted">
-          Every provider connects over OAuth. {site.name} syncs usage on a schedule, normalizes each event to one
-          shape, and files it on a single clock.
-        </p>
-        <ul className="mt-6 space-y-2 font-mono text-sm text-muted">
-          {claims.map((claim) => (
-            <li key={claim.keyword}>
-              <span className="text-foreground">{claim.keyword}</span> {claim.rest}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div role="img" aria-label={`Events from ${sourceNames} flow into one ${site.name} timeline.`}>
-        <div aria-hidden="true">
-          <div className="sm:hidden">
-            <CompactFlow />
-          </div>
-          <div className="flow-frame hidden sm:block">
-            <Stage />
-          </div>
+    <div role="img" aria-label={`Events from ${sourceNames} flow into one ${site.name} timeline.`}>
+      <div aria-hidden="true">
+        <div className="sm:hidden">
+          <CompactFlow />
+        </div>
+        <div className="flow-frame hidden sm:block">
+          <Stage />
         </div>
       </div>
-    </section>
+    </div>
   );
 }
