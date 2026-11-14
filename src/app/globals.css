@@ -527,9 +527,9 @@ summary {
 }
 
 /*
- * Hero data-flow constellation (src/components/sections/data-flow.tsx). The stage is drawn at
- * 700 by 520 because offset-path takes pixels, then scaled to the frame's width: tan(atan2())
- * turns the length ratio 100cqw / 700px into a plain number.
+ * Hero data-flow constellation (src/components/sections/data-flow.tsx, data-flow-stage.tsx). The
+ * stage is drawn at 700 by 520 because offset-path takes pixels, then scaled to the frame's width:
+ * tan(atan2()) turns the length ratio 100cqw / 700px into a plain number.
  */
 .flow-frame {
   position: relative;
@@ -549,6 +549,71 @@ summary {
   scale: tan(atan2(100cqw, 700px));
 }
 
+/* A mouse pointer tilts the whole stage toward it, so lines, cards and packets stay aligned.
+ * FlowStage writes --tilt-x and --tilt-y once per frame and resets them on leave or pause. */
+.flow-tilt {
+  position: absolute;
+  inset: 0;
+  transform: perspective(1400px) rotateX(var(--tilt-y, 0deg)) rotateY(var(--tilt-x, 0deg));
+  transition: transform 0.4s ease-out;
+}
+
+/* Each source card drifts round a small circle near its place on the orbit. The outer rotations
+ * cancel, so the card stays upright. FlowStage staggers duration and phase per slot. */
+.flow-source {
+  animation: flow-drift 8s linear infinite;
+  transition:
+    scale 0.2s ease-out,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    filter 0.2s;
+}
+
+@keyframes flow-drift {
+  from {
+    transform: rotate(0turn) translateX(3px) rotate(0turn);
+  }
+  to {
+    transform: rotate(1turn) translateX(3px) rotate(-1turn);
+  }
+}
+
+.flow-line {
+  transition:
+    stroke 0.2s,
+    stroke-width 0.2s,
+    filter 0.2s;
+}
+
+/* Spotlight: hovering or focusing a source (data-on) lifts its card and lights its line, and
+ * every other source's card, line and packets dim. filter, not opacity, because the looping
+ * packets animate opacity themselves. */
+.flow-source[data-on] {
+  scale: 1.05;
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--accent) 45%, transparent);
+  animation-play-state: paused;
+}
+
+.flow-line[data-on] {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.flow-stage[data-active] [data-source]:not([data-on]) {
+  filter: opacity(0.35);
+}
+
+/* Hovering the picture holds the looping packets still so a label can be read. The Pause control
+ * (data-paused) stops every loop: packets, drift and glow. A packet a visitor sent keeps going,
+ * because it is the answer to their click. */
+.flow-frame:hover .flow-packet:not([data-sent]),
+.flow-stage[data-paused] .flow-packet:not([data-sent]),
+.flow-stage[data-paused] .flow-source,
+.flow-stage[data-paused] .flow-core {
+  animation-play-state: paused;
+}
+
 /* A packet rides the line from its node's center to the center circle's. The dot sits on the line
  * and the label beside it, upright, on the side facing the center. The packet stays hidden until
  * 24% and is fully shown at 32%: by then it is clear of its own card, and on the line straight
@@ -558,6 +623,8 @@ summary {
  * circle's z-20 in data-flow.tsx), so the label slides into the hub and the wordmark stays
  * readable. */
 .flow-packet {
+  /* Decoration that passes over the cards, often while invisible: it must never take a click. */
+  pointer-events: none;
   position: absolute;
   top: 0;
   left: 0;
@@ -611,6 +678,26 @@ summary {
   }
 }
 
+/* A packet a visitor sent by clicking a source: it starts where its line clears the card, runs
+ * once, and slides under the center circle, where FlowStage removes it and counts the event. */
+.flow-packet-sent {
+  animation: flow-send 1.8s ease-in both;
+}
+
+@keyframes flow-send {
+  0% {
+    offset-distance: var(--park);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -636,8 +723,18 @@ summary {
   .arrival-draw,
   .slide-enter,
   .flow-packet,
-  .flow-core {
+  .flow-core,
+  .flow-source {
     animation: none;
+  }
+  /* No tilt, and the spotlight changes at once. */
+  .flow-tilt {
+    transform: none;
+    transition: none;
+  }
+  .flow-source,
+  .flow-line {
+    transition: none;
   }
   /* Every packet parks with its label showing, so the picture still reads, at the first point on
    * its line clear of its own card (--park, from parkDistance in data-flow.tsx; on a mostly

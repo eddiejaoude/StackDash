@@ -51,9 +51,9 @@ test.describe("hero data-flow constellation", () => {
       // support.
       const picture = page
         .getByRole("region", { name: "One timeline and one alert for your whole developer stack." })
-        .getByRole("img", { name: PICTURE_NAME });
+        .getByRole("group", { name: PICTURE_NAME });
       await expect(picture).toBeVisible();
-      // Reduced motion stops everything in the picture: the packets and the breathing glow.
+      // Reduced motion stops everything in the picture: the packets, the drift, and the glow.
       expect(await picture.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(0);
       for (const name of providerNames) {
         await expect(picture).toHaveAccessibleName(new RegExp(`\\b${name}\\b`));
@@ -89,7 +89,7 @@ test.describe("hero data-flow constellation", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
 
-    const picture = page.getByRole("img", { name: PICTURE_NAME });
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
     const cards = await boxes(picture.getByTestId("flow-node"));
     const packets = await boxes(picture.getByTestId("flow-packet"));
     const labels = await boxes(picture.getByTestId("flow-label"));
@@ -112,5 +112,66 @@ test.describe("hero data-flow constellation", () => {
       }
     });
     expect(collisions).toEqual([]);
+  });
+
+  test("under reduced motion a click counts its event at once and there is nothing to pause", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    await expect(picture.getByRole("button", { name: "Pause animation" })).toBeHidden();
+    await picture.getByRole("button", { name: /^Stripe\b/ }).click();
+    await expect(picture.getByText("Sent an example Stripe event: $49.00 paid · Pro.")).toBeAttached();
+    await expect(picture.getByTestId("flow-core-text").filter({ visible: true })).toContainText("1,288 events");
+    await expect(picture.locator("[data-sent]")).toHaveCount(0);
+  });
+});
+
+test.describe("hero data-flow constellation in motion", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+  });
+
+  test("a source sends its next example event by mouse or keyboard, and the center counts it", async ({ page }) => {
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    const count = picture.getByTestId("flow-core-text").filter({ visible: true });
+    await expect(count).toContainText("1,287 events");
+
+    const github = picture.getByRole("button", { name: /^GitHub\b/ });
+    // A card drifts until the pointer is on it, so Playwright would wait for it to settle forever.
+    // Pointing at it first stops the drift, as it does for a visitor.
+    await github.hover({ force: true });
+    await github.click();
+    await expect(picture.getByText("Sent an example GitHub event: PR #128 merged.")).toBeAttached();
+    await expect(picture.locator("[data-sent]")).toHaveCount(1);
+    // The packet runs once to the center, then the count goes up and the packet is gone.
+    await expect(count).toContainText("1,288 events");
+    await expect(picture.locator("[data-sent]")).toHaveCount(0);
+
+    // Each source moves on to its next event.
+    await github.click();
+    await expect(picture.getByText("Sent an example GitHub event: acme/cli hit 1,000 ★.")).toBeAttached();
+
+    await picture.getByRole("button", { name: /^Vercel\b/ }).focus();
+    await page.keyboard.press("Enter");
+    await expect(picture.getByText("Sent an example Vercel event: Deploy ready · acme-web.")).toBeAttached();
+    await expect(count).toContainText("1,290 events");
+  });
+
+  test("Pause stops every loop in the picture and Resume starts them again", async ({ page }) => {
+    const picture = page.getByRole("group", { name: PICTURE_NAME });
+    const loopStates = () =>
+      picture.evaluate((element) => [
+        ...new Set(element.getAnimations({ subtree: true }).map((animation) => animation.playState)),
+      ]);
+    await expect.poll(loopStates).toEqual(["running"]);
+
+    await picture.getByRole("button", { name: "Pause animation" }).click();
+    await expect(picture.getByRole("button", { name: "Resume animation" })).toBeVisible();
+    await expect.poll(loopStates).toEqual(["paused"]);
+
+    await picture.getByRole("button", { name: "Resume animation" }).click();
+    await expect.poll(loopStates).toEqual(["running"]);
   });
 });
