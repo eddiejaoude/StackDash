@@ -8,7 +8,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(46);
+select plan(47);
 
 -- Users: an owner, an admin, and a viewer of workspace A, and the owner of workspace B.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
@@ -101,13 +101,13 @@ select results_eq(
       '[
         {"achievement_id": "vercel.deployments.10", "provider": "vercel", "title": "10 Vercel deployments recorded",
          "public_title": "10 Vercel deployments recorded", "description": "Earned at the 10th recorded deployment.",
-         "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant", "evidence": "crossed", "threshold": null},
+         "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant", "evidence": "crossed", "threshold": null, "simulated": false},
         {"achievement_id": "github.stars.1000", "provider": "github", "title": "1,000 GitHub stars",
          "public_title": "1,000 GitHub stars", "description": "Earned at the first reading of 1,000 stars.",
-         "earned_at": "2026-02-01T09:00:00Z", "earned_precision": "instant", "evidence": "at_least", "threshold": 1000},
+         "earned_at": "2026-02-01T09:00:00Z", "earned_precision": "instant", "evidence": "at_least", "threshold": 1000, "simulated": false},
         {"achievement_id": "posthog.signups.10", "provider": "posthog", "title": "10 PostHog signups recorded",
          "public_title": "10 PostHog signups recorded", "description": "Earned when daily signups add up to 10.",
-         "earned_at": "2026-02-03T00:00:00Z", "earned_precision": "day", "evidence": "crossed", "threshold": null}
+         "earned_at": "2026-02-03T00:00:00Z", "earned_precision": "day", "evidence": "crossed", "threshold": null, "simulated": false}
       ]'::jsonb)
     order by 1
   $$,
@@ -138,7 +138,7 @@ select is_empty(
       'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
       '[{"achievement_id": "vercel.deployments.10", "provider": "vercel", "title": "Renamed",
          "public_title": "Renamed", "description": "Renamed.", "earned_at": "2026-04-01T10:00:00Z",
-         "earned_precision": "instant", "evidence": "crossed", "threshold": null}]'::jsonb)
+         "earned_precision": "instant", "evidence": "crossed", "threshold": null, "simulated": false}]'::jsonb)
   $$,
   'record_project_achievements: an earned achievement is not earned again');
 
@@ -162,7 +162,7 @@ select is_empty(
       'b9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
       '[{"achievement_id": "vercel.deployments.first", "provider": "vercel", "title": "t", "public_title": "t",
          "description": "d", "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant",
-         "evidence": "crossed", "threshold": null}]'::jsonb)
+         "evidence": "crossed", "threshold": null, "simulated": false}]'::jsonb)
   $$,
   'record_project_achievements: a project outside the workspace earns nothing');
 
@@ -172,7 +172,7 @@ select throws_ok(
       'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
       '[{"achievement_id": "github.stars.10", "provider": "github", "title": "10 GitHub stars", "public_title": "10 GitHub stars",
          "description": "d", "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant",
-         "evidence": "at_least", "threshold": null}]'::jsonb)
+         "evidence": "at_least", "threshold": null, "simulated": false}]'::jsonb)
   $$,
   '23514', null,
   'project_achievements: at_least evidence needs its threshold');
@@ -183,7 +183,7 @@ select throws_ok(
       'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
       '[{"achievement_id": "posthog.signups.100", "provider": "posthog", "title": "t", "public_title": "t",
          "description": "d", "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "day",
-         "evidence": "crossed", "threshold": null}]'::jsonb)
+         "evidence": "crossed", "threshold": null, "simulated": false}]'::jsonb)
   $$,
   '23514', null,
   'project_achievements: a day-precision achievement is stored at the start of its UTC day');
@@ -194,10 +194,21 @@ select throws_ok(
       'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
       '[{"achievement_id": "NotScoped", "provider": "vercel", "title": "t", "public_title": "t",
          "description": "d", "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant",
-         "evidence": "crossed", "threshold": null}]'::jsonb)
+         "evidence": "crossed", "threshold": null, "simulated": false}]'::jsonb)
   $$,
   '23514', null,
   'project_achievements: an id that is not adapter-scoped is refused');
+
+select throws_ok(
+  $$
+    select * from public.record_project_achievements(
+      'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000001',
+      '[{"achievement_id": "vercel.deployments.100", "provider": "vercel", "title": "t", "public_title": "t",
+         "description": "d", "earned_at": "2026-03-01T10:00:00Z", "earned_precision": "instant",
+         "evidence": "crossed", "threshold": null}]'::jsonb)
+  $$,
+  '23502', null,
+  'record_project_achievements: a payload that does not say whether it is simulated is refused, never stored as real');
 
 -- ---------------------------------------------------------------------------
 -- Publishing
@@ -319,15 +330,15 @@ select ok(
 
 select results_eq(
   $$
-    select type_id, title from public.activity_events
+    select type_id, title, body from public.activity_events
     where workspace_id = 'a9000002-0000-4000-8000-000000000001'
       and type_id in ('devmacro.achievement_published', 'devmacro.achievement_unpublished')
     order by type_id, title
   $$,
-  $$ values ('devmacro.achievement_published'::text, 'Published 1,000 GitHub stars'::text),
-            ('devmacro.achievement_published'::text, 'Published 10 Vercel deployments recorded'::text),
-            ('devmacro.achievement_unpublished'::text, 'Unpublished 10 Vercel deployments recorded'::text) $$,
-  'publish_achievement, unpublish_achievement: each change writes one audit event, an unchanged call none');
+  $$ values ('devmacro.achievement_published'::text, 'Published 1,000 GitHub stars'::text, 'Project Project A.'::text),
+            ('devmacro.achievement_published'::text, 'Published 10 Vercel deployments recorded'::text, 'Project Project A.'::text),
+            ('devmacro.achievement_unpublished'::text, 'Unpublished 10 Vercel deployments recorded'::text, 'Project Project A.'::text) $$,
+  'publish_achievement, unpublish_achievement: each change writes one audit event naming the project, an unchanged call none');
 
 select throws_ok(
   $$ insert into public.project_achievement_publications (project_achievement_id, workspace_id, published_by)
@@ -413,7 +424,7 @@ select public.record_project_achievements(
   'a9000002-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000002',
   '[{"achievement_id": "stripe.payments.first", "provider": "stripe", "title": "First Stripe payment recorded",
      "public_title": "First Stripe payment recorded", "description": "d", "earned_at": "2026-03-01T10:00:00Z",
-     "earned_precision": "instant", "evidence": "crossed", "threshold": null}]'::jsonb);
+     "earned_precision": "instant", "evidence": "crossed", "threshold": null, "simulated": false}]'::jsonb);
 delete from public.workspaces where id = 'a9000002-0000-4000-8000-000000000001';
 
 select is(

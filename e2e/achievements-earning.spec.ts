@@ -63,14 +63,14 @@ async function assignAccountsToProject(workspace: TestWorkspace): Promise<string
   return project.id;
 }
 
-type Earned = Readonly<{ achievements: { achievement_id: string; earned_at: string }[]; events: { dedupe_key: string; occurred_at: string; title: string }[] }>;
+type Earned = Readonly<{ achievements: { achievement_id: string; earned_at: string; simulated: boolean }[]; events: { dedupe_key: string; occurred_at: string; title: string }[] }>;
 
 async function earned(workspace: TestWorkspace, projectId: string): Promise<Earned> {
   const admin = adminClient();
   const [achievements, events] = await Promise.all([
     admin
       .from("project_achievements")
-      .select("achievement_id, earned_at")
+      .select("achievement_id, earned_at, simulated")
       .eq("workspace_id", workspace.id)
       .eq("project_id", projectId)
       .order("achievement_id")
@@ -110,6 +110,10 @@ ownerTest.describe("earning achievements", () => {
       const first = await earned(workspace, projectId);
       const release = first.achievements.find((achievement) => achievement.achievement_id === ACHIEVEMENT_ID);
       expect(release).toBeDefined();
+      // The simulated Sentry connection's data is made up, so the achievement says so. (Its
+      // timeline row carries no per-row label here: when every connection in view is simulated, the
+      // timeline marks the whole page instead, as for any event.)
+      expect(release?.simulated).toBe(true);
       expectOneEntryEach(first, projectId);
       expect(first.events.find((event) => event.dedupe_key.endsWith(`:${ACHIEVEMENT_ID}`))?.title).toBe(ACHIEVEMENT_TITLE);
 

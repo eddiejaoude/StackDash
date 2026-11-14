@@ -173,7 +173,7 @@ begin
     )
     select
       p_workspace_id, p_project_id, i.provider, i.achievement_id, btrim(i.title), btrim(i.public_title),
-      btrim(i.description), i.earned_at, i.earned_precision, i.evidence, i.threshold, coalesce(i.simulated, false)
+      btrim(i.description), i.earned_at, i.earned_precision, i.evidence, i.threshold, i.simulated
     from incoming i
     on conflict (project_id, achievement_id) do nothing
     returning achievement_id, title, description, earned_at
@@ -218,11 +218,13 @@ as $$
 declare
   v_id uuid;
   v_public_title text;
+  v_project_name text;
 begin
   perform public.require_published_metrics_admin(p_workspace_id, p_actor_id);
 
-  select a.id, a.public_title into v_id, v_public_title
+  select a.id, a.public_title, p.name into v_id, v_public_title, v_project_name
   from public.project_achievements a
+  join public.projects p on p.id = a.project_id
   where a.workspace_id = p_workspace_id and a.project_id = p_project_id and a.achievement_id = p_achievement_id;
   if not found then
     return 'not_found';
@@ -236,8 +238,8 @@ begin
   end if;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.achievement_published', 'Published ' || v_public_title, null,
-    'achievement_published:' || gen_random_uuid()::text
+    p_workspace_id, 'devmacro.achievement_published', 'Published ' || v_public_title,
+    'Project ' || v_project_name || '.', 'achievement_published:' || gen_random_uuid()::text
   );
   return 'published';
 end;
@@ -261,11 +263,13 @@ as $$
 declare
   v_id uuid;
   v_public_title text;
+  v_project_name text;
 begin
   perform public.require_published_metrics_admin(p_workspace_id, p_actor_id);
 
-  select a.id, a.public_title into v_id, v_public_title
+  select a.id, a.public_title, p.name into v_id, v_public_title, v_project_name
   from public.project_achievements a
+  join public.projects p on p.id = a.project_id
   where a.workspace_id = p_workspace_id and a.project_id = p_project_id and a.achievement_id = p_achievement_id;
   if not found then
     return 'not_found';
@@ -277,8 +281,8 @@ begin
   end if;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.achievement_unpublished', 'Unpublished ' || v_public_title, null,
-    'achievement_unpublished:' || gen_random_uuid()::text
+    p_workspace_id, 'devmacro.achievement_unpublished', 'Unpublished ' || v_public_title,
+    'Project ' || v_project_name || '.', 'achievement_unpublished:' || gen_random_uuid()::text
   );
   return 'unpublished';
 end;

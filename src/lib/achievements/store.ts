@@ -164,10 +164,11 @@ export async function loadEarnedIds(db: Db, workspaceId: string, projectId: stri
  * then id). All of them, not a rolling window, so a 10th event stays provable after it leaves any
  * 30 day metric.
  *
- * Index: activity_events_workspace_timeline_idx (workspace_id, occurred_at desc, id desc), scanned
- * backward, so it yields rows in the (occurred_at, id) order a page needs and the scan stops after
- * `limit` matches; the account, type, and keyset filters run on the rows it returns. Measured for
- * #413 with 1M events across 31 workspaces: 0.35 ms a page.
+ * Keyset paging: each page after the first starts at `occurred_at >= cursor`, an index bound, so a
+ * deep page costs what the first does. Measured for #413 (1M events from one account, 200 from
+ * another in the same workspace, 900k elsewhere): a page 200 days deep used
+ * activity_events_workspace_type_time_idx (workspace_id, type_id, occurred_at) with that bound,
+ * 1.9 ms; the sparse account used activity_events_external_account_id_idx and a sort, 0.3 ms.
  */
 export async function loadEvents(
   db: Db,
@@ -182,7 +183,9 @@ export async function loadEvents(
       .in("external_account_id", [...input.accountIds])
       .in("type_id", [...input.typeIds])
       .lte("occurred_at", input.now.toISOString());
-    if (after !== null) query = query.or(afterCursorFilter("occurred_at", [after.occurred_at, after.id]));
+    // The `gte` is the index bound the scan starts from; the `or` then drops the rows at the
+    // cursor's own instant that were already read.
+    if (after !== null) query = query.gte("occurred_at", after.occurred_at).or(afterCursorFilter("occurred_at", [after.occurred_at, after.id]));
     const { data, error } = await query.order("occurred_at", { ascending: true }).order("id", { ascending: true }).limit(limit);
     if (error) throw new Error("Failed to load events for achievements", { cause: error });
     return data;
@@ -196,8 +199,9 @@ export async function loadEvents(
  * id), so a read cut at the bound drops the newest days of every account rather than whole accounts.
  *
  * Index: usage_snapshots_account_metric_date_key (external_account_id, metric_key, snapshot_date),
- * one range per account and metric. Its order is per account and metric, not across them, so the
- * keyset filter and the sort by (snapshot_date, id) run on the rows it returns.
+ * one range per account and metric, starting at `snapshot_date >= cursor` after the first page. Its
+ * order is per account and metric, not across them, so the sort by (snapshot_date, id) runs on the
+ * rows it returns: one per account, metric, and day, 0.6 ms for 3 accounts over 400 days.
  */
 export async function loadReadings(
   db: Db,
@@ -215,7 +219,7 @@ export async function loadReadings(
       .in("external_account_id", [...input.accountIds])
       .in("metric_key", [...input.metricKeys])
       .not("value", "is", null);
-    if (after !== null) query = query.or(afterCursorFilter("snapshot_date", [after.snapshot_date, after.id]));
+    if (after !== null) query = query.gte("snapshot_date", after.snapshot_date).or(afterCursorFilter("snapshot_date", [after.snapshot_date, after.id]));
     const { data, error } = await query.order("snapshot_date", { ascending: true }).order("id", { ascending: true }).limit(limit);
     if (error) throw new Error("Failed to load metric readings for achievements", { cause: error });
     return data;
