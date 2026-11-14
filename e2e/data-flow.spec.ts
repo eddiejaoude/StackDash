@@ -254,11 +254,16 @@ test.describe("hero data-flow constellation in motion", () => {
       tilt.evaluate((element) =>
         ["--tilt-x", "--tilt-y"].map((name) => Number.parseFloat(element.style.getPropertyValue(name) || "0")),
       );
+    // What is drawn, not only the inputs: the computed transform with no tilt, before any pointer.
+    const drawn = () => tilt.evaluate((element) => getComputedStyle(element).transform);
+    const flat = await drawn();
     const frame = await tilt.boundingBox();
     if (!frame) throw new Error("The stage has no box");
+    const nearRightEdge = { x: frame.x + frame.width * 0.95, y: frame.y + frame.height * 0.5 };
 
-    await page.mouse.move(frame.x + frame.width * 0.95, frame.y + frame.height * 0.5);
+    await page.mouse.move(nearRightEdge.x, nearRightEdge.y);
     await expect.poll(async () => (await angles())[0]).toBeGreaterThan(3);
+    await expect.poll(drawn).not.toBe(flat);
 
     // A pull keeps the pointer captured, so moves arrive from far outside the frame.
     const stripe = picture.getByRole("button", { name: /^Stripe\b/ });
@@ -269,8 +274,15 @@ test.describe("hero data-flow constellation in motion", () => {
     for (const angle of await angles()) expect(Math.abs(angle)).toBeLessThanOrEqual(5);
     await page.mouse.up();
 
-    await picture.getByRole("button", { name: "Pause animation" }).click();
-    await page.mouse.move(frame.x + frame.width * 0.95, frame.y + frame.height * 0.1);
+    // Pausing from the keyboard with the pointer still in the frame lays the stage flat, and it
+    // stays flat while the pointer moves.
+    await page.mouse.move(nearRightEdge.x, nearRightEdge.y);
+    await expect.poll(async () => (await angles())[0]).toBeGreaterThan(3);
+    await picture.getByRole("button", { name: "Pause animation" }).focus();
+    await page.keyboard.press("Enter");
+    await expect.poll(angles).toEqual([0, 0]);
+    await expect.poll(drawn).toBe(flat);
+    await page.mouse.move(frame.x + frame.width * 0.9, frame.y + frame.height * 0.1);
     await expect.poll(angles).toEqual([0, 0]);
   });
 });

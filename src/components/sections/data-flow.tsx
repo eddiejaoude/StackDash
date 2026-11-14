@@ -41,7 +41,7 @@ const sourceDetails: Record<LiveProviderId, SourceDetail> = {
     events: [
       { label: "New fork of acme/api", severity: "success", delay: 0 },
       { label: "acme/cli hit 1,000 ★", severity: "success", delay: 2 },
-      { label: "Actions minutes past 50%", severity: "warning" },
+      { label: "Spend at 75% of budget", severity: "warning" },
     ],
   },
   resend: {
