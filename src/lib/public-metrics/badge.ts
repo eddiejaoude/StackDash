@@ -21,7 +21,7 @@ const NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 
 
 // Fills chosen for at least 4.5:1 contrast with the white text, so the badge reads on any README
 // background. Never color alone: the message says verified, estimated, or simulated in words, and
-// an achievement's says its title.
+// an achievement's says its title, followed by "(simulated)" when simulator data earned it.
 const LABEL_FILL = "#3f3f46";
 const TONE_FILLS: Record<BadgeTone, string> = {
   verified: "#15803d",
@@ -69,15 +69,17 @@ export function badgeContent(metric: PublishedEngineMetric | null): BadgeContent
 
 /**
  * What the badge of a published achievement says: a trophy and the provider's name, then the public
- * title, never the private one. Null (unknown, not earned, not published, or a malformed id) is the
- * same neutral Unpublished badge a metric gets, titled for an achievement.
+ * title, never the private one. One earned from the provider simulator's data (#131) takes the
+ * simulated fill and says "(simulated)" after its title, as a simulated metric's badge does. Null
+ * (unknown, not earned, not published, or a malformed id) is the same neutral Unpublished badge a
+ * metric gets, titled for an achievement.
  */
 export function achievementBadgeContent(achievement: PublishedAchievement | null): BadgeContent {
   if (achievement === null) return { ...UNPUBLISHED, title: "This achievement is not published on DevMacro." };
   return {
     label: `🏆 ${achievement.providerName}`,
-    message: achievement.publicTitle,
-    tone: "achievement",
+    message: achievement.simulated ? `${achievement.publicTitle} (simulated)` : achievement.publicTitle,
+    tone: achievement.simulated ? "simulated" : "achievement",
     title: `${achievementBadgeAltText(achievement)} ${achievementEarnedText(achievement)}.`,
   };
 }

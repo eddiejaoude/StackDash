@@ -287,7 +287,10 @@ function AchievementItem({
       <div className="flex min-w-0 items-start gap-3">
         <ProviderMark provider={achievement.provider} size="md" />
         <div className="min-w-0">
-          <h3 className="font-medium break-words">{achievement.publicTitle}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-medium break-words">{achievement.publicTitle}</h3>
+            {achievement.simulated ? <SimulatedBadge /> : null}
+          </div>
           <p className="mt-1 text-sm text-muted">
             {achievement.providerName} achievement. <time dateTime={dateTime}>{achievementEarnedText(achievement)}</time>.
           </p>
@@ -299,6 +302,7 @@ function AchievementItem({
           achievementId={achievement.achievementId}
           publicTitle={achievement.publicTitle}
           providerName={achievement.providerName}
+          simulated={achievement.simulated}
           siteOrigin={origin}
           projectPage={projectPage}
         />

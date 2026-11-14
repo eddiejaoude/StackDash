@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { applyRounding, formatMetricValue, publicationSummary, publishedDisplay } from "./display";
+import { applyRounding, formatMetricValue, livePublicationsText, publicationSummary, publishedDisplay } from "./display";
 
 const SRC = path.join(process.cwd(), "src");
 
@@ -83,5 +83,17 @@ describe("publicationSummary", () => {
     ["hundreds", 7, "Rounded down to 100, 7 days late"],
   ] as const)("%s and %d days read %s", (rounding, delay, expected) => {
     expect(publicationSummary(rounding, delay)).toBe(expected);
+  });
+});
+
+describe("livePublicationsText (#413)", () => {
+  it.each([
+    [{ metrics: 2, achievements: 1 }, "2 metrics and 1 achievement"],
+    [{ metrics: 1, achievements: 0 }, "1 metric"],
+    [{ metrics: 0, achievements: 3 }, "3 achievements"],
+    [{ metrics: 1_204, achievements: 0 }, "1,204 metrics"],
+    [{ metrics: 0, achievements: 0 }, ""],
+  ])("%o reads %s", (counts, expected) => {
+    expect(livePublicationsText(counts)).toBe(expected);
   });
 });

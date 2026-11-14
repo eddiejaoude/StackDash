@@ -164,12 +164,41 @@ ownerTest.describe("public metrics as the owner", () => {
         metrics: [{ id: "github-stars", status: "unavailable", reason: "not_connected", text: "Not connected" }],
       });
 
-      // Unpublish everything asks first, names the count and the reach, and Escape backs out.
+      // A published achievement is public too, so "Unpublish everything" reaches it (#413).
+      const { error: earnError } = await adminClient().rpc("record_project_achievements", {
+        p_workspace_id: workspace.id,
+        p_project_id: projectId,
+        p_achievements: [
+          {
+            achievement_id: "github.stars.1000",
+            provider: "github",
+            title: "1,000 GitHub stars",
+            public_title: "1,000 GitHub stars",
+            description: "Earned when DevMacro records 1,000 or more stars across the connected GitHub repositories.",
+            earned_at: new Date(Date.now() - DAY_MS).toISOString(),
+            earned_precision: "instant",
+            evidence: "at_least",
+            threshold: 1000,
+            simulated: false,
+          },
+        ],
+      });
+      if (earnError) throw new Error(`Recording an achievement failed (code ${earnError.code}).`);
+      const { error: publishAchievementError } = await adminClient().rpc("publish_achievement", {
+        p_workspace_id: workspace.id,
+        p_project_id: projectId,
+        p_actor_id: workspace.ownerId,
+        p_achievement_id: "github.stars.1000",
+      });
+      if (publishAchievementError) throw new Error(`Publishing an achievement failed (code ${publishAchievementError.code}).`);
+      await page.reload();
+
+      // Unpublish everything asks first, names both counts and the reach, and Escape backs out.
       const unpublishAll = page.getByRole("button", { name: "Unpublish everything" });
       await unpublishAll.click();
       const dialog = page.getByRole("dialog", { name: "Unpublish everything in this workspace?" });
       await expect(dialog).toBeVisible();
-      await expect(dialog).toContainText("1 published value stops being public, across every project in this workspace");
+      await expect(dialog).toContainText("1 metric and 1 achievement stop being public, across every project in this workspace");
       await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
       expect(await new AxeBuilder({ page }).include("dialog").analyze().then((result) => result.violations)).toEqual([]);
       await page.keyboard.press("Escape");
@@ -180,11 +209,21 @@ ownerTest.describe("public metrics as the owner", () => {
       await unpublishAll.click();
       await dialog.getByRole("button", { name: "Unpublish everything" }).click();
       await expect(
-        page.getByRole("status").filter({ hasText: "Unpublished everything in this workspace: 1 metric." }),
+        page.getByRole("status").filter({ hasText: "Unpublished everything in this workspace: 1 metric and 1 achievement." }),
       ).toBeVisible();
       await expect(page.getByRole("heading", { name: "Metrics from your connected providers" })).toBeFocused();
       await expect(stars).toContainText("Not published");
       expect((await readPublic(baseURL, projectId)).status).toBe(404);
+      const { data: stillPublic, error: achievementsError } = await adminClient().rpc("public_published_achievements", { p_project_id: projectId });
+      if (achievementsError) throw new Error(`Reading published achievements failed (code ${achievementsError.code}).`);
+      expect(stillPublic).toEqual([]);
+      const { data: audit, error: auditError } = await adminClient()
+        .from("activity_events")
+        .select("title, body")
+        .eq("workspace_id", workspace.id)
+        .eq("type_id", "devmacro.metrics_unpublished_all");
+      if (auditError) throw new Error(`Reading events failed (code ${auditError.code}).`);
+      expect(audit).toEqual([{ title: "Unpublished everything", body: "1 metric and 1 achievement are no longer public." }]);
     } finally {
       await deleteTestWorkspace(workspace);
     }

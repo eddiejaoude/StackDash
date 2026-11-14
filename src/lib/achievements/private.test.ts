@@ -2,18 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { achievementEventDedupeKey } from "./events";
 import {
-  achievementEarnedText,
-  achievementEvidenceText,
   groupAchievementsByProvider,
   loadProjectAchievements,
   loadTimelineAchievements,
+  withAchievementSimulated,
   type ProjectAchievement,
 } from "./private";
 
 /*
- * What members read about earned achievements (#413): the dates and evidence the Achievements
- * section prints, its grouping, and the timeline's lookup of the achievements behind a page of
- * entries. The query builder answers per table with whatever the test seeds.
+ * What members read about earned achievements (#413): the Achievements section's grouping and
+ * rows, and the timeline's lookup of the achievements behind a page of entries. The wording of when
+ * an achievement was earned is `achievementEarnedText` in share.ts, tested there. The query builder
+ * answers per table with whatever the test seeds.
  */
 
 type Result = { data: unknown; error: { message: string } | null };
@@ -52,6 +52,7 @@ function achievement(overrides: Partial<ProjectAchievement>): ProjectAchievement
     earnedPrecision: "instant",
     evidence: "crossed",
     threshold: null,
+    simulated: false,
     published: false,
     ...overrides,
   };
@@ -59,31 +60,6 @@ function achievement(overrides: Partial<ProjectAchievement>): ProjectAchievement
 
 beforeEach(() => {
   results.clear();
-});
-
-describe("achievementEarnedText", () => {
-  it("dates an event or reading in London time, which can be the next day", () => {
-    // 23:30 UTC in July is 00:30 BST on the 2nd.
-    expect(achievementEarnedText(achievement({ earnedAt: "2026-07-01T23:30:00+00:00" }))).toBe("2026-07-02 00:30 BST");
-  });
-
-  it("dates a daily total to its day, with no time and no shift to London", () => {
-    // Stored at the start of its UTC day; read in London it would be 01:00 BST on the same day,
-    // and a negative offset would pull it into the day before.
-    expect(achievementEarnedText(achievement({ earnedAt: "2026-07-02T00:00:00+00:00", earnedPrecision: "day" }))).toBe(
-      "2026-07-02",
-    );
-  });
-});
-
-describe("achievementEvidenceText", () => {
-  it("says how a crossed achievement is earned", () => {
-    expect(achievementEvidenceText(achievement({}))).toBe("The 10th deployment DevMacro recorded.");
-  });
-
-  it("claims only the reading DevMacro saw when the first one was already past the threshold", () => {
-    expect(achievementEvidenceText(achievement({ evidence: "at_least", threshold: 1024 }))).toBe("Recorded at least 1,024");
-  });
 });
 
 describe("groupAchievementsByProvider", () => {
@@ -101,7 +77,7 @@ describe("groupAchievementsByProvider", () => {
 });
 
 describe("loadProjectAchievements", () => {
-  it("reads publication from the joined row", async () => {
+  it("reads publication from the joined rows and whether simulator data earned it", async () => {
     results.set("project_achievements", {
       data: [
         {
@@ -114,7 +90,8 @@ describe("loadProjectAchievements", () => {
           earned_precision: "instant",
           evidence: "at_least",
           threshold: 1024,
-          project_achievement_publications: { project_achievement_id: "41300000-0000-4000-8000-000000000010" },
+          simulated: false,
+          project_achievement_publications: [{ project_achievement_id: "41300000-0000-4000-8000-000000000010" }],
         },
         {
           achievement_id: "github.stars.10",
@@ -126,27 +103,29 @@ describe("loadProjectAchievements", () => {
           earned_precision: "instant",
           evidence: "at_least",
           threshold: 10,
-          project_achievement_publications: null,
+          simulated: true,
+          project_achievement_publications: [],
         },
       ],
       error: null,
     });
     const loaded = await loadProjectAchievements(WORKSPACE.id, WEB);
-    expect(loaded.map((item) => [item.id, item.providerName, item.published])).toEqual([
-      ["github.stars.1024", "GitHub", true],
-      ["github.stars.10", "GitHub", false],
+    expect(loaded.map((item) => [item.id, item.providerName, item.published, item.simulated])).toEqual([
+      ["github.stars.1024", "GitHub", true, false],
+      ["github.stars.10", "GitHub", false, true],
     ]);
   });
 });
 
 describe("loadTimelineAchievements", () => {
-  function row(projectId: string, achievementId: string, pages: { slug: string; enabled: boolean }[]) {
+  function row(projectId: string, achievementId: string, pages: { slug: string; enabled: boolean }[], simulated = false) {
     return {
       project_id: projectId,
       achievement_id: achievementId,
       provider: "vercel",
       public_title: "10 Vercel deployments recorded",
-      project_achievement_publications: null,
+      simulated,
+      project_achievement_publications: [],
       projects: { name: projectId === WEB ? "Acme web" : "Acme API", project_pages: pages },
     };
   }
@@ -157,7 +136,7 @@ describe("loadTimelineAchievements", () => {
       data: [
         row(WEB, "vercel.deployments.10", [{ slug: "web", enabled: true }]),
         row(API, "vercel.deployments.10", []),
-        row(API, "vercel.deployments.first", [{ slug: "api", enabled: false }]),
+        row(API, "vercel.deployments.first", [{ slug: "api", enabled: false }], true),
       ],
       error: null,
     });
@@ -172,13 +151,33 @@ describe("loadTimelineAchievements", () => {
       projectName: "Acme web",
       href: `/w/acme/projects/${WEB}/achievements#vercel.deployments.10`,
       projectPage: { path: "/@acme/web", projectName: "Acme web" },
+      simulated: false,
+      published: false,
     });
     // A page that is off gives the share dialog no page to link to.
-    expect(found.get(achievementEventDedupeKey(API, "vercel.deployments.first"))?.projectPage).toBeNull();
+    expect(found.get(achievementEventDedupeKey(API, "vercel.deployments.first"))).toMatchObject({ projectPage: null, simulated: true });
   });
 
   it("reads nothing for a page with no achievement entries", async () => {
     results.set("project_achievements", { data: null, error: { message: "must not be read" } });
     expect((await loadTimelineAchievements(WORKSPACE, [])).size).toBe(0);
+  });
+});
+
+describe("withAchievementSimulated", () => {
+  const ref = { projectId: WEB, achievementId: "vercel.deployments.10" };
+  const key = achievementEventDedupeKey(WEB, "vercel.deployments.10");
+
+  it("marks an achievement entry simulated when simulator data earned its achievement", () => {
+    const event = { id: "e1", simulated: false, achievement: ref };
+    expect(withAchievementSimulated(event, new Map([[key, { simulated: true }]]))).toEqual({ ...event, simulated: true });
+  });
+
+  it.each([
+    ["a real achievement", { id: "e1", simulated: false, achievement: ref }, new Map([[key, { simulated: false }]])],
+    ["an achievement deleted between the reads", { id: "e1", simulated: false, achievement: ref }, new Map()],
+    ["an event that is not an achievement's", { id: "e1", simulated: false, achievement: null }, new Map([[key, { simulated: true }]])],
+  ])("leaves %s as it is", (_title, event, achievements) => {
+    expect(withAchievementSimulated(event, achievements)).toBe(event);
   });
 });

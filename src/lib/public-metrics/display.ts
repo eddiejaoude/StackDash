@@ -61,3 +61,21 @@ export const UNAVAILABLE_LABELS: Record<UnavailableReason, string> = {
 export function publicationSummary(rounding: PublishedMetricRounding, delayDays: PublishedMetricDelay): string {
   return `${ROUNDING_LABELS[rounding]}, ${delayDays === 0 ? "current" : `${delayDays} days late`}`;
 }
+
+/**
+ * What "Unpublish everything" reaches in a workspace (#413): live metric publications, engine and
+ * self-reported alike, and published achievements.
+ */
+export type LivePublicationCounts = Readonly<{ metrics: number; achievements: number }>;
+
+/**
+ * "2 metrics and 1 achievement", "1 metric", or "3 achievements": the words the "Unpublish
+ * everything" dialog and its result use, as its audit event does. Empty when both are zero.
+ */
+export function livePublicationsText(counts: LivePublicationCounts): string {
+  const parts = [
+    ...(counts.metrics > 0 ? [formatQuantity(counts.metrics, counts.metrics === 1 ? "metric" : "metrics")] : []),
+    ...(counts.achievements > 0 ? [formatQuantity(counts.achievements, counts.achievements === 1 ? "achievement" : "achievements")] : []),
+  ];
+  return parts.join(" and ");
+}

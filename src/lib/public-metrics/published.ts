@@ -382,6 +382,7 @@ const PublishedAchievementRowSchema = z.object({
   earned_precision: z.enum(["instant", "day"]),
   evidence: z.enum(["crossed", "at_least"]),
   threshold: z.number().nullable(),
+  simulated: z.boolean(),
   published_at: z.string(),
 });
 
@@ -398,6 +399,8 @@ export type PublishedAchievement = Readonly<{
   /** `at_least`: DevMacro first saw the value at or above `threshold`, not the crossing itself. */
   evidence: "crossed" | "at_least";
   threshold: number | null;
+  /** Earned from data the provider simulator (#131) made up. Never show it as earned from real data. */
+  simulated: boolean;
   publishedAt: Date;
 }>;
 
@@ -417,6 +420,7 @@ export async function loadPublishedAchievements(projectId: string): Promise<Publ
       earnedPrecision: row.earned_precision,
       evidence: row.evidence,
       threshold: row.threshold,
+      simulated: row.simulated,
       publishedAt: new Date(row.published_at),
     }));
 }

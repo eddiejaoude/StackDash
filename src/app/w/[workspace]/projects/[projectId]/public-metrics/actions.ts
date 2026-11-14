@@ -13,7 +13,7 @@ import {
   PUBLISHED_METRIC_ROUNDINGS,
   publicMetricDefinition,
 } from "@/lib/public-metrics/definitions";
-import { publicationSummary } from "@/lib/public-metrics/display";
+import { livePublicationsText, publicationSummary } from "@/lib/public-metrics/display";
 import { pageSlugSchema, projectPagePath } from "@/lib/public-metrics/project-page";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -175,18 +175,19 @@ export async function unpublishEverything(
 
   try {
     const { workspace: ws, user } = await requireWorkspaceAction(parsed.data.workspace, "publish_metrics");
+    // Takes down every live metric publication and every published achievement in one transaction.
     const { data, error } = await createAdminClient().rpc("unpublish_all_metrics", {
       p_workspace_id: ws.id,
       p_actor_id: user.id,
     });
     if (error) rpcFailure(error, "Unpublish everything");
+    const [counts] = data;
+    if (counts === undefined) throw new Error("Unpublish everything returned no counts");
     refresh();
+    const taken = livePublicationsText(counts);
     return {
       ok: true,
-      message:
-        data === 0
-          ? "Nothing was published in this workspace."
-          : `Unpublished everything in this workspace: ${data === 1 ? "1 metric" : `${data} metrics`}.`,
+      message: taken === "" ? "Nothing was published in this workspace." : `Unpublished everything in this workspace: ${taken}.`,
     };
   } catch (error) {
     return unexpected(error, "public_metrics.unpublish_all_failed", "Nothing was unpublished. Try again in a moment.");

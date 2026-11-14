@@ -17,7 +17,7 @@ import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { ActiveFilterChips, TimelineFilters, TimelineToolbar } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
 import { achievementEventDedupeKey } from "@/lib/achievements/events";
-import { loadTimelineAchievements, type TimelineAchievement } from "@/lib/achievements/private";
+import { loadTimelineAchievements, withAchievementSimulated, type TimelineAchievement } from "@/lib/achievements/private";
 import { eventTypeName } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
@@ -101,11 +101,14 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     event.achievement === null ? [] : [event.achievement],
   );
   const achievements = await loadTimelineAchievements(workspace, achievementRefs);
+  // An achievement entry has no connection, so its achievement says whether simulator data earned it.
+  const events = page.events.map((event) => withAchievementSimulated(event, achievements));
+  const linked = linkedEvent === null ? null : withAchievementSimulated(linkedEvent, achievements);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
   const inspectorProps = {
-    events: page.events.map((event) => inspected(event, basePath, achievements)),
-    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent, basePath, achievements),
+    events: events.map((event) => inspected(event, basePath, achievements)),
+    linkedEvent: linked === null ? null : inspected(linked, basePath, achievements),
     baseHref: timelineHref(basePath, query, query.cursor),
     fallbackFocusId: HEADING_ID,
     achievementActions: { workspaceSlug: workspace.slug, canPublish: canPerform(role, "publish_metrics"), siteOrigin: origin },
@@ -167,7 +170,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     );
   }
 
-  const count = page.events.length;
+  const count = events.length;
   const filtered = hasActiveFilters(query);
   const olderPage = query.cursor !== null;
   const showNewestLink = olderPage && count > 0;
@@ -180,7 +183,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     scopeDescription: describeScope(query.scope, scopeOptions),
   });
   // Events with a connection are the connections in view; DevMacro's own events have none (#269).
-  const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
+  const allSimulated = everySimulated(events.filter((event) => event.connectionName !== null));
 
   return (
     <EventInspector {...inspectorProps}>
@@ -243,7 +246,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           {allSimulated ? <SimulatedNotice /> : null}
           {/* The list's URL is its scope: new filters or another page reset what counts as arrived. */}
           <ArrivalScope scope={timelineHref(basePath, query, query.cursor)}>
-            <EventList events={page.events} now={now} markSimulated={!allSimulated} />
+            <EventList events={events} now={now} markSimulated={!allSimulated} />
           </ArrivalScope>
         </>
       )}

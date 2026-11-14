@@ -32,6 +32,7 @@ type SeededAchievement = Readonly<{
   earned_precision: "instant" | "day";
   evidence: "crossed" | "at_least";
   threshold: number | null;
+  simulated: boolean;
 }>;
 
 const DEPLOYMENTS: SeededAchievement = {
@@ -44,6 +45,7 @@ const DEPLOYMENTS: SeededAchievement = {
   earned_precision: "instant",
   evidence: "crossed",
   threshold: 10,
+  simulated: false,
 };
 
 // "Recorded at least": the first stored reading was already past the threshold.
@@ -57,6 +59,7 @@ const LUCKY_SEVENS: SeededAchievement = {
   earned_precision: "instant",
   evidence: "at_least",
   threshold: 777,
+  simulated: false,
 };
 
 // The same fact as the derived milestone "Reached 1,000 GitHub stars" the seeded history reveals.
@@ -70,9 +73,11 @@ const STARS_1000: SeededAchievement = {
   earned_precision: "instant",
   evidence: "crossed",
   threshold: 1000,
+  simulated: false,
 };
 
-// A daily total: a day, never a time.
+// A daily total: a day, never a time. Earned from a provider simulator's made-up data, so every
+// public surface says it is simulated.
 const FIRST_SIGNUP: SeededAchievement = {
   achievement_id: "posthog.signups.first",
   provider: "posthog",
@@ -83,6 +88,7 @@ const FIRST_SIGNUP: SeededAchievement = {
   earned_precision: "day",
   evidence: "crossed",
   threshold: 1,
+  simulated: true,
 };
 
 // Earned, never published.
@@ -96,6 +102,7 @@ const PRIVATE_ONLY: SeededAchievement = {
   earned_precision: "instant",
   evidence: "crossed",
   threshold: 1,
+  simulated: false,
 };
 
 const PUBLISHED = [DEPLOYMENTS, LUCKY_SEVENS, STARS_1000, FIRST_SIGNUP] as const;
@@ -197,6 +204,9 @@ test.describe("published achievements on public surfaces", () => {
       // A daily total has a day and no time.
       await expect(items.nth(3)).toContainText("PostHog achievement. Earned 2026-10-23.");
       await expect(items.nth(3).locator("time")).toHaveAttribute("datetime", "2026-10-23");
+      // Simulated data is never shown as real: the simulated one says so, and only it.
+      await expect(items.nth(3).getByText("Simulated", { exact: true })).toBeVisible();
+      await expect(section.getByText("Simulated", { exact: true })).toHaveCount(1);
       await expect(section).not.toContainText("First Vercel deployment recorded");
 
       // No fact twice: the published 1,000 star achievement replaces its derived milestone, and the
@@ -221,6 +231,19 @@ test.describe("published achievements on public surfaces", () => {
       expect(svg).toContain("<title>Vercel achievement on DevMacro: 10 Vercel deployments recorded. Earned 2026-10-20 10:15 BST.</title>");
       expectNothingPrivate(svg);
       await expectCard(api, `/card/${projectId}/achievement-vercel.deployments.10.png`);
+
+      // A simulated achievement's badge says so in its message, its title, and its fill.
+      const simulated = await expectBadge(
+        api,
+        `/badge/${projectId}/achievement-posthog.signups.first.svg`,
+        "🏆 PostHog",
+        "First PostHog signup recorded (simulated)",
+      );
+      expect(simulated).toContain(
+        "<title>PostHog achievement on DevMacro: First PostHog signup recorded. Simulated data, not verified. Earned 2026-10-23.</title>",
+      );
+      expect(simulated).toContain('fill="#a16207"');
+      await expectCard(api, `/card/${projectId}/achievement-posthog.signups.first.png`);
 
       // Earned but not published, never earned, and malformed all answer the same neutral badge.
       for (const path of [

@@ -7,7 +7,7 @@ import { formatDateTime } from "@/lib/format";
 import { site } from "@/lib/site";
 
 import type { PublishedAchievement, PublishedMetricCard } from "./published";
-import { achievementEarnedText, CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
+import { achievementEarnedText, CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric, SIMULATED_SENTENCE } from "./share";
 import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSlide, type YearSummary } from "./yearly";
 
 /*
@@ -27,6 +27,10 @@ const COLORS = {
   accent: "#ff5d3b",
   success: "#3ecf8e",
   warning: "#f5a623",
+  // Achievements (#413): `--gold` on `--gold-soft` (rgba(244, 207, 93, 0.14)) laid over the
+  // background, as solid colors because the card draws no transparency over its frame.
+  gold: "#f4cf5d",
+  goldSoft: "#2b2616",
 } as const;
 
 const PADDING_PX = 64;
@@ -91,7 +95,7 @@ function Frame({ tag, children, footer }: { tag: ReactNode; children: ReactNode;
   );
 }
 
-function Tag({ text, color }: { text: string; color: string }) {
+function Tag({ text, color, fill }: { text: string; color: string; fill?: string }) {
   return (
     <div
       style={{
@@ -99,6 +103,7 @@ function Tag({ text, color }: { text: string; color: string }) {
         padding: "8px 20px",
         borderRadius: 999,
         border: `2px solid ${color}`,
+        ...(fill === undefined ? {} : { backgroundColor: fill }),
         color,
         fontSize: 24,
       }}
@@ -160,12 +165,20 @@ export function NoticeCard({ title, body }: { title: string; body: string }) {
 /**
  * The card of one published achievement (#413): the project's name while its page is public, the
  * provider, the public title (never the private one), and when it was earned, in the same words as
- * the project page. The title is at most 80 characters (ACHIEVEMENT_TITLE_MAX), which wraps to at
- * most three lines at this size.
+ * the project page. Its tag is the gold "Achievement earned" the timeline and the feed show, or,
+ * for one earned from the provider simulator's data (#131), the warning a simulated metric's card
+ * shows. The title is at most 80 characters (ACHIEVEMENT_TITLE_MAX), which wraps to at most three
+ * lines at this size.
  */
 export function AchievementCard({ achievement, projectName }: { achievement: PublishedAchievement; projectName: string | null }) {
+  const tag = achievement.simulated ? (
+    <Tag text={SIMULATED_SENTENCE} color={COLORS.warning} />
+  ) : (
+    <Tag text="Achievement earned" color={COLORS.gold} fill={COLORS.goldSoft} />
+  );
+  const footer = achievement.simulated ? "Earned from simulated provider data" : "Earned from stored provider data";
   return (
-    <Frame tag={<Tag text="Achievement earned" color={COLORS.success} />} footer={["Earned from stored provider data", ""]}>
+    <Frame tag={tag} footer={[footer, ""]}>
       {projectName === null ? null : <div style={{ ...line(44), letterSpacing: -1, marginBottom: 4 }}>{projectName}</div>}
       <div style={{ display: "flex", fontSize: 36, color: COLORS.muted }}>{`${achievement.providerName} achievement`}</div>
       <div style={{ display: "flex", fontSize: 64, lineHeight: 1.15, marginTop: 12, letterSpacing: -1 }}>{achievement.publicTitle}</div>

@@ -16,6 +16,7 @@ import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
 import { FailureAnnouncement, LiveRegion } from "@/components/ui/live-region";
 import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
+import { livePublicationsText, type LivePublicationCounts } from "@/lib/public-metrics/display";
 import { PAGE_SLUG_MAX } from "@/lib/public-metrics/project-page";
 
 import { SELF_REPORTED_LABEL_MAX, SELF_REPORTED_UNIT_MAX, type SelfReportedField } from "./self-reported-rules";
@@ -160,22 +161,23 @@ export function UnpublishButton({
 }
 
 /**
- * "Unpublish everything" plus a `ModalDialog` that names what it revokes before
- * confirming, like `DeleteProjectDialog`: it reaches every project in the workspace, not only
- * this page. Escape or Cancel closes it and focus goes back to the button. After it succeeds the
- * button is gone, so focus goes to the section named by `focusId` instead.
+ * "Unpublish everything" plus a `ModalDialog` that names what it takes down before confirming,
+ * like `DeleteProjectDialog`: every live metric and published achievement of every project in the
+ * workspace, not only this page's. Escape or Cancel closes it and focus goes back to the button.
+ * After it succeeds the button is gone, so focus goes to the section named by `focusId` instead.
  */
 export function UnpublishEverythingButton({
   workspaceSlug,
-  liveCount,
+  liveCounts,
   focusId,
 }: {
   workspaceSlug: string;
-  /** Live publications in the whole workspace, engine metrics and self-reported values. */
-  liveCount: number;
+  /** What the whole workspace has public: metrics (engine and self-reported) and achievements. */
+  liveCounts: LivePublicationCounts;
   focusId: string;
 }) {
   const dialog = useModalDialog();
+  const total = liveCounts.metrics + liveCounts.achievements;
 
   return (
     <>
@@ -188,12 +190,12 @@ export function UnpublishEverythingButton({
         description={
           <div className="space-y-2">
             <p>
-              {liveCount === 1 ? "1 published value stops" : `${liveCount} published values stop`} being public, across
-              every project in this workspace, not only this one.
+              {livePublicationsText(liveCounts)} {total === 1 ? "stops" : "stop"} being public, across every project in
+              this workspace, not only this one.
             </p>
             <p>
-              Anything that reads them shows nothing within a minute. To publish again, choose rounding and timing for
-              each one again.
+              Anything that reads them shows nothing within a minute. To publish again, publish each one again: a metric
+              with its rounding and timing, an achievement from its project&apos;s Achievements page.
             </p>
           </div>
         }

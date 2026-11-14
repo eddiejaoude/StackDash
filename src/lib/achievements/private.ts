@@ -1,6 +1,5 @@
 import "server-only";
 
-import { formatDateTime, formatUtcDate } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 import { projectPagePath, type PublicAddressOwner } from "@/lib/public-metrics/project-page";
 import type { ShareProjectPage } from "@/lib/public-metrics/share";
@@ -33,6 +32,8 @@ export type ProjectAchievement = Readonly<{
   earnedPrecision: DatePrecision;
   evidence: Evidence;
   threshold: number | null;
+  /** Earned from data the provider simulator (#131) made up, so the page says Simulated. */
+  simulated: boolean;
   published: boolean;
 }>;
 
@@ -55,30 +56,6 @@ export function achievementsPath(workspaceSlug: string, projectId: string): stri
 /** The achievement's own item in its project's Achievements section. */
 export function achievementHref(workspaceSlug: string, projectId: string, achievementId: string): string {
   return `${achievementsPath(workspaceSlug, projectId)}#${achievementId}`;
-}
-
-/**
- * When it was earned, in the house formats: a London date and time for an achievement proved by an
- * event or a reading, and the day alone for one proved by a daily total, which is stored at the
- * start of its UTC day and never claims a time.
- */
-export function achievementEarnedText(achievement: Pick<ProjectAchievement, "earnedAt" | "earnedPrecision">): string {
-  return achievement.earnedPrecision === "day" ? formatUtcDate(achievement.earnedAt) : formatDateTime(achievement.earnedAt);
-}
-
-const THRESHOLD_FORMAT = new Intl.NumberFormat("en-US");
-
-/**
- * How it was earned. When the first stored reading was already past the threshold, DevMacro never
- * saw the crossing, so it says what it did see rather than the rule.
- */
-export function achievementEvidenceText(
-  achievement: Pick<ProjectAchievement, "description" | "evidence" | "threshold">,
-): string {
-  if (achievement.evidence === "at_least" && achievement.threshold !== null) {
-    return `Recorded at least ${THRESHOLD_FORMAT.format(achievement.threshold)}`;
-  }
-  return achievement.description;
 }
 
 /**
@@ -106,7 +83,7 @@ export async function loadProjectAchievements(workspaceId: string, projectId: st
   const { data, error } = await supabase
     .from("project_achievements")
     .select(
-      "achievement_id, provider, title, public_title, description, earned_at, earned_precision, evidence, threshold, project_achievement_publications(project_achievement_id)",
+      "achievement_id, provider, title, public_title, description, earned_at, earned_precision, evidence, threshold, simulated, project_achievement_publications(project_achievement_id)",
     )
     .eq("workspace_id", workspaceId)
     .eq("project_id", projectId)
@@ -125,7 +102,9 @@ export async function loadProjectAchievements(workspaceId: string, projectId: st
     earnedPrecision: row.earned_precision,
     evidence: row.evidence,
     threshold: row.threshold,
-    published: row.project_achievement_publications !== null,
+    simulated: row.simulated,
+    // Embedded through the composite (workspace_id, project_achievement_id) key, so an array of one or none.
+    published: row.project_achievement_publications.length > 0,
   }));
 }
 
@@ -138,10 +117,25 @@ export type TimelineAchievement = Readonly<{
   href: string;
   providerName: string;
   publicTitle: string;
+  /** Earned from simulator data (#131): the entry says Simulated, as its event has no connection to say it. */
+  simulated: boolean;
   published: boolean;
   /** The project's public page while it is on, for the share dialog's links. */
   projectPage: ShareProjectPage | null;
 }>;
+
+/**
+ * `event` marked simulated when its achievement was earned from simulator data. An "Achievement
+ * earned" event is DevMacro's own and has no connection, so its own `simulated` is always false.
+ */
+export function withAchievementSimulated<E extends Readonly<{ simulated: boolean; achievement: AchievementRef | null }>>(
+  event: E,
+  achievements: ReadonlyMap<string, Pick<TimelineAchievement, "simulated">>,
+): E {
+  if (event.achievement === null || event.simulated) return event;
+  const achievement = achievements.get(achievementEventDedupeKey(event.achievement.projectId, event.achievement.achievementId));
+  return achievement?.simulated === true ? { ...event, simulated: true } : event;
+}
 
 export type AchievementRef = Readonly<{ projectId: string; achievementId: string }>;
 
@@ -163,7 +157,7 @@ export async function loadTimelineAchievements(
   const { data, error } = await supabase
     .from("project_achievements")
     .select(
-      "project_id, achievement_id, provider, public_title, project_achievement_publications(project_achievement_id), projects!project_achievements_project_fkey(name, project_pages(slug, enabled))",
+      "project_id, achievement_id, provider, public_title, simulated, project_achievement_publications(project_achievement_id), projects!project_achievements_project_fkey(name, project_pages(slug, enabled))",
     )
     .eq("workspace_id", workspace.id)
     .in("project_id", [...new Set(refs.map((ref) => ref.projectId))])
@@ -181,7 +175,8 @@ export async function loadTimelineAchievements(
       href: achievementHref(workspace.slug, row.project_id, row.achievement_id),
       providerName: providerName(row.provider),
       publicTitle: row.public_title,
-      published: row.project_achievement_publications !== null,
+      simulated: row.simulated,
+      published: row.project_achievement_publications.length > 0,
       projectPage: page === undefined ? null : { path: projectPagePath(workspace, page.slug), projectName: row.projects.name },
     });
   }

@@ -177,6 +177,7 @@ describe("GET /card/[projectId]/achievement-[id].png (#413)", () => {
     earnedPrecision: "instant",
     evidence: "crossed",
     threshold: 10,
+    simulated: false,
     publishedAt: AT,
   };
 

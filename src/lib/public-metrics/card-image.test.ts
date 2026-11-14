@@ -124,6 +124,7 @@ describe("AchievementCard (#413)", () => {
     earnedPrecision: "day",
     evidence: "crossed",
     threshold: 100,
+    simulated: false,
     publishedAt: AT,
   };
 
@@ -132,6 +133,20 @@ describe("AchievementCard (#413)", () => {
     expect(drawn.map((entry) => entry.text)).toEqual(
       expect.arrayContaining(["Acme web", "PostHog achievement", "100 PostHog signups recorded", "Earned 2026-11-04", "Achievement earned"]),
     );
+    for (const entry of drawn) expect(contrastRatio(entry.color, entry.background)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("draws Achievement earned in the timeline's gold on a gold tint, not in green", () => {
+    const tag = drawnText(AchievementCard({ achievement, projectName: null })).find((entry) => entry.text === "Achievement earned");
+    expect(tag).toMatchObject({ color: "#f4cf5d", background: "#2b2616" });
+  });
+
+  it("says simulated, not earned from stored data, for one earned from simulator data", () => {
+    const drawn = drawnText(AchievementCard({ achievement: { ...achievement, simulated: true }, projectName: null }));
+    const texts = drawn.map((entry) => entry.text);
+    expect(texts).toEqual(expect.arrayContaining(["Simulated data, not verified", "Earned from simulated provider data"]));
+    expect(texts).not.toContain("Achievement earned");
+    expect(texts).not.toContain("Earned from stored provider data");
     for (const entry of drawn) expect(contrastRatio(entry.color, entry.background)).toBeGreaterThanOrEqual(4.5);
   });
 

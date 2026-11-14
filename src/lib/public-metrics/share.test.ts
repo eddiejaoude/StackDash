@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  achievementBadgeAltText,
   achievementBadgePath,
   achievementCardAltText,
   achievementCardPath,
@@ -208,6 +209,15 @@ describe("achievementEarnedText", () => {
   it("says recorded at least, not earned, when DevMacro never saw a reading below the threshold", () => {
     expect(achievementEarnedText({ ...crossed, evidence: "at_least", threshold: 1000 })).toBe("Recorded at least 1,000 on 2026-11-05 14:05 GMT");
   });
+
+  it("reads the stored timestamp string the private Achievements page passes, in the same words", () => {
+    expect(achievementEarnedText({ ...crossed, earnedAt: "2026-07-01T23:30:00+00:00" })).toBe("Earned 2026-07-02 00:30 BST");
+    // A daily total stored at the start of its UTC day stays on that day, whatever London's offset.
+    expect(achievementEarnedText({ ...crossed, earnedAt: "2026-07-02T00:00:00+00:00", earnedPrecision: "day" })).toBe("Earned 2026-07-02");
+    expect(achievementEarnedText({ ...crossed, earnedAt: "2026-11-05T14:05:00+00:00", evidence: "at_least", threshold: 1024 })).toBe(
+      "Recorded at least 1,024 on 2026-11-05 14:05 GMT",
+    );
+  });
 });
 
 describe("achievementShareLinks", () => {
@@ -215,7 +225,7 @@ describe("achievementShareLinks", () => {
   const PAGE_URL = `${ORIGIN}/@k3j4h5g6f7/acme-web`;
   const BADGE_URL = `${ORIGIN}/badge/${PROJECT_ID}/achievement-vercel.deployments.10.svg`;
   const CARD_URL = `${ORIGIN}/card/${PROJECT_ID}/achievement-vercel.deployments.10.png`;
-  const achievement = { providerName: "Vercel", publicTitle: "10 Vercel deployments recorded" };
+  const achievement = { providerName: "Vercel", publicTitle: "10 Vercel deployments recorded", simulated: false };
   const links = (projectPage: { path: string; projectName: string } | null) =>
     achievementShareLinks({ origin: ORIGIN, projectId: PROJECT_ID, achievementId: "vercel.deployments.10", achievement, projectPage });
 
@@ -244,6 +254,20 @@ describe("achievementShareLinks", () => {
     expect(achievementCardAltText(achievement, null)).toBe("DevMacro achievement card. Vercel achievement: 10 Vercel deployments recorded.");
     expect(achievementCardAltText(achievement, "Acme web")).toBe(
       "DevMacro achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded.",
+    );
+  });
+
+  it("says simulated, never earned from real data, in every word shared about a simulated achievement", () => {
+    const simulated = { ...achievement, simulated: true };
+    expect(achievementBadgeAltText(simulated)).toBe(
+      "Vercel achievement on DevMacro: 10 Vercel deployments recorded. Simulated data, not verified.",
+    );
+    expect(achievementCardAltText(simulated, "Acme web")).toBe(
+      "DevMacro achievement card for Acme web. Vercel achievement: 10 Vercel deployments recorded. Simulated data, not verified.",
+    );
+    const post = achievementShareLinks({ origin: ORIGIN, projectId: PROJECT_ID, achievementId: "vercel.deployments.10", achievement: simulated, projectPage: null });
+    expect(new URL(post.xIntentUrl).searchParams.get("text")).toBe(
+      "Achievement: 10 Vercel deployments recorded. Earned from simulated Vercel data on DevMacro, not verified.",
     );
   });
 });

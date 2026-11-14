@@ -23,6 +23,7 @@ type Seeded = Readonly<{
   earned_precision: "instant" | "day";
   evidence: "crossed" | "at_least";
   threshold: number | null;
+  simulated: boolean;
 }>;
 
 // On four different days, so no two entries join one timeline run. All in British Summer Time.
@@ -37,6 +38,7 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     earned_precision: "instant",
     evidence: "crossed",
     threshold: null,
+    simulated: false,
   },
   {
     achievement_id: "github.stars.1024",
@@ -48,6 +50,7 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     earned_precision: "instant",
     evidence: "at_least",
     threshold: 1024,
+    simulated: false,
   },
   {
     achievement_id: "posthog.signups.100",
@@ -60,6 +63,8 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     earned_precision: "day",
     evidence: "crossed",
     threshold: null,
+    // Earned from a provider simulator's made-up data, so every surface says Simulated.
+    simulated: true,
   },
   {
     achievement_id: "vercel.deployments.10",
@@ -71,6 +76,7 @@ const ACHIEVEMENTS: readonly Seeded[] = [
     earned_precision: "instant",
     evidence: "crossed",
     threshold: null,
+    simulated: false,
   },
 ];
 
@@ -159,15 +165,19 @@ ownerTest.describe("achievements as the owner", () => {
       // An event is dated in London time, which can be the day after in UTC.
       await expect(item(page, "vercel.deployments.10")).toContainText("Earned 2026-06-20 23:30 BST");
       await expect(item(page, "vercel.deployments.10")).toContainText("The 10th deployment DevMacro recorded.");
+      await expect(item(page, "vercel.deployments.10").getByText("Simulated", { exact: true })).toHaveCount(0);
       // A daily total is dated to its day, never a time.
       const signups = item(page, "posthog.signups.100");
-      await expect(signups).toContainText("Earned 2026-06-15");
-      await expect(signups.locator("time")).toHaveText("2026-06-15");
+      await expect(signups.locator("time")).toHaveText("Earned 2026-06-15");
       await expect(signups.locator("time")).toHaveAttribute("datetime", "2026-06-15");
-      // A threshold DevMacro first saw already passed says what it saw, not when it was crossed.
+      // Earned from simulator data, so it says so in words.
+      await expect(signups.getByText("Simulated", { exact: true })).toBeVisible();
+      // A threshold DevMacro first saw already passed says what it saw, in the public page's words,
+      // never that it was earned then.
       const stars = item(page, "github.stars.1024");
-      await expect(stars).toContainText("Recorded at least 1,024");
-      await expect(stars).not.toContainText("The first stored count");
+      await expect(stars.locator("time")).toHaveText("Recorded at least 1,024 on 2026-06-10 13:00 BST");
+      await expect(stars).not.toContainText("Earned");
+      await expect(stars).toContainText("The first stored count of 1,024 stars or more.");
       await expect(stars).toContainText("Not published");
       await expect(stars).toContainText("Public title: 1,024 GitHub stars");
       await expect(stars.getByRole("button", { name: "Share 1,024 GitHub stars" })).toHaveCount(0);
@@ -236,7 +246,10 @@ ownerTest.describe("achievements as the owner", () => {
       await expect(row.getByText("Achievement", { exact: true })).toBeVisible();
 
       const inspector = await openEntry(page, "10 Vercel deployments recorded");
+      // One gold label says what it is; no severity pill repeats it.
       await expect(inspector).toContainText("Achievement earned");
+      await expect(inspector.getByText("Achievement", { exact: true })).toHaveCount(0);
+      await expect(inspector.getByText("Success", { exact: true })).toHaveCount(0);
       await expect(inspector.getByRole("definition").first()).toHaveText("Achievement earned");
       await expect(inspector).toContainText("Acme web");
       await expect(inspector.getByRole("link", { name: "View in project achievements" })).toHaveAttribute(
@@ -259,6 +272,21 @@ ownerTest.describe("achievements as the owner", () => {
       await inspector.getByRole("link", { name: "View in project achievements" }).click();
       await expect(page).toHaveURL(`${achievementsPath(workspace, projectId)}#vercel.deployments.10`);
       await expect(item(page, "vercel.deployments.10")).toContainText("Published");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("says Simulated on the entry of an achievement earned from simulator data", async ({ page }) => {
+    const workspace = await createTestWorkspace("Achievements simulated entry");
+    try {
+      await seedAchievements(workspace);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(entry(page, "100 PostHog signups recorded").getByText("Simulated", { exact: true })).toBeVisible();
+      await expect(entry(page, "10 Vercel deployments recorded").getByText("Simulated", { exact: true })).toHaveCount(0);
+      const inspector = await openEntry(page, "100 PostHog signups recorded");
+      await expect(inspector.getByText("Simulated", { exact: true })).toBeVisible();
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

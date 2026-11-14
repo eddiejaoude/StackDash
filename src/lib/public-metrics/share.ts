@@ -1,4 +1,4 @@
-import { formatDateTime, formatUtcDate } from "@/lib/format";
+import { formatDateTime, formatUtcDate, type Instant } from "@/lib/format";
 
 import { isPublicMetricId, type PublicMetricId } from "./definitions";
 import type { PublishedAchievement, PublishedEngineMetric } from "./published";
@@ -92,12 +92,15 @@ export function shareableMetric(metric: PublishedEngineMetric): ShareableMetric 
   };
 }
 
+/** What every share surface says of data the provider simulator made up (#131), metric or achievement. */
+export const SIMULATED_SENTENCE = "Simulated data, not verified";
+
 /**
  * Who stands behind the number, in words. A simulated value (#131) is never called verified,
  * whatever the metric's provenance.
  */
 export function provenanceSentence(metric: Pick<ShareableMetric, "provenance" | "simulated">): string {
-  if (metric.simulated) return "Simulated data, not verified";
+  if (metric.simulated) return SIMULATED_SENTENCE;
   return metric.provenance === "verified" ? "Verified by DevMacro" : "Estimated by DevMacro";
 }
 
@@ -196,7 +199,7 @@ export function metricShareLinks(
 }
 
 /** What a share surface needs to know about a published achievement: public words only. */
-export type ShareableAchievement = Pick<PublishedAchievement, "providerName" | "publicTitle">;
+export type ShareableAchievement = Pick<PublishedAchievement, "providerName" | "publicTitle" | "simulated">;
 
 const ACHIEVEMENT_COUNT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
@@ -204,10 +207,11 @@ const ACHIEVEMENT_COUNT_FORMAT = new Intl.NumberFormat("en-US", { maximumFractio
  * When an achievement was earned, in words: "Earned 2026-11-05 14:05 GMT"; "Earned 2026-11-05" for
  * a daily total, which has a day but no time (stored at 00:00 UTC of that day); and "Recorded at
  * least 1,000 on 2026-11-05 14:05 GMT" when DevMacro's first reading was already past the
- * threshold, so it never claims the crossing happened then.
+ * threshold, so it never claims the crossing happened then. The one wording of every surface,
+ * public and private (the project's Achievements page passes the stored timestamp string).
  */
 export function achievementEarnedText(
-  achievement: Pick<PublishedAchievement, "earnedAt" | "earnedPrecision" | "evidence" | "threshold">,
+  achievement: Pick<PublishedAchievement, "earnedPrecision" | "evidence" | "threshold"> & Readonly<{ earnedAt: Instant }>,
 ): string {
   const when = achievement.earnedPrecision === "day" ? formatUtcDate(achievement.earnedAt) : formatDateTime(achievement.earnedAt);
   if (achievement.evidence === "at_least" && achievement.threshold !== null) {
@@ -216,21 +220,32 @@ export function achievementEarnedText(
   return `Earned ${when}`;
 }
 
-/** "Vercel achievement on DevMacro: 10 Vercel deployments recorded." The badge's alt text. */
+/** " Simulated data, not verified." after an achievement earned from simulator data (#131), else nothing. */
+function achievementSimulatedSuffix(achievement: Pick<ShareableAchievement, "simulated">): string {
+  return achievement.simulated ? ` ${SIMULATED_SENTENCE}.` : "";
+}
+
+/**
+ * "Vercel achievement on DevMacro: 10 Vercel deployments recorded." The badge's alt text, which
+ * adds "Simulated data, not verified." for an achievement earned from simulator data.
+ */
 export function achievementBadgeAltText(achievement: ShareableAchievement): string {
-  return `${achievement.providerName} achievement on DevMacro: ${achievement.publicTitle}.`;
+  return `${achievement.providerName} achievement on DevMacro: ${achievement.publicTitle}.${achievementSimulatedSuffix(achievement)}`;
 }
 
 /** Alt text for an achievement's card, naming the project only while the card shows it. */
 export function achievementCardAltText(achievement: ShareableAchievement, projectName: string | null): string {
   const card = projectName === null ? "DevMacro achievement card." : `DevMacro achievement card for ${projectName}.`;
-  return `${card} ${achievement.providerName} achievement: ${achievement.publicTitle}.`;
+  return `${card} ${achievement.providerName} achievement: ${achievement.publicTitle}.${achievementSimulatedSuffix(achievement)}`;
 }
 
 /** The prefilled post for "Share to X", naming the project when its page is public. */
 export function achievementShareText(achievement: ShareableAchievement, projectName: string | null): string {
   const subject = projectName === null ? "Achievement" : `Achievement for ${projectName}`;
-  return `${subject}: ${achievement.publicTitle}. Earned from ${achievement.providerName} data on DevMacro.`;
+  const source = achievement.simulated
+    ? `Earned from simulated ${achievement.providerName} data on DevMacro, not verified.`
+    : `Earned from ${achievement.providerName} data on DevMacro.`;
+  return `${subject}: ${achievement.publicTitle}. ${source}`;
 }
 
 /**

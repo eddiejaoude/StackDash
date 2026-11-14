@@ -25,6 +25,8 @@ export type AchievementShareDialogProps = Readonly<{
   achievementId: string;
   publicTitle: string;
   providerName: string;
+  /** Earned from the provider simulator's data (#131): every image and post says so. */
+  simulated: boolean;
   /** The public origin the copied links use (`requestPublicOrigin()` on the server). */
   siteOrigin: string;
   /** The project page while it is public, else null: links then lead to the card and the site. */
@@ -37,11 +39,12 @@ export function AchievementShareDialog({
   achievementId,
   publicTitle,
   providerName,
+  simulated,
   siteOrigin,
   projectPage,
   triggerText = "Share",
 }: AchievementShareDialogProps) {
-  const achievement = { publicTitle, providerName };
+  const achievement = { publicTitle, providerName, simulated };
   const links = achievementShareLinks({ origin: siteOrigin, projectId, achievementId, achievement, projectPage });
   return (
     <ShareDialog
@@ -61,6 +64,7 @@ export function AchievementShareDialog({
       link={{ url: links.link, linkedInUrl: links.linkedInUrl }}
       notes={[
         "The badge and card show this achievement's public title, its provider, and when it was earned, and nothing else.",
+        ...(simulated ? ["It was earned from simulated data, so the badge, the card, and posts say it is simulated."] : []),
         projectPage === null
           ? "Posts link to the card, and the badge to DevMacro. Once the project page is on, they link to it instead."
           : `Posts and the badge link to the project page at ${projectPage.path}.`,

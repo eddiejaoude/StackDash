@@ -15,7 +15,6 @@ import { buttonClass } from "@/components/ui/button";
 import { LiveRegion, OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 import { DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 import { ProviderMark } from "@/components/ui/provider-mark";
-import { ACHIEVEMENT_EARNED_TYPE_ID } from "@/lib/achievements/events";
 import type { TimelineAchievement } from "@/lib/achievements/private";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
@@ -251,8 +250,8 @@ function EventDetails({ event, href, achievementActions }: { event: InspectorEve
       <div className="flex flex-wrap items-center gap-2">
         <ProviderMark provider={event.markProvider} emoji={event.emoji} size="sm" />
         <span className="text-sm">{provider}</span>
-        <SeverityBadge severity={event.achievement === null ? severityBadge(event.severity) : "Achievement"} />
-        {event.type_id === ACHIEVEMENT_EARNED_TYPE_ID ? <AchievementEarnedLabel /> : null}
+        {/* An achievement's one gold pill says what it is, so it has no severity pill beside it. */}
+        {event.achievement === null ? <SeverityBadge severity={severityBadge(event.severity)} /> : <AchievementEarnedLabel />}
         {event.simulated ? <SimulatedBadge /> : null}
       </div>
       <h3 className="break-words text-xl font-semibold leading-7">{event.title}</h3>
@@ -323,6 +322,7 @@ function AchievementPublication({ achievement, title, actions }: {
               achievementId={achievement.achievementId}
               publicTitle={achievement.publicTitle}
               providerName={achievement.providerName}
+              simulated={achievement.simulated}
               siteOrigin={actions.siteOrigin}
               projectPage={achievement.projectPage}
             />

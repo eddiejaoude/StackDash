@@ -27,6 +27,8 @@ const DEVMACRO_EMOJI: ReadonlyMap<string, string> = new Map([
   ["devmacro.metric_published", "📣"],
   ["devmacro.metric_unpublished", "🙈"],
   ["devmacro.metrics_unpublished_all", "🙈"],
+  ["devmacro.achievement_published", "📣"],
+  ["devmacro.achievement_unpublished", "🙈"],
   ["devmacro.project_page_enabled", "🌐"],
   ["devmacro.project_page_updated", "📝"],
   ["devmacro.project_page_disabled", "🚫"],

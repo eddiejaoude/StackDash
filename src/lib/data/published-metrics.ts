@@ -11,6 +11,7 @@ import {
   type MetricUnit,
   type PublicMetricId,
 } from "@/lib/public-metrics/definitions";
+import type { LivePublicationCounts } from "@/lib/public-metrics/display";
 import { computePublicMetrics, type ComputedMetric } from "@/lib/public-metrics/engine";
 import {
   computePublishedEngineMetrics,
@@ -167,15 +168,26 @@ export const loadProjectPublications = cache(
   },
 );
 
-/** Whether the workspace has anything published, for the "Unpublish everything" control. */
-export const countLivePublications = cache(async (workspaceId: string): Promise<number> => {
+/**
+ * What the workspace has public, for the "Unpublish everything" control: live metric publications
+ * and published achievements (#413), the two things `unpublish_all_metrics` takes down. The
+ * achievement count uses project_achievement_publications_workspace_idx.
+ */
+export const countLivePublications = cache(async (workspaceId: string): Promise<LivePublicationCounts> => {
   const supabase = await createClient();
-  const { count, error } = await supabase
-    .from("published_metrics")
-    .select("id", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId)
-    .is("revoked_at", null);
-  if (error) throw new Error("Failed to count published metrics", { cause: error });
-  if (count === null) throw new Error("Published metric count missing from the response");
-  return count;
+  const [metrics, achievements] = await Promise.all([
+    supabase
+      .from("published_metrics")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId)
+      .is("revoked_at", null),
+    supabase
+      .from("project_achievement_publications")
+      .select("project_achievement_id", { count: "exact", head: true })
+      .eq("workspace_id", workspaceId),
+  ]);
+  if (metrics.error) throw new Error("Failed to count published metrics", { cause: metrics.error });
+  if (achievements.error) throw new Error("Failed to count published achievements", { cause: achievements.error });
+  if (metrics.count === null || achievements.count === null) throw new Error("Live publication count missing from the response");
+  return { metrics: metrics.count, achievements: achievements.count };
 });

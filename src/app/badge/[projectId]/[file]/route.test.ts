@@ -123,6 +123,7 @@ describe("GET /badge/[projectId]/achievement-[id].svg (#413)", () => {
     earnedPrecision: "instant",
     evidence: "crossed",
     threshold: 10,
+    simulated: false,
     publishedAt: AT,
   };
 

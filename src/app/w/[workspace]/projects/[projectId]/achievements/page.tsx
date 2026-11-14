@@ -8,20 +8,16 @@ import { PublishAchievementButton, UnpublishAchievementButton } from "@/componen
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { PageSkeleton } from "@/components/app/page-skeleton";
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
 import { AchievementShareDialog } from "@/components/public-metrics/achievement-share-dialog";
 import { PublicationAnnouncer } from "@/components/public-metrics/publication-controls";
-import {
-  achievementEarnedText,
-  achievementEvidenceText,
-  groupAchievementsByProvider,
-  loadProjectAchievements,
-  type ProjectAchievement,
-} from "@/lib/achievements/private";
+import { groupAchievementsByProvider, loadProjectAchievements, type ProjectAchievement } from "@/lib/achievements/private";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { loadProjectPageSettings } from "@/lib/data/project-pages";
+import { formatUtcDate } from "@/lib/format";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
-import type { ShareProjectPage } from "@/lib/public-metrics/share";
+import { achievementEarnedText, type ShareProjectPage } from "@/lib/public-metrics/share";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -166,14 +162,17 @@ function AchievementItem({
       className="flex scroll-mt-32 flex-col gap-3 px-6 py-4 text-sm target:bg-accent-soft lg:flex-row lg:items-start lg:justify-between"
     >
       <div className="min-w-0">
-        <p className="break-words font-medium">{achievement.title}</p>
+        <p className="flex flex-wrap items-center gap-2">
+          <span className="break-words font-medium">{achievement.title}</span>
+          {achievement.simulated ? <SimulatedBadge /> : null}
+        </p>
         <p className="mt-1 text-muted">
-          {"Earned "}
-          <time dateTime={achievement.earnedPrecision === "day" ? achievementEarnedText(achievement) : achievement.earnedAt}>
+          {/* The same words as the public page; a daily total's machine-readable date is the day alone. */}
+          <time dateTime={achievement.earnedPrecision === "day" ? formatUtcDate(achievement.earnedAt) : achievement.earnedAt}>
             {achievementEarnedText(achievement)}
           </time>
         </p>
-        <p className="mt-1 break-words text-muted">{achievementEvidenceText(achievement)}</p>
+        <p className="mt-1 break-words text-muted">{achievement.description}</p>
         <p className="mt-1">
           {achievement.published ? (
             <span className="font-medium text-success">Published</span>
@@ -198,6 +197,7 @@ function AchievementItem({
               achievementId={achievement.id}
               publicTitle={achievement.publicTitle}
               providerName={achievement.providerName}
+              simulated={achievement.simulated}
               siteOrigin={origin}
               projectPage={projectPage}
             />

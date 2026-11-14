@@ -92,6 +92,7 @@ describe("achievementBadgeContent (#413)", () => {
     earnedPrecision: "instant",
     evidence: "crossed",
     threshold: 1024,
+    simulated: false,
     publishedAt: AT,
   };
 
@@ -108,6 +109,19 @@ describe("achievementBadgeContent (#413)", () => {
     expect(achievementBadgeContent({ ...achievement, evidence: "at_least" }).title).toBe(
       "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Recorded at least 1,024 on 2026-11-05 12:00 GMT.",
     );
+  });
+
+  it("says simulated in words and in the simulated metric's fill when simulator data earned it", () => {
+    const simulated = achievementBadgeContent({ ...achievement, simulated: true });
+    expect(simulated).toEqual({
+      label: "🏆 GitHub",
+      message: "Kilostar: 1,024 GitHub stars (simulated)",
+      tone: "simulated",
+      title: "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Simulated data, not verified. Earned 2026-11-05 12:00 GMT.",
+    });
+    const fill = (content: Parameters<typeof renderBadgeSvg>[0]) => /<rect x="\d+" width="\d+" height="20" fill="(#[0-9a-f]{6})"\/>/.exec(renderBadgeSvg(content))?.[1];
+    expect(fill(simulated)).toBe(fill(badgeContent(metric(available({ simulated: true })))));
+    expect(fill(simulated)).not.toBe(fill(achievementBadgeContent(achievement)));
   });
 
   it("shows the metric's neutral Unpublished badge for anything not published (boundary: null)", () => {

@@ -90,7 +90,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   if (!z.guid().safeParse(projectId).success) notFound();
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
-  const [publications, liveCount, pageSettings, origin] = await Promise.all([
+  const [publications, liveCounts, pageSettings, origin] = await Promise.all([
     loadProjectPublications(workspace.id, projectId, now),
     countLivePublications(workspace.id),
     loadProjectPageSettings(workspace.id, projectId),
@@ -162,12 +162,12 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
             </Link>
             .
           </p>
-          {canPublish && liveCount > 0 ? (
+          {canPublish && liveCounts.metrics + liveCounts.achievements > 0 ? (
             <div className="mt-4 border-t border-line pt-4">
               <p className="mb-3 leading-6 text-muted">
-                Unpublish every metric and self-reported value of every project in this workspace at once.
+                Unpublish every metric, self-reported value, and achievement of every project in this workspace at once.
               </p>
-              <UnpublishEverythingButton workspaceSlug={workspace.slug} liveCount={liveCount} focusId={METRICS_HEADING_ID} />
+              <UnpublishEverythingButton workspaceSlug={workspace.slug} liveCounts={liveCounts} focusId={METRICS_HEADING_ID} />
             </div>
           ) : null}
         </section>

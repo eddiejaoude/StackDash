@@ -62,9 +62,11 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
 | `devmacro.metric_published` | Published GitHub stars | Project Acme web. Rounded down to 100, current. |
 | `devmacro.metric_published` (self-reported) | Published Downloads this month (self-reported) | Project Acme web. 4,200 downloads. |
 | `devmacro.metric_unpublished` | Unpublished GitHub stars | None |
-| `devmacro.metrics_unpublished_all` | Unpublished everything | 2 metrics are no longer public. |
+| `devmacro.metrics_unpublished_all` | Unpublished everything | 2 metrics and 1 achievement are no longer public. |
+| `devmacro.achievement_published` | Published 10 Vercel deployments recorded | None |
+| `devmacro.achievement_unpublished` | Unpublished 10 Vercel deployments recorded | None |
 
-"Unpublish everything" revokes every live publication of every project in the workspace in one action, after a confirmation that says how many values it covers and that it reaches every project, not only the one on screen. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics).
+Achievements are published on the project's Achievements page instead (see [Achievements](#achievements)); their titles are the public title. "Unpublish everything" revokes every live metric publication and deletes every achievement publication of every project in the workspace in one transaction (`unpublish_all_metrics`), after a confirmation that names how many metrics and achievements it covers and that it reaches every project, not only the one on screen. Its result and its audit event name both counts. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics).
 
 A project holds at most 100 live self-reported values, and the self-reported section of the public metrics page says so. `publish_self_reported_metric` refuses the 101st (`limit_reached`), and the page says to unpublish one first. With one live row per engine metric, a project's live publications stay far below the 1,000 rows the Data API returns in one request, so the public read always gets all of them.
 
@@ -123,7 +125,7 @@ Server code that shows published values (badges and cards, project pages, the le
 | `loadPublishedMetric(projectId, metricId, now)` | One published engine metric, or `null`. It takes a `PublicMetricId`, so a self-reported value can never become a badge |
 | `loadPublishedMetricCard(projectId, metricId, now, trendDays)` | The same, with its trend: the published value at the same time of day on each of the last `trendDays` days, rounded as the publication is, so a rounded metric's trend never reveals exact numbers |
 | `loadPublishedProjectHistory(published)` | The daily history of each published engine metric in what `loadPublishedProjectMetrics` returned, over 90 days ending at the publication's own `asOf` and rounded the same way, plus the milestones those publications reveal. It takes that result, not a project id, so it can only describe what is published |
-| `loadPublishedAchievements(projectId)` | Every published [achievement](#achievements) of the project, oldest first: id, provider and its display name, public title, earned date and precision, evidence, threshold, and when it was published. Empty for an unknown project |
+| `loadPublishedAchievements(projectId)` | Every published [achievement](#achievements) of the project, oldest first: id, provider and its display name, public title, earned date and precision, evidence, threshold, whether it is simulated, and when it was published. Empty for an unknown project |
 | `loadPublishedAchievement(projectId, achievementId)` | One published achievement, or `null` when it is unknown, not earned, or not published |
 
 The first three read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `share.ts` builds badge and card URLs (`badgePath`, `cardPath`), alt text, and share text, and `badge.ts` renders the SVG. `definitions.ts`, `display.ts`, `share.ts`, and `badge.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
@@ -233,7 +235,7 @@ A project earns permanent achievements from its providers' data (#413), such as 
 - Achievements count per provider: a project that deploys through Vercel and Railway earns "10 Vercel deployments recorded" and "10 Railway deployments recorded" separately. Cross-provider metrics such as "Deployments shipped" are unchanged.
 - A project earns each achievement once, at the first moment its stored evidence supports. `(project_id, achievement_id)` is unique and recording never overwrites, so repeated syncs, backfills, and two evaluations at once can neither duplicate an achievement nor move its date.
 - Earned is permanent. The 10th recorded deployment stays earned after it leaves a 30 day window, after the events and snapshots behind it are purged, and after the achievement is removed from its adapter, with the titles stored when it was earned.
-- "In one day", "in one hour", "between midnight and 5 am", and "on 7 days in a row" are Europe/London calendar days and clock hours, the zone of the activity heatmap, never rolling windows.
+- "In one day", "in one hour", "between midnight and 5 am", and "on 7 days in a row" are Europe/London calendar days and clock hours, the zone of the activity heatmap, never rolling windows. Metric rules are the exception: `usage_snapshots` keeps one reading per account, metric, and UTC day, so a metric rule's day is that stored UTC day. "Trending: 10 new stars in one day" (`metric_daily_gain`) compares one stored daily reading with the next, which covers one UTC day: the London day in winter, 01:00 to 01:00 London time in summer. A missed day never counts, so a two day rise is never shown as one (see [Adapters, Achievements](../adapters.md#achievements)).
 
 ### Evidence limits
 
@@ -244,14 +246,17 @@ A project earns permanent achievements from its providers' data (#413), such as 
 
 ### Privacy and publishing
 
-- Private by default. Every member sees the project's earned achievements in its Achievements section, and only owners and admins publish or unpublish them, one at a time.
-- Each achievement has a private title and a public title. Public surfaces read only `public_published_achievements()`, through `loadPublishedAchievements` and `loadPublishedAchievement` in `published.ts`: the id, the provider, the public title, the earned date and its precision, the evidence and threshold, and when it was published. Never the private title, the description, an account or repository name, an amount, or an achievement that is not published.
+- Private by default. Every member sees the project's earned achievements in its Achievements section, and only owners and admins publish or unpublish them, one at a time there, or every one at once with "Unpublish everything".
+- Each achievement has a private title and a public title. Public surfaces read only `public_published_achievements()`, through `loadPublishedAchievements` and `loadPublishedAchievement` in `published.ts`: the id, the provider, the public title, the earned date and its precision, the evidence and threshold, whether it is simulated, and when it was published. Never the private title, the description, an account or repository name, an amount, or an achievement that is not published.
+- An achievement earned from data the provider simulator made up (any contributing account's connection is simulated) is stored as simulated and stays so. Every surface says so, as for a simulated metric: "Simulated" beside it on the Achievements page, the public project page, and its timeline entry; "(simulated)" after the title and the simulated fill on its badge; "Simulated data, not verified" on its card and in the badge and card alt text; and "Earned from simulated <provider> data on DevMacro, not verified" in a post.
 - A published achievement does not make a project page public on its own: the page still needs a live published metric.
 
 ### Timeline entries
 
 - Earning an achievement writes one `devmacro.achievement_earned` event to the workspace timeline, with the visible label "Achievement earned", the private title, severity success, and the earned date as its time, so a backfill lands in its place in history rather than at the top. Its dedupe key `achievement:<project id>:<achievement id>` stops a repeated evaluation from writing it twice.
-- The row shows the logo and name of the provider that earned it, read from the adapter-scoped id, with 🏆 in the logo's corner, and its pill says "Achievement" in gold where other success events say "Success". Every other row carries its own type's emoji in the same corner (`EventType.emoji`, or DevMacro's own in `src/lib/timeline/event-emoji.ts`).
+- The row shows the logo and name of the provider that earned it, read from the adapter-scoped id, with 🏆 in the logo's corner, and its pill says "Achievement" in gold where other success events say "Success". The event details show the gold "Achievement earned" label in place of a severity pill. Every other row carries its own type's emoji in the same corner (`EventType.emoji`, or DevMacro's own in `src/lib/timeline/event-emoji.ts`).
+- The event has no connection, so whether it is simulated comes from its achievement (`withAchievementSimulated` in `src/lib/achievements/private.ts`): a simulated achievement's row and details say "Simulated".
+- Publishing and unpublishing an achievement write `devmacro.achievement_published` and `devmacro.achievement_unpublished` audit events (see [Publishing and the audit trail](#publishing-and-the-audit-trail)).
 - The entry links to the achievement in the project's Achievements section. Share opens the share dialog when the achievement is published; when it is not, owners and admins see Publish instead and other members see neither. Members can hide the event type like any other.
 - The timeline is private, so unpublishing keeps the entry. Deleting the project or its workspace deletes the achievements, their publications, and these entries.
 
@@ -259,9 +264,9 @@ A project earns permanent achievements from its providers' data (#413), such as 
 
 | Surface | What it shows |
 |---|---|
-| Project page, Achievements | Each published achievement, oldest first: its public title, the provider's mark and name, "Earned 2026-11-05 14:05 GMT" (Europe/London), "Earned 2026-11-05" for a daily total, or "Recorded at least 1,000 on 2026-11-05 14:05 GMT", and Share |
-| `GET /badge/<project id>/achievement-<achievement id>.svg` | A two part SVG badge: 🏆 and the provider's name, then the public title. Its `<title>` adds when it was earned in the same words |
-| `GET /card/<project id>/achievement-<achievement id>.png` | A 1200 by 630 PNG: the project's name while its page is public, the provider, the public title, and when it was earned |
+| Project page, Achievements | Each published achievement, oldest first: its public title, "Simulated" when simulator data earned it, the provider's mark and name, "Earned 2026-11-05 14:05 GMT" (Europe/London), "Earned 2026-11-05" for a daily total, or "Recorded at least 1,000 on 2026-11-05 14:05 GMT", and Share. The private Achievements page uses the same words (`achievementEarnedText` in `share.ts`) |
+| `GET /badge/<project id>/achievement-<achievement id>.svg` | A two part SVG badge: 🏆 and the provider's name, then the public title, followed by "(simulated)" on the simulated fill when simulator data earned it. Its `<title>` adds when it was earned in the same words |
+| `GET /card/<project id>/achievement-<achievement id>.png` | A 1200 by 630 PNG: the project's name while its page is public, the provider, the public title, and when it was earned, under a gold "Achievement earned" tag, or "Simulated data, not verified" when simulator data earned it |
 
 - The badge and card follow the [metric badge rules](#badges-and-cards): an unknown, unpublished, or malformed id gets the same neutral "Unpublished" badge or card with a `200`; the same 60 second cache and [rate limit](#rate-limit); no session or cookie; `Cross-Origin-Resource-Policy: cross-origin`; and the badge's Content-Security-Policy from `next.config.ts`. `achievementIdFromFile` in `share.ts` accepts only an id the database can store. Achievement serves are not counted in [view counts](#view-counts), which are kept per published metric.
 - No fact is listed twice. While a published achievement states a derived milestone, the page leaves the milestone out (`milestonesBesideAchievements` in `history.ts`): "Reached 1,000 GitHub stars" while `github.stars.1000` is published (also 100 and 10,000), the first signup, customer, and payment while Supabase's first signup or Stripe's first customer or payment is, and "First deployment recorded" while one host's first deployment is published and is the same event. The milestones keep their own definitions.
@@ -269,7 +274,7 @@ A project earns permanent achievements from its providers' data (#413), such as 
 
 ### Unpublishing
 
-Unpublishing deletes the achievement's publication row. The project page renders per request, so the achievement leaves it on the next request; the badge and card are cached for up to a minute and then show "Unpublished". The achievement stays earned and private, with its timeline entry, and publishing it again shows it with its original date.
+Unpublishing deletes the achievement's publication row, one at a time from the Achievements page or all at once with "Unpublish everything" on a public metrics page. The project page renders per request, so the achievement leaves it on the next request; the badge and card are cached for up to a minute and then show "Unpublished". The achievement stays earned and private, with its timeline entry, and publishing it again shows it with its original date.
 
 ## Metrics
 
