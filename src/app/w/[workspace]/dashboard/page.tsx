@@ -292,8 +292,8 @@ async function DashboardContent({
     fallback = buildHeadline({ ...headlineInput, windows: lastComplete, snapshots, events });
   }
 
-  // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
-  // resets what counts as changed.
+  // The page's URL is its scope: a new filter, trend period, marker choice, headline window, or
+  // heatmap event group resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
       {allSimulated ? <SimulatedNotice /> : null}

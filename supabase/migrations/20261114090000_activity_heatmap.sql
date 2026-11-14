@@ -13,13 +13,17 @@
 --   left out; p_account_ids null means any account, otherwise events with no account are left out.
 --   p_type_ids and p_severities are alternatives: an event matches when its type is listed or its
 --   severity is, and both empty means every event. The heatmap's failures group is critical
---   events plus the failed types (src/lib/dashboard/heatmap.ts), which one list cannot say.
+--   events plus the failed and crashed types (src/lib/dashboard/heatmap.ts), which one list
+--   cannot say.
 -- * security invoker: the activity_events select policy scopes every row to the caller's
 --   workspaces, and costs one membership lookup per statement, not per row, since
 --   20261112090000_select_policies_membership_set.sql. A non-member counts nothing. The explicit
 --   membership check returns before any row is read, as timeline_activity_buckets does.
--- * The occurred_at bound keeps the read on activity_events_workspace_timeline_idx
---   (workspace_id, occurred_at desc, id desc). Explain analyze numbers are on #414.
+-- * The occurred_at bound keeps the read on an index. Measured locally (explain analyze on #414,
+--   8,199 events in the window): every event is an index only scan of
+--   activity_events_workspace_type_time_idx in 15 ms; the failures group's type or severity test
+--   cannot use that index, and on a bloated local table the planner chose a sequential scan
+--   (156 ms) over the bitmap index plan (4.7 ms with sequential scans off).
 -- * A missing p_since or p_time_zone raises rather than counting everything or bucketing into a
 --   null hour; an unknown zone name raises Postgres's own 22023.
 create function public.activity_heatmap(
