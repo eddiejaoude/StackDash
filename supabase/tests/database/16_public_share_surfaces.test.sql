@@ -200,6 +200,12 @@ values
 
 select is(public.purge_published_metric_views(date '2025-01-02', 100), 1,
   'purge_published_metric_views: deletes days strictly before the cutoff (boundary: the cutoff day stays)');
+
+-- The purge reads the whole table, so counters the app or an e2e run left on this database would
+-- be counted too. Keep only this file's rows; the closing rollback restores the others.
+delete from public.public_rate_limit_counters
+where ip_hash not in (repeat('a', 64), repeat('b', 64), repeat('c', 64));
+
 select is(public.purge_public_rate_limit_counters(date_trunc('minute', now()), 1), 1,
   'purge_public_rate_limit_counters: deletes at most p_limit rows (boundary: a batch of 1)');
 select is(public.purge_public_rate_limit_counters(date_trunc('minute', now()), 100), 0,
