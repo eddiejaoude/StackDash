@@ -11,9 +11,19 @@ import { anonymous, HISTORY_DAYS, pngSize, seedShareProject } from "./fixtures/s
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Scans once every animation has finished: mid-entrance, a slide's text is still fading in, which axe reads as low contrast. */
+/**
+ * Scans once every finite animation has finished: mid-entrance, a slide's text is still fading in,
+ * which axe reads as low contrast. A looping one never finishes, such as the header's live dot.
+ */
 async function axeViolations(page: Page, selector?: string) {
-  await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finished)));
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished),
+    ),
+  );
   const builder = new AxeBuilder({ page });
   return (await (selector === undefined ? builder : builder.include(selector)).analyze()).violations;
 }
