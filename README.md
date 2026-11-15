@@ -451,10 +451,9 @@ npm run build            # production build
 
 CI also runs `supabase db lint --level error --fail-on error`,
 `npm audit --audit-level=high --omit=dev`, and a gitleaks scan of the full git history. GitHub
-secret scanning and push protection are not on for this repository yet: turning them on is a
-manual step in [Hosted instance runbook, what stays Eddie's](docs/internal/hosted-instance.md#what-stays-eddies), and until
-then the CI gitleaks scan is the only automated secret check. Run the scan locally from a normal
-clone (not a git worktree) with:
+secret scanning and push protection are on for this repository too: push protection blocks a push
+that contains a recognized credential, and gitleaks catches what reaches CI. Run the scan locally
+from a normal clone (not a git worktree) with:
 
 ```bash
 docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 detect --source . --redact --verbose
