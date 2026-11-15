@@ -6,7 +6,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(37);
+select plan(38);
 
 -- Fixtures as postgres: owner and viewer of one workspace, plus an outsider.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
@@ -236,6 +236,13 @@ select ok(
 select ok(
   public.hook_before_user_created('{"metadata": {"name": "before-user-created"}, "user": {"phone": "+447700900000"}}'::jsonb) ? 'error',
   'invite hook: a user without an email is rejected (fails closed)');
+
+-- The DevMacro to StackDash rename (#437) edited the migrations in place, so no function in the
+-- public schema may still emit or mention the old name.
+select is_empty(
+  $$ select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.prosrc ilike '%devmacro%' $$,
+  'rename: no public function source mentions the old product name');
 
 select * from finish();
 
