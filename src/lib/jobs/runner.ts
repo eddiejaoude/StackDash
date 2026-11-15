@@ -8,6 +8,7 @@ import { runRetention } from "./retention";
 import { scheduleDueJobs, type ScheduleResult } from "./schedule";
 import type { ClaimedJob } from "./store";
 import { runSyncJob, type JobOutcome, type SyncDeps } from "./sync-connection";
+import { runWebhookJob } from "./webhook-delivery";
 
 /*
  * One tick (#10, #44): schedule due work, claim a bounded batch, and run it within a time budget so
@@ -50,6 +51,7 @@ export type TickResult = ScheduleResult & {
 
 async function runJob(job: ClaimedJob, deps: SyncDeps, hasTime: () => boolean): Promise<JobOutcome> {
   if (job.kind === "sync") return runSyncJob(job, deps);
+  if (job.kind === "webhook") return runWebhookJob(job, deps);
   if (job.kind === "daily_summary") return runDailySummaryJob(job, deps);
   if (job.kind === "alert_dispatch") return runAlertDispatchJob(job, deps.notifications());
   if (job.kind === "digest") return runDigestJob(job, deps.notifications());
