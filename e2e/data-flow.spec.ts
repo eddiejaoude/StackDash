@@ -241,7 +241,7 @@ test.describe("hero data-flow constellation in motion", () => {
     // which takes the hover away and starts the drift again, so the card never settles.
     await page.mouse.down();
     await page.mouse.up();
-    await expect(picture.locator("[data-sent]")).toHaveCSS("filter", "none");
+    await expect(picture.locator('[data-sent][data-source="stripe"]')).toHaveCSS("filter", "none");
 
     // From the keyboard, the focused source is the bright one.
     await page.mouse.move(0, 0);
