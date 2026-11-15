@@ -100,7 +100,7 @@ export async function findDemoEventTarget(admin: Admin, workspace: DemoEventWork
   if (connection === null) {
     return {
       kind: "missing",
-      message: `${workspace.name} has no simulated Vercel connection that syncs. Connect Vercel there with provider simulation on (README step 10), or reconnect it if it needs attention.`,
+      message: `${workspace.name} has no simulated Vercel connection that syncs. Connect Vercel there with provider simulation on (docs/development.md, step 10), or reconnect it if it needs attention.`,
     };
   }
   const { data: accounts, error: accountsError } = await admin

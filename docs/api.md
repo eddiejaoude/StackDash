@@ -150,7 +150,7 @@ Each key may make 120 requests per minute, counted in fixed one minute windows a
 
 The seed (`supabase/seed.sql`) loads the workspace Acme (`acmeseedws`) with one project, one connection, three days of snapshots, and four events. Its users have no password, so add your own account to Acme as an admin, then create a key in its settings:
 
-1. Sign in locally once (README, step 7), so your account exists.
+1. Sign in locally once ([Local development, step 7](development.md#7-sign-in-with-your-own-github-account)), so your account exists.
 2. Add yourself to Acme, with your sign-in email:
 
    ```bash
