@@ -748,3 +748,9 @@ CONTRIBUTING.md says what that means for you. Everyone taking part follows the
 The platform logos on the landing page use path data from [Simple Icons](https://simpleicons.org)
 (CC0-1.0). The logos remain trademarks of their owners and identify the integrations StackDash
 connects to. Their use implies no endorsement.
+
+## Trademarks
+
+StackDash and its logo are trademarks of Eddie Jaoude. The code license grants no rights in them:
+a modified version or a hosted service for other people needs its own name and logo. See
+[TRADEMARKS.md](TRADEMARKS.md) for what you can do without asking.
