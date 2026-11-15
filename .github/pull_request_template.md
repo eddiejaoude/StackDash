@@ -2,6 +2,8 @@ Closes #
 
 <!-- Title: type(scope): imperative summary, for example fix(timeline): keep the filter open after applying it. CONTRIBUTING.md has the rules. -->
 
+<!-- First pull request? The CLA Assistant bot will ask you to sign the contributor license agreement. Sign it once and the license/cla check passes without a new push. CONTRIBUTING.md explains the terms. -->
+
 ## What changed
 
 -

@@ -20,11 +20,22 @@ says how you can use those, including keeping the name on a fork you use to cont
 - Your contribution is licensed under the same terms as the rest of the code.
 - If you run a modified version for other people over a network, the license requires you to offer
   them its source code (section 13 of the license).
-- Contributions need a signed contributor license agreement (CLA). It grants Eddie Jaoude, the
-  copyright holder, the right to license your contribution under other terms as well as the AGPL,
-  so the code can be relicensed or dual-licensed later. The agreement and how to sign it are being
-  set up in [#450](https://github.com/eddiejaoude/StackDash/issues/450). Until then, pull requests
-  from outside contributors are not merged. You can still open an issue and discuss a change first.
+- Contributions need a signed
+  [contributor license agreement](https://gist.github.com/eddiejaoude/f62aa5c24c7979993471e99385567506)
+  (CLA), based on the Apache Individual CLA. It grants Eddie Jaoude, the copyright holder, the
+  right to license your contribution under other terms as well as the AGPL, so the code can be
+  relicensed or dual-licensed later. You keep the copyright in your contribution.
+- To sign, open your pull request. The CLA Assistant bot comments with a link: follow it, read the
+  agreement, and select "Sign in with GitHub to agree". Signing in signs the agreement; there is no
+  second confirmation. You sign once, and it covers your present and future contributions. The
+  `license/cla` check then passes without a new push. A maintainer merges a pull request only
+  after it passes.
+- The check covers every commit author on the pull request, not only the person who opened it.
+  Commit with an email address linked to your GitHub account. If the bot says an author is not a
+  GitHub user, add that email to the account and use the recheck link in the bot's comment; no new
+  push is needed.
+- Does your employer have rights to what you write, including in your own time? Then check that it
+  allows your contribution before you sign: section 4 of the agreement covers this.
 
 ## Before you start
 
