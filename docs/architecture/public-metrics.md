@@ -227,7 +227,7 @@ An address answers only while its page is on and the project has at least one li
 
 ## Achievements
 
-A project earns permanent achievements from its providers' data (#413), such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `ProviderAdapter.achievements`; the rule kinds and the wording rules are in [Adapters, Achievements](../adapters.md#achievements), and the tables and functions in [Database schema](schema.md#project-achievements).
+A project earns permanent achievements from its providers' data, such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `ProviderAdapter.achievements`; the rule kinds and the wording rules are in [Adapters, Achievements](../adapters.md#achievements), and the tables and functions in [Database schema](schema.md#project-achievements).
 
 ### Counting
 
