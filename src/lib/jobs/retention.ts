@@ -7,9 +7,9 @@ import { utcDate } from "./ingest";
  * they are not touched here, and their delivery records go with them. OAuth
  * states go once expired: a finished connect flow deletes its own state, so an expired one belongs
  * to an abandoned flow and still holds a sealed PKCE verifier bound to a user.
- * Share surfaces (#149): the per IP rate limit counters of the public routes are kept one day
- * (they only need the current minute, and hold hashed IPs), published metric view counts 13
- * months like the history they describe.
+ * Share surfaces (#149): the per-minute rate limit counters are kept one day (they only need the
+ * current minute, and hold hashed IPs of the public routes and HMACs of webhook endpoint ids, #28),
+ * published metric view counts 13 months like the history they describe.
  * Webhook delivery records (#28) are kept WEBHOOK_DELIVERY_RETENTION_DAYS, the deduplication
  * window; each one's job goes with it.
  * Deletes run in batches of RETENTION_BATCH_SIZE until a batch comes back short, so the job is

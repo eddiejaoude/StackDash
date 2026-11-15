@@ -1,17 +1,19 @@
 -- Provider webhooks (#28): a delivery is stored once per (provider, endpoint, delivery id) and
 -- queues exactly one webhook job with it, unless it is ignored, which is stored already processed
--- and queues nothing; a webhook job always names its delivery and no other job does, and is claimed
--- before any other kind; a delivery's account maps to included accounts of active, failed, and
--- needs_attention connections, only the endpoint's own connection for a per-connection URL, with
--- when each connection's credential was written; retention deletes old deliveries only, and their
--- jobs with them; the tables and functions are service role only.
+-- and queues nothing; an outcome of no known kind is refused; a webhook job always names its
+-- delivery and no other job does, and webhook jobs and every other kind are claimed apart
+-- (claim_webhook_jobs and claim_sync_jobs), so neither backlog stops the other; a delivery's
+-- account maps to included accounts of active, failed, and needs_attention connections, only the
+-- endpoint's own connection for a per-connection URL, with when each connection's credential was
+-- written; retention deletes old deliveries only, and their jobs with them; the tables and
+-- functions are service role only.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS); anon and authenticated
 -- are impersonated through the same role and JWT claims PostgREST uses.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(55);
+select plan(66);
 
 -- Fixtures: workspaces A and B, each with an active fake connection that sees account fake-acct-1.
 -- A also has a revoked, a failed, and a pending connection with that account, and an account that
@@ -95,6 +97,7 @@ select is_empty(
       'public.record_webhook_delivery(public.provider_id, text, jsonb, uuid)',
       'public.list_webhook_targets(public.provider_id, text, uuid)',
       'public.purge_webhook_deliveries(timestamptz, integer)',
+      'public.claim_webhook_jobs(integer, integer)',
       'public.claim_sync_jobs(integer, integer)'
     ]) as f(fn)
     where has_function_privilege(r.role, f.fn, 'execute')
@@ -104,6 +107,7 @@ select ok(
   has_function_privilege('service_role', 'public.record_webhook_delivery(public.provider_id, text, jsonb, uuid)', 'execute')
   and has_function_privilege('service_role', 'public.list_webhook_targets(public.provider_id, text, uuid)', 'execute')
   and has_function_privilege('service_role', 'public.purge_webhook_deliveries(timestamptz, integer)', 'execute')
+  and has_function_privilege('service_role', 'public.claim_webhook_jobs(integer, integer)', 'execute')
   and has_function_privilege('service_role', 'public.claim_sync_jobs(integer, integer)', 'execute'),
   'webhook functions: the service role can execute all of them, and claim_sync_jobs');
 
@@ -176,6 +180,17 @@ select throws_ok(
   $$ select public.record_webhook_delivery('fake', 'webhook-test-delivery-4', null) $$,
   '22023'::char(5), null::text,
   'record: a delivery without an outcome is refused (boundary: null outcome)');
+select throws_ok(
+  $$ select public.record_webhook_delivery('fake', 'webhook-test-delivery-5', '{}'::jsonb) $$,
+  '22023'::char(5), null::text,
+  'record: an outcome with no kind is refused (boundary: no kind)');
+select throws_ok(
+  $$ select public.record_webhook_delivery('fake', 'webhook-test-delivery-6', '{"kind": "renamed", "externalAccountId": "fake-acct-1"}'::jsonb) $$,
+  '22023'::char(5), null::text,
+  'record: an outcome of an unknown kind is refused (boundary: unknown kind)');
+select is_empty(
+  $$ select 1 from public.webhook_deliveries where provider = 'fake' and delivery_id in ('webhook-test-delivery-5', 'webhook-test-delivery-6') $$,
+  'record: a refused outcome stores no delivery');
 
 -- ---------------------------------------------------------------------------
 -- record_webhook_delivery: the key is per endpoint
@@ -246,7 +261,7 @@ select throws_ok(
   'sync_jobs: a job of another kind cannot name a delivery');
 
 -- ---------------------------------------------------------------------------
--- claim_sync_jobs: webhook jobs first
+-- claim_webhook_jobs and claim_sync_jobs: each kind claimed apart
 -- ---------------------------------------------------------------------------
 -- Every other open webhook job (this file's and any in the local database) is made not claimable
 -- inside this rolled-back transaction, so the claim below sees exactly one webhook job, due since
@@ -263,13 +278,61 @@ values ('c3100006-0000-4000-8000-000000000001', 'c3100002-0000-4000-8000-0000000
         'sync', '1990-01-01T00:00:00Z');
 
 select is(
-  (select c.kind::text || ' ' || c.webhook_delivery_id::text from public.claim_sync_jobs(1, 60) c),
+  (select c.kind::text || ' ' || c.webhook_delivery_id::text from public.claim_webhook_jobs(1, 60) c),
   (select 'webhook ' || d.id::text from public.webhook_deliveries d where d.provider = 'fake' and d.delivery_id = 'webhook-test-delivery-1'),
-  'claim_sync_jobs: a webhook job is claimed ahead of an older sync job, and carries its delivery id (boundary: older job of another kind)');
+  'claim_webhook_jobs: a webhook job is claimed past an older sync job, and carries its delivery id (boundary: backlog of another kind)');
 select is(
   (select status::text from public.sync_jobs where id = 'c3100006-0000-4000-8000-000000000001'),
   'queued',
-  'claim_sync_jobs: the older sync job waits for the next claim');
+  'claim_webhook_jobs: never claims a job of another kind');
+
+-- Twelve more webhook jobs, all older than the sync job: eleven due, more than claim_sync_jobs'
+-- limit of 10 below, and one whose lease expired on its final attempt.
+select is(
+  (select count(*)::int from generate_series(1, 12) g
+   where public.record_webhook_delivery('fake', 'webhook-test-backlog-' || g,
+     '{"kind": "events", "externalAccountId": "fake-acct-1", "events": []}'::jsonb)),
+  12,
+  'claim fixture: twelve backlog deliveries, each with its webhook job');
+update public.sync_jobs j set run_after = '1980-01-01T00:00:00Z'
+from public.webhook_deliveries d
+where d.id = j.webhook_delivery_id and d.provider = 'fake' and d.delivery_id like 'webhook-test-backlog-%';
+update public.sync_jobs j
+set status = 'running', attempts = 5, max_attempts = 5, locked_until = '1980-01-01T00:05:00Z'
+from public.webhook_deliveries d
+where d.id = j.webhook_delivery_id and d.provider = 'fake' and d.delivery_id = 'webhook-test-backlog-12';
+
+create temporary table sync_claim on commit drop as select * from public.claim_sync_jobs(10, 60);
+select ok(
+  exists (select 1 from sync_claim where id = 'c3100006-0000-4000-8000-000000000001'),
+  'claim_sync_jobs: a due sync job is claimed behind more due webhook jobs than its limit (boundary: webhook backlog)');
+select is_empty(
+  $$ select 1 from sync_claim where kind = 'webhook' $$,
+  'claim_sync_jobs: never claims a webhook job');
+
+create temporary table webhook_claim on commit drop as select * from public.claim_webhook_jobs(10, 60);
+select is(
+  (select count(*)::int from webhook_claim c
+   join public.webhook_deliveries d on d.id = c.webhook_delivery_id
+   where c.kind = 'webhook' and d.delivery_id like 'webhook-test-backlog-%'),
+  10,
+  'claim_webhook_jobs: claims p_limit of the due backlog (boundary: p_limit)');
+select is(
+  (select count(*)::int from public.sync_jobs j
+   join public.webhook_deliveries d on d.id = j.webhook_delivery_id
+   where d.delivery_id like 'webhook-test-backlog-%' and j.status = 'queued'),
+  1,
+  'claim_webhook_jobs: the due job past p_limit waits for the next claim (boundary: p_limit + 1)');
+select is(
+  (select j.status::text || ' ' || j.error_code from public.sync_jobs j
+   join public.webhook_deliveries d on d.id = j.webhook_delivery_id
+   where d.provider = 'fake' and d.delivery_id = 'webhook-test-backlog-12'),
+  'failed lease_expired',
+  'claim_webhook_jobs: a webhook job whose lease expired on its final attempt is marked failed with lease_expired');
+select throws_ok($$ select * from public.claim_webhook_jobs(0, 60) $$, '22023'::char(5), null::text,
+  'claim_webhook_jobs: a limit below 1 is refused (boundary: limit 0)');
+select throws_ok($$ select * from public.claim_webhook_jobs(101, 60) $$, '22023'::char(5), null::text,
+  'claim_webhook_jobs: a limit above 100 is refused (boundary: limit 101)');
 
 -- ---------------------------------------------------------------------------
 -- list_webhook_targets

@@ -88,9 +88,11 @@ export async function runWebhookJob(job: ClaimedJob, deps: SyncDeps): Promise<Jo
     if (inserted > 0) await evaluateAchievements(job, targets, deps);
   } else {
     for (const target of distinctConnections(targets)) {
-      // A credential saved after the provider says StackDash was removed means the user
-      // reconnected, and this uninstall (late, redelivered, or out of order) is about the grant
-      // that reconnect replaced. One saved at the same instant is not after it.
+      // An uninstall older than the last time the connection's credential was saved is left to
+      // the next sync. A save is a reconnect or a token refresh, and the two cannot be told apart
+      // here: revoking a live reconnect over a late or redelivered uninstall costs more than
+      // leaving a real one to the next sync, which fails and asks for a reconnect as it did before
+      // webhooks. A credential saved at the same instant is not after it.
       if (target.credentialUpdatedAt !== null && Date.parse(target.credentialUpdatedAt) > outcome.occurredAt.getTime()) {
         deps.log.info("webhook.uninstall_stale", { jobId: job.id, provider, connectionId: target.connectionId });
         continue;

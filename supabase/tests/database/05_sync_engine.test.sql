@@ -97,21 +97,13 @@ reset request.jwt.claims;
 
 -- ---------------------------------------------------------------------------
 -- claim_sync_jobs. now() is fixed for the whole transaction, so "due" and
--- "lease held" are set relative to it. Claim takes webhook jobs first, then
--- orders by run_after, id (20261115090200_webhook_delivery_review.sql), so
--- every other open webhook job in the local database is made not claimable
--- first, inside this rolled-back transaction. Run_after values far in the past
--- then put these jobs ahead of any other rows, and every check filters to
--- these ids. Webhook-first ordering is tested in 31_webhook_deliveries.test.sql.
+-- "lease held" are set relative to it. Run_after values far in the past put
+-- these jobs ahead of any other rows in the local database (claim orders by
+-- run_after, id), and every check filters to these ids.
 -- Instance wide kinds need no connection, so the one-open-sync index does not
 -- interfere. True skip locked contention needs two sessions and is out of
 -- reach in one transaction; the lease is what stops a second claimer here.
 -- ---------------------------------------------------------------------------
-update public.sync_jobs
-set run_after = now() + interval '1 day',
-    locked_until = case when status = 'running' then now() + interval '1 day' else locked_until end
-where kind = 'webhook' and status in ('queued', 'running');
-
 insert into public.sync_jobs (id, kind, status, run_after, attempts, max_attempts, locked_until)
 values
   -- J1 queued and due: claimed first.

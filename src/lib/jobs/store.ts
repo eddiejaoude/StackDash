@@ -52,6 +52,9 @@ export type ClaimedJob = Pick<
   "id" | "workspace_id" | "connection_id" | "kind" | "attempts" | "max_attempts" | "created_at" | "dedupe_key" | "webhook_delivery_id"
 >;
 
+// What claimJobs and claimWebhookJobs read back of each claimed row.
+const CLAIMED_JOB_COLUMNS = "id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key, webhook_delivery_id";
+
 export type SnapshotRow = TablesInsert<"usage_snapshots">;
 export type EventRow = TablesInsert<"activity_events">;
 
@@ -93,8 +96,9 @@ export type WebhookDeliveryRecord = Readonly<{
 
 /**
  * An included external account of a live connection that a delivery's account maps to.
- * `credentialUpdatedAt` is when the connection's credential was last written (ISO), or null when it
- * has none: a reconnect writes it, so an uninstall that happened before it no longer applies.
+ * `credentialUpdatedAt` is when the connection's credential was last saved (ISO), or null when it
+ * has none. A reconnect saves it and so does a token refresh, so an uninstall older than the last
+ * save is left to the next sync instead of being applied.
  */
 export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string; credentialUpdatedAt: string | null }>;
 
@@ -122,7 +126,13 @@ export interface JobStore {
   /** Queues the instance-wide retention job once per dedupe key. */
   enqueueRetention(dedupeKey: string): Promise<boolean>;
 
+  /** Claims due jobs of every kind but `webhook`, oldest first (claim_sync_jobs), leased for `leaseSeconds`. */
   claimJobs(limit: number, leaseSeconds: number): Promise<ClaimedJob[]>;
+  /**
+   * Claims due `webhook` jobs, oldest first (claim_webhook_jobs): a claim of their own, so neither a
+   * burst of deliveries nor a backlog of syncs can take the other's share of a tick.
+   */
+  claimWebhookJobs(limit: number, leaseSeconds: number): Promise<ClaimedJob[]>;
   /** Returns a claimed job that was never started to the queue without spending an attempt. */
   releaseJob(jobId: string): Promise<void>;
   completeJob(jobId: string, finishedAt: Date): Promise<void>;
@@ -305,8 +315,16 @@ export function createSupabaseJobStore(): JobStore {
     async claimJobs(limit, leaseSeconds) {
       const { data, error } = await db
         .rpc("claim_sync_jobs", { p_limit: limit, p_lease_seconds: leaseSeconds })
-        .select("id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key, webhook_delivery_id");
+        .select(CLAIMED_JOB_COLUMNS);
       if (error) throw failure("claim_sync_jobs", error);
+      return data;
+    },
+
+    async claimWebhookJobs(limit, leaseSeconds) {
+      const { data, error } = await db
+        .rpc("claim_webhook_jobs", { p_limit: limit, p_lease_seconds: leaseSeconds })
+        .select(CLAIMED_JOB_COLUMNS);
+      if (error) throw failure("claim_webhook_jobs", error);
       return data;
     },
 

@@ -341,7 +341,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     return { store: createSupabaseJobStore(), requests };
   }
 
-  it("claims a webhook job with the delivery it processes", async () => {
+  it("claims webhook jobs through claim_webhook_jobs, each with the delivery it processes", async () => {
     const job = {
       id: uuid(28004, 1),
       workspace_id: null,
@@ -354,11 +354,12 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       webhook_delivery_id: DELIVERY_ID,
       status: "running",
     };
-    const { store } = storeWith({ claim_sync_jobs: () => [job] });
+    const { store, requests } = storeWith({ claim_webhook_jobs: () => [job] });
 
-    const [claimed] = await store.claimJobs(10, 60);
+    const [claimed] = await store.claimWebhookJobs(50, 120);
 
     expect(claimed).toEqual(expect.objectContaining({ kind: "webhook", webhook_delivery_id: DELIVERY_ID }));
+    expect(requests.map((request) => request.args)).toEqual([{ p_limit: 50, p_lease_seconds: 120 }]);
   });
 
   it("maps every target of an app-level delivery, with when its credential was written, without restricting it to a connection", async () => {

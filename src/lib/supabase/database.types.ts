@@ -902,6 +902,31 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"claim_webhook_jobs":
+{ Args: { "p_lease_seconds": number,"p_limit": number }; Returns: {
+              "attempts": number,
+"connection_id": string | null,
+"created_at": string,
+"dedupe_key": string | null,
+"error_code": string | null,
+"error_reference": string | null,
+"finished_at": string | null,
+"id": string,
+"kind": Database["public"]['Enums']["sync_job_kind"],
+"locked_until": string | null,
+"max_attempts": number,
+"run_after": string,
+"started_at": string | null,
+"status": Database["public"]['Enums']["sync_job_status"],
+"webhook_delivery_id": string | null,
+"workspace_id": string | null
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "sync_jobs"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
 "create_notification_destination":
 { Args: { "p_all_rules": boolean,"p_auth_tag": string,"p_ciphertext": string,"p_created_by": string,"p_digest": Database["public"]['Enums']["digest_frequency"],"p_id": string,"p_iv": string,"p_key_id": string,"p_kind": Database["public"]['Enums']["destination_kind"],"p_name": string,"p_rule_ids": (string)[],"p_url_host": string,"p_workspace_id": string }; Returns: undefined
                            },

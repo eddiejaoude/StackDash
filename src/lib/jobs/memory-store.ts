@@ -26,9 +26,9 @@ import {
 
 /*
  * In-memory JobStore for unit tests only. It mirrors the database rules the engine relies on:
- * one open sync per connection, claim semantics of claim_sync_jobs, the snapshot and event unique
- * keys, workspace scoping, the retention predicates, and the webhook delivery rules of
- * record_webhook_delivery and list_webhook_targets. Never imported by app code.
+ * one open sync per connection, claim semantics of claim_sync_jobs and claim_webhook_jobs, the
+ * snapshot and event unique keys, workspace scoping, the retention predicates, and the webhook
+ * delivery rules of record_webhook_delivery and list_webhook_targets. Never imported by app code.
  */
 
 export type MemoryConnection = Tables<"connections">;
@@ -206,10 +206,20 @@ export class MemoryJobStore implements JobStore {
   }
 
   async claimJobs(limit: number, leaseSeconds: number): Promise<ClaimedJob[]> {
+    return this.#claim((job) => job.kind !== "webhook", limit, leaseSeconds);
+  }
+
+  async claimWebhookJobs(limit: number, leaseSeconds: number): Promise<ClaimedJob[]> {
+    return this.#claim((job) => job.kind === "webhook", limit, leaseSeconds);
+  }
+
+  /** claim_sync_jobs and claim_webhook_jobs: the same claim over the jobs `inQueue` selects. */
+  #claim(inQueue: (job: MemoryJob) => boolean, limit: number, leaseSeconds: number): ClaimedJob[] {
     const now = this.now().getTime();
     const expired = (job: MemoryJob) =>
       job.status === "running" && job.locked_until !== null && new Date(job.locked_until).getTime() < now;
-    for (const job of this.jobs) {
+    const queue = this.jobs.filter(inQueue);
+    for (const job of queue) {
       if (expired(job) && job.attempts >= job.max_attempts) {
         job.status = "failed";
         job.locked_until = null;
@@ -217,17 +227,13 @@ export class MemoryJobStore implements JobStore {
         job.error_code ??= "lease_expired";
       }
     }
-    const claimable = this.jobs
+    const claimable = queue
       .filter(
         (job) =>
           job.attempts < job.max_attempts &&
           ((job.status === "queued" && new Date(job.run_after).getTime() <= now) || expired(job)),
       )
-      // claim_sync_jobs claims webhook jobs before every other kind.
-      .sort(
-        (a, b) =>
-          Number(a.kind !== "webhook") - Number(b.kind !== "webhook") || a.run_after.localeCompare(b.run_after) || a.id.localeCompare(b.id),
-      )
+      .sort((a, b) => a.run_after.localeCompare(b.run_after) || a.id.localeCompare(b.id))
       .slice(0, limit);
     for (const job of claimable) {
       job.status = "running";

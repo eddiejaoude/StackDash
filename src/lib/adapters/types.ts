@@ -165,8 +165,8 @@ export type WebhookVerification =
  *   `sync` produces for the same provider event, so a delivery and a later poll store it once.
  * - `uninstalled`: the provider removed StackDash from the account; its connections need a
  *   reconnect at once instead of on the next failed sync. `occurredAt` is when the provider says
- *   the removal happened: a connection whose credential was saved after it (a reconnect) is left
- *   alone, because deliveries arrive late and out of order.
+ *   the removal happened: a connection whose credential was saved after it (by a reconnect or a
+ *   token refresh) is left to its next sync, because deliveries arrive late and out of order.
  * - `ignored`: a verified delivery StackDash has no use for (an action it does not map).
  */
 export type WebhookOutcome =

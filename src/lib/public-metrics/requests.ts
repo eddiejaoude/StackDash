@@ -27,7 +27,10 @@ import type { PublicMetricId } from "./definitions";
  * counted in Postgres (public_rate_limit_counters) so every server instance shares one count.
  * Requests a cache answers never reach the server, so they are not counted. The IP is hashed with
  * HMAC-SHA-256 under a key derived from the encryption key before it leaves the server, and the
- * table refuses anything but a hash, so no IP address is stored. Decision on issue #149.
+ * table refuses anything but a hash, so no IP address is stored. Decision on issue #149. The same
+ * table also holds the per-endpoint webhook delivery counts (#28, src/lib/webhooks/receive.ts),
+ * keyed by an HMAC of the endpoint id under a key derived for that alone, so the two never share
+ * a row, and the one day retention covers both.
  */
 
 export const PUBLIC_CACHE_CONTROL = "public, max-age=60, s-maxage=60";

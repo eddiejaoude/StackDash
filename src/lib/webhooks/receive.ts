@@ -50,11 +50,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 
 /**
- * Verified deliveries one per-connection URL is answered in a minute. Well above a busy account's
- * real bursts (a monorepo deploying every project at once sends a few dozen), and low enough that
- * one user signing their own deliveries cannot flood the shared job queue.
+ * Verified deliveries one per-connection URL is answered in a minute, sized from the drain: a tick
+ * runs every minute and applies up to WEBHOOK_TICK_CLAIM_LIMIT (50) webhook jobs
+ * (src/lib/jobs/runner.ts), so one endpoint at this limit queues about one tick of that shared
+ * allowance a minute, never many ticks of it. A busy account's real burst (a monorepo deploying
+ * every project at once sends a few dozen) fits under it, and anything over is answered 429, which
+ * the provider retries.
  */
-export const WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE = 600;
+export const WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE = 60;
 
 const NO_STORE = { "Cache-Control": "no-store" };
 

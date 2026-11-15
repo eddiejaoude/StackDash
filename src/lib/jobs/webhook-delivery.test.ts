@@ -147,6 +147,18 @@ describe("runWebhookJob", () => {
     expect(harness.eventsIn(WORKSPACE_A)).toHaveLength(1);
   });
 
+  it("writes a delivered event to a failed connection's workspace (boundary: polling erroring)", async () => {
+    const harness = setup();
+    const failing = harness.connect(WORKSPACE_A, { status: "failed", consecutive_failures: 2 });
+    const job = await harness.deliver(events([deployment]));
+
+    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(harness.eventsIn(WORKSPACE_A)).toEqual([
+      expect.objectContaining({ connection_id: failing.id, type_id: "fake.deploy.succeeded", dedupe_key: DEPLOYMENT_ROW_KEY }),
+    ]);
+    expect(failing).toMatchObject({ status: "failed", consecutive_failures: 2 });
+  });
+
   it.each(["webhook first", "sync first"] as const)(
     "stores an event once when a delivery and a poll both see it (%s)",
     async (order) => {
@@ -204,6 +216,17 @@ describe("runWebhookJob", () => {
     expect(harness.store.events).toEqual([]);
   });
 
+  it("asks a failed connection to reconnect on an uninstall, adding no second failure event to its episode (boundary: failed)", async () => {
+    const harness = setup();
+    const failing = harness.connect(WORKSPACE_A, { status: "failed", consecutive_failures: 2 });
+    const job = await harness.deliver(uninstall);
+
+    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(failing).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", consecutive_failures: 3, next_sync_at: null });
+    // The episode's stackdash.sync_failed event was written when the connection left active.
+    expect(harness.store.events.filter((event) => event.type_id === SYNC_FAILED_TYPE_ID)).toEqual([]);
+  });
+
   it.each([
     ["with no stored credential time", null],
     ["whose credential was saved one millisecond before the uninstall (boundary)", new Date(UNINSTALLED_AT.getTime() - 1).toISOString()],
@@ -218,7 +241,7 @@ describe("runWebhookJob", () => {
     expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
   });
 
-  it("leaves a connection reconnected one millisecond after the uninstall active (boundary: late delivery)", async () => {
+  it("leaves a connection whose credential was saved one millisecond after the uninstall (a reconnect or a refresh) to its next sync (boundary: late delivery)", async () => {
     const harness = setup();
     const reconnected = harness.connect(WORKSPACE_A);
     const removed = harness.connect(WORKSPACE_B);

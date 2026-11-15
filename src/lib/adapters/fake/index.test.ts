@@ -465,6 +465,7 @@ describe("webhooks", () => {
 
   it.each([
     ["an unknown delivery type", JSON.stringify({ type: "account.renamed", account: "fake-acct-1" })],
+    ["an unknown event type", JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.deploy.failed", occurredAt: "2026-10-02T12:00:00.000Z" } })],
     ["an empty account", JSON.stringify({ type: "uninstalled", account: "", occurredAt: "2026-10-02T14:59:00.000Z" })],
     ["an uninstall without a time", JSON.stringify({ type: "uninstalled", account: "fake-acct-2" })],
     ["an event without a time", JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.signup" } })],

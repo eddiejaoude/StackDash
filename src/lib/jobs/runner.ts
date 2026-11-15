@@ -14,9 +14,20 @@ import { runWebhookJob } from "./webhook-delivery";
  * One tick (#10, #44): schedule due work, claim a bounded batch, and run it within a time budget so
  * a tick always finishes inside the function's maximum duration. Hosted and self-hosted run this
  * same code; only the caller of POST /api/jobs/tick differs (pg_cron, or `npm run jobs:tick`).
+ *
+ * `webhook` jobs (#28) are claimed separately (claim_webhook_jobs) with their own allowance and
+ * started first; every other kind shares TICK_CLAIM_LIMIT (claim_sync_jobs). Neither claim can take
+ * the other's share, so a burst of deliveries never stops polling or email, and a backlog of syncs
+ * never holds a delivery back behind it.
  */
 
 export const TICK_CLAIM_LIMIT = 10;
+// A webhook job makes no provider call: it reads its delivery, finds its targets, and writes their
+// events in one bounded insert (src/lib/jobs/webhook-delivery.ts), a handful of database round
+// trips. 50 of them across TICK_CONCURRENCY workers is about 17 each, far inside TICK_BUDGET_MS
+// beside the 10 regular jobs, whose provider calls are what the budget is sized for. Any the
+// budget does not reach are released without spending an attempt, like the regular jobs.
+export const WEBHOOK_TICK_CLAIM_LIMIT = 50;
 // Longer than the budget plus the slowest job's provider timeouts, so a job is never claimed
 // twice while it is still running. A tick that dies mid-job leaves the lease to expire.
 export const TICK_LEASE_SECONDS = 120;
@@ -111,18 +122,22 @@ export async function runTick(deps: SyncDeps, options: TickOptions = {}): Promis
   const hasTime = () => deps.now().getTime() - startedAt < budgetMs;
 
   const scheduled = await scheduleDueJobs(deps.store, new Date(startedAt));
-  const jobs = await deps.store.claimJobs(options.claimLimit ?? TICK_CLAIM_LIMIT, options.leaseSeconds ?? TICK_LEASE_SECONDS);
+  const leaseSeconds = options.leaseSeconds ?? TICK_LEASE_SECONDS;
+  const webhookJobs = await deps.store.claimWebhookJobs(WEBHOOK_TICK_CLAIM_LIMIT, leaseSeconds);
+  const otherJobs = await deps.store.claimJobs(options.claimLimit ?? TICK_CLAIM_LIMIT, leaseSeconds);
 
   const result: TickResult = {
     ...scheduled,
-    claimed: jobs.length,
+    claimed: webhookJobs.length + otherJobs.length,
     succeeded: 0,
     retried: 0,
     failed: 0,
     released: 0,
   };
 
-  const pending = [...jobs];
+  // Webhook jobs at the head: workers take jobs in this order, so every delivery starts before any
+  // job of another kind and never waits behind a slow sync.
+  const pending = [...webhookJobs, ...otherJobs];
   const worker = async () => {
     for (let job = pending.shift(); job !== undefined; job = pending.shift()) {
       if (!hasTime()) {
@@ -143,6 +158,6 @@ export async function runTick(deps: SyncDeps, options: TickOptions = {}): Promis
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(options.concurrency ?? TICK_CONCURRENCY, jobs.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(options.concurrency ?? TICK_CONCURRENCY, pending.length) }, worker));
   return result;
 }
