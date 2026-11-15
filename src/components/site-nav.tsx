@@ -13,8 +13,11 @@ interface SiteNavProps {
 /**
  * Sticky top nav. A server component: on small screens the section links hide and the page
  * itself is the menu, so the landing page ships no client JavaScript for navigation. Sign in
- * stays visible at every width. Below sm the wordmark shrinks so a 390 px phone keeps it, Sign in,
- * and GitHub on one row; narrower phones wrap the actions below the wordmark rather than overflow.
+ * stays visible at every width. Below sm the wordmark shrinks and the GitHub button shows only its
+ * mark, so a 320 px phone keeps the wordmark, Sign in, and GitHub on one row with room to spare:
+ * at full label the row fitted a 390 px phone by under 3 px, and CI's font rendering wrapped it.
+ * The row still wraps rather than overflows when it cannot fit, for example with enlarged text:
+ * the actions drop below the wordmark.
  */
 export function SiteNav({ anchorBase = "" }: SiteNavProps) {
   return (
@@ -64,7 +67,7 @@ export function SiteNav({ anchorBase = "" }: SiteNavProps) {
               </Link>
             </li>
           </ul>
-          <GitHubButton size="sm" />
+          <GitHubButton size="sm" iconOnlyOnPhone />
         </div>
       </nav>
     </header>

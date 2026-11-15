@@ -56,21 +56,32 @@ test.describe("landing page", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   });
 
-  test("the brand and sign in share one header row on a phone", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/");
+  test("the brand, sign in, and GitHub share one header row on a phone", async ({ page }) => {
+    const banner = page.getByRole("banner");
+    const brand = banner.getByRole("img", { name: "StackDash", exact: true });
+    const signIn = banner.getByRole("link", { name: "Sign in", exact: true });
+    // Icon only below sm: the label is sr-only, so the role and name still find it.
+    const github = banner.getByRole("link", { name: "Follow on GitHub", exact: true });
 
-    const brand = page.getByRole("banner").getByRole("img", { name: "StackDash", exact: true });
-    const signIn = page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true });
-    await expect(brand).toBeVisible();
-    await expect(signIn).toBeVisible();
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto("/");
+      await expect(brand).toBeVisible();
+      await expect(signIn).toBeVisible();
+      await expect(github).toBeVisible();
 
-    // When the actions wrap below the brand, the two boxes stop overlapping vertically.
-    const brandBox = await brand.boundingBox();
-    const signInBox = await signIn.boundingBox();
-    if (!brandBox || !signInBox) throw new Error("The header brand or Sign in link has no layout box");
-    expect(signInBox.y).toBeLessThan(brandBox.y + brandBox.height);
-    expect(brandBox.y).toBeLessThan(signInBox.y + signInBox.height);
+      // When the actions wrap below the brand, their boxes stop overlapping the brand vertically.
+      const brandBox = await brand.boundingBox();
+      if (!brandBox) throw new Error("The header brand has no layout box");
+      for (const [name, action] of [["Sign in", signIn], ["Follow on GitHub", github]] as const) {
+        const box = await action.boundingBox();
+        if (!box) throw new Error(`The header ${name} link has no layout box at ${width} px`);
+        expect(box.y, `${name} at ${width} px`).toBeLessThan(brandBox.y + brandBox.height);
+        expect(brandBox.y, `${name} at ${width} px`).toBeLessThan(box.y + box.height);
+        expect(box.width, `${name} target width at ${width} px`).toBeGreaterThanOrEqual(24);
+        expect(box.height, `${name} target height at ${width} px`).toBeGreaterThanOrEqual(24);
+      }
+    }
   });
 
   test("every in-page navigation link lands on a section that exists", async ({ page }) => {
