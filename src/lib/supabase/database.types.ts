@@ -970,7 +970,7 @@ isOneToOne: false
                            },
 "list_webhook_targets":
 { Args: { "p_endpoint_id"?: string,"p_external_id": string,"p_provider": Database["public"]['Enums']["provider_id"] }; Returns: {
-              "account_id": string,"connection_id": string,"workspace_id": string
+              "account_id": string,"connection_id": string,"credential_updated_at": string,"workspace_id": string
             }[]
                            },
 "notification_recipients":

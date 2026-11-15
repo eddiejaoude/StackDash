@@ -72,30 +72,36 @@ export async function runWebhookJob(job: ClaimedJob, deps: SyncDeps): Promise<Jo
     return { status: "succeeded" };
   }
 
+  // Never `ignored`: such a delivery is stored processed and queues no job.
   const { outcome, provider } = delivery;
-  if (outcome.kind !== "ignored") {
-    const targets = await deps.store.listWebhookTargets({
-      provider,
-      externalAccountId: outcome.externalAccountId,
-      endpointId: delivery.endpointId,
-    });
-    if (targets.length === 0) {
-      // An account no workspace includes, or whose connection is gone: nothing to apply it to.
-      deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
-    } else if (outcome.kind === "events") {
-      const inserted = await writeEvents(provider, targets, outcome.events, deps);
-      deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
-      if (inserted > 0) await evaluateAchievements(job, targets, deps);
-    } else {
-      for (const target of distinctConnections(targets)) {
-        const result = await markConnectionRevoked({
-          job,
-          key: { workspaceId: target.workspaceId, connectionId: target.connectionId },
-          reason: `${provider} reported that StackDash was removed from the account`,
-          deps,
-        });
-        deps.log.info("webhook.uninstalled", { jobId: job.id, provider, connectionId: target.connectionId, result });
+  const targets = await deps.store.listWebhookTargets({
+    provider,
+    externalAccountId: outcome.externalAccountId,
+    endpointId: delivery.endpointId,
+  });
+  if (targets.length === 0) {
+    // An account no workspace includes, or whose connection is gone: nothing to apply it to.
+    deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
+  } else if (outcome.kind === "events") {
+    const inserted = await writeEvents(provider, targets, outcome.events, deps);
+    deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
+    if (inserted > 0) await evaluateAchievements(job, targets, deps);
+  } else {
+    for (const target of distinctConnections(targets)) {
+      // A credential saved after the provider says StackDash was removed means the user
+      // reconnected, and this uninstall (late, redelivered, or out of order) is about the grant
+      // that reconnect replaced. One saved at the same instant is not after it.
+      if (target.credentialUpdatedAt !== null && Date.parse(target.credentialUpdatedAt) > outcome.occurredAt.getTime()) {
+        deps.log.info("webhook.uninstall_stale", { jobId: job.id, provider, connectionId: target.connectionId });
+        continue;
       }
+      const result = await markConnectionRevoked({
+        job,
+        key: { workspaceId: target.workspaceId, connectionId: target.connectionId },
+        reason: `${provider} reported that StackDash was removed from the account`,
+        deps,
+      });
+      deps.log.info("webhook.uninstalled", { jobId: job.id, provider, connectionId: target.connectionId, result });
     }
   }
 

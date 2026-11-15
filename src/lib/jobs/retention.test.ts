@@ -106,7 +106,8 @@ describe("retention (#37)", () => {
     const cutoff = retentionCutoffs(NOW).webhookDeliveriesBefore;
     let clock = new Date(cutoff.getTime() - 1);
     const store = new MemoryJobStore(() => clock);
-    const outcome = { kind: "ignored", reason: "test" } as const;
+    // An ignored delivery queues no job, so this one is an uninstall: the purge must take its job too.
+    const outcome = { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: cutoff } as const;
     await store.recordWebhookDelivery({ provider: "fake", deliveryId: "old", endpointId: null, outcome });
     clock = cutoff;
     await store.recordWebhookDelivery({ provider: "fake", deliveryId: "kept-exact", endpointId: null, outcome });

@@ -425,7 +425,7 @@ describe("checkWebhookOutcome", () => {
   it.each<[string, WebhookOutcome]>([
     ["events for the delivery's account", { kind: "events", externalAccountId: ACCOUNT, events: [signup] }],
     ["no events (boundary: empty)", { kind: "events", externalAccountId: ACCOUNT, events: [] }],
-    ["an uninstall", { kind: "uninstalled", externalAccountId: ACCOUNT }],
+    ["an uninstall", { kind: "uninstalled", externalAccountId: ACCOUNT, occurredAt: NOW }],
     ["an ignored delivery with a reason", { kind: "ignored", reason: "not a delivery Example Cloud maps" }],
   ])("passes %s", (_case, outcome) => {
     expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([]);
@@ -433,7 +433,12 @@ describe("checkWebhookOutcome", () => {
 
   it.each<[string, WebhookOutcome, string[]]>([
     ["an ignored delivery without a reason", { kind: "ignored", reason: " " }, ["an ignored delivery has no reason"]],
-    ["an uninstall without an account", { kind: "uninstalled", externalAccountId: "" }, ["the uninstalled outcome has no externalAccountId"]],
+    ["an uninstall without an account", { kind: "uninstalled", externalAccountId: "", occurredAt: NOW }, ["the uninstalled outcome has no externalAccountId"]],
+    [
+      "an uninstall with an invalid time",
+      { kind: "uninstalled", externalAccountId: ACCOUNT, occurredAt: new Date(Number.NaN) },
+      ["the uninstalled outcome has an invalid occurredAt"],
+    ],
     [
       "events without an account",
       { kind: "events", externalAccountId: "", events: [] },

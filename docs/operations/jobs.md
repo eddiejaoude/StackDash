@@ -22,7 +22,7 @@ Each tick does three things, then answers with counts only (no data, no errors i
    - **Digest**: one `digest` job per workspace with a connection per UTC day (dedupe key `digest:<workspace id>:YYYY-MM-DD`, for the previous day). It sends the daily digest to members and channels set to daily, and on Mondays the weekly digest for the week before to those set to weekly. Its highlights count the period's timeline events (deployments, signups, star events, payments), with PostHog's daily signup counts summed for the days that ended in the period.
 
    Email goes through Resend's API with `STACKDASH_RESEND_API_KEY` (see `.env.example`). Without it, email targets are skipped and channels still receive alerts. Locally, set `STACKDASH_RESEND_API_URL=http://127.0.0.1:55430` and run `npm run email:fake`: the fake Resend API prints each email the tick sends, and lists them at http://127.0.0.1:55430/fake/emails.
-2. **Claim.** Takes up to 10 runnable jobs from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job.
+2. **Claim.** Takes up to 10 runnable jobs from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job. `webhook` jobs are taken first, then every other kind, oldest `run_after` first.
 3. **Run.** Runs the claimed jobs, three at a time, within a 50 second budget. Jobs not started when the budget runs out go back to the queue without using an attempt. The route's `maxDuration` is 120 seconds, which leaves room for jobs already running.
 
 There is at most one queued or running sync per connection (unique index `sync_jobs_one_open_sync_per_connection`). The scheduler, "Sync now", and the first sync after connecting can all ask at once without stacking jobs. It also serializes token refreshes: providers that rotate refresh tokens invalidate the old one on use, so two parallel refreshes would lose the connection.
@@ -38,14 +38,14 @@ For each included external account of the connection:
 
 ### A webhook job
 
-Providers that push signed events (see [Webhooks](../adapters.md#webhooks)) deliver them to `POST /api/webhooks/<provider>`, one URL on StackDash's own app registration, or to `POST /api/webhooks/<provider>/<endpoint id>`, one URL per connection. The route never writes events. It verifies the delivery against its raw body, stores it in `webhook_deliveries` with one queued `webhook` job in a single transaction, and answers at once:
+Providers that push signed events (see [Webhooks](../adapters.md#webhooks)) deliver them to `POST /api/webhooks/<provider>`, one URL on StackDash's own app registration, or to `POST /api/webhooks/<provider>/<endpoint id>`, one URL per connection. The route never writes events. It verifies the delivery against its raw body, stores it in `webhook_deliveries` with one queued `webhook` job in a single transaction, and answers at once. A delivery StackDash does not map is stored already processed, with no job.
 
 | Status | Body | When |
 |---|---|---|
 | `202` | `{"status":"accepted"}` | Verified and stored. The next tick applies it |
-| `200` | `{"status":"duplicate"}` | The provider's delivery id is already stored: a retry, acknowledged and dropped (`webhook.duplicate` in the log) |
+| `200` | `{"status":"duplicate"}` | The provider's delivery id is already stored for this URL: a retry, acknowledged and dropped (`webhook.duplicate` in the log). Deliveries are unique per provider, endpoint, and delivery id, because a provider sends one message id to every endpoint of an account, so the same id at another connection's URL is a different delivery |
 | `400` | `{"error":"bad_request","referenceId":"REF-..."}` | Verified, but the adapter could not read it |
-| `401` | `{"error":"unauthorized"}` | Unsigned, wrongly signed, or with a timestamp outside the provider's tolerance (a replay). Logged as `webhook.rejected` with the provider, reason, and endpoint only, never the body, a header, or the signature |
+| `401` | `{"error":"unauthorized"}` | Unsigned (reason `missing_signature`), wrongly signed (`bad_signature`), with a timestamp outside the provider's tolerance, a replay (`stale`), or correctly signed with no delivery id, a blank one, or one over 200 characters (`malformed`). Logged as `webhook.rejected` with the provider, reason, and endpoint only, never the body, a header, or the signature |
 | `404` | `{"error":"not_found"}` | Unknown provider, a provider without webhooks on this instance, the wrong URL shape for the provider, or an unknown endpoint |
 | `413` | `{"error":"payload_too_large"}` | Body over 1 MiB |
 | `422` | `{"error":"invalid_events","referenceId":"REF-..."}` | Verified, but the adapter mapped it to events that fail validation |
@@ -54,11 +54,13 @@ Providers that push signed events (see [Webhooks](../adapters.md#webhooks)) deli
 
 The route has no `Origin` check: a delivery comes from the provider's servers, not from a browser, and its signature is what authenticates it.
 
-The next tick runs the job, so a delivered event reaches the timeline within a minute. The job reads the delivery back and finds every included external account with that provider and external id on an `active` or `needs_attention` connection, across workspaces for an app-level URL and only on the endpoint's own connection for a per-connection URL. Then, by what the delivery means:
+The next tick runs the job. Each tick claims `webhook` jobs before any other kind, up to its limit of 10 (`TICK_CLAIM_LIMIT` in `src/lib/jobs/runner.ts`), and starts them first. With `pg_cron` calling the tick every minute, a delivered event reaches the timeline on the next tick, within a minute, unless more than 10 deliveries are waiting: then each tick applies the 10 oldest, and the rest wait for the ticks after it. A `webhook` job makes no provider call, only database writes. A webhook job that failed and waits for a retry is not claimed before its backoff ends.
+
+The job reads the delivery back and finds every included external account with that provider and external id on an `active`, `failed`, or `needs_attention` connection (everything but `pending` and `revoked`), across workspaces for an app-level URL and only on the endpoint's own connection for a per-connection URL. A `failed` connection's polling is erroring but still scheduled, so a pushed event can be the one path still reaching it. Then, by what the delivery means:
 
 - **Events** are written to every one of those workspaces in one insert, with the same `dedupe_key` the adapter's sync gives the same provider event. A delivery and a later poll of that event store it once, whichever comes first. Connections that received a new event have their achievements checked, as after a sync. Alerts are not checked: every alert rule is a threshold on snapshots, which a delivery never writes.
-- **Uninstalled**: each connection is marked the way a sync that got `auth_revoked` marks it, `needs_attention` with one `stackdash.sync_failed` event, at once instead of on its next sync. A connection already waiting for a reconnect is left alone.
-- **Ignored**: a verified delivery StackDash does not map. Nothing is written.
+- **Uninstalled**: each connection is marked the way a sync that got `auth_revoked` marks it, `needs_attention` with one `stackdash.sync_failed` event, at once instead of on its next sync. A connection already waiting for a reconnect is left alone, and so is one whose credential was saved after the removal happened (a reconnect), because deliveries arrive late and out of order.
+- **Ignored**: a verified delivery StackDash does not map. It never gets a job: it is stored already processed, with no content, so a repeat is still recognized.
 
 An account no workspace includes is logged as `webhook.no_targets` and nothing is written. The delivery is then marked processed and its stored content dropped; only its key stays, for deduplication. A store failure retries the job like a sync (see below). A job whose delivery is gone (purged) finishes without doing anything.
 

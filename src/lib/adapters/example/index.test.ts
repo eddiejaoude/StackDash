@@ -381,16 +381,24 @@ describe("example adapter webhooks", () => {
     return webhooks;
   }
 
-  type Delivery = Partial<{ timestampSeconds: number; secret: Secret; signedBody: string; omit: keyof typeof EXAMPLE_WEBHOOK_HEADERS }>;
+  type Delivery = Partial<{
+    timestampSeconds: number;
+    secret: Secret;
+    signedBody: string;
+    // Sends this delivery id while the signature covers the recorded one, as a replay would.
+    sentDeliveryId: string;
+    omit: keyof typeof EXAMPLE_WEBHOOK_HEADERS;
+  }>;
+  const DELIVERY_ID = "a1b2c3d4-0000-4000-8000-000000000001";
 
   // A delivery as Example Cloud sends it; each option bends one part of it for a boundary test.
   function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
     const timestamp = String(options.timestampSeconds ?? NOW_SECONDS);
     const signed = new TextEncoder().encode(options.signedBody ?? rawBody);
     const headers = new Headers({
-      [EXAMPLE_WEBHOOK_HEADERS.delivery]: "a1b2c3d4-0000-4000-8000-000000000001",
+      [EXAMPLE_WEBHOOK_HEADERS.delivery]: options.sentDeliveryId ?? DELIVERY_ID,
       [EXAMPLE_WEBHOOK_HEADERS.timestamp]: timestamp,
-      [EXAMPLE_WEBHOOK_HEADERS.signature]: exampleWebhookSignature(options.secret ?? WEBHOOK_SECRET, timestamp, signed),
+      [EXAMPLE_WEBHOOK_HEADERS.signature]: exampleWebhookSignature(options.secret ?? WEBHOOK_SECRET, DELIVERY_ID, timestamp, signed),
     });
     if (options.omit !== undefined) headers.delete(EXAMPLE_WEBHOOK_HEADERS[options.omit]);
     return { headers, rawBody: new TextEncoder().encode(rawBody) };
@@ -404,7 +412,7 @@ describe("example adapter webhooks", () => {
 
   it("verifies the recorded delivery and maps it to the event the sync stores for it", async () => {
     const request = delivery(RECORDED_BODY);
-    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW)).toEqual({ ok: true, deliveryId: "a1b2c3d4-0000-4000-8000-000000000001" });
+    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
     const outcome = descriptor().parse(request, setup().ctx);
     expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([]);
 
@@ -422,6 +430,8 @@ describe("example adapter webhooks", () => {
     ["a timestamp one second past the tolerance in the future", { timestampSeconds: NOW_SECONDS + EXAMPLE_WEBHOOK_TOLERANCE_SECONDS + 1 }, "stale"],
     ["a signature made with another secret", { secret: new Secret("another-webhook-value") }, "bad_signature"],
     ["a tampered body", { signedBody: RECORDED_BODY.replace("acct_1001", "acct_9999") }, "bad_signature"],
+    // The same body and timestamp posted again under a new delivery id: the id is signed too.
+    ["a valid signature replayed under another delivery id", { sentDeliveryId: "a1b2c3d4-0000-4000-8000-000000000002" }, "bad_signature"],
     ["no delivery id", { omit: "delivery" }, "malformed"],
   ])("rejects a delivery with %s (boundary)", (_case, options, reason) => {
     expect(descriptor().verify(delivery(RECORDED_BODY, options), WEBHOOK_SECRET, NOW)).toEqual({ ok: false, reason });
@@ -432,16 +442,16 @@ describe("example adapter webhooks", () => {
     expect(descriptor().verify(request, WEBHOOK_SECRET, NOW).ok).toBe(true);
   });
 
-  it("reports an uninstall for its account", () => {
-    expect(parsed(JSON.stringify({ type: "installation.deleted", account_id: ACCOUNT_ID }))).toEqual({
-      kind: "uninstalled",
-      externalAccountId: ACCOUNT_ID,
-    });
+  it("reports an uninstall for its account, at the time the provider gives", () => {
+    const outcome = parsed(JSON.stringify({ type: "installation.deleted", account_id: ACCOUNT_ID, created_at: "2026-11-13T12:00:00Z" }));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: ACCOUNT_ID, occurredAt: new Date("2026-11-13T12:00:00Z") });
+    expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([]);
   });
 
   it.each([
     ["an event type the timeline does not show", JSON.stringify({ ...webhookEventFixture, data: { ...webhookEventFixture.data, type: "domain.added" } })],
     ["an unknown delivery type", JSON.stringify({ type: "account.updated", account_id: ACCOUNT_ID })],
+    ["an uninstall without a time", JSON.stringify({ type: "installation.deleted", account_id: ACCOUNT_ID })],
     ["a body that is not JSON", "type=event.created"],
   ])("ignores %s (boundary)", (_case, body) => {
     expect(parsed(body)).toMatchObject({ kind: "ignored" });

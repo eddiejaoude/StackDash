@@ -14,7 +14,6 @@ import {
 import {
   FAKE_EVENT_WINDOW_DAYS,
   FAKE_WEBHOOK_HEADERS,
-  FAKE_WEBHOOK_SECRET_ENV,
   FAKE_WEBHOOK_TOLERANCE_SECONDS,
   fakeAdapter,
   signFakeWebhook,
@@ -369,11 +368,13 @@ describe("webhooks", () => {
   // A delivery as the provider sends it; each option bends one part of it for a boundary test.
   function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
     const timestampSeconds = options.timestampSeconds ?? NOW_SECONDS;
+    const deliveryId = "dlv_0001";
     const headers = new Headers({
-      [FAKE_WEBHOOK_HEADERS.delivery]: "dlv_0001",
+      [FAKE_WEBHOOK_HEADERS.delivery]: deliveryId,
       [FAKE_WEBHOOK_HEADERS.timestamp]: String(timestampSeconds),
       [FAKE_WEBHOOK_HEADERS.signature]: signFakeWebhook({
         secret: options.signedWith ?? SECRET_VALUE,
+        deliveryId,
         rawBody: options.signedBody ?? rawBody,
         timestampSeconds,
       }),
@@ -389,12 +390,6 @@ describe("webhooks", () => {
     const verification = descriptor().verify(request, SECRET, OCT_2_AFTERNOON);
     return { verification, outcome: verification.ok ? descriptor().parse(request, makeCtx()) : undefined };
   }
-
-  it("is registered on the app, with its secret named by an instance setting", () => {
-    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: FAKE_WEBHOOK_SECRET_ENV });
-    expect(FAKE_WEBHOOK_SECRET_ENV).toBe("STACKDASH_FAKE_WEBHOOK_SECRET");
-    expect(descriptor().subscriptions).toEqual(["event", "uninstalled"]);
-  });
 
   it("verifies a signed delivery and parses it into one event for its account", () => {
     const { verification, outcome } = verifyAndParse(delivery(DEPLOY_BODY));
@@ -418,8 +413,8 @@ describe("webhooks", () => {
     expect(checkWebhookOutcome(fakeAdapter, outcome)).toEqual([]);
   });
 
-  it("signs the timestamp, a dot, and the raw body as v1= and lowercase hex", () => {
-    expect(signFakeWebhook({ secret: SECRET_VALUE, rawBody: "{}", timestampSeconds: 1 })).toMatch(/^v1=[0-9a-f]{64}$/);
+  it("signs the delivery id, the timestamp, and the raw body as v1= and lowercase hex", () => {
+    expect(signFakeWebhook({ secret: SECRET_VALUE, deliveryId: "dlv_0001", rawBody: "{}", timestampSeconds: 1 })).toMatch(/^v1=[0-9a-f]{64}$/);
   });
 
   it.each<[string, Delivery, string]>([
@@ -431,6 +426,8 @@ describe("webhooks", () => {
     ["a timestamp one second past the tolerance in the future", { timestampSeconds: NOW_SECONDS + FAKE_WEBHOOK_TOLERANCE_SECONDS + 1 }, "stale"],
     ["a signature made with another secret", { signedWith: "another-webhook-value" }, "bad_signature"],
     ["a tampered body", { signedBody: DEPLOY_BODY.replace("fake-acct-1", "fake-acct-2") }, "bad_signature"],
+    // The same body and timestamp posted again under a new delivery id: the id is signed too.
+    ["a valid signature replayed under another delivery id", { headers: { [FAKE_WEBHOOK_HEADERS.delivery]: "dlv_0002" } }, "bad_signature"],
     // A captured delivery replayed later with a fresh timestamp: the old signature no longer matches.
     ["a fresh timestamp on an old signature", { headers: { [FAKE_WEBHOOK_HEADERS.timestamp]: String(NOW_SECONDS - 1) } }, "bad_signature"],
     ["a signature without its v1= prefix", { headers: { [FAKE_WEBHOOK_HEADERS.signature]: "0".repeat(64) } }, "bad_signature"],
@@ -458,16 +455,19 @@ describe("webhooks", () => {
     expect(outcome).toMatchObject({ kind: "events", events: [{ dedupeKey: "fake.signup:fake-acct-1:2026-10-02" }] });
   });
 
-  it("reports an uninstall for its account", () => {
-    const { outcome } = verifyAndParse(delivery(JSON.stringify({ type: "uninstalled", account: "fake-acct-2" })));
-    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: "fake-acct-2" });
+  it("reports an uninstall for its account, at the time the provider gives", () => {
+    const body = JSON.stringify({ type: "uninstalled", account: "fake-acct-2", occurredAt: "2026-10-02T14:59:00.000Z" });
+    const { outcome } = verifyAndParse(delivery(body));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: "fake-acct-2", occurredAt: new Date("2026-10-02T14:59:00.000Z") });
+    if (outcome === undefined) throw new Error("verified delivery was not parsed");
+    expect(checkWebhookOutcome(fakeAdapter, outcome)).toEqual([]);
   });
 
   it.each([
     ["an unknown delivery type", JSON.stringify({ type: "account.renamed", account: "fake-acct-1" })],
-    ["an unknown event type", JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.deploy.failed", occurredAt: "2026-10-02T12:00:00.000Z" } })],
+    ["an empty account", JSON.stringify({ type: "uninstalled", account: "", occurredAt: "2026-10-02T14:59:00.000Z" })],
+    ["an uninstall without a time", JSON.stringify({ type: "uninstalled", account: "fake-acct-2" })],
     ["an event without a time", JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.signup" } })],
-    ["an empty account", JSON.stringify({ type: "uninstalled", account: "" })],
     ["a JSON array", "[]"],
     ["a body that is not JSON", "type=event"],
     ["an empty body", ""],

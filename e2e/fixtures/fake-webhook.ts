@@ -11,8 +11,9 @@ export const FAKE_WEBHOOK_E2E_SECRET = "e2e-only-fake-webhook-secret";
 
 /**
  * POSTs `body` to the fake provider's app-level URL as the provider would: the delivery id, the
- * current timestamp, and the signature over both, unless `signed` is false, which sends no
- * signature at all.
+ * current timestamp, and the signature over the delivery id, the timestamp, and the body, unless
+ * `signed` is false, which sends no signature at all. Pass a context with no session: a provider
+ * sends no cookies.
  */
 export function postFakeWebhook(
   request: APIRequestContext,
@@ -26,7 +27,12 @@ export function postFakeWebhook(
     [FAKE_WEBHOOK_HEADERS.timestamp]: String(timestampSeconds),
   };
   if (options.signed !== false) {
-    headers[FAKE_WEBHOOK_HEADERS.signature] = signFakeWebhook({ secret: FAKE_WEBHOOK_E2E_SECRET, rawBody: body, timestampSeconds });
+    headers[FAKE_WEBHOOK_HEADERS.signature] = signFakeWebhook({
+      secret: FAKE_WEBHOOK_E2E_SECRET,
+      deliveryId: options.deliveryId,
+      rawBody: body,
+      timestampSeconds,
+    });
   }
   return request.post("/api/webhooks/fake", { data: body, headers });
 }

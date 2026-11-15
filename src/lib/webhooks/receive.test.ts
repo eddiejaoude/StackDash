@@ -14,7 +14,7 @@ import { MemoryJobStore } from "@/lib/jobs/memory-store";
 import type { RecordWebhookDeliveryInput } from "@/lib/jobs/store";
 import type { LogFields, Logger } from "@/lib/log/logger";
 
-import { receiveWebhook, WEBHOOK_MAX_BODY_BYTES, type ReceiveDeps } from "./receive";
+import { receiveWebhook, WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE, WEBHOOK_MAX_BODY_BYTES, type ReceiveDeps } from "./receive";
 
 const NOW = new Date("2026-11-15T12:00:00.000Z");
 const NOW_SECONDS = NOW.getTime() / 1000;
@@ -55,6 +55,7 @@ function setup(overrides: Partial<ReceiveDeps> = {}) {
     getAdapter: (id) => (id === "fake" ? fakeAdapter : id === "posthog" ? postHogAdapter : null),
     readEnv: (name) => (name === FAKE_WEBHOOK_SECRET_ENV ? SECRET : undefined),
     loadWebhookEndpoint: async () => null,
+    countEndpointDelivery: async () => 1,
     recordWebhookDelivery: (input) => store.recordWebhookDelivery(input),
     adapterContext: () => adapterContext,
     now: () => NOW,
@@ -63,9 +64,12 @@ function setup(overrides: Partial<ReceiveDeps> = {}) {
       warn: (event, fields) => lines.push({ level: "warn", event, fields }),
       error: (event, fields) => lines.push({ level: "error", event, fields }),
     },
-    // Records the error with the fields, as the real logError writes both.
+    // Records the error with the fields, as the real logError writes both: its name, message,
+    // stack, and cause (redactError in src/lib/log/redact.ts).
     logError: (event, error, fields) => {
-      lines.push({ level: "error", event, fields: { ...fields, error: error instanceof Error ? error.message : String(error) } });
+      const written =
+        error instanceof Error ? { name: error.name, message: error.message, stack: error.stack, cause: String(error.cause) } : String(error);
+      lines.push({ level: "error", event, fields: { ...fields, error: written } });
       return "REF-TEST0000";
     },
     ...overrides,
@@ -82,20 +86,28 @@ type DeliveryOptions = {
   secret?: string;
   // Signs this body while sending another one, as a tampered delivery would.
   signedBody?: string;
+  // Signs this delivery id while sending `deliveryId`, as a replay under a new id would.
+  signedDeliveryId?: string;
   headers?: Record<string, string>;
 };
 
 function delivery(body: string, options: DeliveryOptions = {}): Request {
   const timestampSeconds = options.timestampSeconds ?? NOW_SECONDS;
+  const deliveryId = options.deliveryId ?? "delivery-1";
   const headers = new Headers({
     "content-type": "application/json",
-    [FAKE_WEBHOOK_HEADERS.delivery]: options.deliveryId ?? "delivery-1",
+    [FAKE_WEBHOOK_HEADERS.delivery]: deliveryId,
     [FAKE_WEBHOOK_HEADERS.timestamp]: String(timestampSeconds),
     ...options.headers,
   });
   const signature =
     options.signature === undefined
-      ? signFakeWebhook({ secret: options.secret ?? SECRET, rawBody: options.signedBody ?? body, timestampSeconds })
+      ? signFakeWebhook({
+          secret: options.secret ?? SECRET,
+          deliveryId: options.signedDeliveryId ?? deliveryId,
+          rawBody: options.signedBody ?? body,
+          timestampSeconds,
+        })
       : options.signature;
   if (signature !== null) headers.set(FAKE_WEBHOOK_HEADERS.signature, signature);
   return new Request("http://localhost/api/webhooks/fake", { method: "POST", headers, body });
@@ -166,6 +178,11 @@ describe("receiveWebhook", () => {
     {
       name: "tampered: body changed after signing",
       options: { signedBody: EVENT_BODY.replace("fake-acct-1", "fake-acct-2") },
+      reason: "bad_signature",
+    },
+    {
+      name: "replayed: same body and timestamp under another delivery id",
+      options: { deliveryId: "delivery-replayed", signedDeliveryId: "delivery-1" },
       reason: "bad_signature",
     },
   ] satisfies { name: string; options: DeliveryOptions; reason: string }[])(
@@ -303,23 +320,78 @@ describe("receiveWebhook", () => {
       });
       expect((await receive(deps, delivery(EVENT_BODY), "fake", ENDPOINT_ID)).status).toBe(401);
     });
+
+    describe("rate limit", () => {
+      function limited(countThisMinute: number) {
+        const counted: string[] = [];
+        const recorded: RecordWebhookDeliveryInput[] = [];
+        const harness = setup({
+          getAdapter: () => connectionFake,
+          loadWebhookEndpoint: async () => endpoint,
+          countEndpointDelivery: async (id) => {
+            counted.push(id);
+            return countThisMinute;
+          },
+          recordWebhookDelivery: async (input) => {
+            recorded.push(input);
+            return true;
+          },
+        });
+        return { ...harness, counted, recorded };
+      }
+
+      it("accepts the delivery that reaches the per-minute limit (boundary: at the limit)", async () => {
+        const { deps, counted, recorded } = limited(WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE);
+        expect((await receive(deps, delivery(EVENT_BODY), "fake", ENDPOINT_ID)).status).toBe(202);
+        expect(counted).toEqual([ENDPOINT_ID]);
+        expect(recorded).toHaveLength(1);
+      });
+
+      it("answers 429 with Retry-After and stores nothing one over the limit (boundary: limit + 1)", async () => {
+        const { deps, recorded, lines } = limited(WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE + 1);
+        const response = await receive(deps, delivery(EVENT_BODY), "fake", ENDPOINT_ID);
+        expect(response.status).toBe(429);
+        expect(await response.json()).toEqual({ error: "rate_limited" });
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        // NOW is on a minute boundary: the next minute starts a full minute later.
+        expect(response.headers.get("retry-after")).toBe("60");
+        expect(recorded).toEqual([]);
+        expect(lines).toEqual([{ level: "warn", event: "webhook.rate_limited", fields: { provider: "fake", endpointId: ENDPOINT_ID } }]);
+      });
+
+      it("does not count a delivery that fails verification", async () => {
+        const { deps, counted } = limited(1);
+        expect((await receive(deps, delivery(EVENT_BODY, { signature: null }), "fake", ENDPOINT_ID)).status).toBe(401);
+        expect(counted).toEqual([]);
+      });
+
+      it("never counts the app-level URL, whose secret only the provider holds", async () => {
+        const { deps } = setup({ countEndpointDelivery: () => Promise.reject(new Error("must not be called")) });
+        expect((await receive(deps, delivery(EVENT_BODY))).status).toBe(202);
+      });
+    });
   });
 
   describe("parse output", () => {
-    it("answers 400 with a reference when parse throws", async () => {
+    it("answers 400 with a reference when parse throws, logging the error's name and none of its text", async () => {
+      const marker = "body-marker-7f3a";
+      const body = JSON.stringify({ type: "event", account: "fake-acct-1", note: marker });
       const { deps, webhookJobs, lines } = setup({
         getAdapter: () =>
           withWebhooks({
             parse: () => {
-              throw new Error("parse exploded");
+              // As V8's JSON.parse and a thrown ZodError do: the message quotes the input.
+              throw new SyntaxError(`Unexpected token in JSON at position 40: "${marker}"`, { cause: new Error(marker) });
             },
           }),
       });
-      const response = await receive(deps, delivery(EVENT_BODY));
+      const response = await receive(deps, delivery(body));
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ error: "bad_request", referenceId: "REF-TEST0000" });
       expect(webhookJobs()).toHaveLength(0);
       expect(lines.map((line) => line.event)).toEqual(["webhook.parse_failed"]);
+      expect(lines[0]?.fields).toMatchObject({ provider: "fake", deliveryId: "delivery-1", errorName: "SyntaxError" });
+      expect(JSON.stringify(lines)).not.toContain(marker);
     });
 
     it.each([
@@ -346,11 +418,12 @@ describe("receiveWebhook", () => {
       expect(lines[0]?.fields?.issues).toEqual(issues);
     });
 
-    it("records a verified delivery the provider does not map as ignored, with 202", async () => {
-      const { deps, webhookJobs } = setup();
+    it("records a verified delivery the provider does not map as ignored and processed, with 202 and no job", async () => {
+      const { deps, webhookJobs, store } = setup();
       const response = await receive(deps, delivery(JSON.stringify({ type: "ping" })));
       expect(response.status).toBe(202);
-      expect(webhookJobs()).toHaveLength(1);
+      expect(webhookJobs()).toHaveLength(0);
+      expect(store.webhookDeliveries.map((row) => row.status)).toEqual(["processed"]);
     });
   });
 

@@ -1,5 +1,5 @@
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import type { OAuthCredential, WebhookOutcome } from "@/lib/adapters/types";
+import type { OAuthCredential } from "@/lib/adapters/types";
 import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
 import { digestJobKey } from "@/lib/notifications/model";
 import type { Tables } from "@/lib/supabase/database.types";
@@ -17,6 +17,7 @@ import {
   type ManualSyncResult,
   type RecordWebhookDeliveryInput,
   type SnapshotRow,
+  type StoredWebhookOutcome,
   type SummaryConnection,
   type SummarySnapshot,
   type WebhookDeliveryRecord,
@@ -41,7 +42,7 @@ export type MemoryMetricView = Tables<"published_metric_views">;
 export type MemoryWebhookEndpoint = Pick<Tables<"webhook_endpoints">, "id" | "workspace_id" | "connection_id" | "provider">;
 // The outcome is kept as the object the route stored; the Supabase store's JSON round trip is
 // covered by store.test.ts.
-export type MemoryWebhookDelivery = Omit<Tables<"webhook_deliveries">, "outcome"> & { outcome: WebhookOutcome | null };
+export type MemoryWebhookDelivery = Omit<Tables<"webhook_deliveries">, "outcome"> & { outcome: StoredWebhookOutcome | null };
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
   return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
@@ -57,6 +58,8 @@ export class MemoryJobStore implements JobStore {
   rateLimitCounters: MemoryRateLimitCounter[] = [];
   metricViews: MemoryMetricView[] = [];
   credentials = new Map<string, OAuthCredential>();
+  /** connection id -> connection_credentials.updated_at (ISO). saveCredential stamps it; tests may set it. */
+  credentialUpdatedAt = new Map<string, string>();
   savedCredentials: OAuthCredential[] = [];
   /** Workspaces with anomaly detection turned off; every other workspace has it on (#169). */
   anomalyDisabled = new Set<string>();
@@ -220,7 +223,11 @@ export class MemoryJobStore implements JobStore {
           job.attempts < job.max_attempts &&
           ((job.status === "queued" && new Date(job.run_after).getTime() <= now) || expired(job)),
       )
-      .sort((a, b) => a.run_after.localeCompare(b.run_after) || a.id.localeCompare(b.id))
+      // claim_sync_jobs claims webhook jobs before every other kind.
+      .sort(
+        (a, b) =>
+          Number(a.kind !== "webhook") - Number(b.kind !== "webhook") || a.run_after.localeCompare(b.run_after) || a.id.localeCompare(b.id),
+      )
       .slice(0, limit);
     for (const job of claimable) {
       job.status = "running";
@@ -306,6 +313,7 @@ export class MemoryJobStore implements JobStore {
 
   async saveCredential({ connectionId }: ConnectionKey, credential: OAuthCredential): Promise<void> {
     this.credentials.set(connectionId, credential);
+    this.credentialUpdatedAt.set(connectionId, this.#nowIso());
     this.savedCredentials.push(credential);
   }
 
@@ -517,19 +525,25 @@ export class MemoryJobStore implements JobStore {
     if (endpointId !== null && !this.webhookEndpoints.some((row) => row.id === endpointId && row.provider === provider)) {
       throw new Error("p_endpoint_id must name an endpoint of p_provider");
     }
-    if (this.webhookDeliveries.some((row) => row.provider === provider && row.delivery_id === deliveryId)) return false;
+    // Keyed per (provider, endpoint, delivery id), nulls not distinct.
+    const repeat = this.webhookDeliveries.some(
+      (row) => row.provider === provider && row.endpoint_id === endpointId && row.delivery_id === deliveryId,
+    );
+    if (repeat) return false;
     const id = crypto.randomUUID();
+    // An ignored delivery is stored processed, without its outcome, and queues no job.
+    const ignored = outcome.kind === "ignored";
     this.webhookDeliveries.push({
       id,
       provider,
       delivery_id: deliveryId,
       endpoint_id: endpointId,
-      status: "received",
-      outcome,
+      status: ignored ? "processed" : "received",
+      outcome: ignored ? null : outcome,
       received_at: this.#nowIso(),
-      processed_at: null,
+      processed_at: ignored ? this.#nowIso() : null,
     });
-    this.jobs.push(this.newJob({ workspace_id: null, connection_id: null, kind: "webhook", webhook_delivery_id: id }));
+    if (!ignored) this.jobs.push(this.newJob({ workspace_id: null, connection_id: null, kind: "webhook", webhook_delivery_id: id }));
     return true;
   }
 
@@ -556,12 +570,17 @@ export class MemoryJobStore implements JobStore {
         return (
           connection !== undefined &&
           connection.provider === provider &&
-          (connection.status === "active" || connection.status === "needs_attention")
+          (connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention")
         );
       })
       .sort((a, b) => a.id.localeCompare(b.id))
       .slice(0, WEBHOOK_TARGET_LIMIT)
-      .map((account) => ({ workspaceId: account.workspace_id, connectionId: account.connection_id, accountId: account.id }));
+      .map((account) => ({
+        workspaceId: account.workspace_id,
+        connectionId: account.connection_id,
+        accountId: account.id,
+        credentialUpdatedAt: this.credentialUpdatedAt.get(account.connection_id) ?? null,
+      }));
   }
 
   async finishWebhookDelivery(deliveryRowId: string, finishedAt: Date): Promise<void> {

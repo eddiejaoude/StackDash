@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHmac } from "node:crypto";
+
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
 import { createAdapterContext, getAdapter, isFakeProviderEnabled } from "@/lib/adapters/registry";
 import {
@@ -12,10 +14,13 @@ import {
   type WebhookRegistration,
   type WebhookRequest,
 } from "@/lib/adapters/types";
+import { derivedKey } from "@/lib/crypto/credentials";
 import { loadWebhookEndpoint, type WebhookEndpoint } from "@/lib/data/webhook-endpoints";
 import { readBoundedRequestBody } from "@/lib/http/bounded-body";
 import { createSupabaseJobStore, type RecordWebhookDeliveryInput } from "@/lib/jobs/store";
 import { log, logError, type LogFields, type Logger } from "@/lib/log/logger";
+import { rateLimitedHeaders, secondsUntilNextMinute } from "@/lib/public-metrics/requests";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /*
  * Receives one provider delivery (#28): `POST /api/webhooks/<provider>` for an app-level URL and
@@ -29,12 +34,27 @@ import { log, logError, type LogFields, type Logger } from "@/lib/log/logger";
  * provider hold, and nothing reaches storage before that signature is checked.
  *
  * Logs name the provider, endpoint, delivery id, and rejection reason only: never the body, a
- * header, a signature, or a secret.
+ * header, a signature, or a secret. A `parse` that throws is logged by the error's name only: its
+ * message can quote the body (a `SyntaxError` from `JSON.parse`, a `ZodError`'s issues).
+ *
+ * Rate limit: a per-connection URL answers at most WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE verified
+ * deliveries a minute. Its secret is one the connecting user holds, so a verified delivery there
+ * proves only that the user signed it, and each one stores a row and queues a job on the queue
+ * every workspace shares. The app-level URL is not limited: only the provider holds its secret.
+ * Counted in Postgres with the public routes' per-minute counter (bump_public_rate_limit, #149),
+ * under an HMAC of the endpoint id with a key of its own, so the two never share a bucket.
  */
 
 // Larger than any delivery a provider documents (GitHub caps payloads at 25 MB but sends the
 // events StackDash maps far smaller), and small enough that a flood of large bodies stays cheap.
 export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
+
+/**
+ * Verified deliveries one per-connection URL is answered in a minute. Well above a busy account's
+ * real bursts (a monorepo deploying every project at once sends a few dozen), and low enough that
+ * one user signing their own deliveries cannot flood the shared job queue.
+ */
+export const WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE = 600;
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -45,6 +65,9 @@ export type ReceiveDeps = Readonly<{
   // Read per request, so a secret is never baked into a build.
   readEnv: (name: string) => string | undefined;
   loadWebhookEndpoint: (endpointId: string) => Promise<WebhookEndpoint | null>;
+  // Counts one verified delivery to a per-connection endpoint and returns how many it has had in
+  // the current minute, this one included.
+  countEndpointDelivery: (endpointId: string) => Promise<number>;
   recordWebhookDelivery: (input: RecordWebhookDeliveryInput) => Promise<boolean>;
   adapterContext: () => AdapterContext;
   now: () => Date;
@@ -144,12 +167,22 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
     }
     const { deliveryId } = verification;
     const fields = { provider, deliveryId, endpointId: resolved.endpointId };
+    if (resolved.endpointId !== null) {
+      const count = await deps.countEndpointDelivery(resolved.endpointId);
+      if (count > WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE) {
+        deps.log.warn("webhook.rate_limited", { provider, endpointId: resolved.endpointId });
+        const retryAfterSeconds = secondsUntilNextMinute(deps.now());
+        return Response.json({ error: "rate_limited" }, { status: 429, headers: rateLimitedHeaders({ retryAfterSeconds }) });
+      }
+    }
 
     let outcome: WebhookOutcome;
     try {
       outcome = descriptor.parse(request, deps.adapterContext());
     } catch (error) {
-      const referenceId = deps.logError("webhook.parse_failed", error, fields);
+      // The error's name only, never its message, stack, or cause: those can quote the body.
+      const errorName = error instanceof Error ? error.name : typeof error;
+      const referenceId = deps.logError("webhook.parse_failed", new Error(`${provider} webhook parse threw`), { ...fields, errorName });
       return json(400, { error: "bad_request", referenceId });
     }
     if (outcome.kind === "events") {
@@ -179,6 +212,18 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
   }
 }
 
+/**
+ * Production `countEndpointDelivery`: the public routes' per-minute counter, keyed by an HMAC of
+ * the endpoint id under a key derived for this purpose alone (the counter table accepts only a
+ * SHA-256 hex digest).
+ */
+async function countEndpointDelivery(endpointId: string): Promise<number> {
+  const key = createHmac("sha256", derivedKey("webhook-endpoint-rate-limit")).update(endpointId).digest("hex");
+  const { data, error } = await createAdminClient().rpc("bump_public_rate_limit", { p_ip_hash: key });
+  if (error) throw new Error("Failed to count a webhook delivery", { cause: error });
+  return data;
+}
+
 /** Production wiring for both webhook routes: the adapter registry, Postgres, and the real clock. */
 export function createReceiveDeps(): ReceiveDeps {
   const store = createSupabaseJobStore();
@@ -187,6 +232,7 @@ export function createReceiveDeps(): ReceiveDeps {
     getAdapter: (id) => (id === "fake" && !isFakeProviderEnabled() ? null : getAdapter(id)),
     readEnv: (name) => process.env[name],
     loadWebhookEndpoint,
+    countEndpointDelivery,
     recordWebhookDelivery: (input) => store.recordWebhookDelivery(input),
     adapterContext: createAdapterContext,
     now: () => new Date(),

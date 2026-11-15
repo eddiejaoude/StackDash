@@ -164,12 +164,14 @@ export type WebhookVerification =
  * - `events`: timeline events for one external account. Each event's `dedupeKey` is the one
  *   `sync` produces for the same provider event, so a delivery and a later poll store it once.
  * - `uninstalled`: the provider removed StackDash from the account; its connections need a
- *   reconnect at once instead of on the next failed sync.
+ *   reconnect at once instead of on the next failed sync. `occurredAt` is when the provider says
+ *   the removal happened: a connection whose credential was saved after it (a reconnect) is left
+ *   alone, because deliveries arrive late and out of order.
  * - `ignored`: a verified delivery StackDash has no use for (an action it does not map).
  */
 export type WebhookOutcome =
   | Readonly<{ kind: "events"; externalAccountId: string; events: ActivityEvent[] }>
-  | Readonly<{ kind: "uninstalled"; externalAccountId: string }>
+  | Readonly<{ kind: "uninstalled"; externalAccountId: string; occurredAt: Date }>
   | Readonly<{ kind: "ignored"; reason: string }>;
 
 /**
@@ -184,6 +186,12 @@ export type WebhookDescriptor = Readonly<{
   subscriptions: readonly string[];
   // Signature, freshness (reject a timestamp outside the provider's tolerance), and delivery id.
   // Compares in constant time and never parses the body before the signature is checked.
+  // Replay: when the provider signs its delivery id, the id must be part of what is checked, so a
+  // captured delivery posted again under a new id fails as `bad_signature`. When it does not
+  // (GitHub's `X-GitHub-Delivery`), the id only deduplicates honest retries: a replay under a new
+  // id is bounded by the signed timestamp's window where there is one, and otherwise (GitHub signs
+  // no timestamp) only by each event's `dedupeKey` and an uninstall's `occurredAt`. Such an adapter
+  // must say so in its header comment.
   verify(request: WebhookRequest, secret: Secret, now: Date): WebhookVerification;
   // Maps a verified body onto the adapter's declared event types. Reads only the fields the
   // timeline shows: no names, emails, or free text from the user's app.

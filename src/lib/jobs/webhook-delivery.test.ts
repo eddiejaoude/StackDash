@@ -176,11 +176,14 @@ describe("runWebhookJob", () => {
     },
   );
 
+  const UNINSTALLED_AT = new Date("2026-11-15T12:30:00.000Z");
+  const uninstall: WebhookOutcome = { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: UNINSTALLED_AT };
+
   it("asks every target connection to reconnect on an uninstall, as a revoked credential does", async () => {
     const harness = setup();
     const active = harness.connect(WORKSPACE_A);
     const other = harness.connect(WORKSPACE_B);
-    const job = await harness.deliver({ kind: "uninstalled", externalAccountId: "fake-acct-1" });
+    const job = await harness.deliver(uninstall);
 
     expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
 
@@ -194,11 +197,44 @@ describe("runWebhookJob", () => {
   it("leaves a connection already waiting for a reconnect alone on an uninstall", async () => {
     const harness = setup();
     const waiting = harness.connect(WORKSPACE_A, { status: "needs_attention", consecutive_failures: 1, last_error_code: "auth_revoked" });
-    const job = await harness.deliver({ kind: "uninstalled", externalAccountId: "fake-acct-1" });
+    const job = await harness.deliver(uninstall);
 
     expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
     expect(waiting).toMatchObject({ status: "needs_attention", consecutive_failures: 1 });
     expect(harness.store.events).toEqual([]);
+  });
+
+  it.each([
+    ["with no stored credential time", null],
+    ["whose credential was saved one millisecond before the uninstall (boundary)", new Date(UNINSTALLED_AT.getTime() - 1).toISOString()],
+    ["whose credential was saved at the instant of the uninstall (boundary)", UNINSTALLED_AT.toISOString()],
+  ])("revokes a connection %s", async (_case, credentialUpdatedAt) => {
+    const harness = setup();
+    const connection = harness.connect(WORKSPACE_A);
+    if (credentialUpdatedAt !== null) harness.store.credentialUpdatedAt.set(connection.id, credentialUpdatedAt);
+    const job = await harness.deliver(uninstall);
+
+    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+  });
+
+  it("leaves a connection reconnected one millisecond after the uninstall active (boundary: late delivery)", async () => {
+    const harness = setup();
+    const reconnected = harness.connect(WORKSPACE_A);
+    const removed = harness.connect(WORKSPACE_B);
+    harness.store.credentialUpdatedAt.set(reconnected.id, new Date(UNINSTALLED_AT.getTime() + 1).toISOString());
+    harness.store.credentialUpdatedAt.set(removed.id, new Date(UNINSTALLED_AT.getTime() - 60_000).toISOString());
+    const job = await harness.deliver(uninstall);
+
+    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(reconnected).toMatchObject({ status: "active", last_error_code: null });
+    expect(removed).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+    expect(harness.infos).toContainEqual({
+      event: "webhook.uninstall_stale",
+      fields: { jobId: job.id, provider: "fake", connectionId: reconnected.id },
+    });
+    const failures = harness.store.events.filter((event) => event.type_id === SYNC_FAILED_TYPE_ID);
+    expect(failures.map((event) => event.workspace_id)).toEqual([WORKSPACE_B]);
   });
 
   it("succeeds without writing when the delivery was purged", async () => {
@@ -219,16 +255,6 @@ describe("runWebhookJob", () => {
     expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
     expect(harness.store.events).toEqual([]);
     expect(harness.infos.map((line) => line.event)).toContain("webhook.no_targets");
-    expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
-  });
-
-  it("finishes an ignored delivery without looking up targets", async () => {
-    const harness = setup();
-    harness.connect(WORKSPACE_A);
-    harness.store.listWebhookTargets = () => Promise.reject(new Error("must not be called"));
-    const job = await harness.deliver({ kind: "ignored", reason: "not a delivery the fake provider maps" });
-
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
     expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
   });
 

@@ -301,12 +301,24 @@ function parseCursor(cursor: string | undefined): Date | undefined {
 /* Webhook -------------------------------------------------------------------------------------- */
 
 /**
- * The signature header value for a delivery: `v1=` and the hex HMAC-SHA256 of the timestamp, a
- * dot, and the raw body. The timestamp is signed with the body, so a captured delivery cannot be
- * replayed later under a fresh timestamp. For tests and the e2e suite, which play the provider.
+ * The signature header value for a delivery: `v1=` and the hex HMAC-SHA256 of the delivery id, a
+ * dot, the timestamp, a dot, and the raw body (the Standard Webhooks layout). The timestamp is
+ * signed, so a captured delivery cannot be replayed later under a fresh timestamp, and so is the
+ * delivery id, so it cannot be replayed within the tolerance under a new id. For tests and the e2e
+ * suite, which play the provider.
  */
-export function signFakeWebhook({ secret, rawBody, timestampSeconds }: { secret: string; rawBody: string; timestampSeconds: number }): string {
-  return `${FAKE_SIGNATURE_PREFIX}${hmacHex("sha256", new Secret(secret), `${timestampSeconds}.${rawBody}`)}`;
+export function signFakeWebhook({
+  secret,
+  deliveryId,
+  rawBody,
+  timestampSeconds,
+}: {
+  secret: string;
+  deliveryId: string;
+  rawBody: string;
+  timestampSeconds: number;
+}): string {
+  return `${FAKE_SIGNATURE_PREFIX}${hmacHex("sha256", new Secret(secret), `${deliveryId}.${timestampSeconds}.${rawBody}`)}`;
 }
 
 function verifyFakeWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
@@ -314,14 +326,15 @@ function verifyFakeWebhook({ headers, rawBody }: WebhookRequest, secret: Secret,
   const signature = headers.get(FAKE_WEBHOOK_HEADERS.signature);
   if (!timestamp || !signature) return { ok: false, reason: "missing_signature" };
   if (!isFresh(Number(timestamp), now, FAKE_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  // Read before the MAC, which covers it: a missing id is malformed, not a bad signature.
+  const deliveryId = readDeliveryId(headers, FAKE_WEBHOOK_HEADERS.delivery);
+  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
   // Signed as bytes, never decoded first: decoding would map invalid UTF-8 onto U+FFFD and let two
   // different bodies share one signature.
-  const signed = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
+  const signed = Buffer.concat([Buffer.from(`${deliveryId}.${timestamp}.`, "utf8"), rawBody]);
   if (!safeEqual(signature, `${FAKE_SIGNATURE_PREFIX}${hmacHex("sha256", secret, signed)}`)) {
     return { ok: false, reason: "bad_signature" };
   }
-  const deliveryId = readDeliveryId(headers, FAKE_WEBHOOK_HEADERS.delivery);
-  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
   return { ok: true, deliveryId };
 }
 
@@ -334,7 +347,7 @@ const FakeWebhookBodySchema = z.discriminatedUnion("type", [
       occurredAt: z.iso.datetime({ offset: true }),
     }),
   }),
-  z.object({ type: z.literal("uninstalled"), account: z.string().min(1) }),
+  z.object({ type: z.literal("uninstalled"), account: z.string().min(1), occurredAt: z.iso.datetime({ offset: true }) }),
 ]);
 
 function parseFakeWebhook({ rawBody }: WebhookRequest): WebhookOutcome {
@@ -348,7 +361,9 @@ function parseFakeWebhook({ rawBody }: WebhookRequest): WebhookOutcome {
   const parsed = FakeWebhookBodySchema.safeParse(raw);
   if (!parsed.success) return { kind: "ignored", reason: "not a delivery the fake provider maps" };
   const body = parsed.data;
-  if (body.type === "uninstalled") return { kind: "uninstalled", externalAccountId: body.account };
+  if (body.type === "uninstalled") {
+    return { kind: "uninstalled", externalAccountId: body.account, occurredAt: new Date(body.occurredAt) };
+  }
   return {
     kind: "events",
     externalAccountId: body.account,

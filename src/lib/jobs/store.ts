@@ -77,16 +77,26 @@ const ANOMALY_MUTE_LIMIT = 1000;
 
 export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
 
+/**
+ * An outcome a webhook job has work for. An `ignored` delivery is stored already processed, with no
+ * outcome and no job (record_webhook_delivery), so a job never reads one back.
+ */
+export type StoredWebhookOutcome = Exclude<WebhookOutcome, { kind: "ignored" }>;
+
 /** A verified delivery as the webhook job reads it back (#28). `endpointId` is null for an app-level URL. */
 export type WebhookDeliveryRecord = Readonly<{
   id: string;
   provider: ProviderId;
   endpointId: string | null;
-  outcome: WebhookOutcome;
+  outcome: StoredWebhookOutcome;
 }>;
 
-/** An included external account of an active connection that a delivery's account maps to. */
-export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string }>;
+/**
+ * An included external account of a live connection that a delivery's account maps to.
+ * `credentialUpdatedAt` is when the connection's credential was last written (ISO), or null when it
+ * has none: a reconnect writes it, so an uninstall that happened before it no longer applies.
+ */
+export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string; credentialUpdatedAt: string | null }>;
 
 export type RecordWebhookDeliveryInput = Readonly<{
   provider: ProviderId;
@@ -166,8 +176,11 @@ export interface JobStore {
   enqueueDigests(date: string): Promise<number>;
 
   /**
-   * Stores a verified delivery and queues its `webhook` job in one atomic step (#28). False when
-   * (provider, delivery id) is already stored: a repeated delivery, acknowledged and dropped.
+   * Stores a verified delivery and, unless its outcome is `ignored`, queues its `webhook` job in one
+   * atomic step (#28). An `ignored` delivery is stored already processed, with no outcome and no
+   * job, so a repeat is still recognized. False when (provider, endpoint, delivery id) is already
+   * stored: a repeated delivery, acknowledged and dropped. The endpoint is part of the key because
+   * a provider sends one message id to every endpoint of an account.
    */
   recordWebhookDelivery(input: RecordWebhookDeliveryInput): Promise<boolean>;
   /**
@@ -177,8 +190,10 @@ export interface JobStore {
   loadWebhookDelivery(deliveryRowId: string): Promise<WebhookDeliveryRecord | null>;
   /**
    * Where a delivery's external account lands: every included external account with that
-   * provider and external id on an active or needs_attention connection, across workspaces for an
-   * app-level URL, and only within the endpoint's own connection when `endpointId` is set.
+   * provider and external id on an active, failed, or needs_attention connection (everything but
+   * pending and revoked; failed connections are still polled, so push is the path still working),
+   * across workspaces for an app-level URL, and only within the endpoint's own connection when
+   * `endpointId` is set.
    */
   listWebhookTargets(input: Readonly<{ provider: ProviderId; externalAccountId: string; endpointId: string | null }>): Promise<WebhookTarget[]>;
   /** Marks a delivery processed and drops its stored outcome, which is no longer needed. */
@@ -198,25 +213,30 @@ function isManualSyncResult(value: unknown): value is ManualSyncResult {
   return MANUAL_SYNC_RESULTS.some((result) => result === value);
 }
 
-// The bound of list_webhook_targets (20261115090100_webhook_deliveries.sql). One provider account
+// The bound of list_webhook_targets (20261115090200_webhook_delivery_review.sql). One provider account
 // connected to more workspaces than this reaches the first by account id; polling still brings
 // the rest their events.
 export const WEBHOOK_TARGET_LIMIT = 100;
 
-// webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt travels as ISO
-// text and is a Date again once the job reads it back.
+// webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt and an
+// uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back.
 const StoredWebhookOutcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("events"),
     externalAccountId: z.string().min(1),
     events: z.array(ActivityEventSchema.extend({ occurredAt: z.iso.datetime().transform((value) => new Date(value)) })),
   }),
-  z.strictObject({ kind: z.literal("uninstalled"), externalAccountId: z.string().min(1) }),
+  z.strictObject({
+    kind: z.literal("uninstalled"),
+    externalAccountId: z.string().min(1),
+    occurredAt: z.iso.datetime().transform((value) => new Date(value)),
+  }),
   z.strictObject({ kind: z.literal("ignored"), reason: z.string() }),
 ]);
 
 /** A delivery's outcome as record_webhook_delivery stores it. */
 export function webhookOutcomeToJson(outcome: WebhookOutcome): Json {
+  if (outcome.kind === "uninstalled") return { ...outcome, occurredAt: outcome.occurredAt.toISOString() };
   if (outcome.kind !== "events") return { ...outcome };
   return { ...outcome, events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) };
 }
@@ -601,8 +621,11 @@ export function createSupabaseJobStore(): JobStore {
       if (data === null) return null;
       const provider = ProviderIdSchema.safeParse(data.provider);
       const outcome = webhookOutcomeFromJson(data.outcome);
-      // Only that the shape is wrong: zod issues would echo the stored values.
-      if (!provider.success || outcome === null) throw new Error("Job store webhook delivery has an unexpected shape.");
+      // Only that the shape is wrong: zod issues would echo the stored values. A received delivery
+      // is never ignored: record_webhook_delivery stores those processed.
+      if (!provider.success || outcome === null || outcome.kind === "ignored") {
+        throw new Error("Job store webhook delivery has an unexpected shape.");
+      }
       return { id: data.id, provider: provider.data, endpointId: data.endpoint_id, outcome };
     },
 
@@ -614,7 +637,12 @@ export function createSupabaseJobStore(): JobStore {
       });
       if (error) throw failure("list_webhook_targets", error);
       if (data.length >= WEBHOOK_TARGET_LIMIT) log.warn("webhook.targets_truncated", { provider, targets: data.length });
-      return data.map((row) => ({ workspaceId: row.workspace_id, connectionId: row.connection_id, accountId: row.account_id }));
+      return data.map((row) => ({
+        workspaceId: row.workspace_id,
+        connectionId: row.connection_id,
+        accountId: row.account_id,
+        credentialUpdatedAt: row.credential_updated_at,
+      }));
     },
 
     async finishWebhookDelivery(deliveryRowId, finishedAt) {

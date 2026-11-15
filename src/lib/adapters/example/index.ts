@@ -86,9 +86,11 @@ const OVERAGE_CURRENCY = "USD";
 const PRICING_SOURCE = "Example Cloud price list (fictional): USD 0.40 per 1,000 requests over the allowance";
 
 // Webhook (#28). Example Cloud signs like GitHub (`X-Hub-Signature-256: sha256=<hex>`), except
-// that it signs the timestamp header, a dot, and the raw body, so a captured delivery cannot be
-// replayed under a fresh timestamp. A real adapter takes these names and its tolerance from the
-// provider's webhook documentation.
+// that it signs the delivery id header, a dot, the timestamp header, a dot, and the raw body (the
+// Standard Webhooks layout), so a captured delivery cannot be replayed later under a fresh
+// timestamp, nor within the tolerance under a new delivery id. A real adapter takes these names and
+// its tolerance from the provider's webhook documentation, and says what bounds a replay when its
+// provider signs less (see `WebhookDescriptor.verify` in ../types.ts).
 export const EXAMPLE_WEBHOOK_HEADERS = {
   delivery: "x-example-delivery",
   timestamp: "x-example-timestamp",
@@ -517,23 +519,29 @@ export function toActivityEvents(events: readonly ProviderEvent[], externalAccou
 
 /* Webhook -------------------------------------------------------------------------------------- */
 
-/** The signature Example Cloud sends for a delivery: `sha256=` and the hex HMAC of timestamp.body. */
-export function exampleWebhookSignature(secret: Secret, timestamp: string, rawBody: Uint8Array): string {
+/**
+ * The signature Example Cloud sends for a delivery: `sha256=` and the hex HMAC of
+ * `<delivery id>.<timestamp>.<raw body>`.
+ */
+export function exampleWebhookSignature(secret: Secret, deliveryId: string, timestamp: string, rawBody: Uint8Array): string {
   // Signed as bytes, never decoded first: decoding would map invalid UTF-8 onto U+FFFD and let two
   // different bodies share one signature.
-  const signed = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
+  const signed = Buffer.concat([Buffer.from(`${deliveryId}.${timestamp}.`, "utf8"), rawBody]);
   return `${WEBHOOK_SIGNATURE_PREFIX}${hmacHex("sha256", secret, signed)}`;
 }
 
-/** Headers, then freshness, then the signature in constant time, then the delivery id. */
+/**
+ * Headers, then freshness, then the delivery id (read first because the signature covers it, so a
+ * missing id is malformed), then the signature in constant time.
+ */
 function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
   const timestamp = headers.get(EXAMPLE_WEBHOOK_HEADERS.timestamp);
   const signature = headers.get(EXAMPLE_WEBHOOK_HEADERS.signature);
   if (!timestamp || !signature) return { ok: false, reason: "missing_signature" };
   if (!isFresh(Number(timestamp), now, EXAMPLE_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
-  if (!safeEqual(signature, exampleWebhookSignature(secret, timestamp, rawBody))) return { ok: false, reason: "bad_signature" };
   const deliveryId = readDeliveryId(headers, EXAMPLE_WEBHOOK_HEADERS.delivery);
   if (deliveryId === undefined) return { ok: false, reason: "malformed" };
+  if (!safeEqual(signature, exampleWebhookSignature(secret, deliveryId, timestamp, rawBody))) return { ok: false, reason: "bad_signature" };
   return { ok: true, deliveryId };
 }
 
@@ -552,7 +560,9 @@ function parseWebhook({ rawBody }: WebhookRequest): WebhookOutcome {
   const parsed = WebhookBodySchema.safeParse(raw);
   if (!parsed.success) return { kind: "ignored", reason: "not a delivery Example Cloud maps" };
   const body = parsed.data;
-  if (body.type === "installation.deleted") return { kind: "uninstalled", externalAccountId: body.account_id };
+  if (body.type === "installation.deleted") {
+    return { kind: "uninstalled", externalAccountId: body.account_id, occurredAt: body.created_at };
+  }
   const events = toActivityEvents([body.data], body.account_id);
   if (events.length === 0) return { kind: "ignored", reason: "event type is not on the timeline" };
   return { kind: "events", externalAccountId: body.account_id, events };
