@@ -235,8 +235,12 @@ test.describe("hero data-flow constellation in motion", () => {
     for (const packet of await picture.locator('[data-testid="flow-packet"][data-source="stripe"]').all()) {
       await expect(packet).toHaveCSS("filter", "none");
     }
-    // The packet a click sends travels bright, not dimmed with the rest.
-    await stripe.click();
+    // The packet a click sends travels bright, not dimmed with the rest. Click where the pointer
+    // already rests, as a person would: stripe.click() waits for a stable box while the hovered card
+    // still lifts and the stage tilts, and its retries scroll the card under the sticky header,
+    // which takes the hover away and starts the drift again, so the card never settles.
+    await page.mouse.down();
+    await page.mouse.up();
     await expect(picture.locator("[data-sent]")).toHaveCSS("filter", "none");
 
     // From the keyboard, the focused source is the bright one.
