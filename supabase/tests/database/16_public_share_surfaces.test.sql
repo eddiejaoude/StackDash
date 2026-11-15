@@ -201,15 +201,19 @@ values
 select is(public.purge_published_metric_views(date '2025-01-02', 100), 1,
   'purge_published_metric_views: deletes days strictly before the cutoff (boundary: the cutoff day stays)');
 
--- The purge reads the whole table, so counters the app or an e2e run left on this database would
--- be counted too. Keep only this file's rows; the closing rollback restores the others.
-delete from public.public_rate_limit_counters
-where ip_hash not in (repeat('a', 64), repeat('b', 64), repeat('c', 64));
+-- Windows far in the past put these ahead of any counter the app or an e2e run left on this
+-- database, and a cutoff just as old reaches none of those. Two are due, so the batch of 1 is
+-- a real limit.
+insert into public.public_rate_limit_counters (ip_hash, window_start)
+values
+  (repeat('e', 64), timestamptz '1970-01-01 00:00:00+00'),
+  (repeat('e', 64), timestamptz '1970-01-01 00:01:00+00'),
+  (repeat('e', 64), timestamptz '1970-01-01 00:02:00+00');
 
-select is(public.purge_public_rate_limit_counters(date_trunc('minute', now()), 1), 1,
-  'purge_public_rate_limit_counters: deletes at most p_limit rows (boundary: a batch of 1)');
-select is(public.purge_public_rate_limit_counters(date_trunc('minute', now()), 100), 0,
-  'purge_public_rate_limit_counters: the current minute''s counters are kept');
+select is(public.purge_public_rate_limit_counters(timestamptz '1970-01-01 00:02:00+00', 1), 1,
+  'purge_public_rate_limit_counters: deletes at most p_limit rows (boundary: a batch of 1 with two rows due)');
+select is(public.purge_public_rate_limit_counters(timestamptz '1970-01-01 00:02:00+00', 100), 1,
+  'purge_public_rate_limit_counters: deletes windows strictly before the cutoff (boundary: the cutoff minute stays)');
 select throws_ok($$ select public.purge_published_metric_views(current_date, 0) $$, '22023', null,
   'purge_published_metric_views: a limit below 1 is refused');
 
