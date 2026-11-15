@@ -289,7 +289,6 @@ export const githubAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     spending: true,
     allowance: false,

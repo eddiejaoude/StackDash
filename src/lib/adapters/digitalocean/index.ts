@@ -961,7 +961,6 @@ export const digitaloceanAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: false,
     spending: true,
     allowance: false,

@@ -115,19 +115,79 @@ export type OAuthDescriptor = Readonly<{
 
 /**
  * MVP rules are encoded as literal types so an adapter cannot claim otherwise
- * by accident: OAuth is the only connection path, polling is the only sync
- * path, and webhooks are Post-MVP.
+ * by accident: OAuth is the only connection path and polling always runs.
+ * Webhooks are declared by `ProviderAdapter.webhooks` (#28): polling stays as
+ * the backfill and the only source of spend and usage.
  */
 export type AdapterCapabilities = Readonly<{
   oauth: true;
   polling: true;
-  webhooks: false;
   usage: boolean;
   spending: boolean;
   allowance: boolean;
   credits: boolean;
   revenue: boolean;
   events: boolean;
+}>;
+
+/**
+ * Where a provider sends its deliveries and where the verifying secret lives (#28, #424).
+ * - `app`: one URL on StackDash's own app registration (`/api/webhooks/<provider>`). The secret is
+ *   an instance setting, named (never valued) by `secretEnv`, and deliveries for every connection
+ *   arrive at that one URL.
+ * - `connection`: one URL per connection (`/api/webhooks/<provider>/<endpointId>`), created
+ *   through the provider's API or pasted by the user (#426). The secret is stored per connection,
+ *   encrypted like other credentials (#35).
+ */
+export type WebhookRegistration = Readonly<{ kind: "app"; secretEnv: string } | { kind: "connection" }>;
+
+/** One delivery as received: the raw body bytes, never a parsed body, and the request headers. */
+export type WebhookRequest = Readonly<{
+  headers: Headers;
+  rawBody: Uint8Array;
+}>;
+
+export const WEBHOOK_REJECTION_REASONS = ["missing_signature", "bad_signature", "stale", "malformed"] as const;
+export type WebhookRejectionReason = (typeof WEBHOOK_REJECTION_REASONS)[number];
+
+/**
+ * The result of checking a delivery's signature against its raw body. `deliveryId` is the
+ * provider's own id for the delivery (GitHub's `X-GitHub-Delivery`, Svix's `webhook-id`), the
+ * deduplication key: a repeated id is acknowledged and dropped.
+ */
+export type WebhookVerification =
+  | Readonly<{ ok: true; deliveryId: string }>
+  | Readonly<{ ok: false; reason: WebhookRejectionReason }>;
+
+/**
+ * What a verified delivery means for StackDash.
+ * - `events`: timeline events for one external account. Each event's `dedupeKey` is the one
+ *   `sync` produces for the same provider event, so a delivery and a later poll store it once.
+ * - `uninstalled`: the provider removed StackDash from the account; its connections need a
+ *   reconnect at once instead of on the next failed sync.
+ * - `ignored`: a verified delivery StackDash has no use for (an action it does not map).
+ */
+export type WebhookOutcome =
+  | Readonly<{ kind: "events"; externalAccountId: string; events: ActivityEvent[] }>
+  | Readonly<{ kind: "uninstalled"; externalAccountId: string }>
+  | Readonly<{ kind: "ignored"; reason: string }>;
+
+/**
+ * A provider's push path (#28). The route calls `verify` first, against the raw body, and only a
+ * verified delivery reaches `parse`. Both are synchronous and network-free, so the route answers
+ * within the provider's deadline (Sentry allows 1 second) and processing runs on the job queue.
+ */
+export type WebhookDescriptor = Readonly<{
+  registration: WebhookRegistration;
+  // The provider's own event names StackDash subscribes to (`deployment.created`), for the
+  // provider page and the setup panel.
+  subscriptions: readonly string[];
+  // Signature, freshness (reject a timestamp outside the provider's tolerance), and delivery id.
+  // Compares in constant time and never parses the body before the signature is checked.
+  verify(request: WebhookRequest, secret: Secret, now: Date): WebhookVerification;
+  // Maps a verified body onto the adapter's declared event types. Reads only the fields the
+  // timeline shows: no names, emails, or free text from the user's app.
+  parse(request: WebhookRequest, ctx: AdapterContext): WebhookOutcome;
 }>;
 
 /**
@@ -246,6 +306,9 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   // Decided on #37: each adapter declares how often it polls, hourly unless its provider's
   // limits or retention need otherwise. Must be at least 60.
   readonly pollIntervalSeconds: number;
+  // The provider's push path (#28). Omitted when the provider cannot push events, or pushes them
+  // unsigned (Railway): such an adapter is polling only.
+  readonly webhooks?: WebhookDescriptor;
 
   buildAuthorizeUrl(params: AuthorizeUrlParams): URL;
   exchangeCode(input: ExchangeCodeInput, ctx: OAuthContext): Promise<OAuthCredential>;

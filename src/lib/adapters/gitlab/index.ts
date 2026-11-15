@@ -52,7 +52,8 @@ const REVOKE_URL = `${GITLAB_ORIGIN}/oauth/revoke`;
 
 const READ_API = "read_api";
 const READ_USER = "read_user";
-// Never `api`: it is read and write, and webhooks (which need it) are Post-MVP.
+// Never `api`: it is read and write. Automatic webhook setup needs it, so that waits on an opt-in
+// decision (#424, #428).
 const SCOPES = [READ_API, READ_USER] as const;
 
 // Non-secret values kept on the credential. The refresh request repeats the authorize request's
@@ -740,7 +741,6 @@ export const gitlabAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     // GitLab exposes no dollar cost through these scopes (page, "Verified, estimated, unavailable").
     spending: false,

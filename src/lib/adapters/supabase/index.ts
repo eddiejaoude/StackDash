@@ -683,7 +683,6 @@ export const supabaseAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     // No billing endpoint carries an OAuth scope (page, "Usage and database size").
     spending: false,

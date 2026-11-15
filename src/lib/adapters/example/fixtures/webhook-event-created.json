@@ -1,0 +1,11 @@
+{
+  "type": "event.created",
+  "account_id": "acct_1001",
+  "data": {
+    "id": "evt_2002",
+    "type": "deploy.succeeded",
+    "created_at": "2026-11-13T12:00:00Z",
+    "project": "storefront",
+    "url": "https://app.example.com/deploys/dep_3001"
+  }
+}

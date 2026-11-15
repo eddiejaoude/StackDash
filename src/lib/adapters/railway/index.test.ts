@@ -188,7 +188,7 @@ describe("railwayAdapter declaration", () => {
     expect(railwayAdapter.permissions.map((permission) => permission.scope)).toEqual([...railwayAdapter.oauth.scopes]);
     expect(railwayAdapter.pollIntervalSeconds).toBe(3600);
     expect(railwayAdapter.revoke).toBeUndefined();
-    expect(railwayAdapter.capabilities.webhooks).toBe(false);
+    expect(railwayAdapter.webhooks).toBeUndefined();
   });
 });
 

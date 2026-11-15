@@ -641,7 +641,6 @@ export const sentryAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     // No spend or quota endpoint exists for integrations (docs/providers/sentry.md, Data).
     spending: false,

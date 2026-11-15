@@ -4,17 +4,27 @@ import {
   checkAdapterDeclaration,
   checkSyncResult,
   checkTraffic,
+  checkWebhookOutcome,
   createAdapterHarness,
   HARNESS_CLIENT_ID,
   KIND_CAPABILITY,
   type RecordedRoutes,
 } from "@/lib/adapters/harness";
-import { Secret, type AdapterCapabilities, type OAuthCredential } from "@/lib/adapters/types";
+import {
+  Secret,
+  type AdapterCapabilities,
+  type OAuthCredential,
+  type WebhookDescriptor,
+  type WebhookRequest,
+} from "@/lib/adapters/types";
 import {
   EVENT_BACKFILL_DAYS,
   EXAMPLE_API_BASE,
   EXAMPLE_SCOPES,
+  EXAMPLE_WEBHOOK_HEADERS,
+  EXAMPLE_WEBHOOK_TOLERANCE_SECONDS,
   exampleAdapter,
+  exampleWebhookSignature,
   MAX_EVENT_PAGES,
   metricKeys,
   projectedOverage,
@@ -30,6 +40,7 @@ import paymentsFixture from "./fixtures/payments-summary.json";
 import tokenRefreshedFixture from "./fixtures/token-refreshed.json";
 import tokenFixture from "./fixtures/token.json";
 import usageFixture from "./fixtures/usage.json";
+import webhookEventFixture from "./fixtures/webhook-event-created.json";
 
 // Half way through the fixtures' billing period (2026-11-01 to 2026-12-01).
 const NOW = new Date("2026-11-16T00:00:00.000Z");
@@ -355,5 +366,84 @@ describe("example adapter sync", () => {
     await expect(sync).rejects.toBeInstanceOf(expected);
     const error: unknown = await sync.catch((caught: unknown) => caught);
     expect(error instanceof Error ? error.message : "").not.toContain(ACCESS_TOKEN);
+  });
+});
+
+describe("example adapter webhooks", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+  const WEBHOOK_SECRET = new Secret(["example", "webhook", "value"].join("-"));
+  const NOW_SECONDS = NOW.getTime() / 1000;
+  const RECORDED_BODY = JSON.stringify(webhookEventFixture);
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = exampleAdapter;
+    if (webhooks === undefined) throw new Error("the example adapter declares no webhook");
+    return webhooks;
+  }
+
+  type Delivery = Partial<{ timestampSeconds: number; secret: Secret; signedBody: string; omit: keyof typeof EXAMPLE_WEBHOOK_HEADERS }>;
+
+  // A delivery as Example Cloud sends it; each option bends one part of it for a boundary test.
+  function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
+    const timestamp = String(options.timestampSeconds ?? NOW_SECONDS);
+    const signed = new TextEncoder().encode(options.signedBody ?? rawBody);
+    const headers = new Headers({
+      [EXAMPLE_WEBHOOK_HEADERS.delivery]: "a1b2c3d4-0000-4000-8000-000000000001",
+      [EXAMPLE_WEBHOOK_HEADERS.timestamp]: timestamp,
+      [EXAMPLE_WEBHOOK_HEADERS.signature]: exampleWebhookSignature(options.secret ?? WEBHOOK_SECRET, timestamp, signed),
+    });
+    if (options.omit !== undefined) headers.delete(EXAMPLE_WEBHOOK_HEADERS[options.omit]);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  function parsed(rawBody: string) {
+    const request = delivery(rawBody);
+    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW).ok).toBe(true);
+    return descriptor().parse(request, setup().ctx);
+  }
+
+  it("verifies the recorded delivery and maps it to the event the sync stores for it", async () => {
+    const request = delivery(RECORDED_BODY);
+    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW)).toEqual({ ok: true, deliveryId: "a1b2c3d4-0000-4000-8000-000000000001" });
+    const outcome = descriptor().parse(request, setup().ctx);
+    expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([]);
+
+    // The same provider event read by polling: one dedupe key, so the timeline stores it once.
+    const { result } = await syncWith();
+    const polled = result.events.find((event) => event.dedupeKey === "example.deploy.succeeded:evt_2002");
+    expect(polled).toBeDefined();
+    expect(outcome).toEqual({ kind: "events", externalAccountId: ACCOUNT_ID, events: [polled] });
+  });
+
+  it.each<[string, Delivery, string]>([
+    ["no signature", { omit: "signature" }, "missing_signature"],
+    ["no timestamp", { omit: "timestamp" }, "missing_signature"],
+    ["a timestamp one second past the tolerance", { timestampSeconds: NOW_SECONDS - EXAMPLE_WEBHOOK_TOLERANCE_SECONDS - 1 }, "stale"],
+    ["a timestamp one second past the tolerance in the future", { timestampSeconds: NOW_SECONDS + EXAMPLE_WEBHOOK_TOLERANCE_SECONDS + 1 }, "stale"],
+    ["a signature made with another secret", { secret: new Secret("another-webhook-value") }, "bad_signature"],
+    ["a tampered body", { signedBody: RECORDED_BODY.replace("acct_1001", "acct_9999") }, "bad_signature"],
+    ["no delivery id", { omit: "delivery" }, "malformed"],
+  ])("rejects a delivery with %s (boundary)", (_case, options, reason) => {
+    expect(descriptor().verify(delivery(RECORDED_BODY, options), WEBHOOK_SECRET, NOW)).toEqual({ ok: false, reason });
+  });
+
+  it("accepts a timestamp exactly at the tolerance (boundary)", () => {
+    const request = delivery(RECORDED_BODY, { timestampSeconds: NOW_SECONDS - EXAMPLE_WEBHOOK_TOLERANCE_SECONDS });
+    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW).ok).toBe(true);
+  });
+
+  it("reports an uninstall for its account", () => {
+    expect(parsed(JSON.stringify({ type: "installation.deleted", account_id: ACCOUNT_ID }))).toEqual({
+      kind: "uninstalled",
+      externalAccountId: ACCOUNT_ID,
+    });
+  });
+
+  it.each([
+    ["an event type the timeline does not show", JSON.stringify({ ...webhookEventFixture, data: { ...webhookEventFixture.data, type: "domain.added" } })],
+    ["an unknown delivery type", JSON.stringify({ type: "account.updated", account_id: ACCOUNT_ID })],
+    ["a body that is not JSON", "type=event.created"],
+  ])("ignores %s (boundary)", (_case, body) => {
+    expect(parsed(body)).toMatchObject({ kind: "ignored" });
   });
 });

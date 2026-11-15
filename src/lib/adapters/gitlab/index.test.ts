@@ -119,7 +119,7 @@ describe("gitlabAdapter declaration", () => {
       ["read_user", "read"],
     ]);
     expect(gitlabAdapter.capabilities.spending).toBe(false);
-    expect(gitlabAdapter.capabilities.webhooks).toBe(false);
+    expect(gitlabAdapter.webhooks).toBeUndefined();
   });
 });
 
