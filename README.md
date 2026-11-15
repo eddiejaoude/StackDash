@@ -2,6 +2,8 @@
 
 The big picture of your developer stack.
 
+<img width="1280" height="880" alt="a525c634-0497-4b3a-9b2c-8150b60ef4ae" src="https://github.com/user-attachments/assets/e403ee71-cd5f-470f-bc94-4553b9b41e05" />
+
 StackDash is an open-source dashboard with one timeline and one alert for your whole developer stack.
 You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, Polar, Sentry,
 Railway, and GitLab over OAuth (never with pasted provider keys), and StackDash syncs them on a schedule:
@@ -27,6 +29,8 @@ integration comes from the provider's documentation and none has been tried with
 yet; each provider page in [docs/providers](docs/providers) lists what is still unverified. Until
 Sentry approves the hosted integration's publication, only the organization that registered it can
 install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
+
+<img width="1280" height="1080" alt="5c74ee55-5622-48f7-b164-835cbf2ddd71" src="https://github.com/user-attachments/assets/3d60570f-91fc-4c18-82ca-120772e9885b" />
 
 ## Stack
 
