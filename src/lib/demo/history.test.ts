@@ -372,7 +372,7 @@ describe("replayHistory with every simulated provider in the registry", () => {
         for (const event of result.events) expect(event.occurredAt.getTime()).toBeGreaterThan(Date.parse(atNow));
       }
       const outcome = await runSyncJob(
-        { id: "live", kind: "sync", workspace_id: WORKSPACE_ID, connection_id: connection.id, attempts: 1, max_attempts: 3, created_at: clock.toISOString(), dedupe_key: null },
+        { id: "live", kind: "sync", workspace_id: WORKSPACE_ID, connection_id: connection.id, attempts: 1, max_attempts: 3, created_at: clock.toISOString(), dedupe_key: null, webhook_delivery_id: null },
         deps,
       );
       expect(outcome).toEqual({ status: "succeeded" });

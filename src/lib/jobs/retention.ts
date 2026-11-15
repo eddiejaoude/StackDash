@@ -10,6 +10,8 @@ import { utcDate } from "./ingest";
  * Share surfaces (#149): the per IP rate limit counters of the public routes are kept one day
  * (they only need the current minute, and hold hashed IPs), published metric view counts 13
  * months like the history they describe.
+ * Webhook delivery records (#28) are kept WEBHOOK_DELIVERY_RETENTION_DAYS, the deduplication
+ * window; each one's job goes with it.
  * Deletes run in batches of RETENTION_BATCH_SIZE until a batch comes back short, so the job is
  * safe to re-run and a run cut short by the time budget is finished by the next one.
  */
@@ -17,6 +19,9 @@ import { utcDate } from "./ingest";
 export const HISTORY_RETENTION_MONTHS = 13;
 export const SYNC_JOB_RETENTION_DAYS = 30;
 export const RATE_LIMIT_COUNTER_RETENTION_DAYS = 1;
+// Longer than any provider's retry window (Stripe retries for up to 3 days), so a late retry of a
+// delivery is still recognized as a repeat and dropped instead of processed again.
+export const WEBHOOK_DELIVERY_RETENTION_DAYS = 30;
 export const RETENTION_BATCH_SIZE = 1000;
 
 /**
@@ -51,6 +56,8 @@ export type RetentionCutoffs = Readonly<{
   rateLimitCountersBefore: Date;
   // Published metric view counts of UTC days strictly before this date are deleted.
   metricViewsBeforeDate: string;
+  // Webhook delivery records received strictly before this instant are deleted.
+  webhookDeliveriesBefore: Date;
 }>;
 
 /** Everything exactly 13 months old (or 30 days for jobs) is kept; anything older goes. */
@@ -62,6 +69,7 @@ export function retentionCutoffs(now: Date): RetentionCutoffs {
     jobsBefore: new Date(now.getTime() - SYNC_JOB_RETENTION_DAYS * 86_400_000),
     rateLimitCountersBefore: new Date(now.getTime() - RATE_LIMIT_COUNTER_RETENTION_DAYS * 86_400_000),
     metricViewsBeforeDate: utcDate(historyCutoff),
+    webhookDeliveriesBefore: new Date(now.getTime() - WEBHOOK_DELIVERY_RETENTION_DAYS * 86_400_000),
   };
 }
 
@@ -73,6 +81,7 @@ export type RetentionResult = {
   rateLimitCounters: number;
   metricViews: number;
   deliveries: number;
+  webhookDeliveries: number;
   // False when the time budget ran out first; the next run continues.
   complete: boolean;
 };
@@ -102,6 +111,11 @@ export async function runRetention(store: JobStore, now: Date, hasTime: () => bo
   // Digest delivery records only stop a retried digest job from sending twice, so they share the
   // job rows' 30 days.
   const deliveries = await purgeAll(() => store.purgeNotificationDeliveries(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
+  const webhookDeliveries = await purgeAll(
+    () => store.purgeWebhookDeliveries(cutoffs.webhookDeliveriesBefore, RETENTION_BATCH_SIZE),
+    hasTime,
+  );
+  const purges = [oauthStates, snapshots, events, jobs, rateLimitCounters, metricViews, deliveries, webhookDeliveries];
   return {
     oauthStates: oauthStates.deleted,
     snapshots: snapshots.deleted,
@@ -110,6 +124,7 @@ export async function runRetention(store: JobStore, now: Date, hasTime: () => bo
     rateLimitCounters: rateLimitCounters.deleted,
     metricViews: metricViews.deleted,
     deliveries: deliveries.deleted,
-    complete: [oauthStates, snapshots, events, jobs, rateLimitCounters, metricViews, deliveries].every((purge) => purge.complete),
+    webhookDeliveries: webhookDeliveries.deleted,
+    complete: purges.every((purge) => purge.complete),
   };
 }

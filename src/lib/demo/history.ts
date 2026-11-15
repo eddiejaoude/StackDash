@@ -128,7 +128,7 @@ export type ReplayInput = Readonly<{
  * the history, and `npm run demo:event` reports it.
  */
 export function oneShotJob(fields: Pick<ClaimedJob, "kind" | "workspace_id" | "connection_id" | "dedupe_key">, at: Date): ClaimedJob {
-  return { id: randomUUID(), attempts: 1, max_attempts: 1, created_at: at.toISOString(), ...fields };
+  return { id: randomUUID(), attempts: 1, max_attempts: 1, created_at: at.toISOString(), webhook_delivery_id: null, ...fields };
 }
 
 function check(outcome: JobOutcome, what: string, at: Date): void {

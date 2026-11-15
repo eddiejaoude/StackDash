@@ -641,7 +641,7 @@ describe("anomaly detection after the daily summary (#169)", () => {
     // 2026-10-15 brings 2026-10-14's row, a second spike; the next night's summary checks 2026-10-14.
     storeDay("2026-10-14", 1000);
     const next = await runDailySummaryJob(
-      { id: crypto.randomUUID(), kind: "daily_summary", workspace_id: WORKSPACE_ID, connection_id: null, attempts: 1, max_attempts: 3, created_at: "2026-10-16T00:00:05.000Z", dedupe_key: dailySummaryJobKey(WORKSPACE_ID, "2026-10-15") },
+      { id: crypto.randomUUID(), kind: "daily_summary", workspace_id: WORKSPACE_ID, connection_id: null, attempts: 1, max_attempts: 3, created_at: "2026-10-16T00:00:05.000Z", dedupe_key: dailySummaryJobKey(WORKSPACE_ID, "2026-10-15"), webhook_delivery_id: null },
       deps,
     );
     expect(next).toEqual({ status: "succeeded" });

@@ -1,28 +1,33 @@
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import type { OAuthCredential } from "@/lib/adapters/types";
+import type { OAuthCredential, WebhookOutcome } from "@/lib/adapters/types";
 import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
 import { digestJobKey } from "@/lib/notifications/model";
 import type { Tables } from "@/lib/supabase/database.types";
 
 import { dailySummaryJobKey } from "./daily-summary";
-import type {
-  AnomalySettings,
-  ClaimedJob,
-  ConnectionPatch,
-  ConnectionKey,
-  EventRow,
-  JobFailure,
-  JobStore,
-  ManualSyncResult,
-  SnapshotRow,
-  SummaryConnection,
-  SummarySnapshot,
+import {
+  WEBHOOK_TARGET_LIMIT,
+  type AnomalySettings,
+  type ClaimedJob,
+  type ConnectionPatch,
+  type ConnectionKey,
+  type EventRow,
+  type JobFailure,
+  type JobStore,
+  type ManualSyncResult,
+  type RecordWebhookDeliveryInput,
+  type SnapshotRow,
+  type SummaryConnection,
+  type SummarySnapshot,
+  type WebhookDeliveryRecord,
+  type WebhookTarget,
 } from "./store";
 
 /*
  * In-memory JobStore for unit tests only. It mirrors the database rules the engine relies on:
  * one open sync per connection, claim semantics of claim_sync_jobs, the snapshot and event unique
- * keys, workspace scoping, and the retention predicates. Never imported by app code.
+ * keys, workspace scoping, the retention predicates, and the webhook delivery rules of
+ * record_webhook_delivery and list_webhook_targets. Never imported by app code.
  */
 
 export type MemoryConnection = Tables<"connections">;
@@ -33,6 +38,10 @@ export type MemoryEvent = EventRow & { id: string };
 export type MemoryOAuthState = Pick<Tables<"oauth_states">, "state" | "workspace_id" | "expires_at">;
 export type MemoryRateLimitCounter = Tables<"public_rate_limit_counters">;
 export type MemoryMetricView = Tables<"published_metric_views">;
+export type MemoryWebhookEndpoint = Pick<Tables<"webhook_endpoints">, "id" | "workspace_id" | "connection_id" | "provider">;
+// The outcome is kept as the object the route stored; the Supabase store's JSON round trip is
+// covered by store.test.ts.
+export type MemoryWebhookDelivery = Omit<Tables<"webhook_deliveries">, "outcome"> & { outcome: WebhookOutcome | null };
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
   return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
@@ -55,6 +64,8 @@ export class MemoryJobStore implements JobStore {
   /** Workspaces with a triggered alert not dispatched yet, as triggered_alerts would answer. */
   undispatchedAlertWorkspaces: string[] = [];
   notificationDeliveries: Array<{ id: string; triggered_alert_id: string | null; delivered_at: string }> = [];
+  webhookEndpoints: MemoryWebhookEndpoint[] = [];
+  webhookDeliveries: MemoryWebhookDelivery[] = [];
 
   constructor(private readonly now: () => Date) {}
 
@@ -135,6 +146,7 @@ export class MemoryJobStore implements JobStore {
       error_code: null,
       error_reference: null,
       dedupe_key: null,
+      webhook_delivery_id: null,
       created_at: this.#nowIso(),
       ...fields,
     };
@@ -217,7 +229,7 @@ export class MemoryJobStore implements JobStore {
       job.started_at = this.#nowIso();
       job.finished_at = null;
     }
-    return claimable.map(({ id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key }) => ({
+    return claimable.map(({ id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key, webhook_delivery_id }) => ({
       id,
       workspace_id,
       connection_id,
@@ -226,6 +238,7 @@ export class MemoryJobStore implements JobStore {
       max_attempts,
       created_at,
       dedupe_key,
+      webhook_delivery_id,
     }));
   }
 
@@ -495,6 +508,77 @@ export class MemoryJobStore implements JobStore {
       )
       .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date) || a.id.localeCompare(b.id))
       .map((row) => this.#toSnapshotInput(row));
+  }
+
+  async recordWebhookDelivery({ provider, deliveryId, endpointId, outcome }: RecordWebhookDeliveryInput): Promise<boolean> {
+    // webhook_deliveries_delivery_id_length counts characters, not UTF-16 code units.
+    const length = [...deliveryId].length;
+    if (length < 1 || length > 200) throw new Error("violates check constraint webhook_deliveries_delivery_id_length");
+    if (endpointId !== null && !this.webhookEndpoints.some((row) => row.id === endpointId && row.provider === provider)) {
+      throw new Error("p_endpoint_id must name an endpoint of p_provider");
+    }
+    if (this.webhookDeliveries.some((row) => row.provider === provider && row.delivery_id === deliveryId)) return false;
+    const id = crypto.randomUUID();
+    this.webhookDeliveries.push({
+      id,
+      provider,
+      delivery_id: deliveryId,
+      endpoint_id: endpointId,
+      status: "received",
+      outcome,
+      received_at: this.#nowIso(),
+      processed_at: null,
+    });
+    this.jobs.push(this.newJob({ workspace_id: null, connection_id: null, kind: "webhook", webhook_delivery_id: id }));
+    return true;
+  }
+
+  async loadWebhookDelivery(deliveryRowId: string): Promise<WebhookDeliveryRecord | null> {
+    const row = this.webhookDeliveries.find((delivery) => delivery.id === deliveryRowId && delivery.status === "received");
+    if (row === undefined || row.outcome === null) return null;
+    return { id: row.id, provider: row.provider, endpointId: row.endpoint_id, outcome: row.outcome };
+  }
+
+  async listWebhookTargets({
+    provider,
+    externalAccountId,
+    endpointId,
+  }: Parameters<JobStore["listWebhookTargets"]>[0]): Promise<WebhookTarget[]> {
+    const endpoint = endpointId === null ? null : this.webhookEndpoints.find((row) => row.id === endpointId);
+    if (endpoint === undefined) return [];
+    return this.accounts
+      .filter((account) => {
+        if (account.external_id !== externalAccountId || !account.included) return false;
+        if (endpoint !== null && (endpoint.workspace_id !== account.workspace_id || endpoint.connection_id !== account.connection_id)) {
+          return false;
+        }
+        const connection = this.#connection({ workspaceId: account.workspace_id, connectionId: account.connection_id });
+        return (
+          connection !== undefined &&
+          connection.provider === provider &&
+          (connection.status === "active" || connection.status === "needs_attention")
+        );
+      })
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .slice(0, WEBHOOK_TARGET_LIMIT)
+      .map((account) => ({ workspaceId: account.workspace_id, connectionId: account.connection_id, accountId: account.id }));
+  }
+
+  async finishWebhookDelivery(deliveryRowId: string, finishedAt: Date): Promise<void> {
+    const row = this.webhookDeliveries.find((delivery) => delivery.id === deliveryRowId);
+    if (row === undefined) return;
+    row.status = "processed";
+    row.processed_at = finishedAt.toISOString();
+    row.outcome = null;
+  }
+
+  async purgeWebhookDeliveries(before: Date, limit: number): Promise<number> {
+    const { kept, deleted } = this.#purge(this.webhookDeliveries, (row) => Date.parse(row.received_at) < before.getTime(), limit);
+    const remaining = new Set(kept.map((row) => row.id));
+    // sync_jobs.webhook_delivery_id is on delete cascade.
+    this.jobs = this.jobs.filter((job) => job.webhook_delivery_id === null || remaining.has(job.webhook_delivery_id));
+    this.webhookDeliveries = kept;
+    return deleted;
   }
 
   #toSnapshotInput(row: MemorySnapshot): SummarySnapshot {

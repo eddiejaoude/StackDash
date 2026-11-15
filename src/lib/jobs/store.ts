@@ -1,13 +1,16 @@
 import "server-only";
 
+import { z } from "zod";
+
+import { ActivityEventSchema } from "@/lib/adapters/events";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
-import type { OAuthCredential } from "@/lib/adapters/types";
+import { ProviderIdSchema, type OAuthCredential, type ProviderId, type WebhookOutcome } from "@/lib/adapters/types";
 import { ANOMALY_KINDS, type AnomalyMute, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
+import type { Json, Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
 import { readAllPages } from "@/lib/supabase/paging";
 
 /*
@@ -46,7 +49,7 @@ export type ConnectionPatch = Pick<
 
 export type ClaimedJob = Pick<
   Tables<"sync_jobs">,
-  "id" | "workspace_id" | "connection_id" | "kind" | "attempts" | "max_attempts" | "created_at" | "dedupe_key"
+  "id" | "workspace_id" | "connection_id" | "kind" | "attempts" | "max_attempts" | "created_at" | "dedupe_key" | "webhook_delivery_id"
 >;
 
 export type SnapshotRow = TablesInsert<"usage_snapshots">;
@@ -73,6 +76,24 @@ export const ANOMALY_ROW_LIMIT = 20_000;
 const ANOMALY_MUTE_LIMIT = 1000;
 
 export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
+
+/** A verified delivery as the webhook job reads it back (#28). `endpointId` is null for an app-level URL. */
+export type WebhookDeliveryRecord = Readonly<{
+  id: string;
+  provider: ProviderId;
+  endpointId: string | null;
+  outcome: WebhookOutcome;
+}>;
+
+/** An included external account of an active connection that a delivery's account maps to. */
+export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string }>;
+
+export type RecordWebhookDeliveryInput = Readonly<{
+  provider: ProviderId;
+  deliveryId: string;
+  endpointId: string | null;
+  outcome: WebhookOutcome;
+}>;
 
 export interface JobStore {
   /** Queues a sync for every due connection (see enqueue_due_syncs). Returns how many were queued. */
@@ -143,6 +164,27 @@ export interface JobStore {
   enqueueAlertDispatches(): Promise<number>;
   /** Queues one digest job per workspace with a connection, keyed by the summarized date (#152). */
   enqueueDigests(date: string): Promise<number>;
+
+  /**
+   * Stores a verified delivery and queues its `webhook` job in one atomic step (#28). False when
+   * (provider, delivery id) is already stored: a repeated delivery, acknowledged and dropped.
+   */
+  recordWebhookDelivery(input: RecordWebhookDeliveryInput): Promise<boolean>;
+  /**
+   * The delivery a `webhook` job points at, its outcome parsed again at this boundary. Null once
+   * processed (an earlier attempt finished it) or purged: nothing is left to do.
+   */
+  loadWebhookDelivery(deliveryRowId: string): Promise<WebhookDeliveryRecord | null>;
+  /**
+   * Where a delivery's external account lands: every included external account with that
+   * provider and external id on an active or needs_attention connection, across workspaces for an
+   * app-level URL, and only within the endpoint's own connection when `endpointId` is set.
+   */
+  listWebhookTargets(input: Readonly<{ provider: ProviderId; externalAccountId: string; endpointId: string | null }>): Promise<WebhookTarget[]>;
+  /** Marks a delivery processed and drops its stored outcome, which is no longer needed. */
+  finishWebhookDelivery(deliveryRowId: string, finishedAt: Date): Promise<void>;
+  /** Deletes delivery records received before `before`: the deduplication window (#28). */
+  purgeWebhookDeliveries(before: Date, limit: number): Promise<number>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -154,6 +196,35 @@ const MANUAL_SYNC_RESULTS: readonly ManualSyncResult[] = ["queued", "already_que
 
 function isManualSyncResult(value: unknown): value is ManualSyncResult {
   return MANUAL_SYNC_RESULTS.some((result) => result === value);
+}
+
+// The bound of list_webhook_targets (20261115090100_webhook_deliveries.sql). One provider account
+// connected to more workspaces than this reaches the first by account id; polling still brings
+// the rest their events.
+export const WEBHOOK_TARGET_LIMIT = 100;
+
+// webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt travels as ISO
+// text and is a Date again once the job reads it back.
+const StoredWebhookOutcomeSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("events"),
+    externalAccountId: z.string().min(1),
+    events: z.array(ActivityEventSchema.extend({ occurredAt: z.iso.datetime().transform((value) => new Date(value)) })),
+  }),
+  z.strictObject({ kind: z.literal("uninstalled"), externalAccountId: z.string().min(1) }),
+  z.strictObject({ kind: z.literal("ignored"), reason: z.string() }),
+]);
+
+/** A delivery's outcome as record_webhook_delivery stores it. */
+export function webhookOutcomeToJson(outcome: WebhookOutcome): Json {
+  if (outcome.kind !== "events") return { ...outcome };
+  return { ...outcome, events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) };
+}
+
+/** A stored outcome read back, or null when it is not the shape webhookOutcomeToJson writes. */
+export function webhookOutcomeFromJson(value: unknown): WebhookOutcome | null {
+  const parsed = StoredWebhookOutcomeSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 export function createSupabaseJobStore(): JobStore {
@@ -214,7 +285,7 @@ export function createSupabaseJobStore(): JobStore {
     async claimJobs(limit, leaseSeconds) {
       const { data, error } = await db
         .rpc("claim_sync_jobs", { p_limit: limit, p_lease_seconds: leaseSeconds })
-        .select("id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key");
+        .select("id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key, webhook_delivery_id");
       if (error) throw failure("claim_sync_jobs", error);
       return data;
     },
@@ -506,6 +577,58 @@ export function createSupabaseJobStore(): JobStore {
       // keeps the first of two rows of one day it cannot tell apart. The sort is stable, so the
       // id order within each day stays.
       return rows.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    },
+
+    async recordWebhookDelivery({ provider, deliveryId, endpointId, outcome }) {
+      const { data, error } = await db.rpc("record_webhook_delivery", {
+        p_provider: provider,
+        p_delivery_id: deliveryId,
+        p_outcome: webhookOutcomeToJson(outcome),
+        ...(endpointId === null ? {} : { p_endpoint_id: endpointId }),
+      });
+      if (error) throw failure("record_webhook_delivery", error);
+      return data;
+    },
+
+    async loadWebhookDelivery(deliveryRowId) {
+      const { data, error } = await db
+        .from("webhook_deliveries")
+        .select("id, provider, endpoint_id, outcome")
+        .eq("id", deliveryRowId)
+        .eq("status", "received")
+        .maybeSingle();
+      if (error) throw failure("webhook delivery read", error);
+      if (data === null) return null;
+      const provider = ProviderIdSchema.safeParse(data.provider);
+      const outcome = webhookOutcomeFromJson(data.outcome);
+      // Only that the shape is wrong: zod issues would echo the stored values.
+      if (!provider.success || outcome === null) throw new Error("Job store webhook delivery has an unexpected shape.");
+      return { id: data.id, provider: provider.data, endpointId: data.endpoint_id, outcome };
+    },
+
+    async listWebhookTargets({ provider, externalAccountId, endpointId }) {
+      const { data, error } = await db.rpc("list_webhook_targets", {
+        p_provider: provider,
+        p_external_id: externalAccountId,
+        ...(endpointId === null ? {} : { p_endpoint_id: endpointId }),
+      });
+      if (error) throw failure("list_webhook_targets", error);
+      if (data.length >= WEBHOOK_TARGET_LIMIT) log.warn("webhook.targets_truncated", { provider, targets: data.length });
+      return data.map((row) => ({ workspaceId: row.workspace_id, connectionId: row.connection_id, accountId: row.account_id }));
+    },
+
+    async finishWebhookDelivery(deliveryRowId, finishedAt) {
+      const { error } = await db
+        .from("webhook_deliveries")
+        .update({ status: "processed", processed_at: finishedAt.toISOString(), outcome: null })
+        .eq("id", deliveryRowId);
+      if (error) throw failure("webhook delivery finish", error);
+    },
+
+    async purgeWebhookDeliveries(before, limit) {
+      const { data, error } = await db.rpc("purge_webhook_deliveries", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_webhook_deliveries", error);
+      return data;
     },
   };
 }
