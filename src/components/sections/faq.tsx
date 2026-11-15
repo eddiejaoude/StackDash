@@ -13,7 +13,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Is it open source?",
-    answer: "Yes. The core application, integrations included, will be open source and self-hostable. The license will be chosen before the code is made public.",
+    answer: "Yes. The core application, integrations included, will be open source under the GNU AGPL v3.0 and self-hostable.",
   },
   {
     question: `Does ${site.name} need write access to my accounts?`,
