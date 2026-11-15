@@ -738,10 +738,17 @@ docs/
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open an issue or a pull request: it covers the
 issue templates, setup and checks, branch and commit conventions, the review process, and the
-rules changes are reviewed against. The license and the contribution terms are not decided yet;
-CONTRIBUTING.md says what that means for you. Everyone taking part follows the
-[code of conduct](CODE_OF_CONDUCT.md). Report security vulnerabilities privately, as
-[SECURITY.md](SECURITY.md) describes, never in a public issue.
+rules changes are reviewed against, including the license and the contributor license agreement.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Report security
+vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes, never in a public issue.
+
+## License
+
+Copyright (C) 2026 Eddie Jaoude.
+
+StackDash is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`). If you run a modified version for other people over a network, the license
+requires you to offer them its source code.
 
 ## Third-party marks
 

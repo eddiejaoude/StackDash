@@ -11,16 +11,18 @@ By taking part you agree to follow the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License and contribution terms
 
-StackDash has no license yet. Choosing one, and deciding whether contributions need a contributor
-license agreement (CLA) or a Developer Certificate of Origin (DCO) sign-off, is still open in
-[#8](https://github.com/eddiejaoude/StackDash/issues/8). Until it is decided:
+StackDash is licensed under the
+[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`), copyright Eddie Jaoude.
+The decision and its reasons are on [#8](https://github.com/eddiejaoude/StackDash/issues/8).
 
-- The repository has no `LICENSE` file, so default copyright applies and no license to use, copy,
-  or modify the code is granted (see GitHub's
-  [Licensing a repository](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/licensing-a-repository)).
-- There are no contribution terms to agree to: no CLA and no DCO sign-off is asked for.
-- This section will state the license and the terms once #8 is decided. If the terms matter to
-  you before you contribute, ask on #8 first.
+- Your contribution is licensed under the same terms as the rest of the code.
+- If you run a modified version for other people over a network, the license requires you to offer
+  them its source code (section 13 of the license).
+- Contributions need a signed contributor license agreement (CLA). It grants Eddie Jaoude, the
+  copyright holder, the right to license your contribution under other terms as well as the AGPL,
+  so the code can be relicensed or dual-licensed later. The agreement and how to sign it are being
+  set up in [#450](https://github.com/eddiejaoude/StackDash/issues/450). Until then, pull requests
+  from outside contributors are not merged. You can still open an issue and discuss a change first.
 
 ## Before you start
 
