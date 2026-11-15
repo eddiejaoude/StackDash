@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { unsubscribeMember } from "@/lib/data/notification-preferences";
+import { readBoundedRequestBody } from "@/lib/http/bounded-body";
 import { logError } from "@/lib/log/logger";
 import { UNSUBSCRIBE_PAGE_PATH } from "@/lib/notifications/links";
 import { readUnsubscribeToken } from "@/lib/notifications/unsubscribe";
@@ -28,31 +29,6 @@ function text(status: number, body: string): NextResponse {
   return new NextResponse(body, { status, headers: HEADERS });
 }
 
-/** The body, or null when it is longer than the limit. Streams, so a large body is never buffered. */
-async function readBoundedBody(request: Request): Promise<Uint8Array<ArrayBuffer> | null> {
-  if (request.body === null) return new Uint8Array();
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
-}
-
 async function isOneClickBody(request: Request, body: Uint8Array<ArrayBuffer>): Promise<boolean> {
   const contentType = request.headers.get("content-type");
   if (contentType === null) return false;
@@ -71,7 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (target === null) {
     return text(400, "This unsubscribe link is not valid. Use the unsubscribe link in the email instead.");
   }
-  const body = await readBoundedBody(request);
+  const body = await readBoundedRequestBody(request, MAX_BODY_BYTES);
   if (body === null) return text(413, "This request is too large to be a one-click unsubscribe.");
   if (!(await isOneClickBody(request, body))) {
     return text(400, "A one-click unsubscribe sends List-Unsubscribe=One-Click. Use the unsubscribe link in the email instead.");
