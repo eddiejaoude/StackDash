@@ -291,7 +291,7 @@ Registering makes the adapter available to users, and it touches files across th
 | `docs/architecture/concepts.md` | What an external account is for this provider |
 | `docs/architecture/schema.md` | The migration row |
 | `.env.example` | The client id and secret variables, and the provider in the simulated providers note |
-| `README.md` | The provider count in the status note and the integrations section, and the provider's row in the integrations table |
+| `README.md` | The provider count wherever the README states it (the status note, See it and its image description, Integrations, and the demo section), and the provider's row in the integrations table |
 | `docs/development.md` | The provider in the simulated providers list (step 10) and in the adapters folder list (project layout) |
 | `src/components/sections/integrations.tsx` | The landing page's integration list and spend line |
 | `src/components/sections/faq.tsx` | The provider in the answer that lists integrations |

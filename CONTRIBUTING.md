@@ -70,7 +70,8 @@ Follow [Run it locally](docs/development.md#run-it-locally) in the local develop
 fresh clone, in order: the prerequisites, `npm ci`, the local Supabase stack, `.env.local`,
 migrations, seed data, signing in, and the fake provider. Fork the repository first and clone your
 fork instead of the main repository. If a step is missing or wrong, fix `docs/development.md` in
-the same pull request.
+the same pull request, and the README's short version in "Try it with simulated data" when the
+step is one of steps 1 to 6.
 
 Three things to know before you write code:
 

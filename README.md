@@ -56,10 +56,10 @@ StackDash answers them in one place, for solo developers running side projects a
 The dashboard opens with up to three sentences on what was unusual in the last week, with the
 deploys, payments, signups, and stars of the same day, then compares revenue, spend, signups, cost
 per signup, and deploys for the week or month so far. Its trend charts mark deploys, payments,
-signups, stars, and alerts, and project spend and quotas to the end of the period, labeled as
-estimates. The timeline groups events by London day, opens any event's details with a link you can
-share, and charts matching events over time so you can narrow the feed to one period
-([Getting started](docs/getting-started.md#4-read-the-timeline-and-the-dashboard)).
+signups, stars, and alerts, and its provider cards project spend and quotas to the end of the
+period, labeled as estimates. The timeline groups events by London day, opens any event's details
+with a link you can share, and charts matching events over time so you can narrow the feed to one
+period ([Getting started](docs/getting-started.md#4-read-the-timeline-and-the-dashboard)).
 
 ![Screenshot: the StackDash dashboard of a demo workspace with this week's revenue, spend, revenue minus spend, signups, cost per signup, and deploys, each compared with the same days last week. Simulated data.](https://github.com/user-attachments/assets/02bbc051-e035-4a0b-beac-eab1e455cda9)
 
@@ -82,7 +82,7 @@ and quotas work on every plan, and spend shows only where the provider reports i
 | [Railway](docs/providers/railway.md) | Deployments | Usage cost and an estimated bill on Free, Hobby, and Pro, if your role can read billing |
 | [Polar](docs/providers/polar.md) | Revenue, orders, subscriptions, new customers, and refunds | Polar fees, on any organization |
 | [Sentry](docs/providers/sentry.md) | Errors per project, new issues, regressions, and releases | None. Sentry has no billing endpoint for integrations |
-| [GitLab](docs/providers/gitlab.md) | Compute minutes and storage for the namespaces you own, pipelines, deployments, releases, and merged merge requests | None. GitLab shares no cost through read-only access |
+| [GitLab](docs/providers/gitlab.md) | Compute minutes and storage for the GitLab.com namespaces you own, pipelines, deployments, releases, and merged merge requests | None. GitLab shares no cost through read-only access |
 
 Missing a provider? Open an
 [adapter request](https://github.com/eddiejaoude/StackDash/issues/new?template=adapter-request.yml),
@@ -136,8 +136,8 @@ and nothing is sent to or read from any provider. Running the command again dele
 workspace and builds a new one. If port 3000 is taken, follow
 [Local development, step 6](docs/development.md#6-open-the-demo-workspace) to use another port.
 
-[Local development](docs/development.md) covers real GitHub sign-in, the checks, and the end-to-end
-tests.
+[Local development](docs/development.md) covers real GitHub sign-in, alert and digest email through
+a local fake of Resend's API (step 12), the checks, and the end-to-end tests.
 
 If StackDash looks useful, a star helps other developers find it.
 
@@ -152,7 +152,9 @@ without one, alerts still show in the app and reach Slack, Discord, and webhooks
 
 ## Project status
 
-- **Works in the demo today:** everything under [Features](#features), on simulated data.
+- **Works in the demo today:** everything under [Features](#features), on simulated data. Alert
+  and digest email needs the local fake from
+  [Local development, step 12](docs/development.md#12-send-alert-and-digest-emails-locally-optional).
 - **Not verified:** real provider accounts. No integration has been tried with one yet; each
   [provider page](docs/providers) lists what is still unverified.
 - **Limits:** sign-in is GitHub only and limited to emails on the invite list. Data arrives by

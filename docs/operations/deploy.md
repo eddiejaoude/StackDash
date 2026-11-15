@@ -206,7 +206,7 @@ Rotate `STACKDASH_ENCRYPTION_KEY` without downtime with `npm run keys:rotate`, w
 2. Work out the id of the key in use now, the first 8 hex characters of its SHA-256: `printf '%s' "$OLD_KEY" | openssl base64 -d -A | shasum -a 256 | cut -c1-8` (the script also prints the current key id on every run).
 3. Set `STACKDASH_ENCRYPTION_KEY` to the new key, add the old one to `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key`, and deploy. New credentials use the new key and old rows still decrypt.
 4. Once every running instance has the new configuration, run `npm run keys:rotate` with that environment's variables. It prints counts only and is safe to re-run; repeat until "remaining" is 0.
-5. After pending OAuth states sealed with the old key have expired, remove the old entry from `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` and deploy again.
+5. After pending OAuth states sealed with the old key have expired, remove the old entry from `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` and deploy again. The unsubscribe links in alert emails are signed with a key derived from the encryption key, so links in emails sent before the rotation stop working at this step; every newer email works.
 
 Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1). Those connections need reconnecting, and those alert channels need removing and adding again with their URL (alert settings marks them as needing attention after their next message).
 
@@ -254,6 +254,6 @@ Run every check against the production URL and write down the deployment URL you
 
 ## Instance overview
 
-`/app/admin` shows a super admin how this server is configured and used: whether each environment variable in the table above is set (never its value) and what that means, which provider OAuth apps are registered and how many workspaces use each provider, the background job queue and its failures in the last 24 hours, users, workspaces with their members and timeline events, and whether the database has this build's migrations. Super admins are the addresses in `STACKDASH_SUPER_ADMIN_EMAILS`; anyone else gets page not found.
+`/app/admin` shows a super admin how this server is configured and used: whether each variable in [Environment variables](#environment-variables) is set (never its value) and what that means, which provider OAuth apps are registered and how many workspaces use each provider, the background job queue and its failures in the last 24 hours, users, workspaces with their members and timeline events, and whether the database has this build's migrations. Super admins are the addresses in `STACKDASH_SUPER_ADMIN_EMAILS`; anyone else gets page not found.
 
-A super admin reaches it from the Admin link in the workspace header on wider screens (the `lg` breakpoint, 1024 pixels, and up), or from the Admin command in the command palette at every width, which is the way in on a phone. Neither is shown to anyone else. Each view is logged with the viewer's user id (`admin.viewed`). Locally, add your GitHub email to `STACKDASH_SUPER_ADMIN_EMAILS` in `.env.local` and restart `npm run dev`.
+A super admin reaches it from the Admin link in the workspace header on wider screens (the `lg` breakpoint, 1024 pixels, and up), or from the Admin command in the command palette at every width, which is the way in on a phone. Neither is sent to anyone else. Each view is logged with the viewer's user id (`admin.viewed`). Locally, add your GitHub email to `STACKDASH_SUPER_ADMIN_EMAILS` in `.env.local` and restart `npm run dev`.
