@@ -219,10 +219,10 @@ describe("derivedKey", () => {
     expect(derivedKey("other")).not.toEqual(key);
   });
 
-  it("never equals the signing key of the same purpose, whose namespace is unchanged (boundary: same purpose string)", () => {
+  it("never equals the signing key of the same purpose, which keeps its own namespace (boundary: same purpose string)", () => {
     const signingKey = hkdf(KEY_A, "stackdash signing v1:public-rate-limit");
     expect(derivedKey("public-rate-limit")).not.toEqual(signingKey);
-    // Signatures already sent still verify: the signing derivation is byte for byte the old one.
+    // The signing derivation is pinned byte for byte: changing it would invalidate every signature already sent.
     const signature = createHmac("sha256", signingKey).update("message", "utf8").digest("base64url");
     expect(signMessage("public-rate-limit", "message")).toBe(`${keyIdFor(KEY_A)}.${signature}`);
   });
