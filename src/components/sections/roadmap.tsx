@@ -37,7 +37,7 @@ const phases: readonly Phase[] = [
     summary: "Connect more of your stack, run it yourself, and share it with a team.",
     items: [
       "More integrations, starting with ElevenLabs",
-      "Open source release with self-hosting on Docker",
+      "Open source release with self-hosting",
       "Team workspaces with owner, admin, and viewer roles",
       "Hide the event types you do not care about",
     ],

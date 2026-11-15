@@ -11,7 +11,8 @@ import { socialMetadata } from "@/lib/site-metadata";
  * The privacy policy (#339). Every statement about data describes what the code does; the pull
  * request that changes this text lists the code path behind each one, and so must the next. The
  * operator comes from server configuration (`operatorEnv`), and an instance without one answers 404.
- * The processors follow this instance's own configuration too: Vercel only on Vercel (`onVercel`),
+ * The processors follow this instance's own configuration too: Vercel and its Web Analytics only on
+ * Vercel (`onVercel`, the same check that renders `WebAnalytics` in the root documents),
  * Resend only where alert email goes to Resend's own API (`emailEnv`), so a self-hosted copy never
  * lists a service it does not use.
  *
@@ -165,10 +166,23 @@ export default function PrivacyPage() {
           proves the sign-in started in your browser. Signing out or deleting your account removes them. The home
           page, the docs, these legal pages, and public project pages, badges, and cards set no cookies.
         </p>
-        <p>
-          {site.name} runs no analytics, advertising, or tracking scripts, and serves its fonts itself, so your
-          browser sends no requests to a font service.
-        </p>
+        {onVercel() ? (
+          <p>
+            {site.name} counts page views with Vercel Web Analytics, which sets no cookies. For each page you open, it
+            records the page address without anything after a <LegalCode>?</LegalCode> or <LegalCode>#</LegalCode>,
+            so the address of a page inside a workspace includes the workspace handle. With it, Vercel records your
+            country, region, and city, which it works out from your IP address, and your browser, operating system,
+            and type of device. When you arrive from another site, it also records the address of the page that linked
+            you here, as much of it as your browser reports. Vercel tells one visitor from another by a hash of the
+            request and discards that hash after 24 hours. {site.name} runs no advertising or other tracking scripts,
+            and serves its fonts itself, so your browser sends no requests to a font service.
+          </p>
+        ) : (
+          <p>
+            {site.name} runs no analytics, advertising, or tracking scripts, and serves its fonts itself, so your
+            browser sends no requests to a font service.
+          </p>
+        )}
       </LegalSection>
 
       <LegalSection id="processors" title="Who processes data for us">
@@ -178,9 +192,14 @@ export default function PrivacyPage() {
             <strong>Supabase</strong>: the database that holds everything above, sign-in, and live updates in the app.
           </li>
           {onVercel() ? (
-            <li>
-              <strong>Vercel</strong>: hosts the app and keeps its request and server logs. {LOGS}
-            </li>
+            <>
+              <li>
+                <strong>Vercel</strong>: hosts the app and keeps its request and server logs. {LOGS}
+              </li>
+              <li>
+                <strong>Vercel Web Analytics</strong>: counts page views, as the cookies section above describes.
+              </li>
+            </>
           ) : (
             <li>
               <strong>Hosting</strong>: the servers that run the app keep its request and server logs. {LOGS}
@@ -213,6 +232,7 @@ export default function PrivacyPage() {
           <li>Daily usage and spend figures and timeline events: 13 months.</li>
           <li>Records of finished syncs and of sent digests: 30 days.</li>
           <li>Counts of served badge and card images: 13 months.</li>
+          {onVercel() && <li>Page view counts: Vercel keeps them for the period its service sets.</li>}
           <li>Hashed visitor addresses for rate limits: one day.</li>
           <li>A connect attempt you did not finish: until it expires, then the next daily cleanup deletes it.</li>
           <li>Triggered alerts: for as long as the alert rule that raised them exists.</li>

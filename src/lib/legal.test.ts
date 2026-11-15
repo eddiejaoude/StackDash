@@ -84,10 +84,10 @@ describe("with an operator configured", () => {
   });
 
   it.each<[string, Hosting, string[], string[]]>([
-    ["on Vercel with alert email", { vercel: true, email: RESEND }, ["Vercel", "Resend"], ["Hosting", "Email"]],
-    ["on Vercel without alert email", { vercel: true, email: false }, ["Vercel"], ["Hosting", "Resend", "Email"]],
-    ["self-hosted with alert email", { vercel: false, email: RESEND }, ["Hosting", "Resend"], ["Vercel", "Email"]],
-    ["self-hosted without alert email", { vercel: false, email: false }, ["Hosting"], ["Vercel", "Resend", "Email"]],
+    ["on Vercel with alert email", { vercel: true, email: RESEND }, ["Vercel", "Vercel Web Analytics", "Resend"], ["Hosting", "Email"]],
+    ["on Vercel without alert email", { vercel: true, email: false }, ["Vercel", "Vercel Web Analytics"], ["Hosting", "Resend", "Email"]],
+    ["self-hosted with alert email", { vercel: false, email: RESEND }, ["Hosting", "Resend"], ["Vercel", "Vercel Web Analytics", "Email"]],
+    ["self-hosted without alert email", { vercel: false, email: false }, ["Hosting"], ["Vercel", "Vercel Web Analytics", "Resend", "Email"]],
     ["with Resend's API set explicitly", { vercel: false, email: RESEND_EXPLICIT }, ["Resend"], ["Email"]],
     ["sending through another server", { vercel: false, email: RELAY }, ["Email"], ["Resend"]],
     ["sending to the local fake", { vercel: false, email: LOCAL_FAKE }, ["Email"], ["Resend"]],
@@ -98,6 +98,23 @@ describe("with an operator configured", () => {
 
     for (const processor of ["Supabase", "GitHub", ...named]) expect(html).toContain(`<strong>${processor}</strong>`);
     for (const processor of absent) expect(html).not.toContain(`<strong>${processor}</strong>`);
+  });
+
+  it.each([
+    ["on Vercel, the policy describes the page view counts the root layout loads", true],
+    ["self-hosted, the policy says no analytics run, because the root layout loads none", false],
+  ])("%s", (_title, vercel) => {
+    stubOperator(OPERATOR);
+    stubHosting({ vercel, email: false });
+    const html = renderToStaticMarkup(createElement(PrivacyPage));
+
+    const counted = [
+      "counts page views with Vercel Web Analytics, which sets no cookies",
+      "includes the workspace handle",
+      "Page view counts: Vercel keeps them",
+    ];
+    for (const statement of counted) expect(html.includes(statement)).toBe(vercel);
+    expect(html.includes("runs no analytics, advertising, or tracking scripts")).toBe(!vercel);
   });
 
   it.each<[string, Hosting["email"], boolean]>([

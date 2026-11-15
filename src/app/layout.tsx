@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@/components/skip-link";
+import { WebAnalytics } from "@/components/web-analytics";
+import { onVercel } from "@/lib/env";
 import { site } from "@/lib/site";
 import { LANDING_TITLE, siteMetadataBase, socialMetadata } from "@/lib/site-metadata";
 import { documentClassName } from "./fonts";
@@ -30,6 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           Skip to content
         </SkipLink>
         {children}
+        {onVercel() ? <WebAnalytics /> : null}
       </body>
     </html>
   );

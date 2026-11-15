@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { connection } from "next/server";
 
 import { SkipLink } from "@/components/skip-link";
+import { WebAnalytics } from "@/components/web-analytics";
+import { onVercel } from "@/lib/env";
 import { site } from "@/lib/site";
 
 import { documentClassName } from "./fonts";
@@ -35,6 +37,7 @@ export default async function GlobalNotFound() {
           Skip to content
         </SkipLink>
         <NotFound />
+        {onVercel() ? <WebAnalytics /> : null}
       </body>
     </html>
   );

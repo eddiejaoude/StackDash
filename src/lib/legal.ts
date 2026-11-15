@@ -12,7 +12,7 @@ import { privacyLink, termsLink, type NavLink } from "@/lib/site";
  */
 
 /** When the privacy policy last changed. Change it with every edit to its text, and only then. */
-export const PRIVACY_UPDATED = "2026-11-12";
+export const PRIVACY_UPDATED = "2026-11-15";
 
 /** When the terms of use last changed. Change it with every edit to their text, and only then. */
 export const TERMS_UPDATED = "2026-11-12";

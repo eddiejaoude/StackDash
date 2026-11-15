@@ -7,15 +7,21 @@ const SIZE_CLASSES = {
   lg: "gap-2.5 rounded-lg px-6 py-3.5",
 } as const;
 
+interface GitHubButtonProps {
+  size?: keyof typeof SIZE_CLASSES;
+  /** Below sm, show only the mark; the label stays as the link's accessible name. */
+  iconOnlyOnPhone?: boolean;
+}
+
 /** The page's one call to action: follow the build on GitHub. */
-export function GitHubButton({ size = "md" }: { size?: keyof typeof SIZE_CLASSES }) {
+export function GitHubButton({ size = "md", iconOnlyOnPhone = false }: GitHubButtonProps) {
   return (
     <a
       href={site.githubUrl}
       className={`inline-flex items-center bg-accent text-sm font-medium text-background transition-opacity hover:opacity-85 ${SIZE_CLASSES[size]}`}
     >
       <GitHubIcon />
-      Follow on GitHub
+      <span className={iconOnlyOnPhone ? "sr-only sm:not-sr-only" : undefined}>Follow on GitHub</span>
     </a>
   );
 }

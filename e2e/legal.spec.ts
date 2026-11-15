@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
 
 import { BASELINE_CSP } from "./fixtures/csp";
+import { expectHydrated } from "./fixtures/hydration";
 import { E2E_OPERATOR } from "./fixtures/operator";
 
 /*
@@ -88,6 +89,27 @@ test.describe("privacy policy and terms of use", () => {
     // Each with the date its text last changed (PRIVACY_UPDATED, TERMS_UPDATED in src/lib/legal.ts).
     expect(body).toMatch(/\/privacy<\/loc>\n<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
     expect(body).toMatch(/\/terms<\/loc>\n<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+  });
+
+  // Off Vercel the policy says the site runs no analytics, and the root documents (src/app/layout.tsx,
+  // src/app/global-not-found.tsx) render Vercel Web Analytics only on Vercel. The e2e server never
+  // runs there, so no page may load the script, from this origin or Vercel's, nor set up its queue
+  // (`window.va`). The landing page and the policy use the root layout, the unmatched path the other.
+  // An absence has no element to wait for, and the component sets up from an effect that can run
+  // after the route announcer (`expectHydrated`): with VERCEL=1 the landing page passed that check.
+  // So each page waits until the network has been idle, by when the script would have been asked for.
+  test("off Vercel, no page loads Vercel Web Analytics", async ({ page }) => {
+    const analyticsRequests: string[] = [];
+    page.on("request", (request) => {
+      if (/\/_vercel\/insights\/|vercel-scripts\.com/.test(request.url())) analyticsRequests.push(request.url());
+    });
+
+    for (const path of ["/", "/privacy", "/no-such-page"]) {
+      await page.goto(path, { waitUntil: "networkidle" });
+      await expectHydrated(page);
+      expect.soft(await page.evaluate(() => "va" in window), path).toBe(false);
+    }
+    expect(analyticsRequests).toEqual([]);
   });
 
   for (const path of ["/privacy", "/terms", "/sign-in"]) {
