@@ -4,9 +4,9 @@ const audience = "solo developers running side projects and small products";
 /** Single source of truth for site-wide constants. Update links here, nowhere else. */
 export const site = {
   name: "StackDash",
-  /** The brand line: the footer and the share card. Not the page heading, which says what StackDash does. */
+  /** The brand line: the footer and the footer row of the site-wide link preview (`SiteCard`). Not the page heading, which says what StackDash does. */
   tagline: "The big picture of your developer stack",
-  /** The promise: the hero heading, the document title, and the README (#144, #305). */
+  /** The promise: the hero heading, the document title, the site-wide link preview, and the README (#144, #305). */
   headline: "One timeline and one alert for your whole developer stack",
   audience,
   description: `StackDash is an open-source dashboard for ${audience}: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish. Spend and allowances show where each provider reports them.`,
