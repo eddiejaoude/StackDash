@@ -25,8 +25,7 @@ ownerTest.describe("PostHog", () => {
           await expectNoAxeViolations(page);
         },
       });
-      // Scoped to main: the header's live indicator lists the connection in a hidden tooltip.
-      await expect(page.getByRole("main").getByText("Example organization").first()).toBeVisible();
+      await expect(page.getByRole("list", { name: "Accounts" }).getByText("Example organization", { exact: true })).toBeVisible();
       await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
