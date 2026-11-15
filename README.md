@@ -10,7 +10,7 @@ before a limit or a budget is reached. It is open source, and you can host it yo
 [Request an integration](https://github.com/eddiejaoude/StackDash/issues/new?template=adapter-request.yml) ·
 [Join the launch list](https://stackda.sh)
 
-<img width="1280" height="880" alt="Animation: GitHub, GitLab, DigitalOcean, Vercel, PostHog, Stripe, Polar, Sentry, Supabase, Railway, and Resend send events along lines into one StackDash hub that counts them. Illustrative, not the product." src="https://github.com/user-attachments/assets/46ca4865-66e4-4ee8-98a7-0a9797ae1ec2" />
+![Animation: GitHub, GitLab, DigitalOcean, Vercel, PostHog, Stripe, Polar, Sentry, Supabase, Railway, and Resend send events along lines into one StackDash hub that counts them. Illustrative, not the product.](https://github.com/user-attachments/assets/46ca4865-66e4-4ee8-98a7-0a9797ae1ec2)
 
 > [!NOTE]
 > StackDash is an early MVP. All 11 integrations are built from each provider's documentation and
@@ -18,7 +18,7 @@ before a limit or a budget is reached. It is open source, and you can host it yo
 
 ## See it
 
-<img width="1280" height="1200" alt="Animation: the StackDash timeline of a demo workspace with 11 simulated providers. New events, among them a failed Vercel production deployment, appear at the top of Today as they arrive, and the event counts per provider go up. Simulated data." src="https://github.com/user-attachments/assets/a8eb5c61-ed8d-4d23-a202-0963d9981bde" />
+![Animation: the StackDash timeline of a demo workspace with 11 simulated providers. New events, among them a failed Vercel production deployment, appear at the top of Today as they arrive, and the event counts per provider go up. Simulated data.](https://github.com/user-attachments/assets/a8eb5c61-ed8d-4d23-a202-0963d9981bde)
 
 The timeline of the demo workspace, with simulated events arriving live from 11 providers.
 
@@ -61,7 +61,7 @@ estimates. The timeline groups events by London day, opens any event's details w
 share, and charts matching events over time so you can narrow the feed to one period
 ([Getting started](docs/getting-started.md#4-read-the-timeline-and-the-dashboard)).
 
-<img width="1280" height="1000" alt="Screenshot: the StackDash dashboard of a demo workspace with this week's revenue, spend, revenue minus spend, signups, cost per signup, and deploys, each compared with the same days last week. Simulated data." src="https://github.com/user-attachments/assets/02bbc051-e035-4a0b-beac-eab1e455cda9" />
+![Screenshot: the StackDash dashboard of a demo workspace with this week's revenue, spend, revenue minus spend, signups, cost per signup, and deploys, each compared with the same days last week. Simulated data.](https://github.com/user-attachments/assets/02bbc051-e035-4a0b-beac-eab1e455cda9)
 
 ## Integrations
 
