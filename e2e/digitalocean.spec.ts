@@ -36,7 +36,8 @@ ownerTest.describe("DigitalOcean", () => {
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(CONNECTION_URL);
       await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
-      await expect(page.getByText("Example team").first()).toBeVisible();
+      // Scoped to main: the header's live indicator lists "DigitalOcean (Example team)" in a hidden tooltip.
+      await expect(page.getByRole("main").getByText("Example team").first()).toBeVisible();
       await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);

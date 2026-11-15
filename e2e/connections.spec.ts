@@ -126,7 +126,9 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await page.goto(`/w/${workspace.slug}/connections`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connections");
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-      await expect(page.getByText("No connections yet")).toBeVisible();
+      // Page-wide text also finds the header's live indicator, whose hidden tooltip lists every
+      // connection with its status, or says "No connections yet". Assert on the page's own content.
+      await expect(page.getByRole("main").getByText("No connections yet")).toBeVisible();
 
       const card = page.getByRole("list", { name: "Providers" }).getByRole("listitem").filter({ hasText: PROVIDER_NAME }).first();
       await expect(card.getByText("Requests per month and the requests included in the plan")).toBeVisible();
@@ -160,7 +162,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       const openTimeline = connected.getByRole("link", { name: "Open the timeline" });
       await expect(openTimeline).toHaveAttribute("href", `/w/${workspace.slug}/timeline`);
       await expectNoAxeViolations(page);
-      await expect(page.getByText("Status: Active").first()).toBeVisible();
+      await expect(page.getByRole("main").getByText("Status: Active").first()).toBeVisible();
       const accounts = page.getByRole("list", { name: "Accounts" });
       await expect(accounts.getByRole("listitem")).toHaveCount(2);
       await expect(accounts.getByText("Example team", { exact: true })).toBeVisible();
@@ -257,7 +259,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await page.goto(`/w/${workspace.slug}/connections`);
       await startFakeConnect(page, workspace.slug, (url) => url.searchParams.set("decline", "usage:read"));
       await expect(page).toHaveURL(CONNECTION_URL);
-      await expect(page.getByText("Status: Needs attention").first()).toBeVisible();
+      await expect(page.getByRole("main").getByText("Status: Needs attention").first()).toBeVisible();
       const attention = page.getByRole("region", {
         name: `${PROVIDER_NAME} did not grant every permission StackDash needs`,
       });
@@ -411,7 +413,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await main.getByRole("button", { name: "Disconnect", exact: true }).click();
       await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: "Disconnected. The credential is deleted" })).toBeVisible();
-      await expect(page.getByText("Status: Disconnected").first()).toBeVisible();
+      await expect(main.getByText("Status: Disconnected").first()).toBeVisible();
 
       const admin = adminClient();
       const [{ data: credential }, { data: connection }, { count: accounts }] = await Promise.all([
@@ -561,7 +563,7 @@ viewerTest.describe("connections as a viewer", () => {
       await expect(row.getByText("Status: Active")).toBeVisible();
 
       await page.goto(`/w/${workspace.slug}/connections/${seeded.id}`);
-      await expect(page.getByText("Status: Active").first()).toBeVisible();
+      await expect(page.getByRole("main").getByText("Status: Active").first()).toBeVisible();
       for (const name of ["Sync now", "Disconnect", "Delete connection and history"]) {
         await expect(page.getByRole("button", { name })).toHaveCount(0);
       }
