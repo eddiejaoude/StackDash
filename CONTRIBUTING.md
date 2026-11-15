@@ -14,8 +14,8 @@ By taking part you agree to follow the [code of conduct](CODE_OF_CONDUCT.md).
 StackDash is licensed under the
 [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`), copyright Eddie Jaoude.
 The decision and its reasons are on [#8](https://github.com/eddiejaoude/StackDash/issues/8). The
-license covers the code, not the StackDash name or logo: [TRADEMARKS.md](TRADEMARKS.md) says how
-you can use those, including keeping the name on a fork you use to contribute.
+license grants no trademark rights in the StackDash name or logo: [TRADEMARKS.md](TRADEMARKS.md)
+says how you can use those, including keeping the name on a fork you use to contribute.
 
 - Your contribution is licensed under the same terms as the rest of the code.
 - If you run a modified version for other people over a network, the license requires you to offer

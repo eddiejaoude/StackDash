@@ -752,8 +752,8 @@ Copyright (C) 2026 Eddie Jaoude.
 
 StackDash is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
 (`AGPL-3.0-only`). If you run a modified version for other people over a network, the license
-requires you to offer them its source code. The license covers the code, not the name or the
-logo: see [Trademarks](#trademarks).
+requires you to offer them its source code. The license grants no trademark rights in the name or
+the logo: see [Trademarks](#trademarks).
 
 ## Third-party marks
 

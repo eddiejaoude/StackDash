@@ -11,8 +11,8 @@ page says how you can use them.
 - Fork the repository to contribute changes back, and keep the repository name while you do.
 - Say that your project works with, connects to, or is a fork of StackDash, in plain text, as long
   as nobody could read it as official or endorsed.
-- Name an add-on that is not a version of StackDash, such as an API client or an MCP wrapper,
-  "<your name> for StackDash".
+- Name an add-on that is not a version of StackDash, such as an API client or an MCP wrapper, with
+  your own name followed by "for StackDash", for example "Acme for StackDash".
 - Write about StackDash, link to it, and use the name in articles, talks, and tutorials.
 
 ## What needs a different name
