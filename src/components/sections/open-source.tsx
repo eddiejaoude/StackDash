@@ -6,7 +6,7 @@ const pillars: readonly IconCardItem[] = [
   {
     icon: ServerIcon,
     title: "Self-host it",
-    body: "Run the whole thing yourself with Docker Compose. The self-hosted edition is the real product: integrations are not held back for paying customers.",
+    body: "Run the whole thing yourself. The self-hosted edition is the real product: integrations are not held back for paying customers.",
   },
   {
     icon: PuzzleIcon,
@@ -26,7 +26,7 @@ export function OpenSource() {
       id="open-source"
       eyebrow="Open source"
       title="Open source first, hosted if you want it"
-      intro="The code, the roadmap, and the decisions happen in public on GitHub. The license will be chosen before the code is made public."
+      intro="The code, the roadmap, and the decisions happen in public on GitHub. The code is licensed under the GNU AGPL v3.0."
     >
       <ul className="grid gap-6 md:grid-cols-3">
         {pillars.map((pillar) => (

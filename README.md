@@ -2,6 +2,8 @@
 
 The big picture of your developer stack.
 
+<img width="1280" height="880" alt="a525c634-0497-4b3a-9b2c-8150b60ef4ae" src="https://github.com/user-attachments/assets/e403ee71-cd5f-470f-bc94-4553b9b41e05" />
+
 StackDash is an open-source dashboard with one timeline and one alert for your whole developer stack.
 You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, Polar, Sentry,
 Railway, and GitLab over OAuth (never with pasted provider keys), and StackDash syncs them on a schedule:
@@ -27,6 +29,8 @@ integration comes from the provider's documentation and none has been tried with
 yet; each provider page in [docs/providers](docs/providers) lists what is still unverified. Until
 Sentry approves the hosted integration's publication, only the organization that registered it can
 install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
+
+<img width="1280" height="1080" alt="5c74ee55-5622-48f7-b164-835cbf2ddd71" src="https://github.com/user-attachments/assets/3d60570f-91fc-4c18-82ca-120772e9885b" />
 
 ## Stack
 
@@ -447,10 +451,9 @@ npm run build            # production build
 
 CI also runs `supabase db lint --level error --fail-on error`,
 `npm audit --audit-level=high --omit=dev`, and a gitleaks scan of the full git history. GitHub
-secret scanning and push protection are not on for this repository yet: turning them on is a
-manual step in [Hosted instance runbook, what stays Eddie's](docs/internal/hosted-instance.md#what-stays-eddies), and until
-then the CI gitleaks scan is the only automated secret check. Run the scan locally from a normal
-clone (not a git worktree) with:
+secret scanning and push protection are on for this repository too: push protection blocks a push
+that contains a recognized credential, and gitleaks catches what reaches CI. Run the scan locally
+from a normal clone (not a git worktree) with:
 
 ```bash
 docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 detect --source . --redact --verbose
@@ -738,10 +741,17 @@ docs/
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open an issue or a pull request: it covers the
 issue templates, setup and checks, branch and commit conventions, the review process, and the
-rules changes are reviewed against. The license and the contribution terms are not decided yet;
-CONTRIBUTING.md says what that means for you. Everyone taking part follows the
-[code of conduct](CODE_OF_CONDUCT.md). Report security vulnerabilities privately, as
-[SECURITY.md](SECURITY.md) describes, never in a public issue.
+rules changes are reviewed against, including the license and the contributor license agreement.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Report security
+vulnerabilities privately, as [SECURITY.md](SECURITY.md) describes, never in a public issue.
+
+## License
+
+Copyright (C) 2026 Eddie Jaoude.
+
+StackDash is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`). If you run a modified version for other people over a network, the license
+requires you to offer them its source code.
 
 ## Third-party marks
 
