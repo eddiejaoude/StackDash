@@ -60,7 +60,7 @@ StackDash refreshes through the shared sync path (`refreshIfExpiring` in `src/li
 | `read_api` | Read | Namespaces and plan, compute minutes and storage (GraphQL), projects, pipelines, deployments, releases, merge requests | Read access to the whole API for everything the user can see: code through the API, issues, the container and package registries |
 | `read_user` | Read | The user's id and username at connect time | The user's profile through `/user` (username, public email, full name) and read-only endpoints under `/users` |
 
-Not requested: `api` (read and write), `read_repository`, `openid`, `profile`, `email`. **No activity in this adapter needs a write scope.** Webhooks would need `api` (see [Webhooks (Post-MVP)](#webhooks-post-mvp)), which is why activity is polled.
+Not requested: `api` (read and write), `read_repository`, `openid`, `profile`, `email`. **No activity in this adapter needs a write scope.** Setting up webhooks automatically would need `api` (see [Webhooks](#webhooks)), which is why activity is polled.
 
 ## Data
 
@@ -151,9 +151,9 @@ Every metric carries its unit, period, and retrieval time; estimated ones carry 
 
 GitLab.com allows 2,000 authenticated API requests a minute per user, 600 a minute on `GET /groups/:id/projects`, and 300 a minute on `GET /users/:user_id/projects`. A throttled request gets `429` with `Retry-After` in seconds, which StackDash honors. One hourly sync is at most 1 namespace read, 1 GraphQL query, 1 project list, and 40 project requests (10 projects, 4 each), about 43 requests an hour per namespace. GraphQL queries are limited to a complexity of 250 and 100 nodes a page; the usage query asks for at most 20 project nodes.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Polling only. Project and group webhooks are created through the API with the `api` scope, which is read and write, so StackDash does not request it. When webhooks arrive, pipeline, deployment, release, and merge request events would replace the activity polling; compute minutes and storage would stay polled.
+Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. Project and group webhooks are created through the API with the `api` scope, which is read and write, so automatic setup would be an opt-in; a webhook set up by hand keeps StackDash read-only. Pipeline, deployment, release, and merge request events would then reach the timeline as they happen; compute minutes and storage stay polled.
 
 ## Permission risks
 

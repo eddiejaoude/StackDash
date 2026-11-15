@@ -36,6 +36,34 @@ For each included external account of the connection:
 3. Store the result: one `usage_snapshots` row per account, metric, and UTC day (upserted, so the latest row is the current value), events inserted once per `dedupe_key`, then the new cursor. A billing period rollover writes one `stackdash.allowance_reset` event.
 4. On success: `consecutive_failures = 0`, `last_synced_at = now`, `next_sync_at = now + poll_interval_seconds`. Parts the grant could not reach are recorded in `missing_scopes`; the connection stays `active`.
 
+### A webhook job
+
+Providers that push signed events (see [Webhooks](../adapters.md#webhooks)) deliver them to `POST /api/webhooks/<provider>`, one URL on StackDash's own app registration, or to `POST /api/webhooks/<provider>/<endpoint id>`, one URL per connection. The route never writes events. It verifies the delivery against its raw body, stores it in `webhook_deliveries` with one queued `webhook` job in a single transaction, and answers at once:
+
+| Status | Body | When |
+|---|---|---|
+| `202` | `{"status":"accepted"}` | Verified and stored. The next tick applies it |
+| `200` | `{"status":"duplicate"}` | The provider's delivery id is already stored: a retry, acknowledged and dropped (`webhook.duplicate` in the log) |
+| `400` | `{"error":"bad_request","referenceId":"REF-..."}` | Verified, but the adapter could not read it |
+| `401` | `{"error":"unauthorized"}` | Unsigned, wrongly signed, or with a timestamp outside the provider's tolerance (a replay). Logged as `webhook.rejected` with the provider, reason, and endpoint only, never the body, a header, or the signature |
+| `404` | `{"error":"not_found"}` | Unknown provider, a provider without webhooks on this instance, the wrong URL shape for the provider, or an unknown endpoint |
+| `413` | `{"error":"payload_too_large"}` | Body over 1 MiB |
+| `422` | `{"error":"invalid_events","referenceId":"REF-..."}` | Verified, but the adapter mapped it to events that fail validation |
+| `500` | `{"error":"internal_error","referenceId":"REF-..."}` | Storing it failed. The provider retries, and deduplication absorbs the repeat |
+| `503` | `{"error":"not_configured"}` | The provider's webhook secret is not set on this instance (`webhook.secret_missing` in the log, with the variable's name) |
+
+The route has no `Origin` check: a delivery comes from the provider's servers, not from a browser, and its signature is what authenticates it.
+
+The next tick runs the job, so a delivered event reaches the timeline within a minute. The job reads the delivery back and finds every included external account with that provider and external id on an `active` or `needs_attention` connection, across workspaces for an app-level URL and only on the endpoint's own connection for a per-connection URL. Then, by what the delivery means:
+
+- **Events** are written to every one of those workspaces in one insert, with the same `dedupe_key` the adapter's sync gives the same provider event. A delivery and a later poll of that event store it once, whichever comes first. Connections that received a new event have their achievements checked, as after a sync. Alerts are not checked: every alert rule is a threshold on snapshots, which a delivery never writes.
+- **Uninstalled**: each connection is marked the way a sync that got `auth_revoked` marks it, `needs_attention` with one `stackdash.sync_failed` event, at once instead of on its next sync. A connection already waiting for a reconnect is left alone.
+- **Ignored**: a verified delivery StackDash does not map. Nothing is written.
+
+An account no workspace includes is logged as `webhook.no_targets` and nothing is written. The delivery is then marked processed and its stored content dropped; only its key stays, for deduplication. A store failure retries the job like a sync (see below). A job whose delivery is gone (purged) finishes without doing anything.
+
+Polling keeps running on its schedule: it catches a delivery that never arrived and stays the only source of spend and usage. An instance without a public URL (local development, a self-hosted install on a private network) receives no deliveries and works on polling alone.
+
 ### Failures and retries
 
 | Adapter error | Connection | Job |
@@ -65,6 +93,7 @@ The daily retention job deletes, in batches of 1000 rows:
 - `public_rate_limit_counters` older than one day: the per IP rate limit of the public badge, card, and JSON routes and public project pages only needs the current minute.
 - `published_metric_views` with `view_date` more than 13 months before today (UTC), like the history they count.
 - Digest delivery records (`notification_deliveries` without a triggered alert) more than 30 days old. Alert delivery records go with their alert.
+- `webhook_deliveries` received more than 30 days ago: the deduplication window. Deleting a delivery deletes its job. A provider retrying a delivery later than that would have it processed again, and the `dedupe_key` still stores its events once.
 
 Data exactly 13 months old is kept. Triggered alerts are kept while their rule exists. A run cut short by the tick budget is finished by the next run; running it twice is harmless.
 
@@ -170,4 +199,5 @@ Alert email needs a Resend account with a verified sending domain on a self-host
 
 - `connections.status`, `last_error_code`, `last_error_reference` for one connection; search the server logs for the reference id.
 - `sync_jobs` for the queue: `status`, `attempts`, `run_after`, `error_code`. A `running` job whose `locked_until` passed belongs to a tick that died; the next tick reclaims it.
+- `webhook_deliveries` (`status`, `received_at`, `processed_at`) and the `webhook` jobs in `sync_jobs` for pushed events; `webhook.rejected` and `webhook.secret_missing` in the server logs for deliveries the route refused.
 - `cron.job_run_details` and `net._http_response` for whether ticks reach the app at all.

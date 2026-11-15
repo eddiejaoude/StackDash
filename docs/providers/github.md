@@ -68,7 +68,7 @@ A user access token only has permissions both the app and the user hold. For per
 ### Disconnect and revoke
 
 - From StackDash: `DELETE /app/installations/{installation_id}` with the JWT uninstalls the app from that account. Also revoke the stored user grant with `DELETE /applications/{client_id}/grant` (Basic auth `client_id:client_secret`, body `{"access_token": "..."}`), which removes every token for that user. Delete stored tokens either way.
-- From GitHub: the user can uninstall or suspend the app in account or organization settings, or revoke the user authorization. Without webhooks (Post-MVP), StackDash finds out on the next sync: token minting or API calls fail. Treat `401` on a user token, and `404` or `403` when minting an installation token, as "needs reconnection" and stop retrying. Exact status codes for uninstalled and suspended installations are unverified.
+- From GitHub: the user can uninstall or suspend the app in account or organization settings, or revoke the user authorization. Until StackDash receives GitHub webhooks (see [Webhooks](#webhooks)), it finds out on the next sync: token minting or API calls fail. Treat `401` on a user token, and `404` or `403` when minting an installation token, as "needs reconnection" and stop retrying. Exact status codes for uninstalled and suspended installations are unverified.
 - Revoking the user authorization does not uninstall the app.
 
 ## Permissions
@@ -81,7 +81,7 @@ All read-only. Nothing in this list can write.
 | Organization: Administration | Read | Organization billing usage, usage summary, AI credit usage, premium request usage, budgets | Installation, user |
 | Account: Plan | Read | Personal account billing usage, usage summary, AI credit usage, premium request usage | User only |
 
-Not requested: Contents (only needed for the `fork` webhook, Post-MVP), Organization plan, Actions. `GET /installation/repositories` needs no permission beyond the installation token.
+Not requested: Contents (only needed for the `fork` webhook), Organization plan, Actions. `GET /installation/repositories` needs no permission beyond the installation token.
 
 Organization owners approve "Administration: read" at install time. On a personal account install, the organization permission has no effect.
 
@@ -234,9 +234,9 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Exceeded: `403` or `429`. If `retry-after` is present, wait that many seconds. If `x-ratelimit-remaining` is `0`, wait until `x-ratelimit-reset`. Otherwise wait at least one minute, then back off exponentially and give up after a fixed number of tries. Continuing while limited can get the app banned.
 - Budget: per repository per sync about 3 requests (count, history page 1, forks page 1) plus about 4 billing calls per account. 100 repositories hourly is about 300 requests per hour, well under the limit. Run requests serially per installation.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Polling only for the MVP. When webhooks arrive:
+GitHub pushes events without extra access. StackDash does not receive them yet; they are planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. What it will use:
 
 - One webhook URL per app, set in the app registration, with a secret. Each delivery carries `X-Hub-Signature-256: sha256=<hex>`, an HMAC SHA-256 of the raw request body keyed with the secret. Compute over the raw bytes as UTF-8 and compare in constant time (`crypto.timingSafeEqual`). Ignore the legacy SHA-1 `X-Hub-Signature`. GitHub's test vector: secret `It's a Secret to Everybody`, payload `Hello, World!`, signature `sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17`.
 - Useful events: `installation` (`created`, `deleted`, `suspend`, `unsuspend`, `new_permissions_accepted`) and `installation_repositories`, both sent to every app by default; `github_app_authorization` (user revoked; cannot be unsubscribed); `star` (`created` with `starred_at`, `deleted`), which needs Metadata read; `fork`, which needs **Contents read**, a broader permission. Keep polling forks rather than adding Contents.
@@ -275,7 +275,7 @@ Each deployment registers its own GitHub App, because the private key, client se
 4. **Callback URL**: `<SITE_URL>/api/connections/github/callback`.
 5. Leave **Expire user authorization tokens** checked. Leave **Request user authorization (OAuth) during installation** unchecked (it disables the setup URL). Leave **Enable Device Flow** unchecked.
 6. **Setup URL**: `<SITE_URL>/api/connections/github/callback`. Check **Redirect on update**, so adding or removing repositories returns to StackDash.
-7. **Webhook**: uncheck **Active** for the MVP.
+7. **Webhook**: uncheck **Active** until StackDash receives GitHub webhooks (see [Webhooks](#webhooks)).
 8. **Permissions**: Repository, Metadata: Read-only (preselected). Organization, Administration: Read-only. Account, Plan: Read-only. Leave everything else at No access.
 9. **Where can this GitHub App be installed?**: **Any account** for a shared deployment, **Only on this account** for a single-user self-host.
 10. **Create GitHub App**. On the settings page note the **App ID** and **Client ID**, click **Generate a new client secret**, and under **Private keys** click **Generate a private key** (downloads a PEM file).

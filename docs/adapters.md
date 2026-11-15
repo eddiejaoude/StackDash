@@ -6,7 +6,7 @@ A provider adapter connects StackDash to one provider's API: it runs the OAuth c
 
 - **Ask first.** Open an issue with the **Adapter request** template. It asks for the provider's OAuth support, the scopes, the data StackDash would read, what those scopes also allow, and the known limits. A maintainer answers with go or no-go before any code is written, because some providers cannot be connected the way StackDash requires.
 - **OAuth only.** A user connects a provider through the provider's OAuth authorization code flow. StackDash never asks anyone to paste an API key, so a provider without OAuth cannot have an adapter.
-- **Polling only.** An adapter is called on a schedule and reads what changed. Webhooks are not supported yet.
+- **Webhooks where the provider pushes, polling as the backfill.** An adapter is called on a schedule and reads what changed. Where the provider pushes signed events, the adapter also declares `webhooks`, so those events reach the timeline within a minute. Polling still runs: it catches a delivery that was missed and stays the only source of spend and usage (see [Webhooks](#webhooks)).
 - **Read only.** Ask for the narrowest read scopes that cover what the adapter reads. A scope that can also write needs a reason the user sees before connecting.
 - **No new dependencies.** Adapters call the provider's HTTP API with the shared `fetchJson` helper and parse responses with `zod`. Adding a provider SDK or any other package is a maintainer decision: raise it on the adapter request issue first.
 
@@ -41,9 +41,9 @@ The adapter is not offered to users until it is registered (see [Register the pr
 
 | File | What it shows |
 |---|---|
-| `index.ts` | The adapter: OAuth with PKCE and rotating refresh tokens, revocation, account listing, and a sync that reads one primary endpoint and three optional ones |
-| `schemas.ts` | One `zod` schema per response, parsed at the boundary so nothing unvalidated reaches the mapping code |
-| `fixtures/*.json` | One recorded response per endpoint, with synthetic ids, tokens, and amounts |
+| `index.ts` | The adapter: OAuth with PKCE and rotating refresh tokens, revocation, account listing, a sync that reads one primary endpoint and three optional ones, and a signed webhook that pushes the same events the sync reads |
+| `schemas.ts` | One `zod` schema per response and per webhook body, parsed at the boundary so nothing unvalidated reaches the mapping code |
+| `fixtures/*.json` | One recorded response per endpoint and one webhook delivery, with synthetic ids, tokens, and amounts |
 | `index.test.ts` | The contract checks from the harness, then happy path and boundary tests for every rule |
 
 ## The adapter interface
@@ -65,6 +65,7 @@ An adapter is one object implementing `ProviderAdapter` (`src/lib/adapters/types
 | `beta` | A one sentence reason shown beside a "Beta" badge on the provider's card. Omit when not in beta |
 | `oauth` | Authorize, token, and revoke URLs, the requested scopes, whether PKCE is used, and the names (never the values) of the environment variables holding the client id and secret, plus `extraEnv` for any other app setting the provider needs (an integration slug, an app's private key) and `optionalExtraKeys` for the ones an instance may leave unset |
 | `pollIntervalSeconds` | How often to sync. Hourly (3600) unless the provider's limits or retention need otherwise. At least 60 |
+| `webhooks` | The provider's push path: where deliveries arrive, the events subscribed to, and how a delivery is verified and mapped (see [Webhooks](#webhooks)). Omit when the provider cannot push signed events |
 | `buildAuthorizeUrl` | The URL the user is sent to. Always sends the scopes explicitly, the `state`, and the PKCE challenge |
 | `exchangeCode` | Swaps the callback's code for a credential. Callback parameters are untrusted: verify them |
 | `refreshTokens` | Returns a new credential. Omit when the provider's tokens never expire. The sync runner saves the result before anything else runs |
@@ -77,7 +78,7 @@ Every method receives a context instead of reaching for globals: `ctx.fetch` for
 
 ## Capabilities
 
-Capabilities say what an adapter reports, and the dashboard leaves out what a provider never declares. `oauth: true`, `polling: true`, and `webhooks: false` are fixed by the type.
+Capabilities say what an adapter reports, and the dashboard leaves out what a provider never declares. `oauth: true` and `polling: true` are fixed by the type. Webhooks are not a capability: an adapter that receives them declares `webhooks` (see [Webhooks](#webhooks)).
 
 | Capability | Declare it when the adapter emits | Example Cloud |
 |---|---|---|
@@ -88,7 +89,7 @@ Capabilities say what an adapter reports, and the dashboard leaves out what a pr
 | `revenue` | `revenue` or `recurring_revenue` metrics | Revenue this period and monthly recurring revenue |
 | `events` | Timeline events, with at least one declared event type | Signups and deployments |
 
-The harness fails a sync result that emits a metric kind whose capability is false, and a declaration whose `events` capability disagrees with its event types.
+The harness fails a sync result that emits a metric kind whose capability is false, a declaration whose `events` capability disagrees with its event types, and a declaration with `webhooks` whose `events` capability is false.
 
 ## Metric kinds
 
@@ -138,6 +139,31 @@ Each event carries a type id, when it happened, a severity (`info`, `success`, `
 The event model has no field for a person, on purpose: no names, emails, usernames, or avatars. Count a signup; never record who signed up.
 
 Read events with a cursor: an opaque string the adapter returns from one sync and receives in the next. Bound every read: a page size and a maximum number of pages per sync, with the cursor set to where the read stopped, so a busy account catches up over several syncs instead of one sync running without end. On the first sync, read a short backfill window (the example reads 7 days), not the whole history. If the cursor comes back unreadable, log it and start again from the backfill window rather than failing every future sync.
+
+## Webhooks
+
+Where a provider pushes signed events, the adapter declares `webhooks`, so an event reaches the timeline within a minute instead of on the next poll. Polling keeps running: it catches a delivery that was missed or failed, and it stays the only source of spend and usage, which no connected provider pushes. A provider whose deliveries are unsigned (Railway) stays polling only, because StackDash cannot tell a real delivery from a forged one. So does a provider with no webhooks (PostHog, DigitalOcean, Supabase).
+
+| Member | Rule |
+|---|---|
+| `registration` | `{ kind: "app", secretEnv }` when the provider sends every account's deliveries to one URL on StackDash's own app registration; `secretEnv` names the instance setting holding the signing secret. `{ kind: "connection" }` when each connection has its own URL and secret, created through the provider's API or pasted by the user; that secret is stored encrypted like other credentials |
+| `subscriptions` | The provider's own event names StackDash subscribes to, each once |
+| `verify(request, secret, now)` | Checks the delivery against its raw body and headers, and returns the provider's delivery id or the reason it was rejected |
+| `parse(request, ctx)` | Maps a verified body onto the adapter's declared event types: events for one external account, an uninstall, or ignored |
+
+Deliveries arrive at `POST /api/webhooks/<provider>` for an app registration and `POST /api/webhooks/<provider>/<endpointId>` for a connection registration. The route verifies the delivery, records it, answers the provider at once, and leaves the rest to the job queue, which stores the events on its next tick, within a minute. `verify` and `parse` are synchronous and never call the network, so the route answers within the provider's deadline.
+
+The example adapter shows each rule:
+
+- **Verify before parsing.** `verify` reads only the raw body bytes and the headers. Never parse or decode the body before the signature matches: a parsed body has lost the bytes the signature covers.
+- **Constant time.** Compare signatures with `safeEqual` from `src/lib/webhooks/signature.ts`, never with `===`. `hmacHex` computes a hex HMAC (SHA-256 or SHA-1) of the raw bytes.
+- **Freshness.** When the provider signs a timestamp, reject one outside the provider's documented tolerance, in either direction, with `isFresh`, so a captured delivery cannot be replayed later. The timestamp only protects against replay when it is part of what is signed.
+- **Delivery id.** Return the provider's own id for the delivery (GitHub's `X-GitHub-Delivery`, Svix's `webhook-id`), read with `readDeliveryId`. StackDash stores it with a unique key per provider and acknowledges a repeat without processing it again, because providers deliver at least once.
+- **Rejections.** A delivery is rejected as `missing_signature`, `bad_signature`, `stale`, or `malformed`. The reason is logged, never the body, the headers, or the secret.
+- **Reconciliation.** Each event's `dedupeKey` is the one `sync` produces for the same provider event, so a delivery and a later poll store it once. Build both from one function: the example's `toActivityEvents` and the fake provider's `buildEvent` serve `sync` and `parse` alike.
+- **No personal data.** `parse` reads only the fields the timeline shows, as `sync` does: no names, emails, or free text from the user's app.
+- **Ignore what you do not map.** A verified delivery of a type the adapter does not show returns `ignored` with a short reason, never an error, so the provider does not retry it.
+- **Uninstalls.** When the provider reports that StackDash was removed from an account, return `uninstalled`, so its connections ask for a reconnect at once instead of after the next failed sync.
 
 ## Achievements
 
@@ -254,8 +280,9 @@ expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([]);
 ```
 
 - `createAdapterHarness` answers each request from `routes`, keyed by method, origin, and path. A function route reads the query from the request. A request with no recording gets a `404` and is reported. `harness.requests` and `harness.logs` hold everything the adapter sent and logged. Pass `extra` when the adapter reads settings beyond the client id and secret (keyed like `oauth.extraEnv`, for example an app's private key): the adapter receives each one as a `Secret` in `ctx.client.extra`. `clientId` and `timeoutMs` replace the harness defaults when a test needs particular values.
-- `checkAdapterDeclaration` checks what the app reads before any sync: the id, permissions for every requested scope, event types, achievements, capabilities, projections, daily totals, the poll interval, and environment variable names.
+- `checkAdapterDeclaration` checks what the app reads before any sync: the id, permissions for every requested scope, event types, achievements, capabilities, projections, daily totals, the poll interval, environment variable names (the webhook secret's included), and the webhook subscriptions.
 - `checkSyncResult` applies the sync runner's own gates (every metric and event valid, every key owned by the adapter, nothing for another account) plus the capability, projection, daily total (usage over exactly one whole UTC day), and partial error rules.
+- `checkWebhookOutcome` applies the same event gates to what `parse` returns, and checks that every event belongs to the account the delivery names.
 - `checkTraffic` reports requests with no recording, requests over plain `http`, requests without a timeout, and any log line containing the harness's client secret, one of its `extra` values, or the secrets you pass, including a multi line value and a secret inside a logged error's message or cause.
 
 Each check returns a list of problems in plain words, so a failing test prints all of them at once.
@@ -380,7 +407,9 @@ StackDash reads <what, in one sentence>. It asks for <the scopes, and whether th
 
 <The provider's limits, and what one sync costs.>
 
-## Webhooks (Post-MVP)
+## Webhooks
+
+<What the provider can push, how a delivery is signed, and whether StackDash uses it. When it does not, say why: unsigned, no webhooks, or setup needs a write scope.>
 
 ## Permission risks
 

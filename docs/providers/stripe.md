@@ -22,7 +22,7 @@ All facts below come from Stripe's documentation, checked 2026-10-31. Anything n
 | Events history | `GET /v1/events` goes back up to 30 days |
 | Rate limits | 100 requests per second per account in live mode, 25 in sandboxes, 25 per endpoint by default |
 | Before review | Up to 25 external testers per app |
-| Webhooks | Post-MVP. The MVP polls |
+| Webhooks | Not received yet; planned. The timeline is polled |
 
 ## Connection
 
@@ -119,7 +119,7 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 ### Disconnect and uninstall
 
 - Users uninstall the app in the Stripe Dashboard: **Settings** > **Installed apps**, the app's menu, **Uninstall**. Only an administrator can do this.
-- Stripe sends `apps.install.deleted` and `account.application.deauthorized` when an account uninstalls the app. Both are webhook events, so they are Post-MVP. On API versions before 2026-09-30 the install events are named `app.install.created`, `app.install.updated`, and `app.install.deleted`.
+- Stripe sends `apps.install.deleted` and `account.application.deauthorized` when an account uninstalls the app. Both are webhook events, which StackDash does not receive yet (see [Webhooks](#webhooks)). On API versions before 2026-09-30 the install events are named `app.install.created`, `app.install.updated`, and `app.install.deleted`.
 - Stripe documents no token revocation endpoint for Stripe Apps OAuth. Connect's `POST https://connect.stripe.com/oauth/deauthorize` is documented for Connect OAuth only; do not use it here (see [Unverified](#unverified)).
 - So in the MVP, "Disconnect" in StackDash deletes the stored tokens and synced Stripe data, then tells the user to uninstall the app in the Stripe Dashboard to remove StackDash's access on Stripe's side.
 - Without webhooks, an uninstall shows up as a failed refresh or a failed API call with a valid token. Mark the connection as needing reconnection and stop syncing it.
@@ -337,9 +337,9 @@ Never store, never log:
 
 A unit test asserts that the stored row types for this adapter contain none of the forbidden field names, and that parsing a fixture full of personal data yields rows without it.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Not in the MVP. For later:
+Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. The app already holds `event_read`, so they need no extra access. Notes:
 
 - Register a webhook endpoint with **Listen to events on Connected accounts**. Events from installs arrive with `account` set to the installing account.
 - Verify the `Stripe-Signature` header: `t=<timestamp>,v1=<signature>`. The signature is HMAC SHA-256 of `<t>.<raw body>` keyed with the endpoint's `whsec_` signing secret. Ignore schemes other than `v1`, compare in constant time, and reject timestamps outside a tolerance (Stripe's libraries default to 5 minutes; never use 0). Verify against the raw request body.
@@ -459,7 +459,7 @@ Token exchange and refresh (same shape for both):
 }
 ```
 
-App install object, from `apps.install.created` (Post-MVP webhook):
+App install object, from the `apps.install.created` webhook event:
 
 ```json
 {

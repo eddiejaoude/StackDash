@@ -24,11 +24,14 @@ can share, and charts every matching event over time so you can narrow the feed 
 ([Getting started](docs/getting-started.md#4-read-the-timeline-and-the-dashboard)).
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
-list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
-integration comes from the provider's documentation and none has been tried with a real account
-yet; each provider page in [docs/providers](docs/providers) lists what is still unverified. Until
-Sentry approves the hosted integration's publication, only the organization that registered it can
-install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
+list. Data arrives by scheduled sync. Signed provider webhooks, which bring events in within a
+minute with the sync kept as the backfill, are part of the adapter contract
+([Webhooks](docs/adapters.md#webhooks)), but no provider's webhook is received yet: each provider
+page says what its provider offers and whether it is planned. Every built integration comes from the
+provider's documentation and none has been tried with a real account yet; each provider page in
+[docs/providers](docs/providers) lists what is still unverified. Until Sentry approves the hosted
+integration's publication, only the organization that registered it can install it; self-hosters
+register their own ([Sentry provider page](docs/providers/sentry.md)).
 
 <img width="1280" height="1080" alt="5c74ee55-5622-48f7-b164-835cbf2ddd71" src="https://github.com/user-attachments/assets/3d60570f-91fc-4c18-82ca-120772e9885b" />
 

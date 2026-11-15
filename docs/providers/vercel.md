@@ -58,7 +58,7 @@ When `team_id` is not null, append `teamId=<team_id>` to every API call. A missi
 - **No token revocation endpoint is documented for integration tokens.** Uninstalling the integration is the only documented way to invalidate the token.
 - `DELETE /v1/integrations/configuration/{id}` removes an installation and all its resources, but it needs the `integration-configuration` scope at **Read/Write**. StackDash does not request that scope, so it cannot uninstall itself.
 - StackDash "disconnect" therefore means: delete the stored token, then tell the user to uninstall in Vercel (Dashboard, **Integrations**, **Manage** next to the integration, **Settings**, **Uninstall Integration**).
-- A user can uninstall from Vercel at any time. Without webhooks (Post-MVP), StackDash learns about it on the next poll when calls start failing. The exact status code after uninstall is not documented (see Unverified).
+- A user can uninstall from Vercel at any time. Until StackDash receives Vercel webhooks (see [Webhooks](#webhooks)), it learns about it on the next poll when calls start failing. The exact status code after uninstall is not documented (see Unverified).
 - **Disabled installations.** The token belongs to the developer who installed the integration. If that person leaves the team, the installation is disabled: API calls fail with `403` and `code: "integration_configuration_disabled"`. Team owners get 30 days to transfer ownership, then the installation is deleted. Treat this code as "needs reconnection" and show it to the user, never retry.
 
 ## Scopes requested
@@ -252,9 +252,9 @@ A sync of one connection every few minutes is far below these limits.
 
 The connection flow should read `billing.plan` after install and tell Hobby users plainly that cost data is not available from Vercel for their plan, while deployments still work.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Not used in the MVP: StackDash polls. Notes for later:
+Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. They need no extra access. Notes:
 
 - One Webhook URL per integration, set in the Integrations Console, with event checkboxes. Integration events include `deployment.created`, `deployment.error`, `deployment.canceled`, `deployment.succeeded`, `deployment.ready`, `project.created`, `project.removed`, `integration-configuration.removed`, `integration-configuration.permission-upgraded`, `integration-configuration.scope-change-confirmed`, `integration-configuration.transferred`, `domain.created`.
 - Envelope: `{ type, id, createdAt, region, payload }`. Deployment payloads carry `payload.team.id`, `payload.user.id`, `payload.deployment.{id,url,name,meta}`, `payload.links.{deployment,project}`, `payload.target`, `payload.project.id`, `payload.plan`, `payload.regions`.
@@ -273,7 +273,7 @@ From polling:
 - New project created (project list `createdAt`, via scope `project`).
 - Daily spend jumped compared with the trailing average, or a new SKU appeared in charges [derived].
 
-Webhook-only (Post-MVP): instant rollback (`deployment.rollback`), promotion (`deployment.promoted`), domain events.
+Webhook-only (see [Webhooks](#webhooks)): instant rollback (`deployment.rollback`), promotion (`deployment.promoted`), domain events.
 
 ## Permission risks
 
@@ -307,7 +307,7 @@ Every StackDash deployment registers its own Vercel integration, because the cli
 2. Fill in the required profile fields: **Name** (max 64 characters), **URL Slug** (max 32), **Developer**, **Contact email**, **Support contact email** (public), **Short Description** (max 40), **Logo** (square PNG, at least 256 px, not transparent), **Category** (for example Dev Tools), **Website**, **Documentation URL**, **EULA URL**, **Privacy Policy URL**, **Support URL**, **Overview** (max 768), and at least one **Feature media** image (16:9, 1920x1080 PNG).
 3. **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`, where `<SITE_URL>` is the public origin of the StackDash deployment (for local development use `http://localhost:3000/api/connections/vercel/callback` in a separate integration).
 4. **API Scopes**: set `billing` to Read, `deployment` to Read, `project` to Read, `team` to Read, everything else to None.
-5. Leave **Webhook URL** and **Configuration URL** empty for the MVP.
+5. Leave **Webhook URL** and **Configuration URL** empty. The webhook URL is set once StackDash receives Vercel webhooks (see [Webhooks](#webhooks)).
 6. Accept the Vercel Integrations Marketplace Agreement and submit.
 7. Copy the client (integration) id and the client secret from the **Credentials** section at the bottom of the integration settings. **Rotate Secret** is available there.
 8. Set the environment variables:

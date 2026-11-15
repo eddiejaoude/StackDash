@@ -13,7 +13,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 - **Hosted StackDash**: the hosted instance has one registration per app, owned by the StackDash account or organization, with callbacks on its production origin. Hosted users connect through these apps and never create their own.
 - **Self-hosted StackDash**: every install registers its own apps with the same permissions, because the callback URLs, client secrets, and private keys belong to one deployment. Never reuse the hosted apps' credentials.
 - **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`STACKDASH_ENABLE_FAKE_PROVIDER=1`, never in production). To try every provider locally without registering any app, simulate them (`STACKDASH_SIMULATE_PROVIDERS=1`, local only and refused on a Vercel production deployment): each connection is labeled "Simulated" and its data is made up on your machine.
-- **Webhooks** are Post-MVP. Leave every webhook setting empty or inactive.
+- **Webhooks**: StackDash can receive signed deliveries (see [Webhooks](../adapters.md#webhooks)), but no registered provider declares one yet. Leave every webhook setting empty or inactive until StackDash receives that provider's webhooks (planned for GitHub, Sentry, Vercel, and Stripe first; each provider page says where it stands), and register its URL then.
 
 ## Summary
 
@@ -162,7 +162,7 @@ Settings that must match the code:
 - **Redirect URL**: `<SITE_URL>/api/connections/sentry/callback`. Sentry sends `code`, `installationId`, `orgSlug`, and the `state` from the install URL here.
 - **Verify Installation**: unchecked. Checking it would need a write request to Sentry after every install.
 - **Permissions**: Organization Read, Issue & Event Read, Project Read (`org:read`, `event:read`, `project:read`). Everything else No Access. Team, Member, and Release permissions are not needed: releases are read with Project Read.
-- **Webhook URL**, **Alert Rule Action**, and every webhook subscription: empty or off. Webhooks are Post-MVP.
+- **Webhook URL**, **Alert Rule Action**, and every webhook subscription: empty or off until StackDash receives Sentry webhooks (see [Webhooks](../providers/sentry.md#webhooks)).
 
 Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
 

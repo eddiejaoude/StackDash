@@ -10,7 +10,7 @@ StackDash reads your Polar revenue, Polar fees, recurring revenue, orders, subsc
 
 **Go for demos with the simulated provider. No-go for real connections until the Unverified list is checked with a real organization.** Polar has OAuth 2.0 with PKCE and read-only scopes for everything StackDash reads: revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. All money comes from Polar's own analytics endpoint, so StackDash shows Polar's numbers rather than recomputing them from orders.
 
-Push events would need `webhooks:write`, which is not read-only, so the timeline is polled.
+The timeline is polled. Setting up Polar webhooks automatically would need `webhooks:write`, which is not read-only (see [Webhooks](#webhooks)).
 
 ## Connection
 
@@ -164,9 +164,9 @@ Counts only, never amounts. The payment and subscription ladder is the same on S
 - Exceeded: `429` with `Retry-After`. The sync runner backs off with that delay.
 - Budget: about six requests per organization per hourly sync (metrics, customers, orders, two subscription queries, refunds), more only for busy organizations that need extra pages.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Polling only. Polar's webhook endpoints need `webhooks:write` to create, which is not read-only, so they are out of scope for an OAuth-only read-only adapter. If webhooks arrive later, the useful events are `order.paid`, `order.refunded`, `subscription.created`, `subscription.canceled`, `subscription.revoked`, and `refund.created`, from Polar's webhook event list.
+Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. Polar's webhook endpoints need `webhooks:write` to create, which is not read-only, so automatic setup would be an opt-in; an endpoint set up by hand keeps StackDash read-only. The useful events are `order.paid`, `order.refunded`, `subscription.created`, `subscription.canceled`, `subscription.revoked`, and `refund.created`, from Polar's webhook event list.
 
 ## Permission risks
 
