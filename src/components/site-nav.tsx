@@ -16,6 +16,8 @@ interface SiteNavProps {
  * stays visible at every width. Below sm the wordmark shrinks and the GitHub button shows only its
  * mark, so a 320 px phone keeps the wordmark, Sign in, and GitHub on one row with room to spare:
  * at full label the row fitted a 390 px phone by under 3 px, and CI's font rendering wrapped it.
+ * The row still wraps rather than overflows when it cannot fit, for example with enlarged text:
+ * the actions drop below the wordmark.
  */
 export function SiteNav({ anchorBase = "" }: SiteNavProps) {
   return (
