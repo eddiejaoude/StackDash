@@ -7,7 +7,7 @@ This guide covers what each provider needs before it can connect to StackDash, w
 - **In StackDash**, only owners and admins of a workspace connect, reconnect, and disconnect providers. Every member sees what is connected.
 - **On your StackDash site**, each provider needs an app registered by the person who runs the site. A card that says **Not set up on this instance** under **Add a provider** has no app yet. If you run the site yourself, [Register the OAuth apps](operations/oauth-apps.md) lists the settings for each one; set the variables it names and deploy again, and the card offers **Connect**.
 - **On the provider's side**, you approve StackDash on the provider's own consent screen, with an account that is allowed to grant what StackDash asks for. The table below says where that takes a particular role.
-- **No provider key is ever pasted into StackDash.** Every connection goes through the provider's own sign-in and consent screen, and the credential it returns is stored encrypted for your workspace only.
+- **StackDash never asks for a provider API key.** Every connection goes through the provider's own sign-in and consent screen, and the credential it returns is stored encrypted for your workspace only.
 
 To try every provider without registering anything, a local install can simulate them: see [Local development, step 10](development.md#10-simulate-every-provider-and-watch-it-update-live-optional). Simulated connections make up their data on your computer and are labeled **Simulated** everywhere they appear.
 
