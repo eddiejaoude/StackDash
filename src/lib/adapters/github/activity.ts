@@ -59,9 +59,11 @@ export const activityEventTypes: readonly EventType[] = [
 /** What an activity event needs of its repository, from the sync's list or a webhook body alike. */
 export type ActivityRepository = Readonly<{ id: number; full_name: string; html_url: string }>;
 
-// A tag name can be long; the rest of the title is bounded (a repository's full name is at most
-// 140 characters), so the title stays inside the event model's 200.
-const TAG_MAX = 40;
+// A title is `Release `, the tag, ` published in `, and the repository's full name, which GitHub caps
+// at 140 characters (a 39 character owner, a slash, and a 100 character name). 8 + 14 + 140 leaves 38
+// of the event model's 200 for the tag: 37 and the ellipsis. The model counts UTF-16 units (a
+// JavaScript string's length), so the tag is bounded in those, and cut only between code points.
+export const TAG_MAX = 37;
 const HttpsUrlSchema = z.url({ protocol: /^https$/ });
 
 /** The link when it is https, otherwise none: an event with any other link fails validation. */
@@ -108,7 +110,13 @@ export function issueOpenedEvent(
 /** A published release, dated when it was published. Undefined for a draft, which is not out yet. */
 export function releasePublishedEvent(repo: ActivityRepository, release: Release, externalAccountId: string): ActivityEvent | undefined {
   if (release.draft || release.published_at === null) return undefined;
-  const tag = release.tag_name.length > TAG_MAX ? `${release.tag_name.slice(0, TAG_MAX)}…` : release.tag_name;
+  // Whole code points while they fit, so a tag is never left ending in half of a surrogate pair.
+  let tag = "";
+  for (const codePoint of release.tag_name) {
+    if (tag.length + codePoint.length > TAG_MAX) break;
+    tag += codePoint;
+  }
+  if (tag.length < release.tag_name.length) tag += "…";
   return {
     typeId: activityEventTypeIds.releasePublished,
     occurredAt: new Date(release.published_at),
@@ -120,19 +128,23 @@ export function releasePublishedEvent(repo: ActivityRepository, release: Release
   };
 }
 
-// One page per list per repository per sync. Webhooks are the primary path, so the hourly read
-// only has to catch what a delivery missed: a hundred merges or new issues in one repository
-// within a poll is beyond any repository's normal hour, and a fuller page is logged.
-export const ACTIVITY_PAGE_SIZE = 100;
+// One page per list per repository per sync. Webhooks are the primary path for pull requests and
+// issues, so the hourly read only has to catch what a delivery missed, and a fuller page is logged.
+// Closed pull requests have no `since` filter, so every busy repository returns a full page every
+// hour whether or not anything merged, and a page of 100 is 2 to 3 MB (measured on #62): they are
+// read 30 at a time, GitHub's default. Issues are filtered by `since`, so their page stays small.
+const PULLS_PAGE_SIZE = 30;
+const ISSUES_PAGE_SIZE = 100;
 // The events feed holds every event type and at most 300 events from the last 30 days ("REST API
 // endpoints for events"), so a busy repository can need all three of its pages to reach back to
 // the read window.
+const EVENTS_PAGE_SIZE = 100;
 const EVENTS_MAX_PAGES = 3;
 // GitHub: "This API is not built to serve real-time use cases. Depending on the time of day, event
 // latency can be anywhere from 30s to 6h." The feed is read back that much further than the other
 // lists, so a release that reached the feed late is still inside the window; the dedupe key absorbs
 // the overlap.
-export const EVENTS_FEED_LATENCY_MS = 6 * 60 * 60 * 1000;
+const EVENTS_FEED_LATENCY_MS = 6 * 60 * 60 * 1000;
 
 /** One activity list: the permission it needs, its path, and what it is called in a partial error. */
 type ActivityRead = Readonly<{ permission: string; suffix: string; what: string }>;
@@ -142,6 +154,8 @@ export const activityReads = {
   issues: { permission: "issues", suffix: "/issues", what: "opened issues" },
   releases: { permission: "metadata", suffix: "/events", what: "published releases" },
 } as const satisfies Record<string, ActivityRead>;
+export type ActivityList = keyof typeof activityReads;
+export const activityLists = Object.keys(activityReads) as ActivityList[];
 
 /** The permission a timeline read needs, refused or not granted, as the partial error the sync reports. */
 export function activityPermissionError(read: ActivityRead, cause?: PermissionMissingError): PermissionMissingError {
@@ -177,28 +191,37 @@ export type ActivityResult = {
   events: ActivityEvent[];
   // Permissions that were granted but refused for this repository.
   refused: Map<string, PermissionMissingError>;
+  // The lists that were read, so only their read times move on.
+  read: Set<ActivityList>;
 };
 
 /**
- * Reads one repository's activity since `since` with the lists whose permission is `granted`.
- * `since` comes from the cursor: the previous sync less one poll interval, at most a week back.
+ * Reads one repository's activity with the lists whose permission is `granted`, each from its own
+ * `since` (repositories.ts: the list's previous read less one poll interval, at most a week back).
  */
 export async function collectActivity(
   ctx: OAuthContext,
   installationToken: Secret,
   repo: ActivityRepository & RepositoryPath,
-  since: Date,
+  since: Readonly<Record<ActivityList, Date>>,
   granted: ReadonlySet<string>,
   externalAccountId: string,
 ): Promise<ActivityResult> {
   const events: ActivityEvent[] = [];
   const refused = new Map<string, PermissionMissingError>();
-  const after = (iso: string) => Date.parse(iso) > since.getTime();
-  const truncated = (what: ActivityRead) =>
-    ctx.logger.warn("github.sync.activity_truncated", { endpoint: repositoryEndpoint(what.suffix), pageSize: ACTIVITY_PAGE_SIZE });
+  const read = new Set<ActivityList>();
+  const truncated = (what: ActivityRead, pageSize: number) =>
+    ctx.logger.warn("github.sync.activity_truncated", { endpoint: repositoryEndpoint(what.suffix), pageSize });
+  const settle = <T>(list: ActivityList, result: ReadResult<T>) => {
+    if (result.ok) read.add(list);
+    else if (result.refused !== undefined) refused.set(activityReads[list].permission, activityPermissionError(activityReads[list], result.refused));
+    // Gone or turned off for this repository (404 or 410): nothing to read, so the read is done.
+    else read.add(list);
+  };
 
   if (granted.has(activityReads.pullRequests.permission)) {
     const what = activityReads.pullRequests;
+    const after = (iso: string) => Date.parse(iso) > since.pullRequests.getTime();
     // Merges are found among closed pull requests by most recent update: a merge updates the pull request.
     const result = await readActivity(
       () =>
@@ -206,11 +229,12 @@ export async function collectActivity(
           state: "closed",
           sort: "updated",
           direction: "desc",
-          per_page: String(ACTIVITY_PAGE_SIZE),
+          per_page: String(PULLS_PAGE_SIZE),
         }),
       what,
       ctx,
     );
+    settle("pullRequests", result);
     if (result.ok) {
       for (const pullRequest of result.value) {
         if (pullRequest.merged_at === null || !after(pullRequest.merged_at)) continue;
@@ -218,14 +242,13 @@ export async function collectActivity(
         if (event !== undefined) events.push(event);
       }
       const last = result.value.at(-1);
-      if (result.value.length === ACTIVITY_PAGE_SIZE && last !== undefined && after(last.updated_at)) truncated(what);
-    } else if (result.refused !== undefined) {
-      refused.set(what.permission, activityPermissionError(what, result.refused));
+      if (result.value.length === PULLS_PAGE_SIZE && last !== undefined && after(last.updated_at)) truncated(what, PULLS_PAGE_SIZE);
     }
   }
 
   if (granted.has(activityReads.issues.permission)) {
     const what = activityReads.issues;
+    const after = (iso: string) => Date.parse(iso) > since.issues.getTime();
     // `since` filters by last update, which an issue's opening also sets; newest opened first.
     const result = await readActivity(
       () =>
@@ -233,12 +256,13 @@ export async function collectActivity(
           state: "all",
           sort: "created",
           direction: "desc",
-          since: since.toISOString(),
-          per_page: String(ACTIVITY_PAGE_SIZE),
+          since: since.issues.toISOString(),
+          per_page: String(ISSUES_PAGE_SIZE),
         }),
       what,
       ctx,
     );
+    settle("issues", result);
     if (result.ok) {
       for (const issue of result.value) {
         // The issues list holds pull requests too; those are counted when merged instead.
@@ -246,27 +270,25 @@ export async function collectActivity(
         events.push(issueOpenedEvent(repo, issue, externalAccountId));
       }
       const last = result.value.at(-1);
-      if (result.value.length === ACTIVITY_PAGE_SIZE && last !== undefined && after(last.created_at)) truncated(what);
-    } else if (result.refused !== undefined) {
-      refused.set(what.permission, activityPermissionError(what, result.refused));
+      if (result.value.length === ISSUES_PAGE_SIZE && last !== undefined && after(last.created_at)) truncated(what, ISSUES_PAGE_SIZE);
     }
   }
 
   if (granted.has(activityReads.releases.permission)) {
     const what = activityReads.releases;
-    const releasesSince = since.getTime() - EVENTS_FEED_LATENCY_MS;
+    const releasesSince = since.releases.getTime() - EVENTS_FEED_LATENCY_MS;
     for (let page = 1; page <= EVENTS_MAX_PAGES; page += 1) {
       const result = await readActivity(
         () =>
           getRepositoryJson(ctx, repo, what.suffix, installationToken, RepositoryEventsSchema, {
-            per_page: String(ACTIVITY_PAGE_SIZE),
+            per_page: String(EVENTS_PAGE_SIZE),
             page: String(page),
           }),
         what,
         ctx,
       );
       if (!result.ok) {
-        if (result.refused !== undefined) refused.set(what.permission, activityPermissionError(what, result.refused));
+        settle("releases", result);
         break;
       }
       for (const feedEvent of result.value) {
@@ -279,10 +301,14 @@ export async function collectActivity(
       }
       const last = result.value.at(-1);
       // Newest first: a short page, or one reaching back past the window, is the end of the read.
-      if (result.value.length < ACTIVITY_PAGE_SIZE || last === undefined || Date.parse(last.created_at) <= releasesSince) break;
-      if (page === EVENTS_MAX_PAGES) truncated(what);
+      const done = result.value.length < EVENTS_PAGE_SIZE || last === undefined || Date.parse(last.created_at) <= releasesSince;
+      if (!done && page === EVENTS_MAX_PAGES) truncated(what, EVENTS_PAGE_SIZE);
+      if (done || page === EVENTS_MAX_PAGES) {
+        settle("releases", result);
+        break;
+      }
     }
   }
 
-  return { events, refused };
+  return { events, refused, read };
 }

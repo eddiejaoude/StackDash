@@ -150,7 +150,6 @@ const WebhookRepositorySchema = z.object({
   html_url: z.string(),
   owner: z.object({ id: z.int().positive() }),
 });
-export type WebhookRepository = z.infer<typeof WebhookRepositorySchema>;
 
 // `X-GitHub-Event: pull_request`. A merge arrives as `closed` with `merged: true`.
 export const PullRequestDeliverySchema = z.object({

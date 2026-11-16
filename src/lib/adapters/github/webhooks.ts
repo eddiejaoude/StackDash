@@ -19,8 +19,10 @@ import {
  * releases are polled from the repository events feed instead (./activity.ts, decided on #62).
  *
  * Verification: `X-Hub-Signature-256` is `sha256=` and the hex HMAC SHA-256 of the raw body, keyed
- * with GITHUB_APP_WEBHOOK_SECRET, compared in constant time. `X-GitHub-Delivery` is the delivery id
- * (a redelivery keeps it), so a retry is acknowledged once and dropped.
+ * with GITHUB_APP_WEBHOOK_SECRET, compared in constant time. `X-GitHub-Delivery` is the delivery id,
+ * which a manual redelivery keeps, so a redelivered delivery is acknowledged once and dropped.
+ * GitHub never retries a failed delivery on its own ("Handling failed webhook deliveries"): one
+ * lost to an error here is recovered only by the hourly sync, and a single star not at all.
  *
  * Replay: GitHub signs neither a timestamp nor its delivery id, so there is no freshness check, and
  * a captured delivery posted again under a new delivery id verifies. What bounds it:
@@ -43,13 +45,13 @@ const HEADERS = {
 } as const;
 const SIGNATURE_PREFIX = "sha256=";
 
-export const GITHUB_WEBHOOK_SECRET_ENV = "GITHUB_APP_WEBHOOK_SECRET";
+const GITHUB_WEBHOOK_SECRET_ENV = "GITHUB_APP_WEBHOOK_SECRET";
 
 // Event names to tick on the app registration. `installation` and `github_app_authorization` are
 // sent to every GitHub App without a subscription; they are listed because StackDash handles them.
-export const githubWebhookSubscriptions = ["pull_request", "issues", "star", "installation", "github_app_authorization"] as const;
+const githubWebhookSubscriptions = ["pull_request", "issues", "star", "installation", "github_app_authorization"] as const;
 
-/** The `X-Hub-Signature-256` value GitHub sends for `rawBody`. Exported for tests and e2e deliveries. */
+/** The `X-Hub-Signature-256` value GitHub sends for `rawBody`. Exported for tests. */
 export function githubWebhookSignature(secret: Secret, rawBody: Uint8Array | string): string {
   return `${SIGNATURE_PREFIX}${hmacHex("sha256", secret, rawBody)}`;
 }
@@ -81,7 +83,8 @@ function eventOutcome(event: ActivityEvent | undefined): WebhookOutcome {
 /**
  * Maps a verified delivery with the sync's own event builders. Actions StackDash does not show
  * (an issue edited, a pull request closed unmerged, an unstar, which the daily net counts) are
- * ignored, so GitHub is answered and never retries them.
+ * `ignored`: the delivery is recorded as handled with nothing queued, and GitHub's delivery log
+ * shows it as delivered.
  */
 function parseWebhook({ headers, rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
   let raw: unknown;
