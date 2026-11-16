@@ -120,6 +120,36 @@ export const DomainListResponseSchema = z.object({
   data: z.array(DomainSchema),
 });
 
+// `POST /webhooks` (#427): the new webhook's id and the signing secret Resend generated for it. The
+// API reference's response sample carries both, so automatic setup needs no second call.
+export const CreateWebhookResponseSchema = z.object({
+  object: z.literal("webhook"),
+  id: z.string().min(1),
+  signing_secret: z.string().min(1),
+});
+
+// `DELETE /webhooks/:id`.
+export const DeleteWebhookResponseSchema = z.object({
+  object: z.literal("webhook"),
+  deleted: z.literal(true),
+});
+
+// Every webhook delivery's envelope: `{ type, created_at, data }` (Resend's event type pages).
+export const WebhookTypeSchema = z.object({ type: z.string() });
+
+// `domain.updated`: only the fields the timeline shows. `status` is read as text, so a status
+// Resend adds later is ignored rather than refused (a refused delivery is retried, and an endpoint
+// that keeps failing is disabled by Resend).
+export const DomainUpdatedDeliverySchema = z.object({
+  type: z.literal("domain.updated"),
+  created_at: isoDateTime,
+  data: z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    status: z.string(),
+  }),
+});
+
 export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 export type UsageResponse = z.infer<typeof UsageResponseSchema>;
 export type EmailMetricsResponse = z.infer<typeof EmailMetricsResponseSchema>;

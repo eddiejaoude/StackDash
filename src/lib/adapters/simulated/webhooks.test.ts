@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { checkAdapterDeclaration } from "@/lib/adapters/harness";
+import { resendAdapter } from "@/lib/adapters/resend";
 import { Secret, type OAuthContext, type WebhookDescriptor } from "@/lib/adapters/types";
 
 import { simulatedAdapters } from "./index";
@@ -13,8 +14,9 @@ import {
 } from "./webhooks";
 
 /*
- * The simulated per-connection webhook (#426) that GitLab's and Resend's twins carry until their
- * live adapters declare one (#428, #427).
+ * The simulated per-connection webhook (#426): the stand-in GitLab's twin carries until its live
+ * adapter declares one (#428), and the live declaration Resend's twin forwards (#427) with
+ * automatic setup kept in this process.
  */
 
 const NOW = new Date("2026-11-16T09:00:00.000Z");
@@ -84,5 +86,25 @@ describe("simulated connection webhooks (#426)", () => {
 
   it.each(["gitlab", "resend"] as const)("passes the adapter declaration checks for simulated %s", (id) => {
     expect(checkAdapterDeclaration(simulatedAdapters[id])).toEqual([]);
+  });
+
+  it("forwards Resend's live declaration: its steps, Svix verify, and parse, with create and delete never leaving the process", async () => {
+    const live = resendAdapter.webhooks;
+    const twin = simulatedAdapters.resend.webhooks;
+    if (live === undefined || twin === undefined) throw new Error("expected Resend webhooks");
+    expect(twin.verify).toBe(live.verify);
+    expect(twin.parse).toBe(live.parse);
+    expect(twin.subscriptions).toEqual(live.subscriptions);
+    const liveSetup = setupOf(live);
+    const twinSetup = setupOf(twin);
+    expect(twinSetup.manualSteps).toEqual(liveSetup.manualSteps);
+    expect(twinSetup.removalSteps).toEqual(liveSetup.removalSteps);
+    expect(twinSetup.secretSource).toBe("provider");
+    if (twinSetup.secretSource !== "provider") return;
+    // oauthCtx.fetch rejects: a call to Resend would fail the create.
+    const credential = { accessToken: new Secret("simulated-at"), scopes: [], tokenType: "bearer" };
+    const created = await twinSetup.automatic?.create({ credential, url: "http://localhost/api/webhooks/resend/id", externalAccountIds: [] }, oauthCtx);
+    expect(created?.webhookId).toMatch(/^simulated-webhook-/);
+    await expect(twinSetup.automatic?.remove({ credential, webhookId: created?.webhookId ?? "" }, oauthCtx)).resolves.toBeUndefined();
   });
 });
