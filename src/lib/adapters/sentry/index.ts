@@ -52,7 +52,7 @@ import {
  * `Sentry-Hook-Timestamp` is covered. So the id deduplicates honest repeats only, and the
  * timestamp's window bounds only a delivery delayed in transit: a captured delivery replayed under
  * a fresh id and timestamp passes `verify`. What bounds such a replay is each event's dedupe key,
- * shared with the sync (a replayed new issue, resolution, or same-day regression stores nothing new),
+ * shared with the sync (a replayed new issue, or a resolution or regression on the same UTC day, stores nothing new),
  * and for an uninstall the installation id, which a reconnect replaces.
  */
 

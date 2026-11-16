@@ -129,14 +129,13 @@ The cursor remembers up to 100 unresolved issues per project (short id, whether 
 |---|---|---|---|---|
 | `sentry.issue.created` (New issue) | New issues search, or an `issue.created` delivery | `firstSeen` | `critical` for fatal, `warning` for error, `info` otherwise | One per issue id |
 | `sentry.issue.regressed` (Issue regressed) | Active issues search, or an `issue.unresolved` delivery with `substatus: "regressed"` | When Sentry sent the delivery, or when the sync saw it | `critical` for fatal and error, `warning` otherwise | One per issue per UTC day. By polling: when `substatus` is `regressed` and the issue was not remembered as regressed, and not on the first sync, which records a baseline |
-| `sentry.issue.resolved` (Issue resolved) | Resolved search over remembered issues, or an `issue.resolved` delivery | When Sentry sent the delivery, or when the sync saw it | `success` | One per resolution. By polling: once, then the issue is forgotten |
+| `sentry.issue.resolved` (Issue resolved) | Resolved search over remembered issues, or an `issue.resolved` delivery | When Sentry sent the delivery, or when the sync saw it | `success` | One per issue per UTC day. By polling: once, then the issue is forgotten |
 | `sentry.release.created` (New release) | Release list (polling only) | `dateCreated` | `info` | One per release and project |
 
 Titles carry the short id or the release version, never the issue title: "New issue WEB-1A", "Issue WEB-1A regressed", "Issue WEB-1A resolved", "Release web@1.2.0 created". Issue events link to the issue's `permalink` when it is an `https` address on `sentry.io` or a subdomain of it. The issue list does not say when a status changed, so a sync dates regressed and resolved events by when it saw them; a delivery dates them by when Sentry sent it. Whichever arrives first is stored and the other is dropped, because both build the same dedupe key:
 
 - `sentry.issue.created:<issue id>`.
-- `sentry.issue.resolved:<issue id>:<lastSeen, to the second>`. A resolved issue receives no events (a new one regresses it), so `lastSeen` stands still from the resolution until the next regression, and the next resolution has a later one.
-- `sentry.issue.regressed:<issue id>:<UTC day>`. Nothing on a regressed issue stands still, so the delivery and the next sync agree by day.
+- `sentry.issue.resolved:<issue id>:<UTC day>` and `sentry.issue.regressed:<issue id>:<UTC day>`. Nothing on the issue stands still across a change: each new event moves `lastSeen`, and an issue resolved in a release or by a commit keeps receiving events from older releases while it stays resolved. The day of the change is the one value the delivery and the next sync both know.
 
 None of these events counts in the dashboard headline's signups or deploys: a release is a version Sentry was told about, not a deployment of it.
 
@@ -186,7 +185,7 @@ Received at `<SITE_URL>/api/webhooks/sentry`, the one Webhook URL on the integra
 | Resource | `Sentry-Hook-Resource`: `issue` and `installation` are read; any other resource is acknowledged and ignored |
 | Response | Within Sentry's 1 second: the route checks the delivery, stores it with a job, and answers `202`. The next job tick, at most a minute later, applies it |
 
-Sentry signs only the body. Neither `Request-ID` nor `Sentry-Hook-Timestamp` is covered, so a captured delivery replayed under a new id and a fresh timestamp passes the check. What bounds a replay is that every event's dedupe key is the one the sync builds: a replayed new issue or resolution stores nothing new, and a replayed regression adds at most one entry per issue per UTC day. A replayed uninstall names an installation id, and a reconnect is granted a new one.
+Sentry signs only the body. Neither `Request-ID` nor `Sentry-Hook-Timestamp` is covered, so a captured delivery replayed under a new id and a fresh timestamp passes the check. What bounds a replay is that every event's dedupe key is the one the sync builds: a replayed new issue stores nothing new, and a replayed resolution or regression adds at most one entry per issue per UTC day. A replayed uninstall names an installation id, and a reconnect is granted a new one. The resource header is not signed either, so an uninstall is read only from a body that carries the installation under `data` with the same `uuid` as the top-level `installation`, as Sentry's installation payload does.
 
 ### What a delivery becomes
 
@@ -196,12 +195,15 @@ Sentry signs only the body. Neither `Request-ID` nor `Sentry-Hook-Timestamp` is 
 | `issue.resolved` | `sentry.issue.resolved` (Issue resolved) | When Sentry sent it (`Sentry-Hook-Timestamp`) |
 | `issue.unresolved` with `substatus: "regressed"` | `sentry.issue.regressed` (Issue regressed) | When Sentry sent it |
 | `issue.unresolved` with any other substatus (`escalating`, `ongoing`), `issue.assigned`, `issue.archived` | Nothing: acknowledged and ignored | Not applicable |
+| Any issue delivery whose `issueCategory` is `feedback` | Nothing: user feedback is not an error, and the issue search never returns it, so polling never reports it either | Not applicable |
 | `installation.deleted` | Every connection granted for that installation is marked as needing a reconnect | When Sentry sent it |
 | `installation.created` | Nothing: a connection is made through the install redirect | Not applicable |
 
 The project (`data.issue.project.id`) is the external account, so an issue delivery reaches every workspace that includes that project; a project no workspace includes is acknowledged and dropped. An uninstall is matched on `installation.uuid` against the installation id stored with each connection (the install redirect's `installationId`); an installation StackDash does not know is acknowledged and dropped. A connection reconnected after the uninstall was sent is left alone.
 
-Fields read from an issue delivery: `action`, `id`, `shortId`, `status`, `substatus`, `level`, `firstSeen`, `lastSeen`, `permalink`, and `project.id`. From an installation delivery: `action` and `installation.uuid`. Never read: `title`, `culprit`, `metadata`, `assignedTo`, the `actor` (who triggered the delivery, by name), and the grant `code` in `installation.created`. Logs name the delivery id and why a delivery was refused, never the body.
+Issue deliveries are matched on the project only, not on the installation that sent them. A connection marked as needing a reconnect after an uninstall still includes its projects, so if the same Sentry organization later installs StackDash again, for another workspace or the same one, the old connection keeps receiving that project's issue events from the new installation until it is reconnected or disconnected.
+
+Fields read from an issue delivery: `action`, `id`, `shortId`, `status`, `substatus`, `level`, `firstSeen`, `lastSeen`, `permalink`, `issueCategory`, and `project.id`. From an installation delivery: `action`, `installation.uuid`, and `data.installation.uuid`. Never read: `title`, `culprit`, `metadata`, `assignedTo`, the `actor` (who triggered the delivery, by name), and the grant `code` in `installation.created`. Logs name the delivery id and why a delivery was refused, never the body.
 
 ## Permission risks
 
@@ -220,8 +222,8 @@ Disclose these on the connect screen before redirecting:
 - Projects created after connecting appear after a reconnect, like every provider's accounts.
 - More than 100 new issues, or more than 100 recently active unresolved issues, in one project between two syncs: only the first page is read and a warning is logged. Releases are read one page at a time for the same reason.
 - Without a delivery (webhooks not set up on the integration, or one missed), regressions and resolutions are dated when the sync saw them, up to one poll interval late.
-- One regression event per issue per UTC day: a second regression of the same issue that day is not shown. A regression delivered in the last poll interval before midnight UTC and seen by the sync after midnight shows twice.
-- A resolution is seen only for issues StackDash remembers: up to 100 per project that were unresolved and active within the last 13 days. An issue resolved weeks after its last event is not reported.
+- One regression and one resolution per issue per UTC day: a second change of the same kind that day is not shown. A change delivered in the last poll interval before midnight UTC and seen by the sync after midnight shows twice.
+- Without a delivery, a resolution is seen only for issues StackDash remembers: up to 100 per project that were unresolved and active within the last 13 days. An issue resolved weeks after its last event is reported only by its delivery.
 - Renaming the organization changes its slug, which StackDash stores; calls then fail until the user reconnects (unverified whether Sentry redirects old slugs).
 - The hosted integration is unavailable to other organizations until Sentry approves its publication.
 
@@ -404,7 +406,7 @@ Nothing on this page has been tried against a real Sentry organization. Confirm 
 - The Sentry UI names in the registration steps and the manual uninstall path (**Settings**, **Integrations**, StackDash, **Uninstall**).
 - Whether the public integration form requires a webhook URL (StackDash now sets one).
 - Webhooks end to end: that deliveries carry `Request-ID`, `Sentry-Hook-Resource`, and `Sentry-Hook-Timestamp` in whole seconds as Sentry's source sets them, and the signature as documented; whether Sentry retries a failed delivery, and under which `Request-ID`.
-- That a resolved issue's `lastSeen` in a delivery matches the issue search's to the second (the resolution's dedupe key relies on it), and that a regression is delivered as `issue.unresolved` with `substatus: "regressed"`.
+- That a regression is delivered as `issue.unresolved` with `substatus: "regressed"`, and that `issueCategory` reads `feedback` for user feedback issues.
 - That `installation.deleted` is sent on uninstall with the `installation.uuid` the install redirect gave as `installationId`.
 - Real rate limits for these endpoints, and how long the issue search lags behind ingestion.
 
