@@ -116,13 +116,17 @@ const DAY_CHAIN: Chain = {
   steps: DAY_MS / SIMULATED_BACKFILL_MS,
 };
 // Stripe's sync re-adds 31 days of hourly transactions for its metrics, so its 721 chained syncs are
-// the slowest work in this file, and two places run them: Stripe's `beforeAll` in "simulated %s over
-// a two hour span" (with DAY_CHAIN's 49 syncs, 0.1 s more) and the group test at the end. Each takes
-// about 1.5 s on a laptop on the merged base. On CI the group test took 2.5 s (run 41960569995) and
-// 3.3 s (run 41964081379); CI does not report hook times. Vitest's defaults are 5 s for a test and
-// 10 s for a hook, and the all-provider shape this replaced ran past 5 s on CI (run 41959212551).
-// 20 s is six times the slower CI measurement, for both.
+// the slowest work in this file after the GitLab id windows below, and two places run them: Stripe's
+// `beforeAll` in "simulated %s over a two hour span" (with DAY_CHAIN's 49 syncs, 0.1 s more) and the
+// group test at the end. Each takes about 1.5 s on a laptop on the merged base. On CI the group test
+// took 2.5 s (run 41960569995) and 3.3 s (run 41964081379); CI does not report hook times. Vitest's
+// defaults are 5 s for a test and 10 s for a hook, and the all-provider shape this replaced ran past
+// 5 s on CI (run 41959212551). 20 s is six times the slower CI measurement, for both.
 const WATCH_TIMEOUT_MS = 20_000;
+// The GitLab id windows (#386) are the slowest tests in this file: 30 days of chained syncs at the
+// maximum event volume take about 4 s on a laptop and took 11.1 s on CI (run 43939785887), beside
+// 3.1 s for the default volume's 90 days. 70 s is six times the CI measurement, rounded up.
+const ID_WINDOW_TIMEOUT_MS = 70_000;
 
 /** Syncs every account once per step across the chain, chaining cursors like the runner. */
 async function syncChain(adapter: ProviderAdapter, credential: OAuthCredential, chain: Chain): Promise<SpanSync[]> {
@@ -1439,5 +1443,5 @@ describe("simulated GitLab merge request and release ids (#386)", () => {
     const counts = new Map<string, number>();
     for (const { dedupeKey } of events) counts.set(dedupeKey, (counts.get(dedupeKey) ?? 0) + 1);
     expect([...counts].filter(([, count]) => count > 1)).toEqual([]);
-  }, WATCH_TIMEOUT_MS);
+  }, ID_WINDOW_TIMEOUT_MS);
 });
