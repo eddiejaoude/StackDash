@@ -9,7 +9,7 @@ on:
   push:
     branches:
       - main
-  # Weekly, so advisories and queries published after the last push still reach the code.
+  # Weekly, so queries published after the last push still reach code that has not changed.
   schedule:
     - cron: "17 4 * * 1"
 
