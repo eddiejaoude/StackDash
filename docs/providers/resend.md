@@ -185,9 +185,9 @@ Both count `resend.domain.verified` events.
 - Data retention: 30 days on Free, Pro, and Scale; flexible on Enterprise.
 - OAuth and `/usage` are not documented as plan restricted.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Not used in the MVP: polling only. For later:
+Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), set up automatically with the `full_access` StackDash already holds or by hand, with polling kept as the backfill. Notes:
 
 - Event types include `email.sent`, `email.delivered`, `email.bounced`, `email.complained`, `email.failed`, `email.suppressed`, `domain.created`, `domain.updated`, `domain.deleted`, `contact.*`, `suppression.*`, and inbox events.
 - Signed with Svix: headers `svix-id`, `svix-timestamp`, `svix-signature` (`v1,<base64>`). Verify against the raw request body with the per-webhook signing secret, using `resend.webhooks.verify` or the `svix` library. Reject stale timestamps to block replays.

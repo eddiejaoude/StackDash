@@ -1,0 +1,137 @@
+import type { ActivityEvent } from "@/lib/adapters/events";
+import type { ProviderId } from "@/lib/adapters/types";
+
+import { toEventRow } from "./ingest";
+import type { ClaimedJob, ConnectionKey, WebhookTarget } from "./store";
+import { markConnectionRevoked, type JobOutcome, type SyncDeps } from "./sync-connection";
+
+/*
+ * One `webhook` job (#28): applies a verified delivery the route stored, on the next tick. The route
+ * answers the provider at once and never writes events itself, so a slow database never makes a
+ * provider time out and retry.
+ *
+ * Idempotent like a sync: events insert on (workspace_id, dedupe_key) and carry the dedupe key the
+ * adapter's `sync` produces for the same provider event, so a retried job, a repeated delivery that
+ * slipped past deduplication, or the next poll all store each event once. Store failures throw and
+ * the runner retries the job with backoff.
+ */
+
+/** Every target's copy of the delivery's events, written in one insert. */
+async function writeEvents(
+  provider: ProviderId,
+  targets: readonly WebhookTarget[],
+  events: readonly ActivityEvent[],
+  deps: SyncDeps,
+): Promise<number> {
+  const rows = targets.flatMap((target) =>
+    events.map((event) =>
+      toEventRow(event, provider, { id: target.connectionId, workspace_id: target.workspaceId }, { id: target.accountId }),
+    ),
+  );
+  // Two connections in one workspace that include the same account produce the same row twice;
+  // the insert skips the second on (workspace_id, dedupe_key), as two syncs of that account do.
+  return deps.store.insertEvents(rows);
+}
+
+/** One entry per connection: two included accounts of one connection are one connection to act on. */
+function distinctConnections(targets: readonly WebhookTarget[]): WebhookTarget[] {
+  const byConnection = new Map<string, WebhookTarget>();
+  for (const target of targets) if (!byConnection.has(target.connectionId)) byConnection.set(target.connectionId, target);
+  return [...byConnection.values()];
+}
+
+/**
+ * Achievements (#413) can be earned by an event (a first deployment), so once a tick's webhook jobs
+ * are done (src/lib/jobs/runner.ts) the connections they stored a new event for are evaluated
+ * rather than left to their next poll, as `runSyncJob` does after a sync. Once per connection, not
+ * per delivery: an evaluation reads all retained events and readings of the pending rules' types
+ * (src/lib/achievements/store.ts), and a burst for one account would otherwise repeat the same
+ * reads for every delivery. None starts once `hasTime` (the tick's webhook share) is spent. Never
+ * fails a job: earning is idempotent, and the connection's next successful sync evaluates whatever
+ * was deferred or failed here (`runSyncJob` evaluates only after a sync succeeds). For an `active`
+ * connection that is usually its next scheduled sync. A delivery also reaches `failed` and
+ * `needs_attention` connections, and for those it comes later: a `failed` one is retried hourly
+ * until a sync succeeds, and a `needs_attention` one is not synced until the user reconnects it.
+ * Alerts are not evaluated: every alert rule is a threshold on snapshots, which a delivery never
+ * writes.
+ */
+export async function evaluateDeliveredConnections(
+  delivered: ReadonlyMap<string, ConnectionKey>,
+  deps: SyncDeps,
+  hasTime: () => boolean,
+): Promise<void> {
+  let evaluated = 0;
+  for (const key of delivered.values()) {
+    if (!hasTime()) {
+      deps.log.info("webhook.achievements_deferred", { connections: delivered.size - evaluated });
+      return;
+    }
+    evaluated += 1;
+    try {
+      await deps.evaluateAchievements(key.workspaceId, key.connectionId, deps.now());
+    } catch (error) {
+      deps.logError("webhook.achievement_evaluation_failed", error, key);
+    }
+  }
+}
+
+/**
+ * Applies one delivery. Every connection it stores a new event for is added to `delivered`, keyed
+ * by connection id, for the tick to evaluate once its webhook jobs are done.
+ */
+export async function runWebhookJob(
+  job: ClaimedJob,
+  deps: SyncDeps,
+  delivered: Map<string, ConnectionKey>,
+): Promise<JobOutcome> {
+  if (job.webhook_delivery_id === null) {
+    // The table's checks make this unreachable for kind 'webhook'; fail loudly rather than guess.
+    return { status: "failed", errorCode: "invalid_job", errorReference: null };
+  }
+  const delivery = await deps.store.loadWebhookDelivery(job.webhook_delivery_id);
+  if (delivery === null) {
+    // Purged after the retention window, or already finished by an earlier run of this job.
+    deps.log.info("webhook.delivery_missing", { jobId: job.id, deliveryRowId: job.webhook_delivery_id });
+    return { status: "succeeded" };
+  }
+
+  // Never `ignored`: such a delivery is stored processed and queues no job.
+  const { outcome, provider } = delivery;
+  const targets = await deps.store.listWebhookTargets({
+    provider,
+    externalAccountId: outcome.externalAccountId,
+    endpointId: delivery.endpointId,
+  });
+  if (targets.length === 0) {
+    // An account no workspace includes, or whose connection is gone: nothing to apply it to.
+    deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
+  } else if (outcome.kind === "events") {
+    const inserted = await writeEvents(provider, targets, outcome.events, deps);
+    deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
+    if (inserted > 0) {
+      for (const { workspaceId, connectionId } of targets) delivered.set(connectionId, { workspaceId, connectionId });
+    }
+  } else {
+    for (const target of distinctConnections(targets)) {
+      // An uninstall older than the last time the connection's credential was saved is left to
+      // the next sync. A save is a reconnect or a token refresh, and the two cannot be told apart
+      // here: revoking a live reconnect over a late or redelivered uninstall costs more than
+      // leaving a real one to the next sync, which fails and asks for a reconnect as it did before
+      // webhooks. A credential saved at the same instant is not after it.
+      if (target.credentialUpdatedAt !== null && Date.parse(target.credentialUpdatedAt) > outcome.occurredAt.getTime()) {
+        deps.log.info("webhook.uninstall_stale", { jobId: job.id, provider, connectionId: target.connectionId });
+        continue;
+      }
+      const result = await markConnectionRevoked({
+        job,
+        key: { workspaceId: target.workspaceId, connectionId: target.connectionId },
+        reason: `${provider} reported that StackDash was removed from the account`,
+        deps,
+      });
+      deps.log.info("webhook.uninstalled", { jobId: job.id, provider, connectionId: target.connectionId, result });
+    }
+  }
+
+  await deps.store.finishWebhookDelivery(delivery.id, deps.now());
+  return { status: "succeeded" };
+}

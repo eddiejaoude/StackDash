@@ -3,6 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 
 import { z } from "zod";
 
+import { readBoundedChunks } from "@/lib/http/bounded-body";
+
 /*
  * A stand-in for Resend's send email endpoint (#244), for local development, the unit tests of the
  * transport, and the e2e run: the app talks to it through the real `resend` package with
@@ -109,15 +111,11 @@ class BodyTooLarge extends Error {
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    size += buffer.length;
-    if (size > MAX_BODY_BYTES) throw new BodyTooLarge(`Request body is over ${MAX_BODY_BYTES} bytes`);
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks).toString("utf8");
+  // No encoding is set on the request, so it yields Buffers, which are Uint8Arrays.
+  const bytes = await readBoundedChunks(request, MAX_BODY_BYTES);
+  if (bytes === null) throw new BodyTooLarge(`Request body is over ${MAX_BODY_BYTES} bytes`);
+  // Buffer's decoder, not TextDecoder, which would drop a leading byte order mark.
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("utf8");
 }
 
 function parseJson(text: string): unknown {

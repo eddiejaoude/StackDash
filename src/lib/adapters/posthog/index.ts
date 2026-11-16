@@ -628,8 +628,6 @@ export const postHogAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    // No webhooks for OAuth apps (#115).
-    webhooks: false,
     usage: true,
     spending: true,
     allowance: true,

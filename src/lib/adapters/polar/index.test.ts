@@ -661,7 +661,7 @@ describe("polarAdapter declarations", () => {
     expect(polarAdapter.oauth.scopes).toEqual(ALL_SCOPES);
     expect(polarAdapter.permissions.every((permission) => permission.access === "read")).toBe(true);
     expect(polarAdapter.pollIntervalSeconds).toBe(3600);
-    expect(polarAdapter.capabilities).toMatchObject({ revenue: true, spending: true, webhooks: false });
+    expect(polarAdapter.capabilities).toMatchObject({ revenue: true, spending: true });
     expect(polarAdapter.eventTypes.map((eventType) => eventType.id)).toEqual([
       "polar.order.paid",
       "polar.subscription.started",

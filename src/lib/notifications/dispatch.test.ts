@@ -33,6 +33,7 @@ function job(fields: Partial<ClaimedJob> = {}): ClaimedJob {
     max_attempts: 5,
     created_at: NOW.toISOString(),
     dedupe_key: null,
+    webhook_delivery_id: null,
     ...fields,
   };
 }

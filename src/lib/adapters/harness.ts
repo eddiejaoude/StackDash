@@ -10,6 +10,7 @@ import {
   type OAuthContext,
   type ProviderAdapter,
   type SyncResult,
+  type WebhookOutcome,
 } from "./types";
 
 /**
@@ -155,8 +156,8 @@ function blank(value: string): boolean {
 
 /**
  * What the registry, the connect screen, and the dashboard read from the adapter before any sync:
- * its id, the permissions it explains, the data it lists, the event types it declares, and the
- * keys it marks as projections or daily totals.
+ * its id, the permissions it explains, the data it lists, the event types it declares, the keys it
+ * marks as projections or daily totals, and its webhook declaration.
  */
 export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): string[] {
   const problems: string[] = [];
@@ -256,12 +257,30 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
   }
 
   const { clientIdEnv, clientSecretEnv, extraEnv = {}, optionalExtraKeys = [] } = adapter.oauth;
-  for (const name of [clientIdEnv, clientSecretEnv, ...Object.values(extraEnv)]) {
+  const registration = adapter.webhooks?.registration;
+  const webhookSecretEnv = registration?.kind === "app" ? [registration.secretEnv] : [];
+  for (const name of [clientIdEnv, clientSecretEnv, ...Object.values(extraEnv), ...webhookSecretEnv]) {
     if (!ENV_NAME.test(name)) problems.push(`environment variable name ${name} must be UPPER_SNAKE_CASE`);
     if (name.startsWith("NEXT_PUBLIC_")) problems.push(`${name} would be sent to the browser; drop NEXT_PUBLIC_`);
   }
   for (const key of optionalExtraKeys) {
     if (!Object.hasOwn(extraEnv, key)) problems.push(`optional extra ${key} is not a key of extraEnv`);
+  }
+
+  // A webhook only ever delivers timeline events, so declaring one without event types means the
+  // deliveries have nothing to map onto. The subscriptions are shown on the provider page and the
+  // setup panel, so each is listed once.
+  if (adapter.webhooks !== undefined) {
+    const { subscriptions } = adapter.webhooks;
+    if (!adapter.capabilities.events) problems.push("webhooks are declared but capabilities.events is false");
+    if (subscriptions.length === 0 || subscriptions.some(blank)) {
+      problems.push("webhooks.subscriptions must list the provider's event names, one non-empty name each");
+    }
+    const subscribed = new Set<string>();
+    for (const name of subscriptions) {
+      if (subscribed.has(name)) problems.push(`webhook subscription ${name} is listed twice`);
+      subscribed.add(name);
+    }
   }
 
   return problems;
@@ -342,6 +361,29 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
     }
   });
 
+  return problems;
+}
+
+/**
+ * One parsed webhook delivery against what the delivery job stores (#28): its events pass the same
+ * gate as a sync's, every event belongs to the account the delivery names, because that account
+ * picks which connections receive it, and an uninstall carries a real time, which the job compares
+ * with the connection's credential.
+ */
+export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: WebhookOutcome): string[] {
+  if (outcome.kind === "ignored") return blank(outcome.reason) ? ["an ignored delivery has no reason"] : [];
+  const problems: string[] = [];
+  if (blank(outcome.externalAccountId)) problems.push(`the ${outcome.kind} outcome has no externalAccountId`);
+  if (outcome.kind === "uninstalled") {
+    if (Number.isNaN(outcome.occurredAt.getTime())) problems.push("the uninstalled outcome has an invalid occurredAt");
+    return problems;
+  }
+  problems.push(...batchProblems("events", validateAdapterEvents(adapter.eventTypes, outcome.events)));
+  outcome.events.forEach((event, index) => {
+    if (event.externalAccountId !== outcome.externalAccountId) {
+      problems.push(`events[${index}] belongs to account ${event.externalAccountId}, not ${outcome.externalAccountId}`);
+    }
+  });
   return problems;
 }
 

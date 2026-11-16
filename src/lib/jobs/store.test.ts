@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
+import type { WebhookOutcome } from "@/lib/adapters/types";
 import { addUtcDays, anomalySnapshotRange, findAnomalies, type AnomalyConnection, type AnomalyRow } from "@/lib/alerts/anomaly";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fakeSupabase, MAX_ROWS, type Row } from "@/lib/supabase/fake-postgrest";
 
-import { ANOMALY_ROW_LIMIT, createSupabaseJobStore, SUMMARY_ROW_LIMIT } from "./store";
+import {
+  ANOMALY_ROW_LIMIT,
+  createSupabaseJobStore,
+  SUMMARY_ROW_LIMIT,
+  WEBHOOK_TARGET_LIMIT,
+  webhookOutcomeFromJson,
+  webhookOutcomeToJson,
+} from "./store";
 
 /*
  * The Supabase job store's paged reads against the fake PostgREST
@@ -271,5 +279,159 @@ describe("createSupabaseJobStore listSummaryConnections", () => {
     expect(read).toHaveLength(SUMMARY_ROW_LIMIT);
     expect(read.at(-1)?.id).toBe(rows[SUMMARY_ROW_LIMIT - 1]?.id);
     expect(warn).toHaveBeenCalledExactlyOnceWith("daily_summary.connections_truncated", { workspaceId: WORKSPACE_ID, rows: SUMMARY_ROW_LIMIT });
+  });
+});
+
+describe("webhook delivery outcome stored as JSON (#28)", () => {
+  const event = {
+    typeId: "fake.deploy.succeeded",
+    occurredAt: new Date("2026-11-14T09:30:00.000Z"),
+    severity: "success",
+    title: "Deploy succeeded",
+    externalAccountId: "fake-acct-1",
+    dedupeKey: "fake.deploy.succeeded:fake-acct-1:2026-11-14",
+  } as const;
+  const storedEvent = { ...event, occurredAt: event.occurredAt.toISOString() };
+
+  it.each<WebhookOutcome>([
+    {
+      kind: "events",
+      externalAccountId: "fake-acct-1",
+      events: [event, { ...event, body: "Production", url: "https://example.com/deployments/1", dedupeKey: "fake.deploy.succeeded:fake-acct-1:2026-11-15" }],
+    },
+    { kind: "events", externalAccountId: "fake-acct-1", events: [] },
+    { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+    { kind: "ignored", reason: "unmapped event" },
+  ])("reads back the $kind outcome it stored, event and uninstall dates included", (outcome) => {
+    // jsonb keeps exactly what JSON keeps.
+    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome)));
+
+    expect(webhookOutcomeFromJson(stored)).toEqual(outcome);
+  });
+
+  it.each([
+    { name: "null, a processed delivery", value: null },
+    { name: "an unknown kind", value: { kind: "deleted", externalAccountId: "fake-acct-1" } },
+    { name: "a field the outcome does not name", value: { kind: "ignored", reason: "test", payload: "raw body" } },
+    { name: "an event field the model does not name", value: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...storedEvent, author: "someone" }] } },
+    { name: "an occurredAt that is not an ISO instant", value: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...storedEvent, occurredAt: "yesterday" }] } },
+    { name: "an uninstall without occurredAt", value: { kind: "uninstalled", externalAccountId: "fake-acct-1" } },
+    { name: "an uninstall occurredAt that is not an ISO instant", value: { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: "yesterday" } },
+  ])("refuses a stored outcome of another shape (boundary: $name)", ({ value }) => {
+    expect(webhookOutcomeFromJson(value)).toBeNull();
+  });
+});
+
+describe("createSupabaseJobStore webhook deliveries (#28)", () => {
+  const DELIVERY_ID = "28000000-0000-4000-8000-000000000001";
+  const ENDPOINT_ID = "28000000-0000-4000-8000-000000000002";
+
+  function targets(count: number): Row[] {
+    return Array.from({ length: count }, (_, index) => ({
+      workspace_id: uuid(28001, index),
+      connection_id: uuid(28002, index),
+      account_id: uuid(28003, index),
+      credential_updated_at: "2026-11-15T09:00:00.123456+00:00",
+    }));
+  }
+
+  function storeWith(functions: Parameters<typeof fakeSupabase>[1], tables: Readonly<Record<string, readonly Row[]>> = {}) {
+    const { db, requests } = fakeSupabase(tables, functions);
+    vi.mocked(createAdminClient).mockReturnValue(db);
+    return { store: createSupabaseJobStore(), requests };
+  }
+
+  it("claims webhook jobs through claim_webhook_jobs, each with the delivery it processes", async () => {
+    const job = {
+      id: uuid(28004, 1),
+      workspace_id: null,
+      connection_id: null,
+      kind: "webhook",
+      attempts: 1,
+      max_attempts: 5,
+      created_at: "2026-11-15T09:00:00+00:00",
+      dedupe_key: null,
+      webhook_delivery_id: DELIVERY_ID,
+      status: "running",
+    };
+    const { store, requests } = storeWith({ claim_webhook_jobs: () => [job] });
+
+    const [claimed] = await store.claimWebhookJobs(50, 120);
+
+    expect(claimed).toEqual(expect.objectContaining({ kind: "webhook", webhook_delivery_id: DELIVERY_ID }));
+    expect(requests.map((request) => request.args)).toEqual([{ p_limit: 50, p_lease_seconds: 120 }]);
+  });
+
+  it("maps every target of an app-level delivery, with when its credential was written, without restricting it to a connection", async () => {
+    // A connection without a stored credential comes back with null from the left join.
+    const rows = [...targets(1), { ...targets(2)[1], credential_updated_at: null }];
+    const { store, requests } = storeWith({ list_webhook_targets: () => rows });
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+
+    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null });
+
+    expect(read).toEqual([
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), credentialUpdatedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), credentialUpdatedAt: null },
+    ]);
+    expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1" }]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("restricts a per-connection delivery to the endpoint's connection", async () => {
+    const { store, requests } = storeWith({ list_webhook_targets: () => targets(1) });
+
+    await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: ENDPOINT_ID });
+
+    expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_endpoint_id: ENDPOINT_ID }]);
+  });
+
+  it.each([
+    { name: "one below the bound", count: WEBHOOK_TARGET_LIMIT - 1, warned: false },
+    { name: "at the bound", count: WEBHOOK_TARGET_LIMIT, warned: true },
+  ])("logs a target list cut at WEBHOOK_TARGET_LIMIT (boundary: $name)", async ({ count, warned }) => {
+    const { store } = storeWith({ list_webhook_targets: () => targets(count) });
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+
+    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null });
+
+    expect(read).toHaveLength(count);
+    expect(warn.mock.calls).toEqual(warned ? [["webhook.targets_truncated", { provider: "fake", targets: count }]] : []);
+  });
+
+  it("stores the outcome as JSON with ISO event dates and no endpoint for an app-level delivery", async () => {
+    const { store, requests } = storeWith({ record_webhook_delivery: () => [true] });
+    const signup = {
+      typeId: "fake.signup",
+      occurredAt: new Date("2026-11-14T09:30:00.000Z"),
+      severity: "info",
+      title: "New signup",
+      externalAccountId: "fake-acct-1",
+      dedupeKey: "fake.signup:fake-acct-1:2026-11-14",
+    } as const;
+
+    await store.recordWebhookDelivery({
+      provider: "fake",
+      deliveryId: "delivery-1",
+      endpointId: null,
+      outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [signup] },
+    });
+
+    expect(requests.map((request) => request.args)).toEqual([
+      {
+        p_provider: "fake",
+        p_delivery_id: "delivery-1",
+        p_outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...signup, occurredAt: "2026-11-14T09:30:00.000Z" }] },
+      },
+    ]);
+  });
+
+  it.each([
+    { name: "already processed", rows: [{ id: DELIVERY_ID, provider: "fake", endpoint_id: null, status: "processed", outcome: null }] },
+    { name: "purged", rows: [] },
+  ])("loads nothing for a delivery that is $name (boundary: nothing left to do)", async ({ rows }) => {
+    const { store } = storeWith({}, { webhook_deliveries: rows });
+
+    expect(await store.loadWebhookDelivery(DELIVERY_ID)).toBeNull();
   });
 });

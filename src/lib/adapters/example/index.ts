@@ -17,7 +17,11 @@ import {
   type OAuthCredential,
   type ProviderAdapter,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookVerification,
 } from "../types";
+import { hmacHex, isFresh, readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 import {
   AccountListResponseSchema,
   BillingResponseSchema,
@@ -25,6 +29,7 @@ import {
   PaymentsSummaryResponseSchema,
   TokenResponseSchema,
   UsageResponseSchema,
+  WebhookBodySchema,
   type BillingResponse,
   type PaymentsSummaryResponse,
   type ProviderEvent,
@@ -38,8 +43,9 @@ import {
  * Example Cloud is a fictional hosting and payments platform. Its API exists only as the recorded
  * responses in `fixtures/`, which is enough to exercise every capability the contract has: usage,
  * an allowance, verified and estimated spend, a credit balance, revenue, and timeline events, plus
- * the OAuth code flow with PKCE, rotating refresh tokens, revocation, and partial results when the
- * grant is missing a scope. It is never registered (`registry.ts`), so it never runs in the app.
+ * the OAuth code flow with PKCE, rotating refresh tokens, revocation, partial results when the
+ * grant is missing a scope, and a signed webhook that pushes the same events the sync polls. It is
+ * never registered (`registry.ts`), so it never runs in the app.
  *
  * Copy the folder, rename the provider id in every file, and replace the calls and mappings with
  * your provider's. The guide lists the shared files a registered provider touches.
@@ -78,6 +84,20 @@ const TITLE_NAME_MAX = 120;
 const OVERAGE_PRICE_MINOR_PER_1000_REQUESTS = 40;
 const OVERAGE_CURRENCY = "USD";
 const PRICING_SOURCE = "Example Cloud price list (fictional): USD 0.40 per 1,000 requests over the allowance";
+
+// Webhook (#28). Example Cloud signs like GitHub (`X-Hub-Signature-256: sha256=<hex>`), except
+// that it signs the delivery id header, a dot, the timestamp header, a dot, and the raw body (the
+// Standard Webhooks layout), so a captured delivery cannot be replayed later under a fresh
+// timestamp, nor within the tolerance under a new delivery id. A real adapter takes these names and
+// its tolerance from the provider's webhook documentation, and says what bounds a replay when its
+// provider signs less (see `WebhookDescriptor.verify` in ../types.ts).
+export const EXAMPLE_WEBHOOK_HEADERS = {
+  delivery: "x-example-delivery",
+  timestamp: "x-example-timestamp",
+  signature: "x-example-signature",
+} as const;
+const WEBHOOK_SIGNATURE_PREFIX = "sha256=";
+export const EXAMPLE_WEBHOOK_TOLERANCE_SECONDS = 300;
 
 export const metricKeys = {
   requestsUsed: "example.requests.used",
@@ -497,6 +517,57 @@ export function toActivityEvents(events: readonly ProviderEvent[], externalAccou
   return mapped;
 }
 
+/* Webhook -------------------------------------------------------------------------------------- */
+
+/**
+ * The signature Example Cloud sends for a delivery: `sha256=` and the hex HMAC of
+ * `<delivery id>.<timestamp>.<raw body>`.
+ */
+export function exampleWebhookSignature(secret: Secret, deliveryId: string, timestamp: string, rawBody: Uint8Array): string {
+  // Signed as bytes, never decoded first: decoding would map invalid UTF-8 onto U+FFFD and let two
+  // different bodies share one signature.
+  const signed = Buffer.concat([Buffer.from(`${deliveryId}.${timestamp}.`, "utf8"), rawBody]);
+  return `${WEBHOOK_SIGNATURE_PREFIX}${hmacHex("sha256", secret, signed)}`;
+}
+
+/**
+ * Headers, then freshness, then the delivery id (read first because the signature covers it, so a
+ * missing id is malformed), then the signature in constant time.
+ */
+function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const timestamp = headers.get(EXAMPLE_WEBHOOK_HEADERS.timestamp);
+  const signature = headers.get(EXAMPLE_WEBHOOK_HEADERS.signature);
+  if (!timestamp || !signature) return { ok: false, reason: "missing_signature" };
+  if (!isFresh(Number(timestamp), now, EXAMPLE_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  const deliveryId = readDeliveryId(headers, EXAMPLE_WEBHOOK_HEADERS.delivery);
+  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
+  if (!safeEqual(signature, exampleWebhookSignature(secret, deliveryId, timestamp, rawBody))) return { ok: false, reason: "bad_signature" };
+  return { ok: true, deliveryId };
+}
+
+/**
+ * Maps a verified delivery with `toActivityEvents`, the sync's own mapping, so a pushed event and
+ * the same event polled later share a dedupe key and the timeline stores it once.
+ */
+function parseWebhook({ rawBody }: WebhookRequest): WebhookOutcome {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "ignored", reason: "body is not JSON" };
+  }
+  const parsed = WebhookBodySchema.safeParse(raw);
+  if (!parsed.success) return { kind: "ignored", reason: "not a delivery Example Cloud maps" };
+  const body = parsed.data;
+  if (body.type === "installation.deleted") {
+    return { kind: "uninstalled", externalAccountId: body.account_id, occurredAt: body.created_at };
+  }
+  const events = toActivityEvents([body.data], body.account_id);
+  if (events.length === 0) return { kind: "ignored", reason: "event type is not on the timeline" };
+  return { kind: "events", externalAccountId: body.account_id, events };
+}
+
 /* Adapter -------------------------------------------------------------------------------------- */
 
 export const exampleAdapter: ProviderAdapter<"example"> = {
@@ -505,7 +576,6 @@ export const exampleAdapter: ProviderAdapter<"example"> = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     spending: true,
     allowance: true,
@@ -542,6 +612,13 @@ export const exampleAdapter: ProviderAdapter<"example"> = {
   // Hourly, the contract default: usage and billing change slowly, and a sync costs at most eight
   // requests per account.
   pollIntervalSeconds: 3600,
+  // App-level: one URL on StackDash's Example Cloud app receives deliveries for every connection.
+  webhooks: {
+    registration: { kind: "app", secretEnv: "EXAMPLE_WEBHOOK_SECRET" },
+    subscriptions: ["event.created", "installation.deleted"],
+    verify: verifyWebhook,
+    parse: parseWebhook,
+  },
 
   buildAuthorizeUrl({ client, state, redirectUri, codeChallenge }) {
     if (codeChallenge === undefined) throw new TypeError("Example Cloud requires a PKCE S256 code challenge");

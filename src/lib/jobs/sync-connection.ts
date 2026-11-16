@@ -1,4 +1,10 @@
-import { AdapterError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "@/lib/adapters/errors";
+import {
+  AdapterError,
+  AuthRevokedError,
+  InvalidResponseError,
+  PermissionMissingError,
+  RateLimitedError,
+} from "@/lib/adapters/errors";
 import { validateAdapterEvents } from "@/lib/adapters/events";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
 import { isSimulatedAdapter, SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
@@ -341,4 +347,24 @@ async function handleFailure(input: {
   }
   await deps.store.updateConnection(key, patch);
   return { status: "failed", errorCode, errorReference };
+}
+
+/**
+ * Takes a connection out of service the way a sync that hit AuthRevokedError does: the same
+ * sync_failed event, `needs_attention` status, and patch, through the same code path. A provider's
+ * uninstall delivery (#28) calls it so the connection asks for a reconnect at once instead of on
+ * its next sync. A connection that is gone or already waiting for the user is left alone, as
+ * `runSyncJob` leaves it.
+ */
+export async function markConnectionRevoked(input: {
+  job: ClaimedJob;
+  key: ConnectionKey;
+  reason: string;
+  deps: SyncDeps;
+}): Promise<"marked" | "skipped"> {
+  const { job, key, deps } = input;
+  const connection = await deps.store.getConnection(key);
+  if (connection === null || !SYNCABLE_STATUSES.has(connection.status)) return "skipped";
+  await handleFailure({ error: new AuthRevokedError(input.reason), job, connection, key, deps });
+  return "marked";
 }

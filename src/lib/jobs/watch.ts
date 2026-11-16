@@ -16,9 +16,10 @@ import type { SyncDeps } from "./sync-connection";
 
 export const WATCH_DEFAULT_INTERVAL_SECONDS = 10;
 export const WATCH_MIN_INTERVAL_SECONDS = 5;
-// Jobs one watch tick claims, instead of the route's TICK_CLAIM_LIMIT (10), so every simulated
-// connection of a local instance syncs on every tick. Bounded all the same; jobs left when the
-// tick's time budget runs out go back to the queue unstarted, as in any tick.
+// Jobs of every kind but `webhook` one watch tick claims, instead of the route's TICK_CLAIM_LIMIT
+// (10), so every simulated connection of a local instance syncs on every tick; `webhook` jobs keep
+// their own WEBHOOK_TICK_CLAIM_LIMIT (50) on top. Bounded all the same; jobs left when the tick's
+// time budget runs out go back to the queue unstarted, as in any tick.
 export const WATCH_CLAIM_LIMIT = 100;
 
 export type TickArgs =
@@ -122,7 +123,10 @@ export function countingEventWrites(store: JobStore, counter: { written: number 
 
 export type WatchTick = Readonly<{ result: TickResult; eventsWritten: number }>;
 
-/** One normal tick claiming up to WATCH_CLAIM_LIMIT jobs, with the number of new timeline events it wrote. */
+/**
+ * One normal tick claiming up to WATCH_CLAIM_LIMIT jobs of every kind but `webhook` (whose claim
+ * stays at WEBHOOK_TICK_CLAIM_LIMIT), with the number of new timeline events it wrote.
+ */
 export async function runWatchTick(deps: SyncDeps): Promise<WatchTick> {
   const counter = { written: 0 };
   const result = await runTick({ ...deps, store: countingEventWrites(deps.store, counter) }, { claimLimit: WATCH_CLAIM_LIMIT });

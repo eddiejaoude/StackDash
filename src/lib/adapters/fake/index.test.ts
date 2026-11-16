@@ -1,10 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { validateAdapterEvents } from "@/lib/adapters/events";
+import { checkWebhookOutcome } from "@/lib/adapters/harness";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
-import { Secret, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
+import {
+  Secret,
+  type OAuthContext,
+  type OAuthCredential,
+  type WebhookDescriptor,
+  type WebhookRequest,
+} from "@/lib/adapters/types";
 
-import { FAKE_EVENT_WINDOW_DAYS, fakeAdapter, type FakeMode } from "./index";
+import {
+  FAKE_EVENT_WINDOW_DAYS,
+  FAKE_WEBHOOK_HEADERS,
+  FAKE_WEBHOOK_TOLERANCE_SECONDS,
+  fakeAdapter,
+  signFakeWebhook,
+  type FakeMode,
+} from "./index";
 
 // The fake provider has no documentation page and no recorded payloads: every value below is
 // derived in code from the fixed clock, so there are no fixture files.
@@ -329,5 +343,164 @@ describe("failure modes", () => {
     await expect(
       fakeAdapter.sync({ credential, externalAccountId: "fake-acct-1" }, makeCtx()),
     ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+});
+
+describe("webhooks", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+  const SECRET_VALUE = ["fake", "webhook", "value"].join("-");
+  const SECRET = new Secret(SECRET_VALUE);
+  const NOW_SECONDS = OCT_2_AFTERNOON.getTime() / 1000;
+  const DEPLOY_BODY = JSON.stringify({
+    type: "event",
+    account: "fake-acct-1",
+    event: { typeId: "fake.deploy.succeeded", occurredAt: "2026-10-02T12:00:00.000Z" },
+  });
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = fakeAdapter;
+    if (webhooks === undefined) throw new Error("the fake adapter declares no webhook");
+    return webhooks;
+  }
+
+  type Delivery = Partial<{ timestampSeconds: number; signedWith: string; signedBody: string; headers: Record<string, string | null> }>;
+
+  // A delivery as the provider sends it; each option bends one part of it for a boundary test.
+  function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
+    const timestampSeconds = options.timestampSeconds ?? NOW_SECONDS;
+    const deliveryId = "dlv_0001";
+    const headers = new Headers({
+      [FAKE_WEBHOOK_HEADERS.delivery]: deliveryId,
+      [FAKE_WEBHOOK_HEADERS.timestamp]: String(timestampSeconds),
+      [FAKE_WEBHOOK_HEADERS.signature]: signFakeWebhook({
+        secret: options.signedWith ?? SECRET_VALUE,
+        deliveryId,
+        rawBody: options.signedBody ?? rawBody,
+        timestampSeconds,
+      }),
+    });
+    for (const [name, value] of Object.entries(options.headers ?? {})) {
+      if (value === null) headers.delete(name);
+      else headers.set(name, value);
+    }
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  function verifyAndParse(request: WebhookRequest) {
+    const verification = descriptor().verify(request, SECRET, OCT_2_AFTERNOON);
+    return { verification, outcome: verification.ok ? descriptor().parse(request, makeCtx()) : undefined };
+  }
+
+  it("verifies a signed delivery and parses it into one event for its account", () => {
+    const { verification, outcome } = verifyAndParse(delivery(DEPLOY_BODY));
+    expect(verification).toEqual({ ok: true, deliveryId: "dlv_0001" });
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: "fake-acct-1",
+      events: [
+        {
+          typeId: "fake.deploy.succeeded",
+          occurredAt: new Date("2026-10-02T12:00:00.000Z"),
+          severity: "success",
+          title: "Deployment succeeded",
+          body: "Daily deployment for 2026-10-02.",
+          externalAccountId: "fake-acct-1",
+          dedupeKey: "fake.deploy.succeeded:fake-acct-1:2026-10-02",
+        },
+      ],
+    });
+    if (outcome === undefined) throw new Error("verified delivery was not parsed");
+    expect(checkWebhookOutcome(fakeAdapter, outcome)).toEqual([]);
+  });
+
+  it("signs the delivery id, the timestamp, and the raw body as v1= and lowercase hex", () => {
+    expect(signFakeWebhook({ secret: SECRET_VALUE, deliveryId: "dlv_0001", rawBody: "{}", timestampSeconds: 1 })).toMatch(/^v1=[0-9a-f]{64}$/);
+  });
+
+  it.each<[string, Delivery, string]>([
+    ["no signature header", { headers: { [FAKE_WEBHOOK_HEADERS.signature]: null } }, "missing_signature"],
+    ["an empty signature header", { headers: { [FAKE_WEBHOOK_HEADERS.signature]: "" } }, "missing_signature"],
+    ["no timestamp header", { headers: { [FAKE_WEBHOOK_HEADERS.timestamp]: null } }, "missing_signature"],
+    ["a timestamp that is not a number", { headers: { [FAKE_WEBHOOK_HEADERS.timestamp]: "yesterday" } }, "stale"],
+    ["a timestamp one second past the tolerance", { timestampSeconds: NOW_SECONDS - FAKE_WEBHOOK_TOLERANCE_SECONDS - 1 }, "stale"],
+    ["a timestamp one second past the tolerance in the future", { timestampSeconds: NOW_SECONDS + FAKE_WEBHOOK_TOLERANCE_SECONDS + 1 }, "stale"],
+    ["a signature made with another secret", { signedWith: "another-webhook-value" }, "bad_signature"],
+    ["a tampered body", { signedBody: DEPLOY_BODY.replace("fake-acct-1", "fake-acct-2") }, "bad_signature"],
+    // The same body and timestamp posted again under a new delivery id: the id is signed too.
+    ["a valid signature replayed under another delivery id", { headers: { [FAKE_WEBHOOK_HEADERS.delivery]: "dlv_0002" } }, "bad_signature"],
+    // A captured delivery replayed later with a fresh timestamp: the old signature no longer matches.
+    ["a fresh timestamp on an old signature", { headers: { [FAKE_WEBHOOK_HEADERS.timestamp]: String(NOW_SECONDS - 1) } }, "bad_signature"],
+    ["a signature without its v1= prefix", { headers: { [FAKE_WEBHOOK_HEADERS.signature]: "0".repeat(64) } }, "bad_signature"],
+    ["no delivery id", { headers: { [FAKE_WEBHOOK_HEADERS.delivery]: null } }, "malformed"],
+    ["a blank delivery id", { headers: { [FAKE_WEBHOOK_HEADERS.delivery]: "   " } }, "malformed"],
+    ["a delivery id of 201 characters", { headers: { [FAKE_WEBHOOK_HEADERS.delivery]: "d".repeat(201) } }, "malformed"],
+  ])("rejects %s (boundary)", (_case, options, reason) => {
+    expect(descriptor().verify(delivery(DEPLOY_BODY, options), SECRET, OCT_2_AFTERNOON)).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ["exactly at the tolerance in the past", NOW_SECONDS - FAKE_WEBHOOK_TOLERANCE_SECONDS],
+    ["exactly at the tolerance in the future", NOW_SECONDS + FAKE_WEBHOOK_TOLERANCE_SECONDS],
+  ])("accepts a timestamp %s (boundary)", (_case, timestampSeconds) => {
+    expect(descriptor().verify(delivery(DEPLOY_BODY, { timestampSeconds }), SECRET, OCT_2_AFTERNOON)).toEqual({
+      ok: true,
+      deliveryId: "dlv_0001",
+    });
+  });
+
+  it("verifies a body with unicode bytes signed as UTF-8 (boundary: unicode body)", () => {
+    const body = JSON.stringify({ type: "event", account: "fake-acct-1", note: "Déploiement 🚀", event: { typeId: "fake.signup", occurredAt: "2026-10-02T09:30:00.000Z" } });
+    const { verification, outcome } = verifyAndParse(delivery(body));
+    expect(verification.ok).toBe(true);
+    expect(outcome).toMatchObject({ kind: "events", events: [{ dedupeKey: "fake.signup:fake-acct-1:2026-10-02" }] });
+  });
+
+  it("reports an uninstall for its account, at the time the provider gives", () => {
+    const body = JSON.stringify({ type: "uninstalled", account: "fake-acct-2", occurredAt: "2026-10-02T14:59:00.000Z" });
+    const { outcome } = verifyAndParse(delivery(body));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: "fake-acct-2", occurredAt: new Date("2026-10-02T14:59:00.000Z") });
+    if (outcome === undefined) throw new Error("verified delivery was not parsed");
+    expect(checkWebhookOutcome(fakeAdapter, outcome)).toEqual([]);
+  });
+
+  it.each([
+    ["an unknown delivery type", JSON.stringify({ type: "account.renamed", account: "fake-acct-1" })],
+    ["an unknown event type", JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.deploy.failed", occurredAt: "2026-10-02T12:00:00.000Z" } })],
+    ["an empty account", JSON.stringify({ type: "uninstalled", account: "", occurredAt: "2026-10-02T14:59:00.000Z" })],
+    ["an uninstall without a time", JSON.stringify({ type: "uninstalled", account: "fake-acct-2" })],
+    ["an event without a time", JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.signup" } })],
+    ["a JSON array", "[]"],
+    ["a body that is not JSON", "type=event"],
+    ["an empty body", ""],
+  ])("ignores a verified delivery with %s (boundary)", (_case, body) => {
+    const { verification, outcome } = verifyAndParse(delivery(body));
+    expect(verification.ok).toBe(true);
+    expect(outcome).toMatchObject({ kind: "ignored", reason: expect.any(String) });
+  });
+
+  describe("reconciliation with sync", () => {
+    it.each(["fake.deploy.succeeded", "fake.signup"] as const)("delivers the same %s event that sync finds for the account and day", async (typeId) => {
+      const synced = await fakeAdapter.sync({ credential: await connect(), externalAccountId: "fake-acct-1" }, makeCtx());
+      const fromSync = synced.events.find((event) => event.typeId === typeId && event.dedupeKey.endsWith(":2026-10-02"));
+      if (fromSync === undefined) throw new Error(`sync found no ${typeId} on 2026-10-02`);
+
+      const body = JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId, occurredAt: fromSync.occurredAt.toISOString() } });
+      const { outcome } = verifyAndParse(delivery(body));
+      expect(outcome).toEqual({ kind: "events", externalAccountId: "fake-acct-1", events: [fromSync] });
+    });
+
+    function dedupeKeyAt(occurredAt: string): string | undefined {
+      const body = JSON.stringify({ type: "event", account: "fake-acct-1", event: { typeId: "fake.signup", occurredAt } });
+      const { outcome } = verifyAndParse(delivery(body));
+      return outcome?.kind === "events" ? outcome.events[0]?.dedupeKey : undefined;
+    }
+
+    it.each([
+      ["another time on the same UTC day", "2026-10-02T23:59:59.999Z", "fake.signup:fake-acct-1:2026-10-02"],
+      ["an offset time that is still that UTC day", "2026-10-03T00:30:00+01:00", "fake.signup:fake-acct-1:2026-10-02"],
+      ["the first millisecond of the next UTC day", "2026-10-03T00:00:00.000Z", "fake.signup:fake-acct-1:2026-10-03"],
+    ])("keys an event at %s by its UTC day (boundary)", (_case, occurredAt, dedupeKey) => {
+      expect(dedupeKeyAt(occurredAt)).toBe(dedupeKey);
+    });
   });
 });

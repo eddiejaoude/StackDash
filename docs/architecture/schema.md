@@ -48,6 +48,10 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261113100000_timeline_activity_bucket_severities.sql` | `timeline_activity_buckets` also returns `critical_events` and `warning_events` per slice, after its original columns, so the activity overview can stack severity in each bar |
 | `20261114090000_activity_heatmap.sql` | `activity_heatmap` (security invoker): events per weekday and hour of day in a given time zone since a given instant, with the timeline's filters, for the dashboard's activity heatmap |
 | `20261114120000_project_achievements.sql` | `project_achievements`, `project_achievement_publications`, `achievement_date_precision`, `achievement_evidence`, and the record, publish, unpublish, and public read functions for permanent project achievements |
+| `20261115090000_webhook_job_kind.sql` | `sync_job_kind` gains `webhook` |
+| `20261115090100_webhook_deliveries.sql` | `webhook_endpoints` (a per-connection webhook URL and its sealed secret), `webhook_deliveries` (each verified provider delivery, unique per provider and delivery id), `webhook_delivery_status`, `sync_jobs.webhook_delivery_id`, `external_accounts_external_id_idx`, and `record_webhook_delivery`, `list_webhook_targets`, and `purge_webhook_deliveries` |
+| `20261115090200_webhook_delivery_review.sql` | `webhook_deliveries` unique per provider, endpoint, and delivery id (nulls not distinct); `record_webhook_delivery` stores an ignored delivery processed with no job; `list_webhook_targets` takes `failed` connections and returns `credential_updated_at`; `claim_sync_jobs` claims `webhook` jobs first |
+| `20261115090300_webhook_claim_allowance.sql` | `claim_sync_jobs` claims every kind but `webhook` again, by `run_after` and id; `claim_webhook_jobs` claims `webhook` jobs on their own; `record_webhook_delivery` refuses an outcome whose `kind` is not `events`, `uninstalled`, or `ignored` |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -95,6 +99,9 @@ erDiagram
   notification_destinations ||--o{ alert_rule_destinations : "receives"
   alert_rules ||--o{ alert_rule_destinations : "sent to"
   triggered_alerts ||--o{ notification_deliveries : "sent once per target"
+  connections ||--o| webhook_endpoints : "webhook URL and sealed secret (service role only)"
+  webhook_endpoints |o--o{ webhook_deliveries : "received (null for an app-level URL)"
+  webhook_deliveries ||--|| sync_jobs : "processed by one webhook job"
 
   workspaces {
     uuid id PK
@@ -165,7 +172,7 @@ Every table in `public` has RLS enabled. Policies read the caller's role from `w
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
-| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries` | none | none (service role; the auth hook reads invites) |
+| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries`, `webhook_endpoints`, `webhook_deliveries` | none | none (service role; the auth hook reads invites) |
 | `api_keys` | admin, every column but `token_hash` | admin creates keys and revokes them (`revoked_at` only, final) |
 | `api_key_request_windows` | none | none (service role) |
 
@@ -217,7 +224,9 @@ A daily summary event (`supabase.auth.daily_summary`, `posthog.signups.daily`) h
 
 ## Jobs
 
-`sync_jobs` is a queue claimed by `claim_sync_jobs(limit, lease_seconds)` with `for update skip locked`, so overlapping ticks never run a job twice. A running job whose lease expired is claimable again until it uses `max_attempts`. `pg_cron` and `pg_net` are installed by migration; the per-minute call to `POST /api/jobs/tick` carries the deployment URL and `CRON_SECRET`, so it is registered per environment, not in a migration.
+`sync_jobs` is a queue with two claims, both with `for update skip locked`, so overlapping ticks never run a job twice: `claim_webhook_jobs(limit, lease_seconds)` takes `webhook` jobs and `claim_sync_jobs(limit, lease_seconds)` every other kind, each ordered by `run_after` and id. A tick calls both with separate limits, so a backlog of one kind never takes the other's share. A running job whose lease expired is claimable again until it uses `max_attempts`. `pg_cron` and `pg_net` are installed by migration; the per-minute call to `POST /api/jobs/tick` carries the deployment URL and `CRON_SECRET`, so it is registered per environment, not in a migration.
+
+Provider webhooks use the same queue. The webhook route verifies a delivery and calls `record_webhook_delivery`, which stores it in `webhook_deliveries` and queues one `webhook` job naming it (`sync_jobs.webhook_delivery_id`, set exactly when the kind is `webhook`) in one transaction. It refuses an outcome whose `kind` is not `events`, `uninstalled`, or `ignored`, so a received delivery always has its job. A delivery whose outcome is `ignored` is stored already processed, with no outcome and no job. A delivery whose (provider, endpoint, delivery id) is already stored returns false and queues nothing, so a provider's retry is acknowledged and dropped; an app-level delivery has no endpoint, and nulls are not distinct, so its id is unique per provider. The endpoint is part of the key because a provider sends one message id to every endpoint of an account. The job is instance-wide: an app-level delivery can reach several workspaces, and `list_webhook_targets` finds them, at most 100: each included external account with the delivery's external id on an active, `failed`, or `needs_attention` connection of the provider, and only on the endpoint's own connection for a per-connection URL, with `credential_updated_at` from `connection_credentials` (null without a credential): when the credential was last saved, by a reconnect or a token refresh, so an uninstall older than the last save is left to the next sync. Once processed, a delivery keeps only its key; its outcome is cleared. A per-connection secret in `webhook_endpoints` is AES-256-GCM ciphertext sealed by the app like connection credentials, with associated data `webhook_endpoint:<workspace id>:<connection id>`.
 
 ## Realtime
 
@@ -335,6 +344,8 @@ The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticate
 | `published_metric_views` | 13 months by `view_date` (`purge_published_metric_views`), and with the project | `published_metric_views_view_date_idx` |
 | `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
 | `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
+| `webhook_deliveries` | 30 days by `received_at` (`purge_webhook_deliveries`), longer than any provider's retry window, so a late retry is still recognized; each delivery's job goes with it, and a connection's deliveries go with its endpoint | `webhook_deliveries_received_at_idx` |
+| `webhook_endpoints` | while the connection exists; deleting the connection deletes it | not applicable |
 
 Nothing is aggregated in the MVP.
 
@@ -353,7 +364,7 @@ Nothing is aggregated in the MVP.
 
 Badges and cards read published values through the engine and add two tables. How they are served is in [Public metrics](public-metrics.md#badges-and-cards).
 
-- `public_rate_limit_counters` holds one row per hashed client IP per minute for the per IP rate limit of the public reads (badges, cards, the public JSON route, and public project pages). `bump_public_rate_limit(ip_hash)` counts a request in the current minute (database clock) in one statement and returns the count. The server hashes the IP with HMAC-SHA-256 under a key derived from `STACKDASH_ENCRYPTION_KEY` before calling it, and a check constraint accepts only a 64 character lowercase hex digest, so no IP address is ever stored. No role but the service role can read or write it.
+- `public_rate_limit_counters` holds one row per key per minute for two per-minute limits: the per IP rate limit of the public reads (badges, cards, the public JSON route, and public project pages), keyed by the hashed client IP, and the per-endpoint limit of webhook deliveries to a per-connection URL, keyed by an HMAC-SHA-256 of the endpoint id under a key derived for that purpose alone, so the two never share a row. `bump_public_rate_limit(ip_hash)` counts a request in the current minute (database clock) in one statement and returns the count. The server hashes the IP with HMAC-SHA-256 under a key derived from `STACKDASH_ENCRYPTION_KEY` before calling it, and a check constraint accepts only a 64 character lowercase hex digest, so no IP address is ever stored. Both kinds of row are deleted after a day. No role but the service role can read or write it.
 - `published_metric_views` counts, per project, metric, surface (`badge` or `card`), and UTC day, how many times StackDash served a published metric's image. `record_published_metric_view(project_id, metric_id, surface)` counts only while the metric is live in that project, so an unknown project or an unpublished metric writes nothing. Members read the counts as viewers (the share dialog's "served this week"); nobody writes through the Data API. Counted per metric rather than per publication row, so republishing with new options keeps the count. Project and workspace deletes cascade.
 
 ## Project pages

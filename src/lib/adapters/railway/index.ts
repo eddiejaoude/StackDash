@@ -766,8 +766,6 @@ export const railwayAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    // Railway notification webhooks are not signed, so they are never used (#113).
-    webhooks: false,
     usage: true,
     spending: true,
     allowance: true,
@@ -823,6 +821,7 @@ export const railwayAdapter: ProviderAdapter = {
   },
   // Hourly: Free plans allow 100 API requests per hour, and a sync costs about four per workspace.
   pollIntervalSeconds: 3600,
+  // No `webhooks`: Railway notification webhooks are not signed, so they are never used (#113).
 
   buildAuthorizeUrl({ client, state, redirectUri, codeChallenge }) {
     if (codeChallenge === undefined) throw new TypeError("Railway requires a PKCE S256 code challenge");

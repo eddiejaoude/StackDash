@@ -126,7 +126,7 @@ describe("postHogAdapter declaration", () => {
     expect(postHogAdapter.oauth.pkce).toBe(true);
     expect(postHogAdapter.oauth.clientIdEnv).toBe("POSTHOG_OAUTH_CLIENT_ID");
     expect(postHogAdapter.oauth.clientSecretEnv).toBe("POSTHOG_OAUTH_PRIVATE_KEY");
-    expect(postHogAdapter.capabilities).toMatchObject({ spending: true, usage: true, allowance: true, events: true, webhooks: false });
+    expect(postHogAdapter.capabilities).toMatchObject({ spending: true, usage: true, allowance: true, events: true });
   });
 });
 

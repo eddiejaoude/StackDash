@@ -172,7 +172,7 @@ Per OAuth token: 5,000 requests an hour and 250 a minute. Each request counts fo
 
 Budget per hourly sync, worst case: 1 balance, 1 invoice list, up to 15 invoice item pages (3 new invoices), up to 5 Billing Insights pages, up to 5 action pages, up to 5 Droplet pages, up to 5 app pages, and up to 25 deployment lists: about 60 requests. A typical sync is 6 or 7. Requests run one after another.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
 DigitalOcean has no general outbound webhooks for billing, actions, or deployments. Everything is polled.
 

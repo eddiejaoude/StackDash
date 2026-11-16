@@ -57,6 +57,7 @@ const JOB_KIND_LABELS: Record<Database["public"]["Enums"]["sync_job_kind"], stri
   retention: "Retention",
   alert_dispatch: "Alert dispatch",
   digest: "Digest",
+  webhook: "Webhook delivery",
 };
 
 const MIGRATION_STATES: Record<MigrationState, Readonly<{ status: CheckStatus; summary: string; detail: string }>> = {

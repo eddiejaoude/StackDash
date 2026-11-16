@@ -71,6 +71,17 @@ export const EventPageResponseSchema = z.object({
   next_page_token: z.string().min(1).nullable(),
 });
 
+/**
+ * Webhook delivery bodies (fixtures/webhook-event-created.json). An event delivery carries the same
+ * event object the events endpoint lists, so the timeline maps it once for both paths. An
+ * uninstall carries when it happened, so one delivered after a reconnect is not applied to the new
+ * grant. Any other delivery type fails this schema and is ignored, never an error.
+ */
+export const WebhookBodySchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("event.created"), account_id: z.string().min(1), data: ProviderEventSchema }),
+  z.object({ type: z.literal("installation.deleted"), account_id: z.string().min(1), created_at: isoDateTime }),
+]);
+
 export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 export type UsageResponse = z.infer<typeof UsageResponseSchema>;
 export type BillingResponse = z.infer<typeof BillingResponseSchema>;

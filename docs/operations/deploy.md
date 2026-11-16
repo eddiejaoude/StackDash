@@ -182,6 +182,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `GITLAB_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `STACKDASH_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
 | `FAKE_PROVIDER_CLIENT_ID`, `FAKE_PROVIDER_CLIENT_SECRET` | Test only | Unset | Unset | Fake provider used by tests |
+| `STACKDASH_FAKE_WEBHOOK_SECRET` | Test only | **Must be unset** | **Unset** | Signs the fake provider's webhook deliveries in local development and end-to-end runs; `playwright.config.ts` sets a synthetic value. Unused while `STACKDASH_ENABLE_FAKE_PROVIDER` is unset |
 | `STACKDASH_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Local CLI only | Not in Vercel | Not in Vercel | Hosted: entered in the Supabase dashboard (step 3) |
 
@@ -219,6 +220,12 @@ To rotate `POSTHOG_OAUTH_PRIVATE_KEY`, generate a new key, set it, and deploy. I
 After the production deployment exists and `CRON_SECRET` is set, register the `pg_cron` job in the production Supabase project (SQL editor). The SQL, the payload, how to change or remove the job, and how to read failed runs are in [Jobs, register the pg_cron job](jobs.md#register-the-pg_cron-job). Do not copy it here; keep one source.
 
 The cron job is environment configuration, not a migration, because it carries the production URL and the secret. Register it only on the production project (and on staging only if staging should sync).
+
+### Provider webhooks
+
+Providers that push signed events deliver them to the production URL, and the tick applies them, so they reach the timeline within a minute. A provider registered once for the whole instance posts to `https://<production-host>/api/webhooks/<provider>`, verified with the secret in the environment variable its adapter names. A provider set up per connection posts to `https://<production-host>/api/webhooks/<provider>/<endpoint id>`, verified with a secret stored encrypted for that connection. [Webhooks](../adapters.md#webhooks) in the adapter guide describes both.
+
+Without a public URL, on a local machine or a self-hosted install on a private network, no delivery arrives and every provider works on polling alone, at its poll interval. The route's answers and log lines are in [Jobs, a webhook job](jobs.md#a-webhook-job).
 
 ## 8. Verify the production deployment
 

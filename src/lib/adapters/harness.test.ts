@@ -7,13 +7,14 @@ import {
   checkAdapterDeclaration,
   checkSyncResult,
   checkTraffic,
+  checkWebhookOutcome,
   createAdapterHarness,
   routeKey,
 } from "./harness";
 import type { AdapterMetric } from "./metrics";
 import { getAdapter } from "./registry";
 import { simulatedAdapters } from "./simulated";
-import { liveProviderIds, type ProviderAdapter, type SyncResult } from "./types";
+import { liveProviderIds, type ProviderAdapter, type SyncResult, type WebhookDescriptor, type WebhookOutcome } from "./types";
 
 const NOW = new Date("2026-11-16T00:00:00.000Z");
 const ACCOUNT = "acct_1001";
@@ -44,6 +45,12 @@ const signup = {
 
 function adapterWith(change: Partial<ProviderAdapter<string>>): ProviderAdapter<string> {
   return { ...exampleAdapter, ...change };
+}
+
+function webhooksWith(change: Partial<WebhookDescriptor>): WebhookDescriptor {
+  const { webhooks } = exampleAdapter;
+  if (webhooks === undefined) throw new Error("the example adapter declares no webhook");
+  return { ...webhooks, ...change };
 }
 
 describe("checkAdapterDeclaration", () => {
@@ -158,6 +165,51 @@ describe("checkAdapterDeclaration", () => {
     const problems = checkAdapterDeclaration(adapterWith({ eventTypes: [{ ...eventTypes[0], label: "" }] }));
     // The message ends with zod's wording, so only its start is pinned.
     expect(problems).toContainEqual(expect.stringMatching(/^event type example\.signup is invalid: \S/));
+  });
+
+  describe("webhooks", () => {
+    it("passes a connection-level webhook, which names no instance secret", () => {
+      expect(checkAdapterDeclaration(adapterWith({ webhooks: webhooksWith({ registration: { kind: "connection" } }) }))).toEqual([]);
+    });
+
+    it("passes a single subscription (boundary: one)", () => {
+      expect(checkAdapterDeclaration(adapterWith({ webhooks: webhooksWith({ subscriptions: ["event.created"] }) }))).toEqual([]);
+    });
+
+    it.each<[string, Partial<ProviderAdapter<string>>, string]>([
+      [
+        "no subscriptions",
+        { webhooks: webhooksWith({ subscriptions: [] }) },
+        "webhooks.subscriptions must list the provider's event names, one non-empty name each",
+      ],
+      [
+        "a blank subscription",
+        { webhooks: webhooksWith({ subscriptions: ["event.created", " "] }) },
+        "webhooks.subscriptions must list the provider's event names, one non-empty name each",
+      ],
+      [
+        "a subscription listed twice",
+        { webhooks: webhooksWith({ subscriptions: ["event.created", "event.created"] }) },
+        "webhook subscription event.created is listed twice",
+      ],
+      [
+        "a webhook secret the browser would see",
+        { webhooks: webhooksWith({ registration: { kind: "app", secretEnv: "NEXT_PUBLIC_EXAMPLE_WEBHOOK_SECRET" } }) },
+        "NEXT_PUBLIC_EXAMPLE_WEBHOOK_SECRET would be sent to the browser; drop NEXT_PUBLIC_",
+      ],
+      [
+        "a lowercase webhook secret name",
+        { webhooks: webhooksWith({ registration: { kind: "app", secretEnv: "example_webhook_secret" } }) },
+        "environment variable name example_webhook_secret must be UPPER_SNAKE_CASE",
+      ],
+      [
+        "webhooks without the events capability",
+        { eventTypes: [], achievements: [], capabilities: { ...exampleAdapter.capabilities, events: false } },
+        "webhooks are declared but capabilities.events is false",
+      ],
+    ])("reports %s (boundary)", (_case, change, problem) => {
+      expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);
+    });
   });
 
   describe("achievements", () => {
@@ -366,6 +418,44 @@ describe("checkSyncResult", () => {
     ],
   ])("reports %s (boundary)", (_case, adapter, result, problems) => {
     expect(checkSyncResult(adapter, ACCOUNT, result)).toEqual(problems);
+  });
+});
+
+describe("checkWebhookOutcome", () => {
+  it.each<[string, WebhookOutcome]>([
+    ["events for the delivery's account", { kind: "events", externalAccountId: ACCOUNT, events: [signup] }],
+    ["no events (boundary: empty)", { kind: "events", externalAccountId: ACCOUNT, events: [] }],
+    ["an uninstall", { kind: "uninstalled", externalAccountId: ACCOUNT, occurredAt: NOW }],
+    ["an ignored delivery with a reason", { kind: "ignored", reason: "not a delivery Example Cloud maps" }],
+  ])("passes %s", (_case, outcome) => {
+    expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([]);
+  });
+
+  it.each<[string, WebhookOutcome, string[]]>([
+    ["an ignored delivery without a reason", { kind: "ignored", reason: " " }, ["an ignored delivery has no reason"]],
+    ["an uninstall without an account", { kind: "uninstalled", externalAccountId: "", occurredAt: NOW }, ["the uninstalled outcome has no externalAccountId"]],
+    [
+      "an uninstall with an invalid time",
+      { kind: "uninstalled", externalAccountId: ACCOUNT, occurredAt: new Date(Number.NaN) },
+      ["the uninstalled outcome has an invalid occurredAt"],
+    ],
+    [
+      "events without an account",
+      { kind: "events", externalAccountId: "", events: [] },
+      ["the events outcome has no externalAccountId"],
+    ],
+    [
+      "an undeclared event type",
+      { kind: "events", externalAccountId: ACCOUNT, events: [{ ...signup, typeId: "example.unknown" }] },
+      ["events[0].typeId: is not one of the adapter's declared event types"],
+    ],
+    [
+      "an event for another account",
+      { kind: "events", externalAccountId: ACCOUNT, events: [signup, { ...signup, externalAccountId: "acct_9" }] },
+      ["events[1] belongs to account acct_9, not acct_1001"],
+    ],
+  ])("reports %s (boundary)", (_case, outcome, problems) => {
+    expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual(problems);
   });
 });
 

@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { E2E_USERS } from "./e2e/fixtures/auth";
 import { FAKE_RESEND } from "./e2e/fixtures/fake-resend";
+import { FAKE_WEBHOOK_E2E_SECRET } from "./e2e/fixtures/fake-webhook";
 import { E2E_OPERATOR } from "./e2e/fixtures/operator";
 
 // E2E_PORT lets parallel local runs (and agents) avoid each other and the default dev port.
@@ -15,6 +16,7 @@ const INSTANCE_WIDE_SPECS = [
   "simulated-sentry.spec.ts",
   "demo-event.spec.ts",
   "achievements-earning.spec.ts",
+  "webhooks.spec.ts",
 ];
 
 // Pass this process's environment through (CI sets the Supabase variables here). Locally the dev
@@ -95,6 +97,8 @@ export default defineConfig({
       // (canonical addresses, og:url, og:image: #338) and alert links point at this server.
       // The e2e owner is the instance's super admin (#250) and the viewer is not, whatever
       // .env.local says, so e2e/admin.spec.ts can check both sides of the gate.
+      // The fake provider's webhook secret (#28) is the synthetic one e2e/webhooks.spec.ts signs
+      // with, whatever .env.local says.
       env: {
         ...inherited,
         ...fakeResendEnv,
@@ -102,6 +106,7 @@ export default defineConfig({
         STACKDASH_SIMULATE_PROVIDERS: "1",
         NEXT_PUBLIC_SITE_URL: baseURL,
         STACKDASH_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
+        STACKDASH_FAKE_WEBHOOK_SECRET: FAKE_WEBHOOK_E2E_SECRET,
       },
     },
   ],

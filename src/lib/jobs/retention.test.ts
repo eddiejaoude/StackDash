@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MemoryJobStore, type MemorySnapshot } from "./memory-store";
-import { RETENTION_BATCH_SIZE, retentionCutoffs, runRetention, subtractUtcMonths } from "./retention";
+import { RETENTION_BATCH_SIZE, retentionCutoffs, runRetention, subtractUtcMonths, WEBHOOK_DELIVERY_RETENTION_DAYS } from "./retention";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const NOW = new Date("2026-10-31T12:00:00.000Z");
@@ -60,7 +60,17 @@ describe("retention (#37)", () => {
 
     expect(store.snapshots.map((row) => row.snapshot_date).sort()).toEqual(["2025-09-30", "2026-10-31"]);
     expect(store.events.map((row) => row.dedupe_key)).toEqual(["exactly-13-months"]);
-    expect(result).toEqual({ oauthStates: 0, snapshots: 1, events: 1, jobs: 0, rateLimitCounters: 0, metricViews: 0, deliveries: 0, complete: true });
+    expect(result).toEqual({
+      oauthStates: 0,
+      snapshots: 1,
+      events: 1,
+      jobs: 0,
+      rateLimitCounters: 0,
+      metricViews: 0,
+      deliveries: 0,
+      webhookDeliveries: 0,
+      complete: true,
+    });
   });
 
   it("deletes finished sync jobs older than 30 days and never queued or running ones", async () => {
@@ -92,6 +102,38 @@ describe("retention (#37)", () => {
     expect(result.deliveries).toBe(1);
   });
 
+  it("deletes webhook delivery records received more than 30 days ago with their jobs, and keeps one received exactly 30 days ago (#28)", async () => {
+    const cutoff = retentionCutoffs(NOW).webhookDeliveriesBefore;
+    let clock = new Date(cutoff.getTime() - 1);
+    const store = new MemoryJobStore(() => clock);
+    // An ignored delivery queues no job, so this one is an uninstall: the purge must take its job too.
+    const outcome = { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: cutoff } as const;
+    await store.recordWebhookDelivery({ provider: "fake", deliveryId: "old", endpointId: null, outcome });
+    clock = cutoff;
+    await store.recordWebhookDelivery({ provider: "fake", deliveryId: "kept-exact", endpointId: null, outcome });
+
+    const result = await runRetention(store, NOW, () => true);
+
+    expect(store.webhookDeliveries.map((row) => row.delivery_id)).toEqual(["kept-exact"]);
+    expect(store.jobs.map((job) => job.webhook_delivery_id)).toEqual(store.webhookDeliveries.map((row) => row.id));
+    expect(result.webhookDeliveries).toBe(1);
+  });
+
+  it.each([
+    { name: "a retry 3 days late, the end of Stripe's retry window", daysLate: 3, repeat: true },
+    { name: "one day past the retention window", daysLate: WEBHOOK_DELIVERY_RETENTION_DAYS + 1, repeat: false },
+  ])("recognizes a provider retry after retention as a repeat only inside the window (boundary: $name)", async ({ daysLate, repeat }) => {
+    let clock = new Date(NOW.getTime() - daysLate * 86_400_000);
+    const store = new MemoryJobStore(() => clock);
+    const delivery = { provider: "fake", deliveryId: "evt_1", endpointId: null, outcome: { kind: "ignored", reason: "test" } } as const;
+    await store.recordWebhookDelivery(delivery);
+
+    clock = NOW;
+    await runRetention(store, NOW, () => true);
+
+    expect(await store.recordWebhookDelivery(delivery)).toBe(!repeat);
+  });
+
   it("deletes OAuth states once expired and keeps flows still in progress", async () => {
     const store = new MemoryJobStore(() => NOW);
     const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
@@ -120,7 +162,17 @@ describe("retention (#37)", () => {
     expect(purge.mock.calls.every(([, limit]) => limit === RETENTION_BATCH_SIZE)).toBe(true);
 
     const second = await runRetention(store, NOW, () => true);
-    expect(second).toEqual({ oauthStates: 0, snapshots: 0, events: 0, jobs: 0, rateLimitCounters: 0, metricViews: 0, deliveries: 0, complete: true });
+    expect(second).toEqual({
+      oauthStates: 0,
+      snapshots: 0,
+      events: 0,
+      jobs: 0,
+      rateLimitCounters: 0,
+      metricViews: 0,
+      deliveries: 0,
+      webhookDeliveries: 0,
+      complete: true,
+    });
   });
 
   it("deletes rate limit counters older than a day and keeps the last day's (#149)", async () => {

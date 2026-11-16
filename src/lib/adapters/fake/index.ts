@@ -18,15 +18,20 @@ import {
   type ProviderAdapter,
   type SyncInput,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookVerification,
 } from "@/lib/adapters/types";
 import { addDecimals, parseDecimal, toMinorUnits } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { hmacHex, isFresh, readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 
 /**
  * In-memory provider for unit tests, sync engine tests, and Playwright e2e (#40). It never touches
  * the network: the "consent screen" is the dev-only route at FAKE_AUTHORIZE_PATH, codes and tokens
  * are minted locally, and `sync` derives every number from `ctx.now()` so the same clock always
- * yields the same metric keys, values, and event dedupe keys.
+ * yields the same metric keys, values, and event dedupe keys. Its webhook (#28) is signed with a
+ * shared secret the e2e suite also holds, so a signed delivery can be sent without a real provider.
  */
 
 export const FAKE_AUTHORIZE_PATH = "/api/dev/fake-provider/authorize";
@@ -65,6 +70,16 @@ const DAY_MS = 86_400_000;
 const SIGNUP_OFFSET_MS = (9 * 60 + 30) * 60_000; // 09:30 UTC
 const DEPLOY_OFFSET_MS = 12 * 60 * 60_000; // 12:00 UTC
 
+// The webhook's secret is an instance setting, like a real app-level provider's (#28).
+export const FAKE_WEBHOOK_SECRET_ENV = "STACKDASH_FAKE_WEBHOOK_SECRET";
+export const FAKE_WEBHOOK_HEADERS = {
+  delivery: "x-fake-delivery",
+  timestamp: "x-fake-timestamp",
+  signature: "x-fake-signature",
+} as const;
+export const FAKE_WEBHOOK_TOLERANCE_SECONDS = 300;
+const FAKE_SIGNATURE_PREFIX = "v1=";
+
 type FakeAccount = ExternalAccount & Readonly<{ dailyRequests: number; dailyCharge: string }>;
 
 // Daily charges have sub-cent precision on purpose: the month total is summed exactly and rounded
@@ -92,6 +107,8 @@ const eventTypes = [
     emoji: "👋",
   },
 ] as const satisfies readonly EventType[];
+
+type FakeEventTypeId = (typeof eventTypes)[number]["id"];
 
 const permissions: readonly Permission[] = [
   {
@@ -235,6 +252,22 @@ function buildMetrics(account: FakeAccount, now: Date): AdapterMetric[] {
 }
 
 /**
+ * One fake event. `sync` and the webhook both build events here, so the same type, account, and
+ * UTC day always give the same dedupe key, title, and severity, and the timeline stores an event
+ * once whether a delivery or a poll sees it first (#28).
+ */
+function buildEvent(typeId: FakeEventTypeId, externalAccountId: string, occurredAt: Date): ActivityEvent {
+  const date = occurredAt.toISOString().slice(0, 10);
+  const shared = { typeId, occurredAt, externalAccountId, dedupeKey: `${typeId}:${externalAccountId}:${date}` };
+  switch (typeId) {
+    case "fake.signup":
+      return { ...shared, severity: "info", title: "New signup" };
+    case "fake.deploy.succeeded":
+      return { ...shared, severity: "success", title: "Deployment succeeded", body: `Daily deployment for ${date}.` };
+  }
+}
+
+/**
  * One signup (09:30 UTC) and one deployment (12:00 UTC) per UTC day, newer than the cursor and no
  * older than FAKE_EVENT_WINDOW_DAYS. Dedupe keys are the type, account, and UTC date, so polling
  * the same day twice yields the same keys.
@@ -244,25 +277,9 @@ function buildEvents(account: FakeAccount, now: Date, after: Date | undefined): 
   const events: ActivityEvent[] = [];
   for (let offset = FAKE_EVENT_WINDOW_DAYS - 1; offset >= 0; offset -= 1) {
     const dayStart = todayStart - offset * DAY_MS;
-    const date = new Date(dayStart).toISOString().slice(0, 10);
-    const candidates: ActivityEvent[] = [
-      {
-        typeId: "fake.signup",
-        occurredAt: new Date(dayStart + SIGNUP_OFFSET_MS),
-        severity: "info",
-        title: "New signup",
-        externalAccountId: account.externalId,
-        dedupeKey: `fake.signup:${account.externalId}:${date}`,
-      },
-      {
-        typeId: "fake.deploy.succeeded",
-        occurredAt: new Date(dayStart + DEPLOY_OFFSET_MS),
-        severity: "success",
-        title: "Deployment succeeded",
-        body: `Daily deployment for ${date}.`,
-        externalAccountId: account.externalId,
-        dedupeKey: `fake.deploy.succeeded:${account.externalId}:${date}`,
-      },
+    const candidates = [
+      buildEvent("fake.signup", account.externalId, new Date(dayStart + SIGNUP_OFFSET_MS)),
+      buildEvent("fake.deploy.succeeded", account.externalId, new Date(dayStart + DEPLOY_OFFSET_MS)),
     ];
     for (const event of candidates) {
       const at = event.occurredAt.getTime();
@@ -281,13 +298,85 @@ function parseCursor(cursor: string | undefined): Date | undefined {
   return new Date(parsed.data);
 }
 
+/* Webhook -------------------------------------------------------------------------------------- */
+
+/**
+ * The signature header value for a delivery: `v1=` and the hex HMAC-SHA256 of the delivery id, a
+ * dot, the timestamp, a dot, and the raw body (the Standard Webhooks layout). The timestamp is
+ * signed, so a captured delivery cannot be replayed later under a fresh timestamp, and so is the
+ * delivery id, so it cannot be replayed within the tolerance under a new id. For tests and the e2e
+ * suite, which play the provider.
+ */
+export function signFakeWebhook({
+  secret,
+  deliveryId,
+  rawBody,
+  timestampSeconds,
+}: {
+  secret: string;
+  deliveryId: string;
+  rawBody: string;
+  timestampSeconds: number;
+}): string {
+  return `${FAKE_SIGNATURE_PREFIX}${hmacHex("sha256", new Secret(secret), `${deliveryId}.${timestampSeconds}.${rawBody}`)}`;
+}
+
+function verifyFakeWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const timestamp = headers.get(FAKE_WEBHOOK_HEADERS.timestamp);
+  const signature = headers.get(FAKE_WEBHOOK_HEADERS.signature);
+  if (!timestamp || !signature) return { ok: false, reason: "missing_signature" };
+  if (!isFresh(Number(timestamp), now, FAKE_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  // Read before the MAC, which covers it: a missing id is malformed, not a bad signature.
+  const deliveryId = readDeliveryId(headers, FAKE_WEBHOOK_HEADERS.delivery);
+  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
+  // Signed as bytes, never decoded first: decoding would map invalid UTF-8 onto U+FFFD and let two
+  // different bodies share one signature.
+  const signed = Buffer.concat([Buffer.from(`${deliveryId}.${timestamp}.`, "utf8"), rawBody]);
+  if (!safeEqual(signature, `${FAKE_SIGNATURE_PREFIX}${hmacHex("sha256", secret, signed)}`)) {
+    return { ok: false, reason: "bad_signature" };
+  }
+  return { ok: true, deliveryId };
+}
+
+const FakeWebhookBodySchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("event"),
+    account: z.string().min(1),
+    event: z.object({
+      typeId: z.literal(eventTypes.map((eventType) => eventType.id)),
+      occurredAt: z.iso.datetime({ offset: true }),
+    }),
+  }),
+  z.object({ type: z.literal("uninstalled"), account: z.string().min(1), occurredAt: z.iso.datetime({ offset: true }) }),
+]);
+
+function parseFakeWebhook({ rawBody }: WebhookRequest): WebhookOutcome {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "ignored", reason: "body is not JSON" };
+  }
+  const parsed = FakeWebhookBodySchema.safeParse(raw);
+  if (!parsed.success) return { kind: "ignored", reason: "not a delivery the fake provider maps" };
+  const body = parsed.data;
+  if (body.type === "uninstalled") {
+    return { kind: "uninstalled", externalAccountId: body.account, occurredAt: new Date(body.occurredAt) };
+  }
+  return {
+    kind: "events",
+    externalAccountId: body.account,
+    events: [buildEvent(body.event.typeId, body.account, new Date(body.event.occurredAt))],
+  };
+}
+
 export const fakeAdapter: ProviderAdapter = {
   id: "fake",
   displayName: PROVIDER_NAMES.fake,
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     spending: true,
     allowance: true,
@@ -314,6 +403,12 @@ export const fakeAdapter: ProviderAdapter = {
     clientSecretEnv: "FAKE_PROVIDER_CLIENT_SECRET",
   },
   pollIntervalSeconds: 3600,
+  webhooks: {
+    registration: { kind: "app", secretEnv: FAKE_WEBHOOK_SECRET_ENV },
+    subscriptions: ["event", "uninstalled"],
+    verify: verifyFakeWebhook,
+    parse: parseFakeWebhook,
+  },
 
   buildAuthorizeUrl({ state, redirectUri }) {
     const url = new URL(FAKE_AUTHORIZE_PATH, new URL(redirectUri).origin);

@@ -52,7 +52,7 @@ The sync runner refreshes when the token is within its refresh window, so with h
 ### Disconnect and revoke
 
 - Sentry documents no endpoint an integration can call to revoke its own token or uninstall itself. Disconnecting in StackDash deletes the stored token and shows the manual step: in Sentry, open **Settings**, then **Integrations**, choose StackDash, and choose **Uninstall**.
-- After an uninstall the token stops working. Without webhooks (Post-MVP), StackDash finds out on the next sync: a `401` on any call, or a `401`, `403`, or `404` on the refresh, marks the connection as needing a reconnect. The exact codes are unverified.
+- After an uninstall the token stops working. Until StackDash receives Sentry webhooks (see [Webhooks](#webhooks)), it finds out on the next sync: a `401` on any call, or a `401`, `403`, or `404` on the refresh, marks the connection as needing a reconnect. The exact codes are unverified.
 
 ## Permissions
 
@@ -169,9 +169,9 @@ The issue achievements count `sentry.issue.resolved` events and the release ones
 - Sentry warns that polling the API "is likely to quickly trigger rate limiting" and recommends webhooks. StackDash polls hourly, runs its requests one after another, and backs off on `429` with `Retry-After` through the shared adapter error handling.
 - Budget per project per sync: one stats call, two or three issue searches, one release list, so at most 5 requests per project per hour, plus one token refresh per connection about every 8 hours. 20 projects is about 100 requests an hour.
 
-## Webhooks (Post-MVP)
+## Webhooks
 
-Polling only for the MVP. The integration platform can push `installation` (created, deleted), `issue` (created, resolved, assigned, archived, unresolved), `error`, and alert resources to one webhook URL, each signed with `Sentry-Hook-Signature`: an HMAC SHA-256 hex digest of the raw body keyed with the client secret, compared in constant time. `installation.deleted` would also tell StackDash at once when a user uninstalls. There is no webhook for usage stats, so error volume stays polled.
+Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. They need no extra access. The integration platform can push `installation` (created, deleted), `issue` (created, resolved, assigned, archived, unresolved), `error`, and alert resources to one webhook URL, each signed with `Sentry-Hook-Signature`: an HMAC SHA-256 hex digest of the raw body keyed with the client secret, compared in constant time. `installation.deleted` would also tell StackDash at once when a user uninstalls. There is no webhook for usage stats, so error volume stays polled.
 
 ## Permission risks
 

@@ -615,14 +615,14 @@ isOneToOne: false
                   ]
                 },"sync_jobs": {
                   Row: {
-                    "attempts": number,"connection_id": string | null,"created_at": string,"dedupe_key": string | null,"error_code": string | null,"error_reference": string | null,"finished_at": string | null,"id": string,"kind": Database["public"]['Enums']["sync_job_kind"],"locked_until": string | null,"max_attempts": number,"run_after": string,"started_at": string | null,"status": Database["public"]['Enums']["sync_job_status"],"workspace_id": string | null
+                    "attempts": number,"connection_id": string | null,"created_at": string,"dedupe_key": string | null,"error_code": string | null,"error_reference": string | null,"finished_at": string | null,"id": string,"kind": Database["public"]['Enums']["sync_job_kind"],"locked_until": string | null,"max_attempts": number,"run_after": string,"started_at": string | null,"status": Database["public"]['Enums']["sync_job_status"],"webhook_delivery_id": string | null,"workspace_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"connection_id"?: string | null,"created_at"?: string,"dedupe_key"?: string | null,"error_code"?: string | null,"error_reference"?: string | null,"finished_at"?: string | null,"id"?: string,"kind": Database["public"]['Enums']["sync_job_kind"],"locked_until"?: string | null,"max_attempts"?: number,"run_after"?: string,"started_at"?: string | null,"status"?: Database["public"]['Enums']["sync_job_status"],"workspace_id"?: string | null
+                    "attempts"?: number,"connection_id"?: string | null,"created_at"?: string,"dedupe_key"?: string | null,"error_code"?: string | null,"error_reference"?: string | null,"finished_at"?: string | null,"id"?: string,"kind": Database["public"]['Enums']["sync_job_kind"],"locked_until"?: string | null,"max_attempts"?: number,"run_after"?: string,"started_at"?: string | null,"status"?: Database["public"]['Enums']["sync_job_status"],"webhook_delivery_id"?: string | null,"workspace_id"?: string | null
                   }
                   Update: {
-                    "attempts"?: number,"connection_id"?: string | null,"created_at"?: string,"dedupe_key"?: string | null,"error_code"?: string | null,"error_reference"?: string | null,"finished_at"?: string | null,"id"?: string,"kind"?: Database["public"]['Enums']["sync_job_kind"],"locked_until"?: string | null,"max_attempts"?: number,"run_after"?: string,"started_at"?: string | null,"status"?: Database["public"]['Enums']["sync_job_status"],"workspace_id"?: string | null
+                    "attempts"?: number,"connection_id"?: string | null,"created_at"?: string,"dedupe_key"?: string | null,"error_code"?: string | null,"error_reference"?: string | null,"finished_at"?: string | null,"id"?: string,"kind"?: Database["public"]['Enums']["sync_job_kind"],"locked_until"?: string | null,"max_attempts"?: number,"run_after"?: string,"started_at"?: string | null,"status"?: Database["public"]['Enums']["sync_job_status"],"webhook_delivery_id"?: string | null,"workspace_id"?: string | null
                   }
                   Relationships: [
                     {
@@ -631,6 +631,12 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "connections"
       referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "sync_jobs_webhook_delivery_id_fkey"
+      columns: ["webhook_delivery_id"]
+isOneToOne: false
+      referencedRelation: "webhook_deliveries"
+      referencedColumns: ["id"]
     },{
       foreignKeyName: "sync_jobs_workspace_id_fkey"
       columns: ["workspace_id"]
@@ -697,6 +703,52 @@ isOneToOne: false
       referencedColumns: ["workspace_id","id"]
     },{
       foreignKeyName: "usage_snapshots_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"webhook_deliveries": {
+                  Row: {
+                    "delivery_id": string,"endpoint_id": string | null,"id": string,"outcome": Json | null,"processed_at": string | null,"provider": Database["public"]['Enums']["provider_id"],"received_at": string,"status": Database["public"]['Enums']["webhook_delivery_status"]
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "delivery_id": string,"endpoint_id"?: string | null,"id"?: string,"outcome"?: Json | null,"processed_at"?: string | null,"provider": Database["public"]['Enums']["provider_id"],"received_at"?: string,"status"?: Database["public"]['Enums']["webhook_delivery_status"]
+                  }
+                  Update: {
+                    "delivery_id"?: string,"endpoint_id"?: string | null,"id"?: string,"outcome"?: Json | null,"processed_at"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"],"received_at"?: string,"status"?: Database["public"]['Enums']["webhook_delivery_status"]
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "webhook_deliveries_endpoint_id_fkey"
+      columns: ["endpoint_id"]
+isOneToOne: false
+      referencedRelation: "webhook_endpoints"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"webhook_endpoints": {
+                  Row: {
+                    "auth_tag": string,"ciphertext": string,"connection_id": string,"created_at": string,"id": string,"iv": string,"key_id": string,"provider": Database["public"]['Enums']["provider_id"],"updated_at": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "auth_tag": string,"ciphertext": string,"connection_id": string,"created_at"?: string,"id"?: string,"iv": string,"key_id": string,"provider": Database["public"]['Enums']["provider_id"],"updated_at"?: string,"workspace_id": string
+                  }
+                  Update: {
+                    "auth_tag"?: string,"ciphertext"?: string,"connection_id"?: string,"created_at"?: string,"id"?: string,"iv"?: string,"key_id"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"updated_at"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "webhook_endpoints_connection_fkey"
+      columns: ["workspace_id","connection_id"]
+isOneToOne: false
+      referencedRelation: "connections"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "webhook_endpoints_workspace_id_fkey"
       columns: ["workspace_id"]
 isOneToOne: false
       referencedRelation: "workspaces"
@@ -841,6 +893,32 @@ isOneToOne: false
 "run_after": string,
 "started_at": string | null,
 "status": Database["public"]['Enums']["sync_job_status"],
+"webhook_delivery_id": string | null,
+"workspace_id": string | null
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "sync_jobs"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
+"claim_webhook_jobs":
+{ Args: { "p_lease_seconds": number,"p_limit": number }; Returns: {
+              "attempts": number,
+"connection_id": string | null,
+"created_at": string,
+"dedupe_key": string | null,
+"error_code": string | null,
+"error_reference": string | null,
+"finished_at": string | null,
+"id": string,
+"kind": Database["public"]['Enums']["sync_job_kind"],
+"locked_until": string | null,
+"max_attempts": number,
+"run_after": string,
+"started_at": string | null,
+"status": Database["public"]['Enums']["sync_job_status"],
+"webhook_delivery_id": string | null,
 "workspace_id": string | null
             }[]
                           SetofOptions: {
@@ -915,6 +993,11 @@ isOneToOne: false
               "metric_key": string,"resets_at": string
             }[]
                            },
+"list_webhook_targets":
+{ Args: { "p_endpoint_id"?: string,"p_external_id": string,"p_provider": Database["public"]['Enums']["provider_id"] }; Returns: {
+              "account_id": string,"connection_id": string,"credential_updated_at": string,"workspace_id": string
+            }[]
+                           },
 "notification_recipients":
 { Args: { "p_workspace_id": string }; Returns: {
               "email": string,"email_frequency": Database["public"]['Enums']["email_frequency"],"user_id": string
@@ -970,6 +1053,9 @@ isOneToOne: false
 "purge_usage_snapshots":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
+"purge_webhook_deliveries":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
 "rebuild_activity_event_daily_counts":
 { Args: { "p_workspace_id": string }; Returns: number
                            },
@@ -981,6 +1067,9 @@ isOneToOne: false
                            },
 "record_published_metric_view":
 { Args: { "p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_surface": Database["public"]['Enums']["share_surface"] }; Returns: undefined
+                           },
+"record_webhook_delivery":
+{ Args: { "p_delivery_id": string,"p_endpoint_id"?: string,"p_outcome": Json,"p_provider": Database["public"]['Enums']["provider_id"] }; Returns: boolean
                            },
 "remove_workspace_handle":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: string
@@ -1116,7 +1205,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "achievement_date_precision": "instant"|"day","achievement_evidence": "crossed"|"at_least","alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway"|"gitlab","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
+            "achievement_date_precision": "instant"|"day","achievement_evidence": "crossed"|"at_least","alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway"|"gitlab","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest"|"webhook","sync_job_status": "queued"|"running"|"succeeded"|"failed","webhook_delivery_status": "received"|"processed","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -1232,7 +1321,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "achievement_date_precision": ["instant", "day"],"achievement_evidence": ["crossed", "at_least"],"alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
+            "achievement_date_precision": ["instant", "day"],"achievement_evidence": ["crossed", "at_least"],"alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest", "webhook"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"webhook_delivery_status": ["received", "processed"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const

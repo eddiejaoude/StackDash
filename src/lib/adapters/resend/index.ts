@@ -410,7 +410,6 @@ export const resendAdapter: ProviderAdapter = {
   capabilities: {
     oauth: true,
     polling: true,
-    webhooks: false,
     usage: true,
     // Resend has no billing API: no spend, invoices, or overage cost (docs/providers/resend.md).
     spending: false,
