@@ -3,8 +3,8 @@
 -- database did: no deployed environment has 20261116090100 or this migration's predecessors.
 -- 20261116090100 was edited in place to add the guard, which a database that already applied it
 -- never runs, so this migration states the same function again. On any other database it changes
--- nothing: the body below is the body 20261116090100 creates, and the contract step of #476 runs
--- this function again, so every database must hold the guarded one.
+-- nothing: the body below is the body 20261116090100 creates, and the contract step of #476
+-- (#502) runs this function again, so every database must hold the guarded one.
 --
 -- The guard: the update repeats `granted_at is null`, so under read committed a row whose grant
 -- commits after the batch was read is rechecked against its new version and skipped, instead of
