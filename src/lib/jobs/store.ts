@@ -32,6 +32,7 @@ export type SyncConnection = Pick<
   | "poll_interval_seconds"
   | "consecutive_failures"
   | "missing_scopes"
+  | "external_installation_id"
 >;
 
 export type SyncAccount = Pick<Tables<"external_accounts">, "id" | "external_id" | "display_name" | "sync_cursor">;
@@ -45,6 +46,7 @@ export type ConnectionPatch = Pick<
   | "last_error_code"
   | "last_error_reference"
   | "missing_scopes"
+  | "external_installation_id"
 >;
 
 export type ClaimedJob = Pick<
@@ -95,12 +97,15 @@ export type WebhookDeliveryRecord = Readonly<{
 }>;
 
 /**
- * An included external account of a live connection that a delivery's account maps to.
- * `credentialUpdatedAt` is when the connection's credential was last saved (ISO), or null when it
- * has none. A reconnect saves it and so does a token refresh, so an uninstall older than the last
- * save is left to the next sync instead of being applied.
+ * A live connection a delivery acts on. `grantedAt` is when the connection was last granted, by a
+ * connect or a reconnect (ISO), or null when its grant never completed. A token refresh does not
+ * move it (#476), so an uninstall older than a reconnect is left to the next sync while one older
+ * than only a refresh is applied.
  */
-export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string; credentialUpdatedAt: string | null }>;
+export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null }>;
+
+/** An included external account of a live connection that a delivery's account maps to. */
+export type WebhookTarget = ConnectionTarget & Readonly<{ accountId: string }>;
 
 export type RecordWebhookDeliveryInput = Readonly<{
   provider: ProviderId;
@@ -206,6 +211,12 @@ export interface JobStore {
    * `endpointId` is set.
    */
   listWebhookTargets(input: Readonly<{ provider: ProviderId; externalAccountId: string; endpointId: string | null }>): Promise<WebhookTarget[]>;
+  /**
+   * Where an uninstall naming an installation lands (#480): every connection of the provider whose
+   * `external_installation_id` is that installation, by the same status and endpoint rules as
+   * `listWebhookTargets`, one entry per connection.
+   */
+  listInstallationTargets(input: Readonly<{ provider: ProviderId; installationId: string; endpointId: string | null }>): Promise<ConnectionTarget[]>;
   /** Marks a delivery processed and drops its stored outcome, which is no longer needed. */
   finishWebhookDelivery(deliveryRowId: string, finishedAt: Date): Promise<void>;
   /** Deletes delivery records received before `before`: the deduplication window (#28). */
@@ -229,8 +240,9 @@ function isManualSyncResult(value: unknown): value is ManualSyncResult {
 export const WEBHOOK_TARGET_LIMIT = 100;
 
 // webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt and an
-// uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back.
-const StoredWebhookOutcomeSchema = z.discriminatedUnion("kind", [
+// uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back. An
+// account uninstall stored without `by` (the only shape before #480) still reads back.
+const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({
     kind: z.literal("events"),
     externalAccountId: z.string().min(1),
@@ -238,7 +250,14 @@ const StoredWebhookOutcomeSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     kind: z.literal("uninstalled"),
+    by: z.literal("account").exactOptional(),
     externalAccountId: z.string().min(1),
+    occurredAt: z.iso.datetime().transform((value) => new Date(value)),
+  }),
+  z.strictObject({
+    kind: z.literal("uninstalled"),
+    by: z.literal("installation"),
+    installationId: z.string().min(1),
     occurredAt: z.iso.datetime().transform((value) => new Date(value)),
   }),
   z.strictObject({ kind: z.literal("ignored"), reason: z.string() }),
@@ -396,7 +415,7 @@ export function createSupabaseJobStore(): JobStore {
       const { data, error } = await db
         .from("connections")
         .select(
-          "id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes",
+          "id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes, external_installation_id",
         )
         .eq("id", connectionId)
         .eq("workspace_id", workspaceId)
@@ -659,8 +678,20 @@ export function createSupabaseJobStore(): JobStore {
         workspaceId: row.workspace_id,
         connectionId: row.connection_id,
         accountId: row.account_id,
-        credentialUpdatedAt: row.credential_updated_at,
+        grantedAt: row.granted_at,
       }));
+    },
+
+    async listInstallationTargets({ provider, installationId, endpointId }) {
+      const { data, error } = await db.rpc("list_webhook_targets", {
+        p_provider: provider,
+        p_installation_id: installationId,
+        ...(endpointId === null ? {} : { p_endpoint_id: endpointId }),
+      });
+      if (error) throw failure("list_webhook_targets", error);
+      if (data.length >= WEBHOOK_TARGET_LIMIT) log.warn("webhook.targets_truncated", { provider, targets: data.length });
+      // One row per connection, with no account: an uninstall acts on connections.
+      return data.map((row) => ({ workspaceId: row.workspace_id, connectionId: row.connection_id, grantedAt: row.granted_at }));
     },
 
     async finishWebhookDelivery(deliveryRowId, finishedAt) {

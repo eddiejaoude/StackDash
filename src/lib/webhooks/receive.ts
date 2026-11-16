@@ -146,6 +146,23 @@ function checkEvents(adapter: ProviderAdapter, externalAccountId: string, candid
   return foreign.length > 0 ? { ok: false, issues: foreign } : { ok: true, events: validated.items };
 }
 
+/**
+ * Issue names (never values) that would leave an uninstall's job with nothing to match: a blank
+ * account or installation id, a time that is not one, or an installation named by an adapter that
+ * does not declare `installationIdOf`, so no connection records one (#480).
+ */
+function uninstallIssues(adapter: ProviderAdapter, outcome: Extract<WebhookOutcome, { kind: "uninstalled" }>): string[] {
+  const issues: string[] = [];
+  if (outcome.by === "installation") {
+    if (outcome.installationId.trim() === "") issues.push("installationId");
+    if (adapter.installationIdOf === undefined) issues.push("by");
+  } else if (outcome.externalAccountId.trim() === "") {
+    issues.push("externalAccountId");
+  }
+  if (Number.isNaN(outcome.occurredAt.getTime())) issues.push("occurredAt");
+  return issues;
+}
+
 export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Promise<Response> {
   const parsedProvider = ProviderIdSchema.safeParse(input.provider);
   if (!parsedProvider.success) return notFound();
@@ -199,6 +216,16 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
         return json(422, { error: "invalid_events", referenceId });
       }
       outcome = { ...outcome, events: checked.events };
+    }
+    if (outcome.kind === "uninstalled") {
+      const issues = uninstallIssues(adapter, outcome);
+      if (issues.length > 0) {
+        const referenceId = deps.logError("webhook.invalid_uninstall", new Error(`${provider} webhook parse returned an invalid uninstall`), {
+          ...fields,
+          issues,
+        });
+        return json(422, { error: "invalid_uninstall", referenceId });
+      }
     }
 
     const recorded = await deps.recordWebhookDelivery({ provider, deliveryId, endpointId: resolved.endpointId, outcome });

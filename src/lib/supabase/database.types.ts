@@ -255,14 +255,14 @@ isOneToOne: false
                   ]
                 },"connections": {
                   Row: {
-                    "authorized_account_label": string | null,"consecutive_failures": number,"created_at": string,"created_by": string | null,"display_name": string,"external_installation_id": string | null,"granted_scopes": (string)[],"id": string,"last_error_code": string | null,"last_error_reference": string | null,"last_sync_requested_at": string | null,"last_synced_at": string | null,"missing_scopes": (string)[],"next_sync_at": string | null,"poll_interval_seconds": number,"provider": Database["public"]['Enums']["provider_id"],"status": Database["public"]['Enums']["connection_status"],"updated_at": string,"updated_by": string | null,"workspace_id": string
+                    "authorized_account_label": string | null,"consecutive_failures": number,"created_at": string,"created_by": string | null,"display_name": string,"external_installation_id": string | null,"granted_at": string | null,"granted_scopes": (string)[],"id": string,"last_error_code": string | null,"last_error_reference": string | null,"last_sync_requested_at": string | null,"last_synced_at": string | null,"missing_scopes": (string)[],"next_sync_at": string | null,"poll_interval_seconds": number,"provider": Database["public"]['Enums']["provider_id"],"status": Database["public"]['Enums']["connection_status"],"updated_at": string,"updated_by": string | null,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "authorized_account_label"?: string | null,"consecutive_failures"?: number,"created_at"?: string,"created_by"?: string | null,"display_name": string,"external_installation_id"?: string | null,"granted_scopes"?: (string)[],"id"?: string,"last_error_code"?: string | null,"last_error_reference"?: string | null,"last_sync_requested_at"?: string | null,"last_synced_at"?: string | null,"missing_scopes"?: (string)[],"next_sync_at"?: string | null,"poll_interval_seconds": number,"provider": Database["public"]['Enums']["provider_id"],"status"?: Database["public"]['Enums']["connection_status"],"updated_at"?: string,"updated_by"?: string | null,"workspace_id": string
+                    "authorized_account_label"?: string | null,"consecutive_failures"?: number,"created_at"?: string,"created_by"?: string | null,"display_name": string,"external_installation_id"?: string | null,"granted_at"?: string | null,"granted_scopes"?: (string)[],"id"?: string,"last_error_code"?: string | null,"last_error_reference"?: string | null,"last_sync_requested_at"?: string | null,"last_synced_at"?: string | null,"missing_scopes"?: (string)[],"next_sync_at"?: string | null,"poll_interval_seconds": number,"provider": Database["public"]['Enums']["provider_id"],"status"?: Database["public"]['Enums']["connection_status"],"updated_at"?: string,"updated_by"?: string | null,"workspace_id": string
                   }
                   Update: {
-                    "authorized_account_label"?: string | null,"consecutive_failures"?: number,"created_at"?: string,"created_by"?: string | null,"display_name"?: string,"external_installation_id"?: string | null,"granted_scopes"?: (string)[],"id"?: string,"last_error_code"?: string | null,"last_error_reference"?: string | null,"last_sync_requested_at"?: string | null,"last_synced_at"?: string | null,"missing_scopes"?: (string)[],"next_sync_at"?: string | null,"poll_interval_seconds"?: number,"provider"?: Database["public"]['Enums']["provider_id"],"status"?: Database["public"]['Enums']["connection_status"],"updated_at"?: string,"updated_by"?: string | null,"workspace_id"?: string
+                    "authorized_account_label"?: string | null,"consecutive_failures"?: number,"created_at"?: string,"created_by"?: string | null,"display_name"?: string,"external_installation_id"?: string | null,"granted_at"?: string | null,"granted_scopes"?: (string)[],"id"?: string,"last_error_code"?: string | null,"last_error_reference"?: string | null,"last_sync_requested_at"?: string | null,"last_synced_at"?: string | null,"missing_scopes"?: (string)[],"next_sync_at"?: string | null,"poll_interval_seconds"?: number,"provider"?: Database["public"]['Enums']["provider_id"],"status"?: Database["public"]['Enums']["connection_status"],"updated_at"?: string,"updated_by"?: string | null,"workspace_id"?: string
                   }
                   Relationships: [
                     {
@@ -874,6 +874,9 @@ isOneToOne: false
               "key_id": string,"request_count": number,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"status": string,"window_resets_at": string,"workspace_id": string
             }[]
                            },
+"backfill_connection_granted_at":
+{ Args: { "p_limit": number }; Returns: number
+                           },
 "bump_public_rate_limit":
 { Args: { "p_ip_hash": string }; Returns: number
                            },
@@ -994,8 +997,8 @@ isOneToOne: false
             }[]
                            },
 "list_webhook_targets":
-{ Args: { "p_endpoint_id"?: string,"p_external_id": string,"p_provider": Database["public"]['Enums']["provider_id"] }; Returns: {
-              "account_id": string,"connection_id": string,"credential_updated_at": string,"workspace_id": string
+{ Args: { "p_endpoint_id"?: string,"p_external_id"?: string,"p_installation_id"?: string,"p_provider": Database["public"]['Enums']["provider_id"] }; Returns: {
+              "account_id": string,"connection_id": string,"credential_updated_at": string,"granted_at": string,"workspace_id": string
             }[]
                            },
 "notification_recipients":

@@ -83,6 +83,12 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
     authorized_account_label: label,
     granted_scopes: [...credential.scopes],
     missing_scopes: missingScopes,
+    // Only a completed grant moves this, on connect and on reconnect; a token refresh saves the
+    // credential without it. A webhook uninstall older than it is stale (#476).
+    granted_at: now,
+    // The installation this grant belongs to, for an uninstall that names only the installation
+    // (#480). A reconnect may land on another installation, so it is written every time.
+    external_installation_id: adapter.installationIdOf?.(credential) ?? null,
     poll_interval_seconds: adapter.pollIntervalSeconds,
     next_sync_at: now,
     consecutive_failures: 0,

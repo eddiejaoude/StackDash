@@ -163,15 +163,25 @@ export type WebhookVerification =
  * What a verified delivery means for StackDash.
  * - `events`: timeline events for one external account. Each event's `dedupeKey` is the one
  *   `sync` produces for the same provider event, so a delivery and a later poll store it once.
- * - `uninstalled`: the provider removed StackDash from the account; its connections need a
- *   reconnect at once instead of on the next failed sync. `occurredAt` is when the provider says
- *   the removal happened: a connection whose credential was saved after it (by a reconnect or a
- *   token refresh) is left to its next sync, because deliveries arrive late and out of order.
+ * - `uninstalled`: the provider removed StackDash; the connections it was removed from need a
+ *   reconnect at once instead of on the next failed sync. It names what was removed:
+ *   - an account (`by` omitted or `account`, `externalAccountId`): every connection that includes
+ *     that external account, where the account is what the provider uninstalls (a Vercel team, a
+ *     Stripe account, a GitHub installation's owner);
+ *   - an installation (`by: "installation"`, `installationId`): every connection whose credential
+ *     belongs to that installation (`connections.external_installation_id`), where the delivery
+ *     names no account (Sentry's `installation.deleted` names only `installation.uuid`, #480). Only
+ *     an adapter that declares `installationIdOf` may return it.
+ *   `occurredAt` is when the provider says the removal happened: a connection granted again after
+ *   it (a reconnect, `connections.granted_at`) is left to its next sync, because deliveries arrive
+ *   late and out of order. A token refresh is not a grant, so a refresh after the removal does not
+ *   save the connection from it (#476).
  * - `ignored`: a verified delivery StackDash has no use for (an action it does not map).
  */
 export type WebhookOutcome =
   | Readonly<{ kind: "events"; externalAccountId: string; events: ActivityEvent[] }>
-  | Readonly<{ kind: "uninstalled"; externalAccountId: string; occurredAt: Date }>
+  | Readonly<{ kind: "uninstalled"; by?: "account"; externalAccountId: string; occurredAt: Date }>
+  | Readonly<{ kind: "uninstalled"; by: "installation"; installationId: string; occurredAt: Date }>
   | Readonly<{ kind: "ignored"; reason: string }>;
 
 /**
@@ -325,6 +335,12 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   // Omitted when the provider has no revocation endpoint.
   revoke?(credential: OAuthCredential, ctx: OAuthContext): Promise<void>;
   listAccounts(credential: OAuthCredential, ctx: OAuthContext): Promise<ExternalAccount[]>;
+  // Which provider installation the credential belongs to (Sentry's `installation.uuid`), stored as
+  // `connections.external_installation_id` when a grant completes and on the next sync of a
+  // connection that has none, so an `uninstalled` outcome naming the installation finds it (#480).
+  // Synchronous and network-free: reads only the credential it is handed. Null when the credential
+  // names none. Omitted when the provider's uninstalls name an account.
+  installationIdOf?(credential: OAuthCredential): string | null;
   /** Requested scopes absent from the grant. Empty means nothing is missing. */
   detectMissingPermissions(grant: OAuthGrant): string[];
   sync(input: SyncInput, ctx: OAuthContext): Promise<SyncResult>;

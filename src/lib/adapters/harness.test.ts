@@ -431,6 +431,31 @@ describe("checkWebhookOutcome", () => {
     expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([]);
   });
 
+  describe("an uninstall naming an installation (#480)", () => {
+    const installed = { ...exampleAdapter, installationIdOf: () => "inst-1" };
+
+    it("passes from an adapter that declares installationIdOf", () => {
+      expect(checkWebhookOutcome(installed, { kind: "uninstalled", by: "installation", installationId: "inst-1", occurredAt: NOW })).toEqual([]);
+    });
+
+    it.each<[string, ProviderAdapter<string>, WebhookOutcome, string[]]>([
+      [
+        "an adapter without installationIdOf, whose connections never record one",
+        exampleAdapter,
+        { kind: "uninstalled", by: "installation", installationId: "inst-1", occurredAt: NOW },
+        ["the uninstalled outcome names an installation, but the adapter does not declare installationIdOf"],
+      ],
+      [
+        "a blank installation id (boundary)",
+        installed,
+        { kind: "uninstalled", by: "installation", installationId: " ", occurredAt: NOW },
+        ["the uninstalled outcome has no installationId"],
+      ],
+    ])("reports %s", (_case, adapter, outcome, problems) => {
+      expect(checkWebhookOutcome(adapter, outcome)).toEqual(problems);
+    });
+  });
+
   it.each<[string, WebhookOutcome, string[]]>([
     ["an ignored delivery without a reason", { kind: "ignored", reason: " " }, ["an ignored delivery has no reason"]],
     ["an uninstall without an account", { kind: "uninstalled", externalAccountId: "", occurredAt: NOW }, ["the uninstalled outcome has no externalAccountId"]],

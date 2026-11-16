@@ -2,7 +2,7 @@ import type { ActivityEvent } from "@/lib/adapters/events";
 import type { ProviderId } from "@/lib/adapters/types";
 
 import { toEventRow } from "./ingest";
-import type { ClaimedJob, ConnectionKey, WebhookTarget } from "./store";
+import type { ClaimedJob, ConnectionKey, ConnectionTarget, StoredWebhookOutcome, WebhookDeliveryRecord, WebhookTarget } from "./store";
 import { markConnectionRevoked, type JobOutcome, type SyncDeps } from "./sync-connection";
 
 /*
@@ -34,10 +34,24 @@ async function writeEvents(
 }
 
 /** One entry per connection: two included accounts of one connection are one connection to act on. */
-function distinctConnections(targets: readonly WebhookTarget[]): WebhookTarget[] {
-  const byConnection = new Map<string, WebhookTarget>();
+function distinctConnections(targets: readonly ConnectionTarget[]): ConnectionTarget[] {
+  const byConnection = new Map<string, ConnectionTarget>();
   for (const target of targets) if (!byConnection.has(target.connectionId)) byConnection.set(target.connectionId, target);
   return [...byConnection.values()];
+}
+
+type Uninstall = Extract<StoredWebhookOutcome, { kind: "uninstalled" }>;
+
+/**
+ * The connections an uninstall names: those including the account, or those whose credential
+ * belongs to the installation (`external_installation_id`, #480), one entry per connection.
+ */
+async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRecord, deps: SyncDeps): Promise<ConnectionTarget[]> {
+  const { provider, endpointId } = delivery;
+  if (outcome.by === "installation") {
+    return deps.store.listInstallationTargets({ provider, installationId: outcome.installationId, endpointId });
+  }
+  return distinctConnections(await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, endpointId }));
 }
 
 /**
@@ -97,38 +111,42 @@ export async function runWebhookJob(
 
   // Never `ignored`: such a delivery is stored processed and queues no job.
   const { outcome, provider } = delivery;
-  const targets = await deps.store.listWebhookTargets({
-    provider,
-    externalAccountId: outcome.externalAccountId,
-    endpointId: delivery.endpointId,
-  });
-  if (targets.length === 0) {
-    // An account no workspace includes, or whose connection is gone: nothing to apply it to.
-    deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
-  } else if (outcome.kind === "events") {
-    const inserted = await writeEvents(provider, targets, outcome.events, deps);
-    deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
-    if (inserted > 0) {
-      for (const { workspaceId, connectionId } of targets) delivered.set(connectionId, { workspaceId, connectionId });
+  if (outcome.kind === "events") {
+    const targets = await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, endpointId: delivery.endpointId });
+    if (targets.length === 0) {
+      // An account no workspace includes, or whose connection is gone: nothing to apply it to.
+      deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
+    } else {
+      const inserted = await writeEvents(provider, targets, outcome.events, deps);
+      deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
+      if (inserted > 0) {
+        for (const { workspaceId, connectionId } of targets) delivered.set(connectionId, { workspaceId, connectionId });
+      }
     }
   } else {
-    for (const target of distinctConnections(targets)) {
-      // An uninstall older than the last time the connection's credential was saved is left to
-      // the next sync. A save is a reconnect or a token refresh, and the two cannot be told apart
-      // here: revoking a live reconnect over a late or redelivered uninstall costs more than
-      // leaving a real one to the next sync, which fails and asks for a reconnect as it did before
-      // webhooks. A credential saved at the same instant is not after it.
-      if (target.credentialUpdatedAt !== null && Date.parse(target.credentialUpdatedAt) > outcome.occurredAt.getTime()) {
+    const by = outcome.by ?? "account";
+    const targets = await uninstallTargets(outcome, delivery, deps);
+    if (targets.length === 0) {
+      // An account or installation no live connection has: nothing to apply it to.
+      deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind, by });
+    }
+    for (const target of targets) {
+      // An uninstall older than the connection's last grant (a reconnect) is stale: revoking a live
+      // reconnect over a late or redelivered uninstall would undo what the user just did. A token
+      // refresh is not a grant and does not move `grantedAt` (#476), so a removal followed by a
+      // refresh is still applied. A grant at the same instant is not after it. With no grant time
+      // there is nothing newer than the removal, so it is applied.
+      if (target.grantedAt !== null && Date.parse(target.grantedAt) > outcome.occurredAt.getTime()) {
         deps.log.info("webhook.uninstall_stale", { jobId: job.id, provider, connectionId: target.connectionId });
         continue;
       }
       const result = await markConnectionRevoked({
         job,
         key: { workspaceId: target.workspaceId, connectionId: target.connectionId },
-        reason: `${provider} reported that StackDash was removed from the account`,
+        reason: `${provider} reported that StackDash was removed from the ${by}`,
         deps,
       });
-      deps.log.info("webhook.uninstalled", { jobId: job.id, provider, connectionId: target.connectionId, result });
+      deps.log.info("webhook.uninstalled", { jobId: job.id, provider, connectionId: target.connectionId, by, result });
     }
   }
 

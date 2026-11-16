@@ -149,6 +149,13 @@ async function syncConnection(
       `${adapter.id} connection holds a simulated credential while ${SIMULATE_PROVIDERS_ENV} is off`,
     );
   }
+  // A connection made before #480 has no installation id, and the id is only in the sealed
+  // credential, so SQL could not backfill it: the first sync fills it, before any provider call, so
+  // even a sync that then fails leaves it set. Never rewritten here: only a grant changes it.
+  if (connection.external_installation_id === null && adapter.installationIdOf !== undefined) {
+    const installationId = adapter.installationIdOf(credential);
+    if (installationId !== null) await deps.store.updateConnection(key, { external_installation_id: installationId });
+  }
 
   const client = deps.loadOAuthClient(adapter);
   if (client === null) {
