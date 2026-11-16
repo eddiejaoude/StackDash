@@ -20,7 +20,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | App | Register at | Callback | Permissions (all read-only except where noted) | Variables |
 |---|---|---|---|---|
 | GitHub OAuth app (sign-in) | GitHub, Settings, Developer settings, OAuth Apps | `https://<project-ref>.supabase.co/auth/v1/callback` | `read:user user:email` (requested by the sign-in page) | Entered in Supabase Auth, not in the app |
-| GitHub App | GitHub, Settings, Developer settings, GitHub Apps | `<SITE_URL>/api/connections/github/callback` (callback and setup URL) | Metadata read, Organization Administration read, Account Plan read | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` |
+| GitHub App | GitHub, Settings, Developer settings, GitHub Apps | `<SITE_URL>/api/connections/github/callback` (callback and setup URL); webhook `<SITE_URL>/api/webhooks/github` | Metadata read, Contents read, Issues read, Pull requests read, Organization Administration read, Account Plan read | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET` |
 | Vercel Integration | Vercel, Integrations Console | `<SITE_URL>/api/connections/vercel/callback` | `billing`, `deployment`, `project`, `team` at Read | `VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, `VERCEL_INTEGRATION_SLUG` |
 | Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
@@ -48,7 +48,7 @@ The sign-in page requests `read:user user:email`, so Supabase receives the accou
 
 ## GitHub App
 
-Reads organization and personal billing usage, stars, and forks. Full steps: [GitHub, Self-hosted registration](../providers/github.md#self-hosted-registration). Permissions and why: [GitHub, Permissions](../providers/github.md#permissions).
+Reads organization and personal billing usage, stars, and forks, and receives pull requests merged, issues opened, releases published, and new stars by webhook, with the hourly sync as the backfill. Full steps: [GitHub, Self-hosted registration](../providers/github.md#self-hosted-registration). Permissions and why: [GitHub, Permissions](../providers/github.md#permissions). Webhooks: [GitHub, Webhooks](../providers/github.md#webhooks).
 
 Settings that must match the code:
 
@@ -56,11 +56,14 @@ Settings that must match the code:
 - **Setup URL**: the same `<SITE_URL>/api/connections/github/callback`, with **Redirect on update** checked.
 - **Request user authorization (OAuth) during installation**: unchecked (it disables the setup URL; StackDash runs the user authorization itself, with PKCE).
 - **Expire user authorization tokens**: checked. **Enable Device Flow**: unchecked.
-- **Webhook**: **Active** unchecked.
-- **Permissions**: Repository, Metadata: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Everything else: No access.
+- **Webhook**: **Active** checked. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value, also set as `GITHUB_APP_WEBHOOK_SECRET`. An instance GitHub cannot reach (local development) leaves it unchecked and relies on the hourly sync.
+- **Permissions**: Repository, Metadata: Read-only. Repository, Contents: Read-only (release events; GitHub has nothing narrower). Repository, Issues: Read-only. Repository, Pull requests: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Everything else: No access.
+- **Subscribe to events**: Issues, Pull request, Release, Star. Installation and authorization events reach every GitHub App without a box.
 - **Where can this GitHub App be installed?**: **Any account** for hosted StackDash or a shared install; **Only on this account** for a single-user self-host.
 
-Variables: `GITHUB_APP_ID` (App ID), `GITHUB_APP_SLUG` (from `https://github.com/apps/<slug>`), `GITHUB_APP_CLIENT_ID` (Client ID, not the App ID), `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` (the downloaded PEM; `\n` escapes are accepted when the host stores single-line values). Delete the downloaded PEM file once it is stored.
+Variables: `GITHUB_APP_ID` (App ID), `GITHUB_APP_SLUG` (from `https://github.com/apps/<slug>`), `GITHUB_APP_CLIENT_ID` (Client ID, not the App ID), `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (the downloaded PEM; `\n` escapes are accepted when the host stores single-line values), and `GITHUB_APP_WEBHOOK_SECRET` (the webhook secret above). Delete the downloaded PEM file once it is stored.
+
+An app registered before webhooks: add the webhook, the three repository permissions, and the four events, then save. Each installation's owner is asked to accept the new permissions; until then its connection lists them as missing and keeps syncing billing, stars, and forks.
 
 ## Vercel Integration
 
