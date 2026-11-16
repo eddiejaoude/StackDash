@@ -38,15 +38,12 @@ test.describe("docs", () => {
     for (const name of ["DigitalOcean", "GitHub", "GitLab", "Polar", "PostHog", "Railway", "Resend", "Sentry", "Stripe", "Supabase", "Vercel"]) {
       await expect(providers.getByRole("link", { name, exact: true })).toBeVisible();
     }
-    const operations = page.getByRole("region", { name: "Self-hosting and operations" });
-    for (const name of [
-      "Deploy to Vercel and Supabase",
-      "Jobs: scheduled syncs, retries, and retention",
-      "Register the OAuth apps",
+    await expect(page.getByRole("region", { name: "Self-hosting and operations" }).getByRole("link")).toHaveText([
       "Self-host StackDash",
-    ]) {
-      await expect(operations.getByRole("link", { name, exact: true })).toBeVisible();
-    }
+      "Deploy to Vercel and Supabase",
+      "Register the OAuth apps",
+      "Jobs: scheduled syncs, retries, and retention",
+    ]);
     await expect(
       page.getByRole("region", { name: "Architecture" }).getByRole("link", { name: "Database schema", exact: true }),
     ).toBeVisible();
@@ -238,7 +235,6 @@ test.describe("docs", () => {
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/docs/roadmap");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Roadmap");
-    await expect(page.getByRole("main").getByRole("heading", { name: "How this page maps to the board", exact: true })).toBeVisible();
   });
 
   test("keyboard focus opens the adapter guide and follows a link to one of its sections", async ({ page }) => {

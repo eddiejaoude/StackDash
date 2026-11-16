@@ -233,6 +233,13 @@ describe("listDocs", () => {
       "/docs/mcp",
       "/docs/roadmap",
     ]);
+    // The self-hosting guide is the starting point of its group, then the pages in the order it links them.
+    expect(groups[2]?.docs.map((doc) => doc.href)).toEqual([
+      "/docs/operations/self-hosting",
+      "/docs/operations/deploy",
+      "/docs/operations/oauth-apps",
+      "/docs/operations/jobs",
+    ]);
     expect(listDocs()[0]?.href).toBe("/docs/getting-started");
     expect(groups.flatMap((group) => group.docs)).toHaveLength(listDocs().length);
   });

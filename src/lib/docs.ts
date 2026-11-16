@@ -28,12 +28,14 @@ const GUIDES_GROUP = "guides";
 const DEVELOPERS_GROUP = "developers";
 const PROVIDERS_GROUP = "providers";
 
-// Index order and label of each group. A folder under docs/ that is not listed here still
-// publishes, after these, labeled from its name.
-const GROUPS: readonly { id: string; label: string }[] = [
-  { id: GUIDES_GROUP, label: "Using StackDash" },
+// Index order and label of each group, and the reading order of a group's pages by file name
+// where one matters. Pages a group does not list follow its listed ones, by title. A folder under
+// docs/ that is not listed here still publishes, after these, labeled from its name.
+const GROUPS: readonly { id: string; label: string; readingOrder?: readonly string[] }[] = [
+  { id: GUIDES_GROUP, label: "Using StackDash", readingOrder: GUIDE_PAGES },
   { id: PROVIDERS_GROUP, label: "Providers" },
-  { id: "operations", label: "Self-hosting and operations" },
+  // The self-hosting guide is the starting point; the pages after it go in the order it links them.
+  { id: "operations", label: "Self-hosting and operations", readingOrder: ["self-hosting", "deploy", "oauth-apps", "jobs"] },
   { id: "architecture", label: "Architecture" },
   { id: DEVELOPERS_GROUP, label: "Developers" },
 ];
@@ -214,9 +216,11 @@ function groupRank(group: string): number {
   return index === -1 ? GROUPS.length : index;
 }
 
-/** Reading order inside a group: the guides as GUIDE_PAGES lists them, every other page by title. */
-function guideRank(doc: DocPage): number {
-  return doc.group === GUIDES_GROUP ? GUIDE_PAGES.indexOf(doc.slug[0] ?? "") : 0;
+/** Reading order inside a group: the group's readingOrder first, every other page after it, by title. */
+function readingRank(doc: DocPage): number {
+  const order = GROUPS.find((known) => known.id === doc.group)?.readingOrder ?? [];
+  const index = order.indexOf(doc.slug.at(-1) ?? "");
+  return index === -1 ? order.length : index;
 }
 
 /** Every published doc, ordered by group (GROUPS first) and then by reading order or title. */
@@ -231,7 +235,7 @@ export const listDocs = cache((): readonly DocPage[] => {
       (a, b) =>
         groupRank(a.group) - groupRank(b.group) ||
         a.group.localeCompare(b.group) ||
-        guideRank(a) - guideRank(b) ||
+        readingRank(a) - readingRank(b) ||
         a.title.localeCompare(b.title),
     );
 });
