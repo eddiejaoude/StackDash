@@ -5,6 +5,7 @@ import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
+import { insertUnheard } from "./fixtures/realtime";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
@@ -33,8 +34,14 @@ function postStart(page: Page, provider: string, form: Record<string, string>) {
 }
 
 // Seeded rather than connected through the UI: the failure tests force a failure by deleting the
-// row behind the open dialog, and Realtime refreshes the page on inserts and updates only.
-async function seedConnection(workspaceId: string): Promise<string> {
+// row behind the open dialog, and Realtime refreshes the page on inserts and updates only. The
+// seed's own insert must not reach the page either, or its refresh can land after the delete and
+// render the page as not found (#448), so Realtime has read it before the page opens.
+function seedConnection(workspaceId: string): Promise<string> {
+  return insertUnheard("connections", workspaceId, () => insertConnection(workspaceId));
+}
+
+async function insertConnection(workspaceId: string): Promise<string> {
   const { data, error } = await adminClient()
     .from("connections")
     .insert({
