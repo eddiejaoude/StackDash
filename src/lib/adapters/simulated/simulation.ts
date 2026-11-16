@@ -1,6 +1,6 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
-import type { AdapterContext, ExternalAccount, ProviderAdapter } from "@/lib/adapters/types";
+import type { AdapterContext, ExternalAccount, ProviderAdapter, WebhookSource } from "@/lib/adapters/types";
 import type { SimulatedWebhookSetup } from "@/lib/adapters/simulated/webhooks";
 import { TREND_DAYS } from "@/lib/dashboard/trends";
 
@@ -37,9 +37,14 @@ export type SimulatedProfile = Readonly<{
   eventsInSlot: (accountId: string, slot: number, volume: number) => ActivityEvent[];
   /**
    * A per-connection webhook for a provider whose real adapter declares none yet (#426), used only
-   * while `real.webhooks` is undefined. #428 (GitLab) and #427 (Resend) replace it.
+   * while `real.webhooks` is undefined. #427 (Resend) replaces it.
    */
   webhooks?: SimulatedWebhookSetup;
+  /**
+   * The sources of one account that the live adapter's per-source automatic setup lists (#428,
+   * GitLab projects), so the twin's automatic setup gives each one a webhook.
+   */
+  webhookSources?: (accountId: string) => readonly WebhookSource[];
 }>;
 
 /**

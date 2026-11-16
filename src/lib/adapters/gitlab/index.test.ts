@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
 import type { Logger } from "@/lib/log/logger";
-import { AuthRevokedError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "../errors";
+import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError, RateLimitedError } from "../errors";
 import { validateAdapterEvents } from "../events";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult } from "../types";
-import { deploymentEvent, gitlabAdapter, MAX_ACTIVITY_PROJECTS, metricKeys, pipelineEvent, projectMinutesKey, PRICING_SOURCE } from "./index";
+import {
+  Secret,
+  type FetchLike,
+  type OAuthContext,
+  type OAuthCredential,
+  type PerSourceWebhookSetup,
+  type SyncResult,
+  type WebhookConnection,
+  type WebhookOutcome,
+} from "../types";
+import {
+  deploymentEvent,
+  GITLAB_TOKEN_HEADER,
+  gitlabAdapter,
+  MAX_ACTIVITY_PROJECTS,
+  metricKeys,
+  pipelineEvent,
+  projectMinutesKey,
+  PRICING_SOURCE,
+} from "./index";
 
 // Fixtures follow the sample responses in the official API reference, checked 2026-11-05, trimmed,
 // with synthetic names, emails, and tokens (docs/providers/gitlab.md, "Sample responses"):
@@ -19,6 +37,14 @@ import tokenRefreshed from "./fixtures/token-refreshed.json"; // https://docs.gi
 import token from "./fixtures/token.json"; // https://docs.gitlab.com/api/oauth2/
 import usage from "./fixtures/usage.json"; // fields from https://docs.gitlab.com/api/graphql/reference/ (no sample there; values synthetic)
 import user from "./fixtures/user.json"; // https://docs.gitlab.com/api/users/ (retrieve the current user)
+// Webhook deliveries follow the payload examples in
+// https://docs.gitlab.com/user/project/integrations/webhook_events/ (checked 2026-11-16), trimmed,
+// with synthetic names, emails, and ids matching the fixtures above, so a delivery and a poll of
+// the same pipeline, deployment, merge, or release can be compared:
+import webhookDeployment from "./fixtures/webhook-deployment.json"; // "Deployment events"
+import webhookMergeRequestMerged from "./fixtures/webhook-merge-request-merged.json"; // "Merge request events" (action merge)
+import webhookPipeline from "./fixtures/webhook-pipeline.json"; // "Pipeline events" (status failed)
+import webhookRelease from "./fixtures/webhook-release.json"; // "Release events"
 
 const NOW = new Date("2026-11-05T12:00:00Z");
 const NAMESPACE_ID = "2";
@@ -119,7 +145,20 @@ describe("gitlabAdapter declaration", () => {
       ["read_user", "read"],
     ]);
     expect(gitlabAdapter.capabilities.spending).toBe(false);
-    expect(gitlabAdapter.webhooks).toBeUndefined();
+  });
+
+  it("declares per-project webhooks with StackDash's secret, and asks for api only for automatic setup", () => {
+    const registration = gitlabAdapter.webhooks?.registration;
+    expect(registration?.kind).toBe("connection");
+    if (registration?.kind !== "connection") return;
+    const { setup } = registration;
+    expect(setup.secretSource).toBe("stackdash");
+    expect(setup.sourceNoun).toEqual({ one: "project", many: "projects" });
+    expect(setup.automatic?.per).toBe("source");
+    expect(setup.automatic?.extraPermissions.map((permission) => [permission.scope, permission.access])).toEqual([["api", "full"]]);
+    expect(gitlabAdapter.webhooks?.subscriptions).toEqual(["Pipeline Hook", "Deployment Hook", "Release Hook", "Merge Request Hook"]);
+    // Plain words for the panel: no dashes.
+    expect([...setup.manualSteps, ...setup.removalSteps].join(" ")).not.toMatch(/[\u2013\u2014]/);
   });
 });
 
@@ -141,6 +180,17 @@ describe("buildAuthorizeUrl", () => {
       code_challenge: "synthetic-challenge",
       code_challenge_method: "S256",
     });
+  });
+
+  it("adds api only when automatic webhook setup asks for it", () => {
+    const url = gitlabAdapter.buildAuthorizeUrl({
+      client: { clientId: "synthetic-app-id", clientSecret: new Secret("s"), extra: {} },
+      state: "synthetic-state",
+      redirectUri: REDIRECT_URI,
+      codeChallenge: "synthetic-challenge",
+      extraScopes: ["api"],
+    });
+    expect(url.searchParams.get("scope")).toBe("read_api read_user api");
   });
 
   it("refuses to build a URL without a PKCE challenge", () => {
@@ -587,5 +637,204 @@ describe("event builders", () => {
     expect(event?.title).toContain("…");
     const events = validateAdapterEvents(gitlabAdapter.eventTypes, [event]);
     expect(events.ok).toBe(true);
+  });
+});
+
+describe("webhooks", () => {
+  const descriptor = gitlabAdapter.webhooks;
+  if (descriptor === undefined) throw new Error("GitLab declares webhooks");
+  const SECRET = new Secret("synthetic-webhook-secret-0123456789abcdefghijklmno");
+  const DELIVERY_ID = "f5e5f430-f57b-4e6e-9fac-d9128cd7232f";
+  const connection: WebhookConnection = { accounts: [{ externalId: NAMESPACE_ID, displayName: "group1" }] };
+  const encoder = new TextEncoder();
+
+  const delivery = (body: unknown, headers: Record<string, string> = { [GITLAB_TOKEN_HEADER]: SECRET.reveal(), "webhook-id": DELIVERY_ID }) => ({
+    headers: new Headers(headers),
+    rawBody: encoder.encode(typeof body === "string" ? body : JSON.stringify(body)),
+  });
+  // `null`: a delivery with no connection, as to an app-level URL.
+  const parse = (body: unknown, accounts: WebhookConnection | null = connection) => {
+    const { ctx, warnings } = harness();
+    return { outcome: descriptor.parse(delivery(body), ctx, accounts ?? undefined), warnings };
+  };
+  const events = (outcome: WebhookOutcome) => (outcome.kind === "events" ? outcome.events : []);
+
+  describe("verify", () => {
+    it("accepts the secret token and takes webhook-id as the delivery id", () => {
+      expect(descriptor.verify(delivery(webhookPipeline), SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it("reads Idempotency-Key, which carries the same id, when webhook-id is absent (GitLab before 19.0)", () => {
+      const request = delivery(webhookPipeline, { [GITLAB_TOKEN_HEADER]: SECRET.reveal(), "Idempotency-Key": DELIVERY_ID });
+      expect(descriptor.verify(request, SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it.each([
+      ["missing", {}, "missing_signature"],
+      ["empty", { [GITLAB_TOKEN_HEADER]: "" }, "missing_signature"],
+      ["wrong, same length", { [GITLAB_TOKEN_HEADER]: `${SECRET.reveal().slice(0, -1)}x` }, "bad_signature"],
+      ["wrong, shorter", { [GITLAB_TOKEN_HEADER]: "short" }, "bad_signature"],
+    ] as const)("refuses a %s token (boundary)", (_name, headers, reason) => {
+      expect(descriptor.verify(delivery(webhookPipeline, { ...headers, "webhook-id": DELIVERY_ID }), SECRET, NOW)).toEqual({ ok: false, reason });
+    });
+
+    it.each([
+      ["no delivery id", {}],
+      ["a blank one", { "webhook-id": " " }],
+      ["one over 200 characters", { "webhook-id": "a".repeat(201) }],
+    ])("refuses %s as malformed, because it cannot be deduplicated (boundary)", (_name, headers) => {
+      expect(descriptor.verify(delivery(webhookPipeline, { [GITLAB_TOKEN_HEADER]: SECRET.reveal(), ...headers }), SECRET, NOW)).toEqual({
+        ok: false,
+        reason: "malformed",
+      });
+    });
+  });
+
+  describe("parse", () => {
+    it("maps each documented delivery onto the sync's event, with the same dedupe key a poll gives it", async () => {
+      const pushed = [webhookPipeline, webhookDeployment, webhookMergeRequestMerged, webhookRelease].flatMap((body) => events(parse(body).outcome));
+      expect(pushed.map((event) => [event.typeId, event.severity, event.title, event.dedupeKey])).toEqual([
+        ["gitlab.pipeline.failed", "critical", "Pipeline #12 failed on main in group1/html5-boilerplate", "gitlab.pipeline:9:47:failed"],
+        ["gitlab.deployment.succeeded", "success", "Deployment to production succeeded in group1/html5-boilerplate", "gitlab.deployment:9:41:success"],
+        ["gitlab.merge_request.merged", "success", "Merge request !1 merged in group1/html5-boilerplate", "gitlab.merge_request:9:1"],
+        ["gitlab.release.published", "success", "Release v0.2 published in group1/html5-boilerplate", "gitlab.release:9:v0.2"],
+      ]);
+      const validated = validateAdapterEvents(gitlabAdapter.eventTypes, pushed);
+      expect(validated.ok ? [] : validated.issues).toEqual([]);
+      expect(pushed.every((event) => event.externalAccountId === NAMESPACE_ID)).toBe(true);
+
+      // A poll of the same project stores these under the same keys, so each shows once.
+      const polled = await gitlabAdapter.sync({ credential, externalAccountId: NAMESPACE_ID }, harness().ctx);
+      const polledKeys = new Set(polled.events.map((event) => event.dedupeKey));
+      expect(pushed.filter((event) => !polledKeys.has(event.dedupeKey))).toEqual([]);
+    });
+
+    it("names the project it came from as the source, and keeps no names, emails, titles, or commit messages", () => {
+      const { outcome } = parse(webhookMergeRequestMerged);
+      expect(outcome).toMatchObject({ kind: "events", externalAccountId: NAMESPACE_ID, source: { id: "9", name: "group1/html5-boilerplate" } });
+      expect(JSON.stringify(outcome)).not.toMatch(/Example User|example_user|user@example\.com|Synthetic merge request title|Synthetic description/);
+    });
+
+    it("leaves out the deployment body a poll adds, since a delivery has no iid or ref", () => {
+      const [event] = events(parse(webhookDeployment).outcome);
+      expect(event?.body).toBeUndefined();
+      expect(event?.occurredAt).toEqual(new Date("2026-11-05T07:38:12.000Z"));
+    });
+
+    it("matches the project's top-level namespace to the connection's account whatever its case, through subgroups", () => {
+      const body = { ...webhookPipeline, project: { ...webhookPipeline.project, path_with_namespace: "Group1/sub/app" } };
+      expect(parse(body).outcome).toMatchObject({ kind: "events", externalAccountId: NAMESPACE_ID });
+    });
+
+    it.each([
+      ["a project in a namespace the connection does not include", { ...webhookPipeline, project: { ...webhookPipeline.project, path_with_namespace: "other/app" } }, connection],
+      ["a delivery with no connection to match (boundary: app-level URL)", webhookPipeline, null],
+      ["a connection that includes no account (boundary: empty)", webhookPipeline, { accounts: [] }],
+    ] as const)("ignores %s, still naming its source", (_name, body, accounts) => {
+      const { outcome } = parse(body, accounts);
+      expect(outcome).toMatchObject({ kind: "ignored", reason: "project is outside the connection's namespaces", source: { id: "9" } });
+    });
+
+    it.each([
+      ["a running pipeline", { ...webhookPipeline, object_attributes: { ...webhookPipeline.object_attributes, status: "running", finished_at: null } }],
+      ["a canceled pipeline", { ...webhookPipeline, object_attributes: { ...webhookPipeline.object_attributes, status: "canceled" } }],
+      ["a deployment that started", { ...webhookDeployment, status: "running" }],
+      ["an approved deployment", { ...webhookDeployment, status: "approved" }],
+      ["an update to a merged merge request", { ...webhookMergeRequestMerged, object_attributes: { ...webhookMergeRequestMerged.object_attributes, action: "update" } }],
+      ["a deleted release", { ...webhookRelease, action: "delete" }],
+      ["an upcoming release", { ...webhookRelease, released_at: "2026-12-01T00:00:00.000Z" }],
+      ["a push", { ...webhookPipeline, object_kind: "push" }],
+    ])("ignores %s, which is not on the timeline", (_name, body) => {
+      expect(parse(body).outcome).toMatchObject({ kind: "ignored", source: { id: "9" } });
+    });
+
+    it("ignores a body that is not JSON or names no project, without a source", () => {
+      expect(parse("not json").outcome).toEqual({ kind: "ignored", reason: "not a GitLab project delivery" });
+      expect(parse({ object_kind: "pipeline" }).outcome).toEqual({ kind: "ignored", reason: "not a GitLab project delivery" });
+    });
+
+    it("warns by kind only when a subscribed delivery no longer reads, because GitLab changed it", () => {
+      const { outcome, warnings } = parse({ ...webhookPipeline, object_attributes: { id: "forty-seven" } });
+      expect(outcome).toMatchObject({ kind: "ignored", reason: "not a delivery GitLab maps" });
+      expect(warnings).toEqual(["gitlab.webhook.unreadable"]);
+    });
+
+    it("reads a time written the older Ruby way (2016-08-12 15:23:28 UTC)", () => {
+      const body = { ...webhookPipeline, object_attributes: { ...webhookPipeline.object_attributes, finished_at: "2026-11-05 09:32:35 UTC" } };
+      expect(events(parse(body).outcome)[0]?.occurredAt).toEqual(new Date("2026-11-05T09:32:35Z"));
+    });
+
+    it("dates a merge without merged_at (GitLab before 19.1) by its update", () => {
+      const attributes = { ...webhookMergeRequestMerged.object_attributes, merged_at: null };
+      const [event] = events(parse({ ...webhookMergeRequestMerged, object_attributes: attributes }).outcome);
+      expect(event?.occurredAt).toEqual(new Date("2026-11-05T11:16:18.000Z"));
+    });
+  });
+
+  describe("automatic setup", () => {
+    const registration = descriptor.registration;
+    const automatic = registration.kind === "connection" ? registration.setup.automatic : undefined;
+    if (automatic?.per !== "source") throw new Error("GitLab sets up one webhook per project");
+    const setup: PerSourceWebhookSetup = automatic;
+    const writeCredential: OAuthCredential = { ...credential, scopes: ["read_api", "read_user", "api"] };
+    const URL_ = "https://stackdash.example.com/api/webhooks/gitlab/1b0d4c3e-7f53-4a7e-9b55-2b6f0f6e9b11";
+
+    it("lists the projects each included namespace's sync reads", async () => {
+      const { ctx, callsTo } = harness();
+      expect(await setup.listSources({ credential: writeCredential, externalAccountIds: [NAMESPACE_ID] }, ctx)).toEqual([
+        { id: "9", name: "group1/html5-boilerplate" },
+      ]);
+      const [projectsCall] = callsTo("GET", `/api/v4/groups/${NAMESPACE_ID}/projects`);
+      expect(projectsCall?.url.searchParams.get("per_page")).toBe(String(MAX_ACTIVITY_PROJECTS));
+      expect(await setup.listSources({ credential: writeCredential, externalAccountIds: [] }, ctx)).toEqual([]);
+    });
+
+    it("refuses an account that is not a namespace id before any request", async () => {
+      const { ctx, calls } = harness();
+      await expect(setup.listSources({ credential: writeCredential, externalAccountIds: ["../users"] }, ctx)).rejects.toThrow(TypeError);
+      expect(calls).toHaveLength(0);
+    });
+
+    it("adds a project webhook with the URL, the secret token, and the four triggers, and no push events", async () => {
+      const { ctx, callsTo } = harness({ [`POST ${projectPath}/hooks`]: () => json({ id: 17, url: URL_ }, 201) });
+      expect(await setup.create({ credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9" }, ctx)).toEqual({ webhookId: "17" });
+      const [call] = callsTo("POST", `${projectPath}/hooks`);
+      expect(JSON.parse(call?.body ?? "{}")).toMatchObject({
+        url: URL_,
+        token: SECRET.reveal(),
+        enable_ssl_verification: true,
+        pipeline_events: true,
+        deployment_events: true,
+        releases_events: true,
+        merge_requests_events: true,
+        push_events: false,
+      });
+    });
+
+    it("reports a project where the user lacks the Maintainer role as a missing permission", async () => {
+      const { ctx } = harness({ [`POST ${projectPath}/hooks`]: () => json({ message: "403 Forbidden" }, 403) });
+      await expect(setup.create({ credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9" }, ctx)).rejects.toThrow(PermissionMissingError);
+    });
+
+    it.each([
+      ["deleted (204)", 204],
+      ["already gone (404)", 404],
+    ])("deletes the webhook, and treats one %s as removed", async (_name, status) => {
+      const { ctx, callsTo } = harness({ [`DELETE ${projectPath}/hooks/17`]: () => new Response(null, { status }) });
+      await expect(setup.remove({ credential: writeCredential, webhookId: "17", sourceId: "9" }, ctx)).resolves.toBeUndefined();
+      expect(callsTo("DELETE", `${projectPath}/hooks/17`)).toHaveLength(1);
+    });
+
+    it("fails the deletion when GitLab is unavailable, so the user gets the steps by hand", async () => {
+      const { ctx } = harness({ [`DELETE ${projectPath}/hooks/17`]: () => new Response(null, { status: 503 }) });
+      await expect(setup.remove({ credential: writeCredential, webhookId: "17", sourceId: "9" }, ctx)).rejects.toThrow(ProviderUnavailableError);
+    });
+
+    it("refuses ids that are not numbers before any request (boundary)", async () => {
+      const { ctx, calls } = harness();
+      await expect(setup.create({ credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9/../1" }, ctx)).rejects.toThrow(TypeError);
+      await expect(setup.remove({ credential: writeCredential, webhookId: "", sourceId: "9" }, ctx)).rejects.toThrow(TypeError);
+      expect(calls).toHaveLength(0);
+    });
   });
 });

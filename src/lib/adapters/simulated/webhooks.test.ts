@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { gitlabAdapter, GITLAB_TOKEN_HEADER } from "@/lib/adapters/gitlab";
 import { checkAdapterDeclaration } from "@/lib/adapters/harness";
 import { Secret, type OAuthContext, type WebhookDescriptor } from "@/lib/adapters/types";
 
@@ -13,8 +14,9 @@ import {
 } from "./webhooks";
 
 /*
- * The simulated per-connection webhook (#426) that GitLab's and Resend's twins carry until their
- * live adapters declare one (#428, #427).
+ * Per-connection webhooks of simulated providers (#426): the one a profile declares where the live
+ * adapter has none yet (Resend until #427, and the scheme of `simulatedConnectionWebhooks`), and
+ * the live adapter's own forwarded with its automatic setup simulated (GitLab, #428).
  */
 
 const NOW = new Date("2026-11-16T09:00:00.000Z");
@@ -70,16 +72,48 @@ describe("simulated connection webhooks (#426)", () => {
     expect(setupOf(simulatedAdapters.resend.webhooks).automatic?.extraPermissions).toEqual([]);
   });
 
-  it("returns the provider's signing secret from automatic setup where the provider generates it, and a new webhook id each time", async () => {
+  it("returns the provider's signing secret from automatic setup where the provider generates it", async () => {
     const credential = { accessToken: new Secret("simulated-at"), scopes: [], tokenType: "bearer" };
     const input = { credential, url: "http://localhost/api/webhooks/resend/id", externalAccountIds: [] };
     const resendSetup = setupOf(simulatedAdapters.resend.webhooks);
-    const gitlabSetup = setupOf(simulatedAdapters.gitlab.webhooks);
-    if (resendSetup.secretSource !== "provider" || gitlabSetup.secretSource !== "stackdash") throw new Error("unexpected secret sources");
-    const resend = await resendSetup.automatic?.create(input, oauthCtx);
-    expect(resend?.secret.reveal()).toMatch(/^whsec_/);
-    const gitlabCreated = await gitlabSetup.automatic?.create({ ...input, secret: SECRET }, oauthCtx);
-    expect(gitlabCreated?.webhookId).not.toBe(resend?.webhookId);
+    if (resendSetup.secretSource !== "provider") throw new Error("unexpected secret source");
+    const first = await resendSetup.automatic?.create(input, oauthCtx);
+    const second = await resendSetup.automatic?.create(input, oauthCtx);
+    expect(first?.secret.reveal()).toMatch(/^whsec_/);
+    expect(first?.webhookId).not.toBe(second?.webhookId);
+  });
+
+  describe("the GitLab twin (#428)", () => {
+    const twin = simulatedAdapters.gitlab.webhooks;
+    const setup = setupOf(twin);
+    const live = setupOf(gitlabAdapter.webhooks);
+    const credential = { accessToken: new Secret("simulated-at"), scopes: [], tokenType: "bearer" };
+
+    it("keeps the live steps, secret source, verify, and parse, so a delivery runs through the real code", () => {
+      expect(setup.manualSteps).toEqual(live.manualSteps);
+      expect(setup.removalSteps).toEqual(live.removalSteps);
+      expect(setup.secretSource).toBe("stackdash");
+      expect(setup.sourceNoun).toEqual(live.sourceNoun);
+      expect(twin?.verify).toBe(gitlabAdapter.webhooks?.verify);
+      expect(twin?.parse).toBe(gitlabAdapter.webhooks?.parse);
+      const request = { headers: new Headers({ [GITLAB_TOKEN_HEADER]: SECRET.reveal(), "webhook-id": "delivery-1" }), rawBody: body };
+      expect(twin?.verify(request, SECRET, NOW)).toEqual({ ok: true, deliveryId: "delivery-1" });
+    });
+
+    it("lists the profile's projects of each account and mints a webhook per project without calling GitLab", async () => {
+      const automatic = setup.automatic;
+      if (automatic?.per !== "source") throw new Error("expected one webhook per project");
+      const accountId = "305419896";
+      const sources = await automatic.listSources({ credential, externalAccountIds: [accountId] }, oauthCtx);
+      expect(sources.map((source) => source.name)).toEqual(["example-group/web", "example-group/api", "example-group/docs"]);
+      expect(await automatic.listSources({ credential, externalAccountIds: [] }, oauthCtx)).toEqual([]);
+      const [first, second] = await Promise.all(
+        sources.slice(0, 2).map((source) => automatic.create({ credential, url: "http://localhost/hook", secret: SECRET, sourceId: source.id }, oauthCtx)),
+      );
+      expect(first?.webhookId).toMatch(/^simulated-webhook-/);
+      expect(first?.webhookId).not.toBe(second?.webhookId);
+      await expect(automatic.remove({ credential, webhookId: first?.webhookId ?? "", sourceId: "1" }, oauthCtx)).resolves.toBeUndefined();
+    });
   });
 
   it.each(["gitlab", "resend"] as const)("passes the adapter declaration checks for simulated %s", (id) => {

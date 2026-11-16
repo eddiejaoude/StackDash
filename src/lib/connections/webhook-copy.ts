@@ -64,9 +64,44 @@ export function leftoverWriteAccessCopy(provider: string): string {
 /** How to move from automatic setup to setup by hand, shown on every automatic webhook. */
 export function switchToManualCopy(provider: string, setup: ConnectionWebhookSetup): string {
   const start = `To set up the webhook by hand instead, disconnect ${provider}, reconnect it, and choose setup by hand.`;
+  const plural = perSourceNoun(setup) !== null;
+  const webhooks = plural ? "the webhooks" : "the webhook";
   return needsWriteAccess(setup)
-    ? `${start} Disconnecting deletes the webhook and ends StackDash's write access; it cannot be given up while the webhook stays.`
-    : `${start} Disconnecting deletes the webhook.`;
+    ? `${start} Disconnecting deletes ${webhooks} and ends StackDash's write access; it cannot be given up while ${webhooks} ${plural ? "stay" : "stays"}.`
+    : `${start} Disconnecting deletes ${webhooks}.`;
+}
+
+/** The source nouns when automatic setup adds one webhook per source (#428), or null. */
+function perSourceNoun(setup: ConnectionWebhookSetup | null): Readonly<{ one: string; many: string }> | null {
+  return setup?.automatic?.per === "source" ? (setup.sourceNoun ?? null) : null;
+}
+
+/** The first line of an automatic webhook's details. */
+export function automaticSetUpCopy(provider: string, setup: ConnectionWebhookSetup): string {
+  const noun = perSourceNoun(setup);
+  if (noun === null) return `Set up automatically. StackDash added this webhook in ${provider} and deletes it when you disconnect.`;
+  return `Set up automatically. StackDash added a webhook to each ${provider} ${noun.one} it reads, adds one to each ${noun.one} it starts reading on a later sync, and deletes them when you disconnect.`;
+}
+
+/**
+ * The heading and empty state of the list of sources (#428): the ones StackDash added a webhook to,
+ * and every one a delivery has come from, with its last delivery.
+ */
+export function sourceListCopy(
+  provider: string,
+  noun: Readonly<{ one: string; many: string }>,
+  mode: "manual" | "automatic",
+): Readonly<{ heading: string; empty: string }> {
+  const heading = `${noun.many.charAt(0).toUpperCase()}${noun.many.slice(1)}`;
+  return mode === "automatic"
+    ? {
+        heading,
+        empty: `StackDash reads no ${provider} ${noun.one} yet, so it has added no webhook. The next sync that finds a ${noun.one} adds one.`,
+      }
+    : {
+        heading,
+        empty: `No ${noun.one} has sent a delivery yet. Each ${noun.one} the webhook is added to shows here once it sends one.`,
+      };
 }
 
 /**
@@ -80,15 +115,25 @@ export function isWebhookSetupResult(value: unknown): value is WebhookSetupResul
   return WEBHOOK_SETUP_RESULTS.some((result) => result === value);
 }
 
-/** The banner for a setup result: a title and one or two sentences, and whether it is an error. */
-export function webhookSetupResultCopy(result: WebhookSetupResult, provider: string): Readonly<{ tone: "success" | "error"; title: string; body: string }> {
+/**
+ * The banner for a setup result: a title and one or two sentences, and whether it is an error.
+ * `setup` words an automatic webhook per source (#428) in the plural; null where it is unknown.
+ */
+export function webhookSetupResultCopy(
+  result: WebhookSetupResult,
+  provider: string,
+  setup: ConnectionWebhookSetup | null,
+): Readonly<{ tone: "success" | "error"; title: string; body: string }> {
   switch (result) {
-    case "automatic":
+    case "automatic": {
+      const noun = perSourceNoun(setup);
+      const added = noun === null ? `StackDash added a webhook in ${provider}.` : `StackDash added a webhook to each ${provider} ${noun.one} it reads.`;
       return {
         tone: "success",
         title: "Webhook set up",
-        body: `StackDash added a webhook in ${provider}. New events reach the timeline within a minute of ${provider} sending them.`,
+        body: `${added} New events reach the timeline within a minute of ${provider} sending them.`,
       };
+    }
     case "limit_reached":
       return { tone: "error", title: "Webhook not set up", body: endpointLimitCopy(provider) };
     case "already_set_up":

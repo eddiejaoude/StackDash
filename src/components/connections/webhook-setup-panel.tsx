@@ -21,12 +21,27 @@ import { FailureAnnouncement, LiveRegion, OutcomeAnnouncement, outcomeOf, type O
  * action that made it, shown once.
  */
 
+// Formatted on the server, in Europe/London.
+type DeliveryTime = Readonly<{ iso: string; text: string }>;
+
+/**
+ * The sources of a provider that keeps one webhook per source (#428, GitLab projects): each one
+ * StackDash added a webhook to, and each one a delivery has come from.
+ */
+export type WebhookPanelSources = Readonly<{
+  heading: string;
+  empty: string;
+  items: readonly Readonly<{ id: string; name: string; addedByStackDash: boolean; lastDelivery: DeliveryTime | null }>[];
+}>;
+
 export type WebhookPanelEndpoint = Readonly<{
   mode: "manual" | "automatic";
   url: string;
   awaitingProviderSecret: boolean;
-  // Formatted on the server, in Europe/London; null when no delivery arrived in the last 30 days.
-  lastDelivery: Readonly<{ iso: string; text: string }> | null;
+  // Null when no delivery arrived in the last 30 days.
+  lastDelivery: DeliveryTime | null;
+  // Null for a provider whose deliveries name no source.
+  sources: WebhookPanelSources | null;
 }>;
 
 export type WebhookPanelView = Readonly<{
@@ -44,6 +59,8 @@ export type WebhookPanelView = Readonly<{
   removalSteps: readonly string[];
   // How to move to setup by hand, shown on every automatic webhook.
   switchNote: string;
+  // The first line of an automatic webhook's details.
+  automaticNote: string;
   // Set when the workspace holds as many endpoints as it may and this connection has none.
   limitMessage: string | null;
   endpoint: WebhookPanelEndpoint | null;
@@ -285,10 +302,11 @@ function EndpointDetails({
     return (
       <>
         <p ref={introRef} tabIndex={-1} className={introClass}>
-          Set up automatically. StackDash added this webhook in {name} and deletes it when you disconnect.
+          {view.automaticNote}
         </p>
         <CopyField label="Webhook address" value={endpoint.url} copyLabel="Copy address" onCopied={onCopied("Address")} />
         <LastDelivery endpoint={endpoint} />
+        {endpoint.sources === null ? null : <WebhookSourceList sources={endpoint.sources} />}
         <p className="mt-4 leading-6 text-muted">{view.switchNote}</p>
       </>
     );
@@ -310,6 +328,7 @@ function EndpointDetails({
         <ProviderSecretForm view={view} awaiting={endpoint.awaitingProviderSecret} />
       )}
       <LastDelivery endpoint={endpoint} />
+      {endpoint.sources === null ? null : <WebhookSourceList sources={endpoint.sources} />}
       <p className="mt-4 leading-6 text-muted">
         When you disconnect, StackDash stops accepting this webhook&apos;s deliveries. Remove it in {name} as well:{" "}
         {view.removalSteps.join(" ")}
@@ -438,6 +457,39 @@ function LastDelivery({ endpoint }: { endpoint: WebhookPanelEndpoint }) {
       >
         Check for deliveries
       </GuardedButton>
+    </div>
+  );
+}
+
+/** The list of sources, for members who manage the connection and for those who only read it. */
+export function WebhookSourceList({ sources }: { sources: WebhookPanelSources }) {
+  const headingId = useId();
+  return (
+    <div className="mt-4">
+      <h3 id={headingId} className="font-medium">
+        {sources.heading}
+      </h3>
+      {sources.items.length === 0 ? (
+        <p className="mt-1 leading-6 text-muted">{sources.empty}</p>
+      ) : (
+        <ul aria-labelledby={headingId} className="mt-2 divide-y divide-line rounded-lg border border-line">
+          {sources.items.map((item) => (
+            <li key={item.id} className="flex flex-col gap-1 px-4 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+              <span className="font-mono text-xs break-all">{item.name}</span>
+              <span className="leading-6 text-muted">
+                {item.addedByStackDash ? "Webhook added by StackDash. " : null}
+                {item.lastDelivery === null ? (
+                  "No delivery yet."
+                ) : (
+                  <>
+                    Last delivery <time dateTime={item.lastDelivery.iso}>{item.lastDelivery.text}</time>.
+                  </>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -10,12 +10,14 @@ import {
   type AdapterContext,
   type ProviderAdapter,
   type ProviderId,
+  type WebhookConnection,
   type WebhookOutcome,
   type WebhookRegistration,
   type WebhookRequest,
+  type WebhookSource,
 } from "@/lib/adapters/types";
 import { derivedKey } from "@/lib/crypto/credentials";
-import { loadWebhookEndpoint, type WebhookEndpoint } from "@/lib/data/webhook-endpoints";
+import { loadWebhookEndpoint, recordWebhookSource, type WebhookEndpoint } from "@/lib/data/webhook-endpoints";
 import { readBoundedRequestBody } from "@/lib/http/bounded-body";
 import { WEBHOOK_TICK_CLAIM_LIMIT } from "@/lib/jobs/runner";
 import { createSupabaseJobStore, type RecordWebhookDeliveryInput } from "@/lib/jobs/store";
@@ -37,6 +39,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * Logs name the provider, endpoint, delivery id, and rejection reason only: never the body, a
  * header, a signature, or a secret. A `parse` that throws is logged by the error's name only: its
  * message can quote the body (a `SyntaxError` from `JSON.parse`, a `ZodError`'s issues).
+ *
+ * A per-connection delivery is parsed with the accounts its connection includes (#428), for a
+ * provider whose deliveries name an account only by its path, and the resource it names (a GitLab
+ * project, the outcome's `source`) is recorded for the setup panel's list of what has sent one.
  *
  * Rate limit: a per-connection URL answers at most WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE verified
  * deliveries a minute. Its secret is one the connecting user holds, so a verified delivery there
@@ -69,10 +75,14 @@ export type ReceiveDeps = Readonly<{
   // Read per request, so a secret is never baked into a build.
   readEnv: (name: string) => string | undefined;
   loadWebhookEndpoint: (endpointId: string) => Promise<WebhookEndpoint | null>;
+  // The external accounts the endpoint's connection includes, handed to `parse`.
+  loadEndpointConnection: (endpoint: WebhookEndpoint) => Promise<WebhookConnection>;
   // Counts one verified delivery to a per-connection endpoint and returns how many it has had in
   // the current minute, this one included.
   countEndpointDelivery: (endpointId: string) => Promise<number>;
   recordWebhookDelivery: (input: RecordWebhookDeliveryInput) => Promise<boolean>;
+  // False when the source is new and the endpoint holds as many as it may.
+  recordWebhookSource: (input: Readonly<{ endpointId: string; source: WebhookSource; receivedAt: Date }>) => Promise<boolean>;
   adapterContext: () => AdapterContext;
   now: () => Date;
   log: Logger;
@@ -106,7 +116,7 @@ async function readWebhookBody(request: Request): Promise<Uint8Array | null> {
   return readBoundedRequestBody(request, WEBHOOK_MAX_BODY_BYTES);
 }
 
-type SecretResult = Readonly<{ ok: true; secret: Secret; endpointId: string | null }> | Readonly<{ ok: false; response: Response }>;
+type SecretResult = Readonly<{ ok: true; secret: Secret; endpoint: WebhookEndpoint | null }> | Readonly<{ ok: false; response: Response }>;
 
 async function resolveSecret(
   provider: ProviderId,
@@ -122,12 +132,12 @@ async function resolveSecret(
       deps.log.error("webhook.secret_missing", { provider, secretEnv: registration.secretEnv });
       return { ok: false, response: json(503, { error: "not_configured" }) };
     }
-    return { ok: true, secret: new Secret(value), endpointId: null };
+    return { ok: true, secret: new Secret(value), endpoint: null };
   }
   if (endpointId === null) return { ok: false, response: notFound() };
   const endpoint = await deps.loadWebhookEndpoint(endpointId);
   if (endpoint === null || endpoint.provider !== provider) return { ok: false, response: notFound() };
-  return { ok: true, secret: endpoint.secret, endpointId: endpoint.id };
+  return { ok: true, secret: endpoint.secret, endpoint };
 }
 
 type EventCheck = Readonly<{ ok: true; events: ActivityEvent[] }> | Readonly<{ ok: false; issues: string[] }>;
@@ -163,6 +173,19 @@ function uninstallIssues(adapter: ProviderAdapter, outcome: Extract<WebhookOutco
   return issues;
 }
 
+/**
+ * Notes the delivery's source for the setup panel. Never fails the delivery: the panel's list is
+ * the only thing that misses it, and the provider would otherwise retry a delivery that is fine.
+ */
+async function recordSource(endpointId: string, source: WebhookSource, deps: ReceiveDeps, fields: LogFields): Promise<void> {
+  try {
+    const kept = await deps.recordWebhookSource({ endpointId, source, receivedAt: deps.now() });
+    if (!kept) deps.log.warn("webhook.source_limit", fields);
+  } catch (error) {
+    deps.logError("webhook.source_record_failed", error, fields);
+  }
+}
+
 export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Promise<Response> {
   const parsedProvider = ProviderIdSchema.safeParse(input.provider);
   if (!parsedProvider.success) return notFound();
@@ -179,6 +202,7 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
 
     const resolved = await resolveSecret(provider, descriptor.registration, input.endpointId, deps);
     if (!resolved.ok) return resolved.response;
+    const endpointId = resolved.endpoint?.id ?? null;
 
     const request: WebhookRequest = { headers: input.request.headers, rawBody };
     const verification = descriptor.verify(request, resolved.secret, deps.now());
@@ -187,19 +211,20 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
       return json(401, { error: "unauthorized" });
     }
     const { deliveryId } = verification;
-    const fields = { provider, deliveryId, endpointId: resolved.endpointId };
-    if (resolved.endpointId !== null) {
-      const count = await deps.countEndpointDelivery(resolved.endpointId);
+    const fields = { provider, deliveryId, endpointId };
+    if (endpointId !== null) {
+      const count = await deps.countEndpointDelivery(endpointId);
       if (count > WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE) {
-        deps.log.warn("webhook.rate_limited", { provider, endpointId: resolved.endpointId });
+        deps.log.warn("webhook.rate_limited", { provider, endpointId });
         const retryAfterSeconds = secondsUntilNextMinute(deps.now());
         return Response.json({ error: "rate_limited" }, { status: 429, headers: rateLimitedHeaders({ retryAfterSeconds }) });
       }
     }
+    const connection = resolved.endpoint === null ? undefined : await deps.loadEndpointConnection(resolved.endpoint);
 
     let outcome: WebhookOutcome;
     try {
-      outcome = descriptor.parse(request, deps.adapterContext());
+      outcome = descriptor.parse(request, deps.adapterContext(), connection);
     } catch (error) {
       // The error's name only, never its message, stack, or cause: those can quote the body.
       const errorName = error instanceof Error ? error.name : typeof error;
@@ -228,7 +253,10 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
       }
     }
 
-    const recorded = await deps.recordWebhookDelivery({ provider, deliveryId, endpointId: resolved.endpointId, outcome });
+    const source = outcome.kind === "uninstalled" ? undefined : outcome.source;
+    if (endpointId !== null && source !== undefined) await recordSource(endpointId, source, deps, fields);
+
+    const recorded = await deps.recordWebhookDelivery({ provider, deliveryId, endpointId, outcome });
     if (!recorded) {
       deps.log.info("webhook.duplicate", { provider, deliveryId });
       return json(200, { status: "duplicate" });
@@ -255,6 +283,23 @@ async function countEndpointDelivery(endpointId: string): Promise<number> {
   return data;
 }
 
+// The same bound as connect.ts: a grant reaching more accounts than this is unusual.
+const MAX_CONNECTION_ACCOUNTS = 500;
+
+/** Production `loadEndpointConnection`: the included external accounts of the endpoint's connection. */
+async function loadEndpointConnection(endpoint: WebhookEndpoint): Promise<WebhookConnection> {
+  const { data, error } = await createAdminClient()
+    .from("external_accounts")
+    .select("external_id, display_name")
+    .eq("workspace_id", endpoint.workspaceId)
+    .eq("connection_id", endpoint.connectionId)
+    .eq("included", true)
+    .order("external_id", { ascending: true })
+    .limit(MAX_CONNECTION_ACCOUNTS);
+  if (error) throw new Error(`External accounts lookup failed (code ${error.code}).`);
+  return { accounts: data.map((row) => ({ externalId: row.external_id, displayName: row.display_name })) };
+}
+
 /** Production wiring for both webhook routes: the adapter registry, Postgres, and the real clock. */
 export function createReceiveDeps(): ReceiveDeps {
   const store = createSupabaseJobStore();
@@ -263,8 +308,10 @@ export function createReceiveDeps(): ReceiveDeps {
     getAdapter: (id) => (id === "fake" && !isFakeProviderEnabled() ? null : getAdapter(id)),
     readEnv: (name) => process.env[name],
     loadWebhookEndpoint,
+    loadEndpointConnection,
     countEndpointDelivery,
     recordWebhookDelivery: (input) => store.recordWebhookDelivery(input),
+    recordWebhookSource,
     adapterContext: createAdapterContext,
     now: () => new Date(),
     log,
