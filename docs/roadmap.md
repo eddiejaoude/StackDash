@@ -16,28 +16,26 @@ Every item on the board is an issue in the [StackDash repository](https://github
 | [Further out](#further-out) | Backlog, priority P2 or P3 |
 
 - Work that is done leaves this page. What StackDash does today is in the README's feature list and in these docs.
-- Each section groups related issues under one line and names what a person using or hosting StackDash would notice. Bug fixes, test reliability, and internal refactors are on the board too; they are summed up in one line rather than listed.
+- Each line sums up a theme, in what a person using or hosting StackDash would notice, rather than tracking one issue. Bug fixes, test reliability, and internal refactors are on the board too, summed up in one line per section.
 - An issue that is blocked, waiting on a decision or on someone outside the project, stays in its section and says so.
-- When an issue changes status or priority on the board, the pull request that changes it, or the next one to touch this page, moves it here as well and updates the date above.
-- The roadmap on the home page sums up the same sections: its **Coming next** card covers Now, Next, and Later, and its **Further out** card covers Further out. A change here that alters those cards changes them too.
+- An issue with no priority yet appears here once it has one.
+- This page is updated when work ships or priorities change. The date above says when it was last checked against the board.
+- The roadmap on the home page sums up the same sections in fewer words: its **Coming next** card covers Now, Next, and Later, and its **Further out** card covers Further out.
 
 Want something that is not here? Search the issues first, then open a new one: a request for a new provider starts with an adapter request.
 
 ## Now
 
-- **Pushed events from GitLab**: pipelines, deployments, releases, and merged merge requests reach the timeline by webhook within a minute instead of at the next hourly sync.
-- **Pushed events from Resend**: domain and email events by webhook.
+- **Events pushed by webhook from GitLab, Resend, and Polar**, so pipelines, deployments, releases, merge requests, email and domain events, orders, subscriptions, and refunds reach the timeline within a minute instead of at the next hourly sync.
 - **Security scanning in CI**: dependency review, code scanning, and secret scanning on every pull request.
+- **Fixes** to how connections set up and remove their webhooks.
 
 ## Next
 
-- **Hosted version: scheduling and workers.** Run the sync scheduler and background jobs for the hosted version.
-- **Hosted version: plans and billing, being decided.** Which billing provider and tax approach to use, and which limits and prices the plans have.
-- **Dashboard.** A notice when a dashboard figure was cut off at the row limit, readable names for DigitalOcean spend series with the SKU as secondary text, and one list of unusual days where the dashboard now shows two that can disagree.
-- **Achievements.** Count the deployment streak across every provider that deploys, not one at a time.
-- **Account deletion.** Remove an account's invite and its sign-in log entries when the account is deleted.
-- **Docs.** Link the repository files these docs mention, now that the repository is public.
-- **Fixes.** The timeline, alerts, connections, webhooks, sign-in, and the content security policy, plus the reliability of the end-to-end tests.
+- **Hosted version.** Run the sync scheduler and background jobs for the hosted version, and decide its billing provider, tax approach, and plan limits.
+- **Dashboard and achievements.** Clearer dashboard figures and chart series names, one consistent list of unusual days, and a deployment streak counted across every provider that deploys.
+- **Privacy.** Remove an account's invite and sign-in records when the account is deleted.
+- **Fixes.** The timeline, alerts, connections, webhooks, sign-in, the content security policy, and the docs, plus the reliability of the end-to-end tests.
 
 ## Later
 
@@ -45,23 +43,22 @@ Want something that is not here? Search the issues first, then open a new one: a
 - **A first useful result sooner.** Take a new user from signing in to a connected provider and a timeline worth reading in as few steps as possible, before sign-up opens wider.
 - **Open sign-up.** Replace the invite list with abuse protection, so anyone can sign up.
 - **A public demo.** A demo instance anyone can open, with a seeded sandbox workspace.
-- **New integrations.** Better Stack for spend, usage, and incidents, blocked until a check confirms its API accepts the sign-in StackDash would use. Render for deploys, service events, and bandwidth, blocked until Render issues an app registration.
-- **Pushed events from Polar**: orders, subscriptions, and refunds by webhook, blocked until the shared webhook setup it builds on is finished.
+- **New integrations.** Better Stack for spend, usage, and incidents, blocked until a check confirms its API accepts the sign-in StackDash would use. Render for deploys, service events, and bandwidth, blocked until Render issues an app registration. Simulated OpenAI and Anthropic usage and cost for local demos, blocked for now.
 - **Legal pages for the hosted version.** Terms, a privacy policy, a data processing agreement, and a list of subprocessors.
 - **Open source launch.** Announce StackDash where self-hosters and side project builders look for tools.
 
 ## Further out
 
-- **More integrations.** OpenAI and Anthropic usage and cost through an admin API key, and ElevenLabs credits and reset dates. Simulated OpenAI and Anthropic usage for local demos is blocked for now.
+- **More integrations.** OpenAI and Anthropic usage and cost through an admin API key, and ElevenLabs credits and reset dates.
 - **Teams.** Invite members to a workspace by email, change their roles or remove them, transfer ownership, leave a workspace, and create more workspaces and switch between them. Workspaces already have owner, admin, and viewer roles.
 - **Public pages.** A leaderboard of verified stats that are not revenue, and public profile and project directory pages.
 - **Hosted version: paid plans.** Plans and their limits, checkout, a pricing page, billing settings, the payment provider's customer portal, a grace period for failed payments, and API and MCP rate limits per plan. Plans apply to the hosted version; a self-hosted install gets its own default. Per-seat and annual pricing, coupons, trials, usage-based overage, and a second billing provider come after that.
 - **Hosted version: operations.** Error tracking, uptime checks, sign-up abuse protection, backups with a restore drill, a status page, and support tiers.
 - **Timeline.** Hide the event types you do not care about, save named views, give deploys, payments, and alerts their own detail fields, and serve the per-provider counts from a rollup for very large workspaces.
-- **Dashboard and events.** Decide how the monthly comparison treats accounts that start or stop reporting, record the deployment environment on events, and add a daily logins metric.
+- **Dashboard and events.** How the monthly comparison treats accounts that start or stop reporting, blocked on a decision. Record the deployment environment on events, and add a daily logins metric.
 - **Email.** A weekly email with what changed across your stack and how your leaderboard rank moved.
 - **Stripe test mode webhooks.** Route Stripe deliveries by live or test mode, and push test mode events.
 - **Versioned releases.** Tagged releases with release notes, to upgrade to instead of `main`.
 - **A light theme**, blocked on a decision: whether to offer a manual switch as well as following the system setting.
 - **An admin console** for the hosted version, with audited impersonation for support.
-- **Fixes and upkeep.** A tab title that goes blank after a save, and dependency upgrades waiting on their upstream releases.
+- **Fixes and upkeep.** A tab title that goes blank after a save. A check that a live Resend callback carries its issuer, and two dependency upgrades, are blocked until something outside the project changes.
