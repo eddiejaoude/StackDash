@@ -1,5 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { expect, type Page, type Request } from "@playwright/test";
+import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
+
+import { adminClient } from "./db";
 
 // A change reaches an open page within a few seconds: Realtime delivery, the refresh debounce, and
 // one server render.
@@ -66,6 +71,67 @@ export async function expectSubscribed(channel: LiveChannel): Promise<void> {
       message: "The workspace channel's postgres_changes subscription never streamed",
     })
     .toBe(true);
+}
+
+// The one column `insertUnheard` reads from a delivered row.
+const InsertedRowSchema = z.object({ id: z.string() });
+
+// The tables in the `supabase_realtime` publication
+// (supabase/migrations/20261104090000_realtime_publication.sql): the only ones Realtime delivers
+// changes from. The same list as `LIVE_TABLES` in src/components/app/live-refresh.tsx, which a spec
+// cannot import (a client component).
+type PublishedTable = "activity_events" | "usage_snapshots" | "connections" | "triggered_alerts";
+
+/**
+ * Runs `insert`, which writes one row to `table` in the workspace and returns its id, and resolves
+ * with that id once Realtime has read the insert, so a page that subscribes afterwards never hears
+ * it (#448). Realtime matches each change against the subscriptions that exist when it reads the
+ * replication slot, not when the row was written (#226, see `watchLiveChannel`). So a row seeded
+ * just before a page opens can still reach that page once it subscribes, and LiveRefresh renders
+ * the route again `REFRESH_DEBOUNCE_MS` later (src/lib/realtime/refresh-scheduler.ts). That is
+ * harmless until the test deletes the row: the refresh then renders the page after the delete, as
+ * not found. Seed a row in a published table that the test deletes behind an open page through
+ * this. A row in any other table never reaches a page, needs nothing, and could never be awaited
+ * here, so `table` admits only the published ones.
+ *
+ * A service role channel subscribes before the insert, which makes its delivery certain; once it
+ * has arrived there, Realtime has read it, and a later subscription is never matched against it.
+ */
+export async function insertUnheard(
+  table: PublishedTable,
+  workspaceId: string,
+  insert: () => Promise<string>,
+): Promise<string> {
+  const admin = adminClient();
+  // Join with the service role key, not whatever token the client happens to hold yet (see
+  // live-refresh.tsx).
+  await admin.realtime.setAuth();
+  let state = "joining";
+  const delivered = new Set<string>();
+  const filter = { event: "INSERT", schema: "public", table, filter: `workspace_id=eq.${workspaceId}` } as const;
+  const channel = admin
+    .channel(`e2e-unheard:${randomUUID()}`)
+    .on("postgres_changes", filter, ({ new: row }) => delivered.add(InsertedRowSchema.parse(row).id))
+    .on("system", {}, (payload: unknown) => {
+      if (SubscribedSchema.safeParse(payload).success) state = "subscribed";
+    })
+    .subscribe((status) => {
+      if (status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR || status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
+        state = status;
+      }
+    });
+  try {
+    await expect
+      .poll(() => state, { timeout: LIVE_TIMEOUT_MS, message: "The seed channel's subscription never streamed" })
+      .toBe("subscribed");
+    const id = await insert();
+    await expect
+      .poll(() => delivered.has(id), { timeout: LIVE_TIMEOUT_MS, message: `Realtime never delivered the ${table} insert` })
+      .toBe(true);
+    return id;
+  } finally {
+    await admin.removeChannel(channel);
+  }
 }
 
 /**
