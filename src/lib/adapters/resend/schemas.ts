@@ -121,11 +121,12 @@ export const DomainListResponseSchema = z.object({
 });
 
 // `POST /webhooks` (#427): the new webhook's id and the signing secret Resend generated for it. The
-// API reference's response sample carries both, so automatic setup needs no second call.
+// API reference's response sample carries both, so automatic setup needs no second call. Only the
+// fields used are read, and the secret is not checked here: the webhook already exists when this is
+// parsed, so a missing or unusable secret is handled by deleting it rather than by failing the parse.
 export const CreateWebhookResponseSchema = z.object({
-  object: z.literal("webhook"),
   id: z.string().min(1),
-  signing_secret: z.string().min(1),
+  signing_secret: z.unknown().optional(),
 });
 
 // `DELETE /webhooks/:id`.

@@ -810,6 +810,21 @@ describe("resendAdapter webhooks", () => {
     });
   });
 
+  it("reports the current status on every domain.updated, where polling reports only a move into it, with one dedupe key either way", async () => {
+    // Two deliveries for a domain that stayed verified: both map to the same event, so the timeline
+    // stores it once, but a delivery alone cannot tell a status change from any other update.
+    const first = parsed(BODY);
+    const second = parsed(JSON.stringify({ ...webhookDomainUpdated, created_at: "2026-07-28T11:59:00.000Z" }));
+    const keys = [first, second].map((outcome) => (outcome.kind === "events" ? outcome.events.map((event) => event.dedupeKey) : []));
+    const key = "resend.domain:00000000-0000-4000-8000-000000000001:verified";
+    expect(keys).toEqual([[key], [key]]);
+    // A sync whose cursor already holds `verified` for that domain emits nothing for it.
+    const { ctx } = harness(syncRoutes());
+    const cursor = (await resendAdapter.sync({ credential, externalAccountId: RESEND_TEAM_EXTERNAL_ID, cursor: await baselineCursor() }, ctx)).cursor;
+    const again = await resendAdapter.sync({ credential, externalAccountId: RESEND_TEAM_EXTERNAL_ID, ...(cursor === undefined ? {} : { cursor }) }, harness(syncRoutes()).ctx);
+    expect(again.events).toEqual([]);
+  });
+
   it("shortens a domain name over 150 characters in the title, as the sync does (boundary)", () => {
     const outcome = parsed(withData({ name: `${"a".repeat(151)}.example.com` }));
     expect(outcome).toMatchObject({ kind: "events", events: [{ title: `Domain ${"a".repeat(150)}… verified` }] });
@@ -936,11 +951,39 @@ describe("resendAdapter webhooks", () => {
     it.each<[string, Response, new (...args: never[]) => Error]>([
       ["an expired token (401)", json({ name: "invalid_access" }, 401), AuthRevokedError],
       ["an address Resend refuses (422)", json({ name: "validation_error" }, 422), InvalidResponseError],
-      ["a response without the signing secret", json({ object: "webhook", id: webhookCreated.id }), InvalidResponseError],
       ["Resend unavailable (503)", json({ name: "internal_server_error" }, 503), ProviderUnavailableError],
     ])("fails setup on %s (boundary)", async (_case, response, ErrorType) => {
       const { ctx } = harness({ "POST /webhooks": () => response });
       await expect(automatic().create(input, ctx)).rejects.toBeInstanceOf(ErrorType);
+    });
+
+    it("needs only the id and the secret from the create response, not the documented `object` (boundary)", async () => {
+      const { ctx } = harness({ "POST /webhooks": () => json({ id: webhookCreated.id, signing_secret: webhookCreated.signing_secret }, 201) });
+      expect((await automatic().create(input, ctx)).webhookId).toBe(webhookCreated.id);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ["no signing secret", { object: "webhook", id: webhookCreated.id }],
+      ["a null signing secret", { object: "webhook", id: webhookCreated.id, signing_secret: null }],
+      ["a blank signing secret", { object: "webhook", id: webhookCreated.id, signing_secret: "  " }],
+      ["a signing secret too short to verify anything", { object: "webhook", id: webhookCreated.id, signing_secret: "whsec_c2hvcnQ=" }],
+    ])("deletes a webhook created with %s, then fails setup (boundary)", async (_case, body) => {
+      const { ctx, calls } = harness({
+        "POST /webhooks": () => json(body, 201),
+        [`DELETE /webhooks/${webhookCreated.id}`]: () => json(webhookDeleted),
+      });
+      await expect(automatic().create(input, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+      expect(calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual(["POST /webhooks", `DELETE /webhooks/${webhookCreated.id}`]);
+    });
+
+    it("still fails setup when deleting a webhook without a secret fails too, and logs the error's name only (boundary)", async () => {
+      const { ctx, calls, warnings } = harness({
+        "POST /webhooks": () => json({ id: webhookCreated.id }, 201),
+        [`DELETE /webhooks/${webhookCreated.id}`]: () => json({ name: "internal_server_error" }, 500),
+      });
+      await expect(automatic().create(input, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+      expect(calls).toHaveLength(2);
+      expect(warnings).toEqual(["resend.webhook.cleanup_failed"]);
     });
 
     it("deletes the webhook by its id on disconnect", async () => {
