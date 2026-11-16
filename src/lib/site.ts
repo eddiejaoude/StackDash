@@ -8,6 +8,7 @@ export const site = {
   headline: "One timeline and one alert for your whole developer stack",
   audience,
   description: `StackDash is an open-source dashboard for ${audience}, coming soon: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish.`,
+  githubUrl: "https://github.com/eddiejaoude/StackDash",
   founder: {
     name: "Eddie Jaoude",
     url: "https://github.com/eddiejaoude",
