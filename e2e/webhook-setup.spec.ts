@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import AxeBuilder from "@axe-core/playwright";
-import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
 
 import { SIMULATED_SCOPE } from "../src/lib/adapters/simulated/marker";
 import {
@@ -22,12 +21,24 @@ import {
   type TestWorkspace,
 } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
+import {
+  chooseWithKeyboard,
+  connectionId,
+  disconnect,
+  endpointCount,
+  EVIDENCE,
+  evidence,
+  expectAccessiblePanel,
+  grantedScopes,
+  panel,
+  tabTo,
+} from "./fixtures/webhook-panel";
 
 /*
- * The webhook setup panel (#426), end to end through the simulated providers: no live adapter
- * declares a user-created webhook yet, so GitLab's and Resend's simulated twins carry one
- * (src/lib/adapters/simulated/webhooks.ts) until #428 and #427 land. GitLab's automatic setup needs
- * write access, Resend's uses the access already granted and generates the signing secret.
+ * The webhook setup panel (#426), end to end through the simulated providers. GitLab's simulated
+ * twin carries a stand-in webhook (src/lib/adapters/simulated/webhooks.ts) until #428 lands;
+ * Resend's carries the live declaration (#427). GitLab's automatic setup needs write access,
+ * Resend's uses the access already granted and generates the signing secret.
  *
  * Covers both paths with the copy from #426, the write access warning before the consent screen,
  * the write access shown while it is held, setup by hand with the address, the secret shown once,
@@ -36,9 +47,6 @@ import { anonymous } from "./fixtures/share";
  * with no session, as a provider sends them. No job tick runs: a delivery shows on the panel when
  * it is received.
  */
-
-const PANEL = "Get events as they happen";
-const EVIDENCE = process.env.PW_PR_EVIDENCE === "1";
 
 const GITLAB_AUTOMATIC =
   "StackDash asks GitLab for write access, because GitLab has no read-only access that can create a webhook. With write access, StackDash's connection can change your GitLab account, not only read it. If you want StackDash to stay read-only, set up the webhook by hand instead.";
@@ -49,28 +57,6 @@ const RESEND_AUTOMATIC =
 const RESEND_MANUAL =
   "You add the webhook in Resend yourself, using the address below.";
 
-function panel(page: Page): Locator {
-  return page.getByRole("region", { name: PANEL });
-}
-
-/** A named screenshot for the pull request (PW_PR_EVIDENCE=1), with every secret field masked. */
-async function evidence(locator: Locator, name: string): Promise<void> {
-  if (!EVIDENCE) return;
-  const page = locator.page();
-  const mask = [
-    page.getByRole("textbox", { name: "Webhook secret" }),
-    page.getByLabel(/^Signing secret from /),
-  ];
-  // The sticky app header would cover the top of a panel taller than the viewport, so it is hidden
-  // for the capture; it is not part of the captured element.
-  await locator.screenshot({
-    path: `pr-evidence/after/${name}.png`,
-    animations: "disabled",
-    mask,
-    style: "header.sticky { visibility: hidden !important; }",
-  });
-}
-
 async function pageEvidence(page: Page, name: string): Promise<void> {
   if (!EVIDENCE) return;
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -79,49 +65,6 @@ async function pageEvidence(page: Page, name: string): Promise<void> {
     animations: "disabled",
     fullPage: true,
   });
-}
-
-/** Axe finds nothing on the panel. */
-async function expectAccessiblePanel(page: Page): Promise<void> {
-  const scan = await new AxeBuilder({ page })
-    .include('section[aria-labelledby="webhook-title"]')
-    .analyze();
-  expect(scan.violations).toEqual([]);
-}
-
-/** Presses Tab until `target` has focus, then checks it shows a focus style. */
-async function tabTo(page: Page, target: Locator): Promise<void> {
-  for (
-    let presses = 0;
-    presses < 80 &&
-    !(await target.evaluate((element) => element === document.activeElement));
-    presses++
-  ) {
-    await page.keyboard.press("Tab");
-  }
-  await expect(target).toBeFocused();
-  expect(
-    await target.evaluate((element) => element.matches(":focus-visible")),
-  ).toBe(true);
-}
-
-/** Chooses a setup path from the panel with the keyboard only. */
-async function chooseWithKeyboard(
-  page: Page,
-  choice: "Set up automatically" | "Set up by hand",
-): Promise<void> {
-  const radio = panel(page).getByRole("radio", { name: choice });
-  await tabTo(page, panel(page).getByRole("radio").first());
-  // Arrow keys move through a radio group and select as they go; Space selects the focused one.
-  if (!(await radio.evaluate((element) => element === document.activeElement)))
-    await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Space");
-  await expect(radio).toBeChecked();
-  await tabTo(
-    page,
-    panel(page).getByRole("button", { name: "Set up the webhook" }),
-  );
-  await page.keyboard.press("Enter");
 }
 
 function postDelivery(
@@ -143,54 +86,6 @@ function postDelivery(
       ),
     },
   });
-}
-
-async function connectionId(page: Page): Promise<string> {
-  const id = CONNECTION_URL.exec(page.url())?.[1];
-  if (id === undefined) throw new Error("expected to be on a connection page");
-  return id;
-}
-
-async function endpointCount(connection: string): Promise<number> {
-  const { count, error } = await adminClient()
-    .from("webhook_endpoints")
-    .select("id", { count: "exact", head: true })
-    .eq("connection_id", connection);
-  if (error)
-    throw new Error(`Reading the endpoints failed (code ${error.code}).`);
-  return count ?? 0;
-}
-
-async function grantedScopes(connection: string): Promise<readonly string[]> {
-  const { data, error } = await adminClient()
-    .from("connections")
-    .select("granted_scopes")
-    .eq("id", connection)
-    .single();
-  if (error)
-    throw new Error(`Reading the connection failed (code ${error.code}).`);
-  return data.granted_scopes;
-}
-
-/**
- * Disconnects from the Manage section, checking the dialog names `expectedStep` before confirming
- * and the result says `expectedResult` after, with evidence of both under `evidenceName`.
- */
-async function disconnect(
-  page: Page,
-  expectedStep: string | RegExp,
-  expectedResult: RegExp,
-  evidenceName: string,
-): Promise<void> {
-  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: /^Disconnect / });
-  await expect(dialog.getByText(expectedStep)).toBeVisible();
-  await evidence(dialog, `${evidenceName}-dialog`);
-  await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
-  await expect(dialog).toBeHidden();
-  const manage = page.getByRole("region", { name: "Manage" });
-  await expect(manage.getByText(expectedResult)).toBeVisible();
-  await evidence(manage, `${evidenceName}-result`);
 }
 
 ownerTest.describe("webhook setup panel", () => {

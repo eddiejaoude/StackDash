@@ -36,7 +36,7 @@ import {
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
 import { vercelProfile } from "./vercel";
-import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionWebhooks } from "./webhooks";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionSetup, simulatedConnectionWebhooks } from "./webhooks";
 
 /**
  * Simulated providers for local demos and testing (#131), built by one factory from a profile per
@@ -109,13 +109,26 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  * the real `verify` and `parse`. An app-level secret is read from SIMULATED_WEBHOOK_SECRET_ENV
  * instead of the provider's own variable: simulation never reads a real provider secret, and one
  * synthetic value signs every simulated provider's deliveries, locally and in e2e. A per-connection
- * registration keeps the secret stored for its connection. The webhook job does not yet tell
- * simulated connections from real ones (#495): an app-level delivery reaches every connection that
- * includes its account, real ones too.
+ * registration keeps the secret stored for its connection, and its automatic setup creates and
+ * deletes the webhook in this process instead of at the provider (`simulatedConnectionSetup`). The
+ * webhook job does not yet tell simulated connections from real ones (#495): an app-level delivery
+ * reaches every connection that includes its account, real ones too.
  */
-function simulatedWebhooks(real: WebhookDescriptor): WebhookDescriptor {
-  if (real.registration.kind !== "app") return real;
+function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId): WebhookDescriptor {
+  if (real.registration.kind === "connection") {
+    return { ...real, registration: { kind: "connection", setup: simulatedConnectionSetup(provider, real.registration.setup) } };
+  }
   return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
+}
+
+/**
+ * Whether the twin's automatic webhook setup asks for the simulated write scope: the live
+ * adapter's declaration wins, as it does for the push path; otherwise the profile's.
+ */
+function automaticSetupNeedsWriteAccess(profile: SimulatedProfile): boolean {
+  const registration = profile.real.webhooks?.registration;
+  if (registration?.kind === "connection") return (registration.setup.automatic?.extraPermissions.length ?? 0) > 0;
+  return profile.webhooks?.writeAccess === true;
 }
 
 /**
@@ -123,7 +136,7 @@ function simulatedWebhooks(real: WebhookDescriptor): WebhookDescriptor {
  * (`granted_scope`, space-separated), or none: a twin never holds a scope it did not declare.
  */
 function grantedWriteScopes(profile: SimulatedProfile, granted: string | undefined): string[] {
-  if (profile.webhooks?.writeAccess !== true || granted === undefined) return [];
+  if (!automaticSetupNeedsWriteAccess(profile) || granted === undefined) return [];
   return granted.split(" ").includes(SIMULATED_WEBHOOK_WRITE_SCOPE) ? [SIMULATED_WEBHOOK_WRITE_SCOPE] : [];
 }
 /** A simulated adapter for `provider`, optionally with an incident or at a higher event volume. */
@@ -158,7 +171,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     // The live adapter's push path wins; a profile declares one only where the live adapter has
     // none yet (simulated/webhooks.ts, #426).
     ...(real.webhooks !== undefined
-      ? { webhooks: simulatedWebhooks(real.webhooks) }
+      ? { webhooks: simulatedWebhooks(real.webhooks, provider) }
       : profile.webhooks === undefined
         ? {}
         : { webhooks: simulatedConnectionWebhooks(provider, profile.webhooks) }),
