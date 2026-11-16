@@ -23,7 +23,7 @@ const SEGMENT = /^[a-z0-9-]+$/;
 // The top-level pages written for people using StackDash, in reading order. They lead the index.
 // Any other top-level page is for people working on StackDash's code and is listed under
 // Developers.
-const GUIDE_PAGES = ["getting-started", "api", "mcp"];
+const GUIDE_PAGES = ["getting-started", "connect-providers", "api", "mcp", "roadmap"];
 const GUIDES_GROUP = "guides";
 const DEVELOPERS_GROUP = "developers";
 const PROVIDERS_GROUP = "providers";

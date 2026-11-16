@@ -226,7 +226,13 @@ describe("listDocs", () => {
       "Self-hosting and operations",
       "Architecture",
     ]);
-    expect(groups[0]?.docs.map((doc) => doc.href)).toEqual(["/docs/getting-started", "/docs/api", "/docs/mcp"]);
+    expect(groups[0]?.docs.map((doc) => doc.href)).toEqual([
+      "/docs/getting-started",
+      "/docs/connect-providers",
+      "/docs/api",
+      "/docs/mcp",
+      "/docs/roadmap",
+    ]);
     expect(listDocs()[0]?.href).toBe("/docs/getting-started");
     expect(groups.flatMap((group) => group.docs)).toHaveLength(listDocs().length);
   });
@@ -249,7 +255,7 @@ describe("listDocs", () => {
 describe("docGroup", () => {
   it.each<[string, string[], string]>([
     ["a listed guide", ["getting-started"], "guides"],
-    ["the last listed guide", ["mcp"], "guides"],
+    ["the last listed guide", ["roadmap"], "guides"],
     ["a top-level page that is not a guide", ["adapters"], "developers"],
     ["a page in a folder", ["providers", "vercel"], "providers"],
     ["a page in a folder named like a guide", ["api", "keys"], "api"],
