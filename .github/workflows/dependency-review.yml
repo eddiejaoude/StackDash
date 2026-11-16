@@ -1,0 +1,36 @@
+name: Dependency review
+
+# Fails a pull request that adds or changes a dependency with a known vulnerability in the GitHub
+# Advisory Database. It diffs the dependency graph between the base and head of the pull request,
+# so it only judges what the pull request introduces; `npm audit` in ci.yml judges the whole tree.
+# Docs: https://github.com/actions/dependency-review-action/blob/v5.0.0/README.md
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # Any severity: the check only sees dependencies this pull request adds or changes, so
+          # it never fails on an advisory that already exists on the base branch.
+          fail-on-severity: low
+          # Development dependencies run in CI and on every contributor's machine, so a
+          # vulnerable one is as much a supply-chain risk as a runtime one.
+          fail-on-scopes: runtime, development
