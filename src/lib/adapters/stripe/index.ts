@@ -767,10 +767,15 @@ function parseStripeWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): W
   if (!parsed.success) return { kind: "ignored", reason: "not a Stripe event" };
   const event = parsed.data;
   if (event.account === undefined) return { kind: "ignored", reason: "an event on the app owner's own account, not an install's" };
-  // Decided on #423: the endpoint is a live mode one, and Stripe also sends it the test mode events
-  // of an account that installed the app in both modes. The account id is the same in both, and
-  // nothing downstream knows a connection's mode, so a test mode uninstall would revoke the live
-  // connection. Test mode connections stay polled until #481.
+  // Decided on #423 (option A): the endpoint is a live mode one, and Stripe also sends it the test
+  // mode events of an account that installed the app in both modes. The account id is the same in
+  // both, and nothing downstream knows a connection's mode, so a test mode uninstall would revoke
+  // the live connection. Test mode connections stay polled until #481.
+  // Known gap, accepted on #423 and closed by #481: the same blindness runs the other way. A live
+  // delivery for an account that also has a test mode connection (in this workspace or another, or
+  // left behind by a live connection deleted in StackDash but never uninstalled in Stripe) is
+  // written to that test mode connection too: live payments on its timeline and in its
+  // achievements, and a live uninstall marks it as needing a reconnect.
   if (!event.livemode) return { kind: "ignored", reason: "test mode event; test mode connections are polled" };
   if (UNINSTALL_EVENTS[event.type] === true) {
     return { kind: "uninstalled", externalAccountId: event.account, occurredAt: new Date(event.created * 1000) };
