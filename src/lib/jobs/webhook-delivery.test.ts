@@ -55,6 +55,7 @@ function setup() {
     log: { ...silent, info: (event, fields) => infos.push({ event, fields }) },
     evaluateAlerts: async () => ({ triggered: 0 }),
     evaluateAchievements: async () => 0,
+    addMissingSourceWebhooks: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
 

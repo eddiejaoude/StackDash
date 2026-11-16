@@ -46,15 +46,7 @@ import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED
 import { DAY_MS, DEFAULT_EVENT_VOLUME, isLaunchDay, isWeekend, MAX_EVENT_VOLUME, type SimulatedIncident } from "./simulation";
 import { NEW_CUSTOMERS_PER_DAY } from "./stripe";
 import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
-import { gitlabProfile } from "./gitlab";
-import { resendProfile } from "./resend";
 import { SIMULATED_WEBHOOK_WRITE_SCOPE } from "./webhooks";
-
-// The profiles that declare a per-connection webhook while their live adapter has none (#426).
-const PROFILE_WEBHOOKS: Partial<Record<LiveProviderId, NonNullable<typeof gitlabProfile.webhooks>>> = {
-  ...(gitlabProfile.webhooks === undefined ? {} : { gitlab: gitlabProfile.webhooks }),
-  ...(resendProfile.webhooks === undefined ? {} : { resend: resendProfile.webhooks }),
-};
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -257,30 +249,19 @@ describe("simulated adapter declarations", () => {
   });
 
   it.each(liveProviderIds)(
-    "%s carries its live adapter's webhooks through the live verify and parse, otherwise its profile's per-connection webhook, otherwise none",
+    "%s carries its live adapter's webhooks through the live verify and parse, otherwise none",
     (id) => {
       const real = REAL[id].webhooks;
       const simulated = simulatedAdapters[id].webhooks;
-      const profile = PROFILE_WEBHOOKS[id];
       if (real !== undefined) {
         expect(simulated?.subscriptions).toBe(real.subscriptions);
         expect(simulated?.verify).toBe(real.verify);
         expect(simulated?.parse).toBe(real.parse);
-      } else if (profile !== undefined) {
-        expect(simulated?.registration.kind).toBe("connection");
-        expect(simulated?.subscriptions).toBe(profile.subscriptions);
       } else {
         expect(simulated).toBeUndefined();
       }
     },
   );
-
-  it("lets a live adapter's webhooks win over a profile's (boundary: both declared)", () => {
-    const descriptor = exampleAdapter.webhooks;
-    if (descriptor === undefined) throw new Error("the example adapter declares webhooks");
-    const twin = createSimulatedAdapter({ ...gitlabProfile, real: { ...gitlabAdapter, webhooks: descriptor } }, "gitlab");
-    expect(twin.webhooks?.verify).toBe(descriptor.verify);
-  });
 
   describe("simulated write access for automatic webhook setup (#426)", () => {
     const ctx = () => makeCtx(SPAN_START);

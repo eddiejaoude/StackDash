@@ -312,7 +312,8 @@ export function DisconnectDialog({
   // Already disconnected: nothing to confirm, but the last result stays readable.
   revoked: boolean;
   // The connection's webhook (#426), with the steps that remove one added by hand; null when none.
-  webhook: Readonly<{ mode: "automatic" | "manual"; removalSteps: string }> | null;
+  // `perSource`: automatic setup added one webhook per project (#428), so they are spoken of in the plural.
+  webhook: Readonly<{ mode: "automatic" | "manual"; perSource: boolean; removalSteps: string }> | null;
 }) {
   return (
     <ConfirmDialog
@@ -327,7 +328,10 @@ export function DisconnectDialog({
       <p>Disconnecting does this:</p>
       <ul className="mt-2 list-disc space-y-1 pl-5">
         {webhook === null ? null : webhook.mode === "automatic" ? (
-          <li>Deletes the webhook StackDash added in {providerName}. If that fails, you are told how to do it there.</li>
+          <li>
+            Deletes the {webhook.perSource ? "webhooks" : "webhook"} StackDash added in {providerName}. If that fails, you are
+            told how to do it there.
+          </li>
         ) : (
           <li>
             Stops accepting the webhook you added in {providerName}. Remove it there afterwards: {webhook.removalSteps}

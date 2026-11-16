@@ -9,7 +9,15 @@ import {
   signFakeWebhook,
 } from "@/lib/adapters/fake";
 import { postHogAdapter } from "@/lib/adapters/posthog";
-import { Secret, type AdapterContext, type ProviderAdapter, type WebhookDescriptor, type WebhookOutcome } from "@/lib/adapters/types";
+import {
+  Secret,
+  type AdapterContext,
+  type ProviderAdapter,
+  type WebhookConnection,
+  type WebhookDescriptor,
+  type WebhookOutcome,
+  type WebhookSource,
+} from "@/lib/adapters/types";
 import { MemoryJobStore } from "@/lib/jobs/memory-store";
 import type { RecordWebhookDeliveryInput } from "@/lib/jobs/store";
 import type { LogFields, Logger } from "@/lib/log/logger";
@@ -57,8 +65,10 @@ function setup(overrides: Partial<ReceiveDeps> = {}) {
     getAdapter: (id) => (id === "fake" ? fakeAdapter : id === "posthog" ? postHogAdapter : null),
     readEnv: (name) => (name === FAKE_WEBHOOK_SECRET_ENV ? SECRET : undefined),
     loadWebhookEndpoint: async () => null,
+    loadEndpointConnection: async () => ({ accounts: [] }),
     countEndpointDelivery: async () => 1,
     recordWebhookDelivery: (input) => store.recordWebhookDelivery(input),
+    recordWebhookSource: async () => true,
     adapterContext: () => adapterContext,
     now: () => NOW,
     log: {
@@ -370,6 +380,83 @@ describe("receiveWebhook", () => {
       it("never counts the app-level URL, whose secret only the provider holds", async () => {
         const { deps } = setup({ countEndpointDelivery: () => Promise.reject(new Error("must not be called")) });
         expect((await receive(deps, delivery(EVENT_BODY))).status).toBe(202);
+      });
+    });
+
+    describe("connection and source (#428)", () => {
+      const connection: WebhookConnection = { accounts: [{ externalId: "fake-acct-1", displayName: "example-team" }] };
+      const source: WebhookSource = { id: "9", name: "group1/app" };
+
+      // The fake provider per connection, recording the connection `parse` was handed and naming a source.
+      function sourced(overrides: Partial<ReceiveDeps> = {}) {
+        const seen: Array<WebhookConnection | undefined> = [];
+        const sources: Array<{ endpointId: string; source: WebhookSource; receivedAt: Date }> = [];
+        const recorded: RecordWebhookDeliveryInput[] = [];
+        const adapter = withWebhooks({
+          registration: connectionFake.webhooks?.registration ?? { kind: "app", secretEnv: FAKE_WEBHOOK_SECRET_ENV },
+          parse: (request, ctx, handed) => {
+            seen.push(handed);
+            const outcome = fakeWebhooks.parse(request, ctx);
+            return outcome.kind === "uninstalled" ? outcome : { ...outcome, source };
+          },
+        });
+        const harness = setup({
+          getAdapter: () => adapter,
+          loadWebhookEndpoint: async () => endpoint,
+          loadEndpointConnection: async (loaded) => {
+            expect(loaded.id).toBe(ENDPOINT_ID);
+            return connection;
+          },
+          recordWebhookSource: async (input) => {
+            sources.push(input);
+            return true;
+          },
+          recordWebhookDelivery: async (input) => {
+            recorded.push(input);
+            return true;
+          },
+          ...overrides,
+        });
+        return { ...harness, seen, sources, recorded };
+      }
+
+      it("parses with the accounts the endpoint's connection includes, and records the source it names", async () => {
+        const { deps, seen, sources, recorded } = sourced();
+        expect((await receive(deps, delivery(EVENT_BODY), "fake", ENDPOINT_ID)).status).toBe(202);
+        expect(seen).toEqual([connection]);
+        expect(sources).toEqual([{ endpointId: ENDPOINT_ID, source, receivedAt: NOW }]);
+        expect(recorded).toHaveLength(1);
+      });
+
+      it("parses an app-level delivery with no connection and records no source", async () => {
+        const seen: Array<WebhookConnection | undefined> = [];
+        const { deps } = setup({
+          getAdapter: () =>
+            withWebhooks({
+              parse: (request, ctx, handed) => {
+                seen.push(handed);
+                return fakeWebhooks.parse(request, ctx);
+              },
+            }),
+          loadEndpointConnection: () => Promise.reject(new Error("must not be called")),
+          recordWebhookSource: () => Promise.reject(new Error("must not be called")),
+        });
+        expect((await receive(deps, delivery(EVENT_BODY))).status).toBe(202);
+        expect(seen).toEqual([undefined]);
+      });
+
+      it("still accepts the delivery when the endpoint holds as many sources as it may, with a warning (boundary: limit)", async () => {
+        const { deps, lines, recorded } = sourced({ recordWebhookSource: async () => false });
+        expect((await receive(deps, delivery(EVENT_BODY), "fake", ENDPOINT_ID)).status).toBe(202);
+        expect(recorded).toHaveLength(1);
+        expect(lines.filter((line) => line.level === "warn").map((line) => line.event)).toEqual(["webhook.source_limit"]);
+      });
+
+      it("still accepts the delivery when recording its source fails, logging the failure (boundary: database fails)", async () => {
+        const { deps, lines, recorded } = sourced({ recordWebhookSource: () => Promise.reject(new Error("database unavailable")) });
+        expect((await receive(deps, delivery(EVENT_BODY), "fake", ENDPOINT_ID)).status).toBe(202);
+        expect(recorded).toHaveLength(1);
+        expect(lines.filter((line) => line.level === "error").map((line) => line.event)).toEqual(["webhook.source_record_failed"]);
       });
     });
   });

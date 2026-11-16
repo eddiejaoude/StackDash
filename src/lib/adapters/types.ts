@@ -165,6 +165,8 @@ export type RemoveWebhookInput = Readonly<{ credential: OAuthCredential; webhook
  * the provider's create call, which differs by who makes the signing secret.
  */
 export type AutomaticWebhookSetup<Create> = Readonly<{
+  // One webhook for the whole connection. Omitted or "connection"; see PerSourceWebhookSetup.
+  per?: "connection";
   // Scopes beyond `oauth.scopes` that creating a webhook needs, each with its reason. Empty when the
   // grant StackDash already holds can create one (Resend). Requested in a second consent only when
   // the user chooses automatic setup, and the user is told before the consent screen that
@@ -172,6 +174,32 @@ export type AutomaticWebhookSetup<Create> = Readonly<{
   extraPermissions: readonly FullAccessPermission[];
   create: Create;
   remove(input: RemoveWebhookInput, ctx: OAuthContext): Promise<void>;
+}>;
+
+/**
+ * A resource of the provider that holds webhooks of its own (a GitLab project), named in a delivery
+ * so the setup panel can list which ones have sent one. `name` is what the panel shows.
+ */
+export type WebhookSource = Readonly<{ id: string; name: string }>;
+
+/**
+ * Automatic setup (#428) for a provider whose webhooks belong to one resource each rather than to
+ * the grant (GitLab project webhooks; group webhooks need a paid GitLab tier). Every source gets its
+ * own webhook pointing at the connection's one URL with the one secret: at setup, and after each
+ * successful sync for sources the connection reads that have none yet. Each webhook is deleted on
+ * disconnect, before revoking. Only where StackDash makes the secret, so all of them share it.
+ */
+export type PerSourceWebhookSetup = Readonly<{
+  per: "source";
+  extraPermissions: readonly FullAccessPermission[];
+  // The sources the connection reads, in the order they should get a webhook when there are more
+  // than one endpoint may hold (most active first). Same credential rules as CreateWebhookInput.
+  listSources(input: Pick<CreateWebhookInput, "credential" | "externalAccountIds">, ctx: OAuthContext): Promise<WebhookSource[]>;
+  create(
+    input: Pick<CreateWebhookInput, "credential" | "url"> & Readonly<{ secret: Secret; sourceId: string }>,
+    ctx: OAuthContext,
+  ): Promise<Readonly<{ webhookId: string }>>;
+  remove(input: RemoveWebhookInput & Readonly<{ sourceId: string }>, ctx: OAuthContext): Promise<void>;
 }>;
 
 /**
@@ -188,12 +216,17 @@ export type ConnectionWebhookSetup = Readonly<
     manualSteps: readonly string[];
     // Removing a webhook added by hand, shown on the panel and when the connection is disconnected.
     removalSteps: readonly string[];
+    // What a source is called (`project`), for a provider whose deliveries name one (WebhookOutcome
+    // `source`): the panel lists each source with its last delivery. Omitted when deliveries name none.
+    sourceNoun?: Readonly<{ one: string; many: string }>;
   } & (
     | {
         secretSource: "stackdash";
-        automatic?: AutomaticWebhookSetup<
-          (input: CreateWebhookInput & Readonly<{ secret: Secret }>, ctx: OAuthContext) => Promise<Readonly<{ webhookId: string }>>
-        >;
+        automatic?:
+          | AutomaticWebhookSetup<
+              (input: CreateWebhookInput & Readonly<{ secret: Secret }>, ctx: OAuthContext) => Promise<Readonly<{ webhookId: string }>>
+            >
+          | PerSourceWebhookSetup;
       }
     | {
         secretSource: "provider";
@@ -240,12 +273,22 @@ export type WebhookVerification =
  *   late and out of order. A token refresh is not a grant, so a refresh after the removal does not
  *   save the connection from it (#476).
  * - `ignored`: a verified delivery StackDash has no use for (an action it does not map).
+ * `source` (events and ignored): the resource the delivery came from, for a provider that declares
+ * `sourceNoun` (a GitLab project). The route records it for the setup panel; it is not stored with
+ * the outcome.
  */
 export type WebhookOutcome =
-  | Readonly<{ kind: "events"; externalAccountId: string; events: ActivityEvent[] }>
+  | Readonly<{ kind: "events"; externalAccountId: string; events: ActivityEvent[]; source?: WebhookSource }>
   | Readonly<{ kind: "uninstalled"; by?: "account"; externalAccountId: string; occurredAt: Date }>
   | Readonly<{ kind: "uninstalled"; by: "installation"; installationId: string; occurredAt: Date }>
-  | Readonly<{ kind: "ignored"; reason: string }>;
+  | Readonly<{ kind: "ignored"; reason: string; source?: WebhookSource }>;
+
+/**
+ * The connection a per-connection URL belongs to, handed to `parse` (#428): the external accounts
+ * it includes. For a provider whose deliveries name their account only by its path, never by the
+ * id `sync` reads (GitLab names a project's namespace by path), so `parse` can find the account.
+ */
+export type WebhookConnection = Readonly<{ accounts: readonly Pick<ExternalAccount, "externalId" | "displayName">[] }>;
 
 /**
  * A provider's push path (#28). The route calls `verify` first, against the raw body, and only a
@@ -267,8 +310,9 @@ export type WebhookDescriptor = Readonly<{
   // must say so in its header comment.
   verify(request: WebhookRequest, secret: Secret, now: Date): WebhookVerification;
   // Maps a verified body onto the adapter's declared event types. Reads only the fields the
-  // timeline shows: no names, emails, or free text from the user's app.
-  parse(request: WebhookRequest, ctx: AdapterContext): WebhookOutcome;
+  // timeline shows: no names, emails, or free text from the user's app. `connection` is set for a
+  // delivery to a per-connection URL and absent for an app-level one.
+  parse(request: WebhookRequest, ctx: AdapterContext, connection?: WebhookConnection): WebhookOutcome;
 }>;
 
 /**

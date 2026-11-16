@@ -4,11 +4,13 @@ import { Secret, type ConnectionWebhookSetup, type FullAccessPermission } from "
 
 import {
   automaticChoiceCopy,
+  automaticSetUpCopy,
   endpointLimitCopy,
   leftoverWriteAccessCopy,
   isWebhookSetupResult,
   manualChoiceCopy,
   needsWriteAccess,
+  sourceListCopy,
   switchToManualCopy,
   WEBHOOK_ENDPOINTS_PER_WORKSPACE,
   WEBHOOK_SETUP_RESULTS,
@@ -42,6 +44,22 @@ function providerSetup(): ConnectionWebhookSetup {
     ...steps,
     secretSource: "provider",
     automatic: { extraPermissions: [], create: () => Promise.resolve({ webhookId: "hook_1", secret: new Secret("whsec_test") }), remove },
+  };
+}
+
+/** GitLab's shape (#428): one webhook per project, with StackDash's secret and write access. */
+function perProjectSetup(): ConnectionWebhookSetup {
+  return {
+    ...steps,
+    sourceNoun: { one: "project", many: "projects" },
+    secretSource: "stackdash",
+    automatic: {
+      per: "source",
+      extraPermissions: [write],
+      listSources: () => Promise.resolve([]),
+      create: () => Promise.resolve({ webhookId: "hook_1" }),
+      remove,
+    },
   };
 }
 
@@ -102,9 +120,41 @@ describe("webhook setup copy", () => {
   });
 
   it.each(WEBHOOK_SETUP_RESULTS)("has a banner for the %s result without a dash", (result) => {
-    const copy = webhookSetupResultCopy(result, "GitLab");
+    const copy = webhookSetupResultCopy(result, "GitLab", perProjectSetup());
     expect(copy.title.length).toBeGreaterThan(0);
     expect(`${copy.title} ${copy.body}`).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("speaks of one webhook per project where automatic setup adds one to each (#428)", () => {
+    const gitlab = perProjectSetup();
+    expect(automaticSetUpCopy("GitLab", gitlab)).toBe(
+      "Set up automatically. StackDash added a webhook to each GitLab project it reads, adds one to each project it starts reading on a later sync, and deletes them when you disconnect.",
+    );
+    expect(webhookSetupResultCopy("automatic", "GitLab", gitlab).body).toBe(
+      "StackDash added a webhook to the GitLab projects it reads. Any it could not reach are listed below and tried again after the next sync. New events reach the timeline within a minute of GitLab sending them.",
+    );
+    expect(switchToManualCopy("GitLab", gitlab)).toBe(
+      "To set up the webhook by hand instead, disconnect GitLab, reconnect it, and choose setup by hand. Disconnecting deletes the webhooks and ends StackDash's write access; it cannot be given up while the webhooks stay.",
+    );
+  });
+
+  it("keeps one webhook in the singular where automatic setup adds one in all, or where the setup is unknown (boundary)", () => {
+    expect(automaticSetUpCopy("Resend", providerSetup())).toBe(
+      "Set up automatically. StackDash added this webhook in Resend and deletes it when you disconnect.",
+    );
+    expect(webhookSetupResultCopy("automatic", "Resend", null).body).toMatch(/^StackDash added a webhook in Resend\./);
+  });
+
+  it("titles the project list and says what to do when it is empty, for each way of setting up", () => {
+    const noun = { one: "project", many: "projects" };
+    expect(sourceListCopy("GitLab", noun, "manual")).toEqual({
+      heading: "Projects",
+      empty: "No project has sent a delivery yet. Each project the webhook is added to shows here once it sends one.",
+    });
+    expect(sourceListCopy("GitLab", noun, "automatic")).toEqual({
+      heading: "Projects",
+      empty: "StackDash reads no GitLab project yet, so it has added no webhook. The next sync that finds a project adds one.",
+    });
   });
 
   it.each([undefined, "", "Automatic", "manual", ["automatic"]])("accepts only a known result from the query (boundary: %j)", (value) => {
