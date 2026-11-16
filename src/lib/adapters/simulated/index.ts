@@ -36,6 +36,7 @@ import {
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
 import { vercelProfile } from "./vercel";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionWebhooks } from "./webhooks";
 
 /**
  * Simulated providers for local demos and testing (#131), built by one factory from a profile per
@@ -115,6 +116,15 @@ function simulatedWebhooks(real: WebhookDescriptor): WebhookDescriptor {
   return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
 }
 
+/**
+ * The write scope of a profile's automatic webhook setup that the consent screen granted
+ * (`granted_scope`, space-separated), or none: a twin never holds a scope it did not declare.
+ */
+function grantedWriteScopes(profile: SimulatedProfile, granted: string | undefined): string[] {
+  if (profile.webhooks?.writeAccess !== true || granted === undefined) return [];
+  return granted.split(" ").includes(SIMULATED_WEBHOOK_WRITE_SCOPE) ? [SIMULATED_WEBHOOK_WRITE_SCOPE] : [];
+}
+
 /** A simulated adapter for `provider`, optionally with an incident or at a higher event volume. */
 export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId, options: SimulatedAdapterOptions = {}): ProviderAdapter {
   const { incident, volume = DEFAULT_EVENT_VOLUME } = options;
@@ -144,7 +154,13 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     ...(real.dailyTotals === undefined ? {} : { dailyTotals: real.dailyTotals }),
     ...(real.projectedSpend === undefined ? {} : { projectedSpend: real.projectedSpend }),
     ...(real.beta === undefined ? {} : { beta: real.beta }),
-    ...(real.webhooks === undefined ? {} : { webhooks: simulatedWebhooks(real.webhooks) }),
+    // The live adapter's push path wins; a profile declares one only where the live adapter has
+    // none yet (simulated/webhooks.ts, #426).
+    ...(real.webhooks !== undefined
+      ? { webhooks: simulatedWebhooks(real.webhooks) }
+      : profile.webhooks === undefined
+        ? {}
+        : { webhooks: simulatedConnectionWebhooks(provider, profile.webhooks) }),
     oauth: {
       authorizeUrl: FAKE_AUTHORIZE_PATH,
       // Never requested: `exchangeCode` mints the credential in memory.
@@ -157,16 +173,16 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     },
     pollIntervalSeconds: SIMULATED_POLL_INTERVAL_SECONDS,
 
-    buildAuthorizeUrl({ state, redirectUri }) {
+    buildAuthorizeUrl({ state, redirectUri, extraScopes = [] }) {
       const url = new URL(FAKE_AUTHORIZE_PATH, new URL(redirectUri).origin);
       url.searchParams.set("provider", provider);
       url.searchParams.set("state", state);
       url.searchParams.set("redirect_uri", redirectUri);
-      url.searchParams.set("scope", SIMULATED_SCOPE);
+      url.searchParams.set("scope", [SIMULATED_SCOPE, ...extraScopes].join(" "));
       return url;
     },
 
-    async exchangeCode({ code }) {
+    async exchangeCode({ code, callbackParams }) {
       if (!code.startsWith(SIMULATED_CODE_PREFIX) || code.length === SIMULATED_CODE_PREFIX.length) {
         throw new InvalidResponseError(`Simulated ${provider} did not issue this authorization code`, {
           status: 400,
@@ -176,7 +192,8 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
       // A fresh seed per grant, so two simulated connections never share accounts or events.
       return {
         accessToken: new Secret(`simulated-at-${crypto.randomUUID()}`),
-        scopes: [SIMULATED_SCOPE],
+        // The simulated read scope always; the write scope too when the consent screen granted it.
+        scopes: [SIMULATED_SCOPE, ...grantedWriteScopes(profile, callbackParams.granted_scope)],
         tokenType: "bearer",
         metadata: simulatedCredentialMetadata(crypto.randomUUID().slice(0, 8)),
       };

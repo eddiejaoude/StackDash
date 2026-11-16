@@ -46,6 +46,15 @@ import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED
 import { DAY_MS, DEFAULT_EVENT_VOLUME, isLaunchDay, isWeekend, MAX_EVENT_VOLUME, type SimulatedIncident } from "./simulation";
 import { NEW_CUSTOMERS_PER_DAY } from "./stripe";
 import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
+import { gitlabProfile } from "./gitlab";
+import { resendProfile } from "./resend";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE } from "./webhooks";
+
+// The profiles that declare a per-connection webhook while their live adapter has none (#426).
+const PROFILE_WEBHOOKS: Partial<Record<LiveProviderId, NonNullable<typeof gitlabProfile.webhooks>>> = {
+  ...(gitlabProfile.webhooks === undefined ? {} : { gitlab: gitlabProfile.webhooks }),
+  ...(resendProfile.webhooks === undefined ? {} : { resend: resendProfile.webhooks }),
+};
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -243,16 +252,70 @@ describe("simulated adapter declarations", () => {
     });
   });
 
-  it.each(liveProviderIds)("%s receives webhooks exactly when its live adapter does, through the live verify and parse", (id) => {
-    const real = REAL[id].webhooks;
-    const simulated = simulatedAdapters[id].webhooks;
-    if (real === undefined) {
-      expect(simulated).toBeUndefined();
-      return;
-    }
-    expect(simulated?.subscriptions).toBe(real.subscriptions);
-    expect(simulated?.verify).toBe(real.verify);
-    expect(simulated?.parse).toBe(real.parse);
+  it.each(liveProviderIds)(
+    "%s carries its live adapter's webhooks through the live verify and parse, otherwise its profile's per-connection webhook, otherwise none",
+    (id) => {
+      const real = REAL[id].webhooks;
+      const simulated = simulatedAdapters[id].webhooks;
+      const profile = PROFILE_WEBHOOKS[id];
+      if (real !== undefined) {
+        expect(simulated?.subscriptions).toBe(real.subscriptions);
+        expect(simulated?.verify).toBe(real.verify);
+        expect(simulated?.parse).toBe(real.parse);
+      } else if (profile !== undefined) {
+        expect(simulated?.registration.kind).toBe("connection");
+        expect(simulated?.subscriptions).toBe(profile.subscriptions);
+      } else {
+        expect(simulated).toBeUndefined();
+      }
+    },
+  );
+
+  it("lets a live adapter's webhooks win over a profile's (boundary: both declared)", () => {
+    const descriptor = exampleAdapter.webhooks;
+    if (descriptor === undefined) throw new Error("the example adapter declares webhooks");
+    const twin = createSimulatedAdapter({ ...gitlabProfile, real: { ...gitlabAdapter, webhooks: descriptor } }, "gitlab");
+    expect(twin.webhooks?.verify).toBe(descriptor.verify);
+  });
+
+  describe("simulated write access for automatic webhook setup (#426)", () => {
+    const ctx = () => makeCtx(SPAN_START);
+    const exchange = (adapter: ProviderAdapter, grantedScope?: string) =>
+      adapter.exchangeCode(
+        {
+          code: `${SIMULATED_CODE_PREFIX}code`,
+          redirectUri: "http://localhost:3000/cb",
+          callbackParams: grantedScope === undefined ? {} : { granted_scope: grantedScope },
+        },
+        ctx(),
+      );
+
+    it("asks for the write scope only when it is passed, and holds it once granted", async () => {
+      const { gitlab } = simulatedAdapters;
+      const client = { clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} };
+      const plain = gitlab.buildAuthorizeUrl({ client, state: "s", redirectUri: "http://localhost:3000/api/connections/gitlab/callback" });
+      expect(plain.searchParams.get("scope")).toBe(SIMULATED_SCOPE);
+      const write = gitlab.buildAuthorizeUrl({
+        client,
+        state: "s",
+        redirectUri: "http://localhost:3000/api/connections/gitlab/callback",
+        extraScopes: [SIMULATED_WEBHOOK_WRITE_SCOPE],
+      });
+      expect(write.searchParams.get("scope")).toBe(`${SIMULATED_SCOPE} ${SIMULATED_WEBHOOK_WRITE_SCOPE}`);
+      expect((await exchange(gitlab, `${SIMULATED_SCOPE} ${SIMULATED_WEBHOOK_WRITE_SCOPE}`)).scopes).toEqual([
+        SIMULATED_SCOPE,
+        SIMULATED_WEBHOOK_WRITE_SCOPE,
+      ]);
+    });
+
+    it.each([
+      ["no granted scope", "gitlab", undefined],
+      ["only the read scope granted", "gitlab", SIMULATED_SCOPE],
+      ["the write scope granted to a twin that does not declare it", "resend", `${SIMULATED_SCOPE} ${SIMULATED_WEBHOOK_WRITE_SCOPE}`],
+      ["an unknown scope granted", "gitlab", `${SIMULATED_SCOPE} admin`],
+    ] as const)("holds only the read scope with %s (boundary)", async (_case, id, granted) => {
+      expect((await exchange(simulatedAdapters[id], granted)).scopes).toEqual([SIMULATED_SCOPE]);
+    });
   });
 
   describe("webhook secrets (#479)", () => {
@@ -269,9 +332,10 @@ describe("simulated adapter declarations", () => {
       expect(simulated?.parse).toBe(descriptor.parse);
     });
 
-    it("keeps a per-connection registration, whose secret is stored for its connection", () => {
-      const perConnection: WebhookDescriptor = { ...descriptor, registration: { kind: "connection" } };
-      expect(withWebhooks(perConnection)?.registration).toEqual({ kind: "connection" });
+    it("keeps a live per-connection registration, whose secret is stored for its connection", () => {
+      const setup = { secretSource: "stackdash", manualSteps: ["Add the address."], removalSteps: ["Delete the webhook."] } as const;
+      const perConnection: WebhookDescriptor = { ...descriptor, registration: { kind: "connection", setup } };
+      expect(withWebhooks(perConnection)?.registration).toEqual({ kind: "connection", setup });
     });
   });
 });

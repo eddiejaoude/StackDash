@@ -209,4 +209,17 @@ export const gitlabProfile: SimulatedProfile = {
   accounts: (seed) => [{ externalId: String(parseInt(seed, 16)), displayName: GROUP, kind: "group" }],
   metrics,
   eventsInSlot,
+  // Until #428 gives the live adapter its webhook: GitLab's webhook API needs the `api` scope, which
+  // can also write, so automatic setup asks for write access (simulated/webhooks.ts).
+  webhooks: {
+    subscriptions: ["Pipeline Hook", "Merge Request Hook", "Deployment Hook", "Release Hook"],
+    secretSource: "stackdash",
+    writeAccess: true,
+    manualSteps: [
+      "In GitLab, open the group, then Settings, then Webhooks, and choose Add new webhook.",
+      "Paste the address below into URL and the secret below into Secret token.",
+      "Under Trigger, tick Pipeline events, Merge request events, Deployment events, and Releases events, then choose Add webhook.",
+    ],
+    removalSteps: ["In GitLab, open the group, then Settings, then Webhooks, and choose Delete next to the StackDash webhook."],
+  },
 };

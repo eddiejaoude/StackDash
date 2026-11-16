@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE } from "@/lib/adapters/simulated/webhooks";
 import { Secret } from "@/lib/adapters/types";
 
 import { GET } from "./route";
@@ -136,6 +137,7 @@ describe("connect round trip through the route", () => {
 });
 
 const STRIPE_CALLBACK = `${ORIGIN}/api/connections/stripe/callback`;
+const GITLAB_CALLBACK = `${ORIGIN}/api/connections/gitlab/callback`;
 const simulatedParams = { provider: "stripe", state: "state-sim", redirect_uri: STRIPE_CALLBACK, scope: SIMULATED_SCOPE };
 
 describe("GET /api/dev/fake-provider/authorize?provider=<live id> guard", () => {
@@ -192,11 +194,28 @@ describe("GET /api/dev/fake-provider/authorize?provider=<live id> when simulatin
     ["a decline switch", { ...simulatedParams, decline: SIMULATED_SCOPE }],
     ["a mode switch", { ...simulatedParams, mode: "revoked" }],
     ["an unsupported error", { ...simulatedParams, error: "server_error" }],
+    // Automatic webhook setup's write scope (#426): Stripe's twin declares none.
+    ["a write scope the simulated adapter did not declare", { ...simulatedParams, scope: `${SIMULATED_SCOPE} ${SIMULATED_WEBHOOK_WRITE_SCOPE}` }],
+    [
+      "the write scope without the read scope",
+      { ...simulatedParams, provider: "gitlab", redirect_uri: GITLAB_CALLBACK, scope: SIMULATED_WEBHOOK_WRITE_SCOPE },
+    ],
+    [
+      "the declared write scope with another scope",
+      { ...simulatedParams, provider: "gitlab", redirect_uri: GITLAB_CALLBACK, scope: `${SIMULATED_SCOPE} ${SIMULATED_WEBHOOK_WRITE_SCOPE} admin` },
+    ],
   ])("answers 400 without redirecting for %s", (_title, params) => {
     vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
     const response = GET(authorizeRequest(params));
     expect(response.status).toBe(400);
     expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("grants the write scope a simulated adapter declares for automatic webhook setup (#426)", () => {
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
+    const scope = `${SIMULATED_SCOPE} ${SIMULATED_WEBHOOK_WRITE_SCOPE}`;
+    const target = location(GET(authorizeRequest({ ...simulatedParams, provider: "gitlab", redirect_uri: GITLAB_CALLBACK, scope })));
+    expect(target.searchParams.get("granted_scope")).toBe(scope);
   });
 
   it("round trips buildAuthorizeUrl -> route -> exchangeCode -> listAccounts for every live provider", async () => {

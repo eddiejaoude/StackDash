@@ -1,6 +1,7 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import type { AdapterContext, ExternalAccount, ProviderAdapter } from "@/lib/adapters/types";
+import type { SimulatedWebhookSetup } from "@/lib/adapters/simulated/webhooks";
 import { TREND_DAYS } from "@/lib/dashboard/trends";
 
 /*
@@ -34,6 +35,11 @@ export type SimulatedProfile = Readonly<{
    * ones the profile made before volume existed.
    */
   eventsInSlot: (accountId: string, slot: number, volume: number) => ActivityEvent[];
+  /**
+   * A per-connection webhook for a provider whose real adapter declares none yet (#426), used only
+   * while `real.webhooks` is undefined. #428 (GitLab) and #427 (Resend) replace it.
+   */
+  webhooks?: SimulatedWebhookSetup;
 }>;
 
 /**

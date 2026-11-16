@@ -9,7 +9,7 @@ import {
   fakeScopes,
   parseFakeScopes,
 } from "@/lib/adapters/fake";
-import { isProviderSimulationEnabled, SIMULATED_CODE_PREFIX } from "@/lib/adapters/simulated";
+import { isProviderSimulationEnabled, SIMULATED_CODE_PREFIX, simulatedAdapters } from "@/lib/adapters/simulated";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { liveProviderIds, type LiveProviderId } from "@/lib/adapters/types";
 
@@ -90,10 +90,17 @@ function simulatedConsent(requestUrl: URL, providerParam: string): NextResponse 
   }
   const denied = cancelled(query, callback);
   if (denied !== null) return denied;
-  if (query.get("scope") !== SIMULATED_SCOPE) return plainText(`scope must be ${SIMULATED_SCOPE}.`, 400);
+  // The simulated read scope, followed by automatic webhook setup's write scope only for a provider
+  // whose simulated adapter declares it (#426); any other scope is refused.
+  const registration = simulatedAdapters[provider].webhooks?.registration;
+  const writeScopes =
+    registration?.kind === "connection" ? (registration.setup.automatic?.extraPermissions ?? []).map((permission) => permission.scope) : [];
+  const allowed = [SIMULATED_SCOPE, ...writeScopes.map((scope) => `${SIMULATED_SCOPE} ${scope}`)];
+  const requested = query.get("scope");
+  if (requested === null || !allowed.includes(requested)) return plainText(`scope must be one of: ${allowed.join(", ")}.`, 400);
 
   callback.searchParams.set("code", `${SIMULATED_CODE_PREFIX}${crypto.randomUUID()}`);
-  callback.searchParams.set("granted_scope", SIMULATED_SCOPE);
+  callback.searchParams.set("granted_scope", requested);
   return NextResponse.redirect(callback, 302);
 }
 
