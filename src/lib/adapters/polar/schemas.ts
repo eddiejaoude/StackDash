@@ -118,3 +118,26 @@ export type Refund = z.infer<typeof RefundSchema>;
 /** `GET /v1/customers/`, read only to count new customers. Never the email, name, or address. */
 export const CustomerSchema = z.object({ id: PolarIdSchema, created_at: isoDateTime });
 export type Customer = z.infer<typeof CustomerSchema>;
+
+/**
+ * `POST /v1/webhooks/endpoints` (#429): the new endpoint's id and the signing secret Polar
+ * generated for it (the 2026-10 request takes no secret). Nothing else is kept.
+ */
+export const WebhookEndpointSchema = z.object({ id: PolarIdSchema, secret: z.string().min(1) });
+
+// Every webhook delivery's envelope: `{ type, timestamp, api_version, data }` (2026-10 webhook
+// payload schemas). Only the type is read before choosing the shape below.
+export const WebhookTypeSchema = z.object({ type: z.string() });
+
+// The organization a delivery belongs to. Orders and subscriptions name it only through their
+// embedded customer (`customer.organization_id`), whose name, email, and address are dropped here.
+const OrganizationOwnedSchema = z.object({ organization_id: PolarIdSchema });
+
+/** `order.paid`: the order as `GET /v1/orders/` returns it, plus its customer's organization. */
+export const OrderDeliverySchema = z.object({ data: OrderSchema.extend({ customer: OrganizationOwnedSchema }) });
+
+/** `subscription.created`, `.active`, `.canceled`, `.revoked`: the subscription and its customer's organization. */
+export const SubscriptionDeliverySchema = z.object({ data: SubscriptionSchema.extend({ customer: OrganizationOwnedSchema }) });
+
+/** `refund.created`, `refund.updated`: the refund, which names its organization itself. */
+export const RefundDeliverySchema = z.object({ data: RefundSchema.extend(OrganizationOwnedSchema.shape) });

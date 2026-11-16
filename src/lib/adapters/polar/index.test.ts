@@ -1,14 +1,27 @@
+import { createHmac } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 import {
   AuthRevokedError,
   InvalidResponseError,
   PermissionMissingError,
+  ProviderUnavailableError,
   RateLimitedError,
 } from "@/lib/adapters/errors";
 import { validateAdapterEvents } from "@/lib/adapters/events";
+import { checkAdapterDeclaration, checkWebhookOutcome } from "@/lib/adapters/harness";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
-import { orderEvent, polarAdapter, refundEvent } from "./index";
+import {
+  Secret,
+  type AdapterContext,
+  type FetchLike,
+  type OAuthContext,
+  type OAuthCredential,
+  type WebhookDescriptor,
+  type WebhookRequest,
+} from "@/lib/adapters/types";
+import { STANDARD_WEBHOOK_HEADERS, STANDARD_WEBHOOK_TOLERANCE_SECONDS } from "@/lib/webhooks/standard-webhooks";
+import { orderEvent, polarAdapter, polarWebhookSignature, refundEvent } from "./index";
 // Fixtures are from documentation, not recorded: shaped after the response schemas and examples in
 // Polar's API reference, version 2026-10, checked 2026-11-05, trimmed, with synthetic ids, amounts,
 // and personal data (docs/providers/polar.md, Sample responses). The personal data is there to
@@ -31,6 +44,18 @@ import startedFixture from "./fixtures/subscriptions-started.json";
 // https://polar.sh/docs/integrate/oauth2/connect, for the code exchange and the refresh.
 import refreshFixture from "./fixtures/token-refresh.json";
 import tokenFixture from "./fixtures/token.json";
+// Webhook deliveries (#429), shaped after the 2026-10 webhook payload schemas (`order.paid`,
+// `subscription.active`, `subscription.canceled`, `refund.updated` at
+// https://polar.sh/docs/api-reference/2026-10/order_paid and its siblings): the envelope
+// `{ type, timestamp, api_version, data }` around the same synthetic objects as the list fixtures
+// above, with the embedded customer and its personal data the payloads carry.
+import webhookOrderPaid from "./fixtures/webhook-order-paid.json";
+import webhookRefundUpdated from "./fixtures/webhook-refund-updated.json";
+import webhookSubscriptionActive from "./fixtures/webhook-subscription-active.json";
+import webhookSubscriptionCanceled from "./fixtures/webhook-subscription-canceled.json";
+// https://polar.sh/docs/api-reference/2026-10/webhooks/create-webhook-endpoint, response 201, with
+// a placeholder secret.
+import webhookEndpointCreated from "./fixtures/webhook-endpoint-created.json";
 
 const now = new Date("2026-11-10T12:00:00Z");
 const monthStart = new Date("2026-11-01T00:00:00Z");
@@ -142,6 +167,19 @@ describe("polarAdapter.buildAuthorizeUrl", () => {
         redirectUri: "https://stackdash.example.com/cb",
       }),
     ).toThrow(TypeError);
+  });
+
+  it("adds webhooks:write only when automatic webhook setup passes it (boundary: none passed reads only)", () => {
+    const params = {
+      client: { clientId: "polar_ci_fixture_client", clientSecret: new Secret(clientSecret), extra: {} },
+      state: "state-123",
+      redirectUri: "https://stackdash.example.com/api/connections/polar/callback",
+      codeChallenge: "challenge-abc",
+    };
+    expect(polarAdapter.buildAuthorizeUrl({ ...params, extraScopes: ["webhooks:write"] }).searchParams.get("scope")).toBe(
+      [...ALL_SCOPES, "webhooks:write"].join(" "),
+    );
+    expect(polarAdapter.buildAuthorizeUrl({ ...params, extraScopes: [] }).searchParams.get("scope")).toBe(ALL_SCOPES.join(" "));
   });
 });
 
@@ -656,7 +694,7 @@ describe("polar payment events on the timeline (#261)", () => {
 });
 
 describe("polarAdapter declarations", () => {
-  it("is OAuth with PKCE, read-only, polled hourly, and declares the four timeline event types", () => {
+  it("is OAuth with PKCE, reads by default, polled hourly, and declares the four timeline event types", () => {
     expect(polarAdapter.oauth.pkce).toBe(true);
     expect(polarAdapter.oauth.scopes).toEqual(ALL_SCOPES);
     expect(polarAdapter.permissions.every((permission) => permission.access === "read")).toBe(true);
@@ -668,5 +706,282 @@ describe("polarAdapter declarations", () => {
       "polar.subscription.canceled",
       "polar.refund.succeeded",
     ]);
+    // Webhooks are declared (#429): polling stays, and they pass the contract's checks.
+    expect(polarAdapter.webhooks).toBeDefined();
+    expect(checkAdapterDeclaration(polarAdapter)).toEqual([]);
+  });
+});
+
+describe("polarAdapter webhooks (#429)", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential:
+  // `whsec_` and the base64 of 32 synthetic bytes, shaped like a Standard Webhooks secret.
+  const SIGNING_SECRET = new Secret(["whsec", Buffer.from("synthetic-polar-signing-key-32by").toString("base64")].join("_"));
+  const DELIVERY_ID = "msg_synthetic0000000000000001";
+  const NOW_SECONDS = String(now.getTime() / 1000);
+  const ORDER_BODY = JSON.stringify(webhookOrderPaid);
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = polarAdapter;
+    if (webhooks === undefined) throw new Error("the Polar adapter declares no webhook");
+    return webhooks;
+  }
+
+  function automatic() {
+    const { registration } = descriptor();
+    if (registration.kind !== "connection" || registration.setup.secretSource !== "provider") {
+      throw new Error("expected a per-connection webhook whose secret Polar generates");
+    }
+    const { automatic: setup } = registration.setup;
+    if (setup === undefined) throw new Error("expected automatic setup");
+    return setup;
+  }
+
+  type Delivery = Partial<{
+    id: string | null;
+    timestamp: string | null;
+    signature: string | null;
+    secret: Secret;
+    signedId: string;
+    signedBody: string;
+  }>;
+
+  // A delivery as Polar sends it. Each option bends one part for a boundary test.
+  function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
+    const id = options.id === undefined ? DELIVERY_ID : options.id;
+    const timestamp = options.timestamp === undefined ? NOW_SECONDS : options.timestamp;
+    const headers = new Headers({ "content-type": "application/json" });
+    if (id !== null) headers.set(STANDARD_WEBHOOK_HEADERS.delivery, id);
+    if (timestamp !== null) headers.set(STANDARD_WEBHOOK_HEADERS.timestamp, timestamp);
+    const signature =
+      options.signature === undefined
+        ? polarWebhookSignature(
+            options.secret ?? SIGNING_SECRET,
+            options.signedId ?? id ?? "",
+            timestamp ?? "",
+            new TextEncoder().encode(options.signedBody ?? rawBody),
+          )
+        : options.signature;
+    if (signature !== null) headers.set(STANDARD_WEBHOOK_HEADERS.signature, signature);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  function parseCtx() {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const ctx: AdapterContext = { fetch: () => Promise.reject(new Error("no network in parse")), now: () => now, timeoutMs: 1000, logger };
+    return { ctx, logger };
+  }
+
+  function parsed(rawBody: string) {
+    const request = delivery(rawBody);
+    expect(descriptor().verify(request, SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    return descriptor().parse(request, parseCtx().ctx);
+  }
+
+  function withData(fixture: { data: object }, type: string, overrides: Record<string, unknown>): string {
+    return JSON.stringify({ ...fixture, type, data: { ...fixture.data, ...overrides } });
+  }
+
+  /** The event the sync stores for `dedupeKey` from the list fixtures. */
+  async function polled(dedupeKey: string) {
+    const event = (await sync(syncRoutes).result).events.find((candidate) => candidate.dedupeKey === dedupeKey);
+    expect(event).toBeDefined();
+    return event;
+  }
+
+  it("is per connection, with Polar's secret, automatic setup asking for webhooks:write, and the timeline's events", () => {
+    const { registration, subscriptions } = descriptor();
+    expect(registration.kind).toBe("connection");
+    if (registration.kind !== "connection") return;
+    expect(registration.setup.secretSource).toBe("provider");
+    expect(registration.setup.manualSteps.join(" ")).toContain(subscriptions.join(", "));
+    expect(registration.setup.manualSteps.join(" ")).toMatch(/secret/);
+    expect(automatic().extraPermissions.map((permission) => [permission.scope, permission.access])).toEqual([["webhooks:write", "full"]]);
+    expect(automatic().extraPermissions[0]?.fullAccessReason).toMatch(/^Polar has no read-only access that can create a webhook\./);
+    expect(subscriptions).toEqual([
+      "order.paid",
+      "subscription.created",
+      "subscription.active",
+      "subscription.canceled",
+      "subscription.revoked",
+      "refund.created",
+      "refund.updated",
+    ]);
+  });
+
+  describe("verify", () => {
+    it("verifies the Standard Webhooks specification's own example", () => {
+      // The example in the Standard Webhooks spec's "Signature scheme" section, built from parts for the secret scan.
+      const secret = new Secret(["whsec", "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"].join("_"));
+      const id = ["msg", "p5jXN8AQM9LWM0D4loKWxJek"].join("_");
+      const body = '{"test": 2432232314}';
+      const signature = "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=";
+      expect(polarWebhookSignature(secret, id, "1614265330", new TextEncoder().encode(body))).toBe(signature);
+      const request = delivery(body, { id, timestamp: "1614265330", signature });
+      expect(descriptor().verify(request, secret, new Date(1614265330 * 1000))).toEqual({ ok: true, deliveryId: id });
+    });
+
+    it("verifies a delivery for a secret made before 2026-09-08, keyed by the UTF-8 bytes of the whole secret", () => {
+      const signed = Buffer.concat([Buffer.from(`${DELIVERY_ID}.${NOW_SECONDS}.`), Buffer.from(ORDER_BODY)]);
+      const original = `v1,${createHmac("sha256", Buffer.from(SIGNING_SECRET.reveal(), "utf8")).update(signed).digest("base64")}`;
+      expect(descriptor().verify(delivery(ORDER_BODY, { signature: original }), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it("accepts one matching entry among several while a secret rotates", () => {
+      const old = polarWebhookSignature(new Secret(["whsec", Buffer.from("an-older-synthetic-signing-key32").toString("base64")].join("_")), DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(ORDER_BODY));
+      const current = polarWebhookSignature(SIGNING_SECRET, DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(ORDER_BODY));
+      expect(descriptor().verify(delivery(ORDER_BODY, { signature: `${old} ${current}` }), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it.each<[string, Delivery, string]>([
+      ["unsigned", { signature: null }, "missing_signature"],
+      ["without a timestamp", { timestamp: null }, "missing_signature"],
+      ["signed with another secret", { secret: new Secret(["whsec", Buffer.from("another-synthetic-signing-key-32").toString("base64")].join("_")) }, "bad_signature"],
+      ["with a changed body", { signedBody: ORDER_BODY.replace("5880", "1") }, "bad_signature"],
+      ["replayed under a new delivery id", { id: "msg_synthetic0000000000000002", signedId: DELIVERY_ID }, "bad_signature"],
+      ["without a delivery id", { id: null, signedId: DELIVERY_ID }, "malformed"],
+      ["with a timestamp that is not whole seconds", { timestamp: "1762776000.5" }, "malformed"],
+      ["one second past the tolerance (boundary)", { timestamp: String(Number(NOW_SECONDS) - STANDARD_WEBHOOK_TOLERANCE_SECONDS - 1) }, "stale"],
+      ["one second past the tolerance in the future (boundary)", { timestamp: String(Number(NOW_SECONDS) + STANDARD_WEBHOOK_TOLERANCE_SECONDS + 1) }, "stale"],
+    ])("rejects a delivery %s", (_name, options, reason) => {
+      expect(descriptor().verify(delivery(ORDER_BODY, options), SIGNING_SECRET, now)).toEqual({ ok: false, reason });
+    });
+
+    it("accepts a delivery exactly at the tolerance (boundary)", () => {
+      const timestamp = String(Number(NOW_SECONDS) - STANDARD_WEBHOOK_TOLERANCE_SECONDS);
+      expect(descriptor().verify(delivery(ORDER_BODY, { timestamp }), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it("verifies nothing with a secret too short to be one Polar made (boundary: under 16 bytes either way)", () => {
+      const short = "whsec_c2hvcnQ";
+      const signed = Buffer.concat([Buffer.from(`${DELIVERY_ID}.${NOW_SECONDS}.`), Buffer.from(ORDER_BODY)]);
+      const signature = `v1,${createHmac("sha256", Buffer.from(short, "utf8")).update(signed).digest("base64")}`;
+      expect(descriptor().verify(delivery(ORDER_BODY, { signature }), new Secret(short), now)).toEqual({ ok: false, reason: "bad_signature" });
+    });
+  });
+
+  describe("parse", () => {
+    it("maps order.paid to the event the sync stores for the same order, for the organization the delivery names", async () => {
+      const outcome = parsed(ORDER_BODY);
+      expect(checkWebhookOutcome(polarAdapter, outcome)).toEqual([]);
+      expect(outcome).toEqual({ kind: "events", externalAccountId: orgId, events: [await polled("order:0a1b2c3d-0000-4000-8000-000000000001")] });
+    });
+
+    it("maps subscription.active and subscription.created to the sync's started event (one dedupe key)", async () => {
+      const started = await polled("subscription_started:5ab5ab50-0000-4000-8000-000000000004");
+      expect(parsed(JSON.stringify(webhookSubscriptionActive))).toEqual({ kind: "events", externalAccountId: orgId, events: [started] });
+      expect(parsed(withData(webhookSubscriptionActive, "subscription.created", {}))).toEqual({ kind: "events", externalAccountId: orgId, events: [started] });
+    });
+
+    it("maps subscription.canceled and a canceled subscription.revoked to the sync's canceled event", async () => {
+      const canceled = await polled("subscription_canceled:5ab5ab50-0000-4000-8000-000000000002");
+      expect(parsed(JSON.stringify(webhookSubscriptionCanceled))).toEqual({ kind: "events", externalAccountId: orgId, events: [canceled] });
+      expect(parsed(withData(webhookSubscriptionCanceled, "subscription.revoked", { status: "canceled" }))).toEqual({
+        kind: "events",
+        externalAccountId: orgId,
+        events: [canceled],
+      });
+    });
+
+    it("maps a succeeded refund.updated to the sync's refund event", async () => {
+      const refund = await polled("refund:7ef07ef0-0000-4000-8000-000000000001");
+      expect(parsed(JSON.stringify(webhookRefundUpdated))).toEqual({ kind: "events", externalAccountId: orgId, events: [refund] });
+    });
+
+    it.each<[string, string]>([
+      ["a subscription created before its first payment (no started_at)", withData(webhookSubscriptionActive, "subscription.created", { status: "incomplete", started_at: null })],
+      ["a subscription revoked for unpaid renewals (no canceled_at)", withData(webhookSubscriptionActive, "subscription.revoked", { status: "unpaid", canceled_at: null })],
+      ["a refund created pending", withData(webhookRefundUpdated, "refund.created", { status: "pending" })],
+      ["an order paid event for a draft order", withData(webhookOrderPaid, "order.paid", { status: "draft" })],
+    ])("ignores %s, as the sync does", (_name, body) => {
+      expect(parsed(body)).toEqual({ kind: "ignored", reason: "not on the timeline yet" });
+    });
+
+    it.each<[string, string, string]>([
+      ["an event type StackDash does not subscribe to", JSON.stringify({ ...webhookOrderPaid, type: "checkout.created" }), "event type is not on the timeline"],
+      ["order.refunded, which names no refund", JSON.stringify({ ...webhookOrderPaid, type: "order.refunded" }), "event type is not on the timeline"],
+      ["a body that is not JSON", "not json", "body is not JSON"],
+      ["a body without a type (boundary: empty object)", "{}", "not a Polar webhook delivery"],
+    ])("ignores %s", (_name, body, reason) => {
+      expect(parsed(body)).toEqual({ kind: "ignored", reason });
+    });
+
+    it("ignores a subscribed event in a shape it cannot read, and logs its type only", () => {
+      const { ctx, logger } = parseCtx();
+      const body = withData(webhookOrderPaid, "order.paid", { customer: { email: "jane.doe@example.com" } });
+      expect(descriptor().parse(delivery(body), ctx)).toEqual({ kind: "ignored", reason: "not a delivery Polar maps" });
+      expect(logger.warn).toHaveBeenCalledWith("polar.webhook.unreadable", { type: "order.paid" });
+      expect(JSON.stringify(logger.warn.mock.calls)).not.toContain("jane");
+    });
+
+    it("keeps no customer name, email, address, tax id, metadata, or comment from any delivery (privacy)", () => {
+      const outcomes = [webhookOrderPaid, webhookSubscriptionActive, webhookSubscriptionCanceled, webhookRefundUpdated].map((fixture) => parsed(JSON.stringify(fixture)));
+      const serialized = JSON.stringify(outcomes);
+      for (const dropped of ["Jane", "jane.doe", "Main Street", "EU123456789", "VIP", "Acme Rockets", "cheaper tool", "phone"]) {
+        expect(serialized).not.toContain(dropped);
+      }
+    });
+  });
+
+  describe("automatic setup", () => {
+    const URL_FOR_CONNECTION = "https://stackdash.example.com/api/webhooks/polar/0f0f0f0f-0000-4000-8000-000000000001";
+    const writeCredential = credential({ scopes: [...ALL_SCOPES, "webhooks:write"] });
+
+    it("creates the endpoint in the connection's organization and keeps Polar's secret", async () => {
+      const created = { ...webhookEndpointCreated, secret: SIGNING_SECRET.reveal() };
+      const { fetch, calls } = fakeFetch({ "/v1/webhooks/endpoints": () => Response.json(created, { status: 201 }) });
+      const result = await automatic().create({ credential: writeCredential, url: URL_FOR_CONNECTION, externalAccountIds: [orgId] }, context(fetch).ctx);
+      expect(result.webhookId).toBe("e0d0e0d0-0000-4000-8000-000000000001");
+      expect(result.secret.reveal()).toBe(SIGNING_SECRET.reveal());
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.init?.method).toBe("POST");
+      expect(header(calls[0], "authorization")).toBe("Bearer polar_at_fixture_access_1");
+      expect(header(calls[0], "polar-version")).toBe("2026-10");
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+        url: URL_FOR_CONNECTION,
+        name: "StackDash",
+        format: "raw",
+        api_version: "2026-10",
+        events: descriptor().subscriptions,
+        organization_id: orgId,
+      });
+    });
+
+    it.each<[string, string[]]>([
+      ["no organization (boundary: none)", []],
+      ["two organizations (boundary: many)", [orgId, "2ecfc517-0bbf-4301-9ba8-555ca42b9737"]],
+    ])("creates nothing for a connection with %s", async (_name, externalAccountIds) => {
+      const { fetch, calls } = fakeFetch({});
+      await expect(automatic().create({ credential: writeCredential, url: URL_FOR_CONNECTION, externalAccountIds }, context(fetch).ctx)).rejects.toThrow(RangeError);
+      expect(calls).toHaveLength(0);
+    });
+
+    it.each<[string, number, new (...args: never[]) => Error]>([
+      ["a grant without webhooks:write (403)", 403, PermissionMissingError],
+      ["an expired or revoked token (401)", 401, AuthRevokedError],
+      ["an endpoint Polar refuses (422)", 422, InvalidResponseError],
+    ])("fails on %s", async (_name, status, errorClass) => {
+      const { fetch } = fakeFetch({ "/v1/webhooks/endpoints": () => Response.json({ detail: [] }, { status }) });
+      await expect(automatic().create({ credential: writeCredential, url: URL_FOR_CONNECTION, externalAccountIds: [orgId] }, context(fetch).ctx)).rejects.toThrow(errorClass);
+    });
+
+    it("deletes the endpoint on disconnect", async () => {
+      const { fetch, calls } = fakeFetch({ "/v1/webhooks/endpoints/e0d0e0d0-0000-4000-8000-000000000001": () => new Response(null, { status: 204 }) });
+      await automatic().remove({ credential: writeCredential, webhookId: "e0d0e0d0-0000-4000-8000-000000000001" }, context(fetch).ctx);
+      expect(calls[0]?.init?.method).toBe("DELETE");
+      expect(header(calls[0], "authorization")).toBe("Bearer polar_at_fixture_access_1");
+      expect(header(calls[0], "polar-version")).toBe("2026-10");
+    });
+
+    it("treats an endpoint already deleted in Polar (404) as removed", async () => {
+      const { fetch } = fakeFetch({ "/v1/webhooks/endpoints/gone": () => Response.json({ detail: "Not found" }, { status: 404 }) });
+      const { ctx, logger } = context(fetch);
+      await expect(automatic().remove({ credential: writeCredential, webhookId: "gone" }, ctx)).resolves.toBeUndefined();
+      expect(logger.info).toHaveBeenCalledWith("polar.webhook.already_removed", { provider: "polar" });
+    });
+
+    it("fails when Polar cannot delete the endpoint (500), so the user gets the steps by hand", async () => {
+      const { fetch } = fakeFetch({ "/v1/webhooks/endpoints/e1": () => new Response(null, { status: 500 }) });
+      await expect(automatic().remove({ credential: writeCredential, webhookId: "e1" }, context(fetch).ctx)).rejects.toThrow(ProviderUnavailableError);
+    });
   });
 });

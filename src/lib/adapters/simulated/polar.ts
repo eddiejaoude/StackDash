@@ -225,4 +225,8 @@ export const polarProfile: SimulatedProfile = {
   accounts: (seed) => [{ externalId: `sim-org-${seed}`, displayName: "Example organization", kind: "organization" }],
   metrics,
   eventsInSlot,
+  // No `webhooks`: the live adapter's declaration (#429) is forwarded, with automatic setup kept in
+  // this process and its `webhooks:write` swapped for the simulated write scope
+  // (simulated/webhooks.ts). A signed delivery runs the live `verify` and `parse`, so one naming the
+  // twin's `sim-org-<seed>` organization is stored on that connection like a real one.
 };

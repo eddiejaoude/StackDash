@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { checkAdapterDeclaration } from "@/lib/adapters/harness";
+import { polarAdapter } from "@/lib/adapters/polar";
 import { resendAdapter } from "@/lib/adapters/resend";
 import { Secret, type OAuthContext, type WebhookDescriptor } from "@/lib/adapters/types";
 
@@ -15,8 +16,8 @@ import {
 
 /*
  * The simulated per-connection webhook (#426): the stand-in GitLab's twin carries until its live
- * adapter declares one (#428), and the live declaration Resend's twin forwards (#427) with
- * automatic setup kept in this process.
+ * adapter declares one (#428), and the live declarations Resend's (#427) and Polar's (#429) twins
+ * forward with automatic setup kept in this process.
  */
 
 const NOW = new Date("2026-11-16T09:00:00.000Z");
@@ -84,7 +85,7 @@ describe("simulated connection webhooks (#426)", () => {
     expect(gitlabCreated?.webhookId).not.toBe(resend?.webhookId);
   });
 
-  it.each(["gitlab", "resend"] as const)("passes the adapter declaration checks for simulated %s", (id) => {
+  it.each(["gitlab", "resend", "polar"] as const)("passes the adapter declaration checks for simulated %s", (id) => {
     expect(checkAdapterDeclaration(simulatedAdapters[id])).toEqual([]);
   });
 
@@ -105,6 +106,24 @@ describe("simulated connection webhooks (#426)", () => {
     const credential = { accessToken: new Secret("simulated-at"), scopes: [], tokenType: "bearer" };
     const created = await twinSetup.automatic?.create({ credential, url: "http://localhost/api/webhooks/resend/id", externalAccountIds: [] }, oauthCtx);
     expect(created?.webhookId).toMatch(/^simulated-webhook-/);
+    await expect(twinSetup.automatic?.remove({ credential, webhookId: created?.webhookId ?? "" }, oauthCtx)).resolves.toBeUndefined();
+  });
+
+  it("forwards Polar's live declaration with the simulated write scope in place of webhooks:write, never calling Polar", async () => {
+    const live = polarAdapter.webhooks;
+    const twin = simulatedAdapters.polar.webhooks;
+    if (live === undefined || twin === undefined) throw new Error("expected Polar webhooks");
+    expect(twin.verify).toBe(live.verify);
+    expect(twin.parse).toBe(live.parse);
+    expect(twin.subscriptions).toEqual(live.subscriptions);
+    const twinSetup = setupOf(twin);
+    expect(twinSetup.manualSteps).toEqual(setupOf(live).manualSteps);
+    expect(twinSetup.automatic?.extraPermissions.map((permission) => permission.scope)).toEqual([SIMULATED_WEBHOOK_WRITE_SCOPE]);
+    if (twinSetup.secretSource !== "provider") throw new Error("expected Polar's own secret");
+    // oauthCtx.fetch rejects: a call to Polar would fail the create.
+    const credential = { accessToken: new Secret("simulated-at"), scopes: [SIMULATED_WEBHOOK_WRITE_SCOPE], tokenType: "bearer" };
+    const created = await twinSetup.automatic?.create({ credential, url: "http://localhost/api/webhooks/polar/id", externalAccountIds: ["sim-org-1"] }, oauthCtx);
+    expect(created?.secret.reveal()).toMatch(/^whsec_/);
     await expect(twinSetup.automatic?.remove({ credential, webhookId: created?.webhookId ?? "" }, oauthCtx)).resolves.toBeUndefined();
   });
 });
