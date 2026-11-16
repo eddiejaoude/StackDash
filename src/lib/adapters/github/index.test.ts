@@ -1569,10 +1569,10 @@ describe("webhooks", () => {
   it("marks the revoking user's own account when they revoke the app's authorization (personal account connection)", () => {
     // Only a personal account connection holds a user token, and its account id is the user's.
     const outcome = received("github_app_authorization", appAuthorizationRevoked);
+    // Never the organization (ACCOUNT_ID): its connection syncs with installation tokens a revoked
+    // authorization does not touch.
     expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: "9000002", occurredAt: NOW });
     expect(checkWebhookOutcome(githubAdapter, outcome)).toEqual([]);
-    // Never the organization: its connection syncs with installation tokens a revoked authorization does not touch.
-    expect(outcome.kind === "uninstalled" && outcome.by !== "installation" ? outcome.externalAccountId : undefined).not.toBe(ACCOUNT_ID);
   });
 
   it.each<[string, string | null, unknown]>([
