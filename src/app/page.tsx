@@ -2,7 +2,7 @@ import Image from "next/image";
 
 import { DataFlow } from "@/components/data-flow";
 import { HeroPreview } from "@/components/hero-preview";
-import { BellIcon, EyeIcon, GaugeIcon, TimelineIcon } from "@/components/icons";
+import { BellIcon, EyeIcon, GaugeIcon, PlatformLogo, TimelineIcon } from "@/components/icons";
 import { SignupForm } from "@/components/signup-form";
 import { site } from "@/lib/site";
 
@@ -24,7 +24,7 @@ const heroFeatures: readonly HeroFeature[] = [
 const FEATURES_START_MS = 1400;
 const FEATURES_STAGGER_MS = 90;
 
-/** The coming soon page: the landing page hero, with a launch note in place of its actions. */
+/** The coming soon page: the landing page hero, with a launch note and a repository link in place of its actions. */
 export default function Home() {
   return (
     <>
@@ -68,8 +68,8 @@ export default function Home() {
                 <div className="rise mx-auto mt-6 max-w-xl rounded-xl border border-accent/40 bg-accent-soft px-6 py-5 lg:mx-0">
                   <p className="text-base font-medium">{site.name} is coming soon.</p>
                   <p className="mt-2 text-sm leading-6 text-muted">
-                    It will be open source, so you can read the code, contribute, and host it yourself. A hosted version
-                    is planned too.
+                    It is open source, so you can read the code, contribute, and host it yourself. A hosted version is
+                    planned too.
                   </p>
                   <SignupForm purpose="Get the launch email and occasional progress updates" />
                   <p className="mt-3 text-left text-xs leading-5 text-muted">
@@ -77,6 +77,17 @@ export default function Home() {
                     email has an unsubscribe link.
                   </p>
                 </div>
+
+                {/* Below the form: the launch list stays the page's first action (#471). */}
+                <p className="rise mt-4">
+                  <a
+                    href={site.githubUrl}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-foreground/40 px-4 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                  >
+                    <PlatformLogo platform="GitHub" />
+                    Star {site.name} on GitHub
+                  </a>
+                </p>
 
                 <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted lg:mx-0 lg:text-base lg:leading-7">
                   Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
