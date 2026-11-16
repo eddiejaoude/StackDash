@@ -635,7 +635,11 @@ export class MemoryJobStore implements JobStore {
       .filter((connection) => connection.external_installation_id === installationId && this.#isWebhookTarget(connection, provider, endpoint))
       .sort((a, b) => a.id.localeCompare(b.id))
       .slice(0, WEBHOOK_TARGET_LIMIT)
-      .map((connection) => ({ workspaceId: connection.workspace_id, connectionId: connection.id, grantedAt: connection.granted_at }));
+      .map((connection) => ({
+        workspaceId: connection.workspace_id,
+        connectionId: connection.id,
+        grantedAt: connection.granted_at ?? this.credentialUpdatedAt.get(connection.id) ?? null,
+      }));
   }
 
   async finishWebhookDelivery(deliveryRowId: string, finishedAt: Date): Promise<void> {

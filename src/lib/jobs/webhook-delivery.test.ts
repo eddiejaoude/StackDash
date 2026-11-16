@@ -368,6 +368,17 @@ describe("runWebhookJob", () => {
       expect(harness.infos.map((line) => line.event)).toContain("webhook.uninstall_stale");
     });
 
+    it("falls back to the credential's last save for an installation's connection with no recorded grant (boundary: unstamped)", async () => {
+      const harness = setup();
+      const unstamped = harness.connect(WORKSPACE_A, { external_installation_id: INSTALLATION, granted_at: null });
+      harness.store.credentialUpdatedAt.set(unstamped.id, new Date(UNINSTALLED_AT.getTime() + 1).toISOString());
+      const job = await harness.deliver(installationUninstall);
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(unstamped).toMatchObject({ status: "active" });
+      expect(harness.infos.map((line) => line.event)).toContain("webhook.uninstall_stale");
+    });
+
     it("does not match an account whose external id equals the installation id (boundary: the forms stay apart)", async () => {
       const harness = setup();
       const connection = harness.connect(WORKSPACE_A);
