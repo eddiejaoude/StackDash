@@ -36,7 +36,9 @@ function withWebhooks(webhooks: Partial<WebhookDescriptor>): ProviderAdapter {
 }
 
 // The fake provider as if its URL were per connection, for the connection-level route.
-const connectionFake = withWebhooks({ registration: { kind: "connection" } });
+const connectionFake = withWebhooks({
+  registration: { kind: "connection", setup: { secretSource: "stackdash", manualSteps: ["Add the address."], removalSteps: ["Delete the webhook."] } },
+});
 
 const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} };
 const adapterContext: AdapterContext = {

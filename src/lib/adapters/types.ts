@@ -136,10 +136,64 @@ export type AdapterCapabilities = Readonly<{
  *   an instance setting, named (never valued) by `secretEnv`, and deliveries for every connection
  *   arrive at that one URL.
  * - `connection`: one URL per connection (`/api/webhooks/<provider>/<endpointId>`), created
- *   through the provider's API or pasted by the user (#426). The secret is stored per connection,
- *   encrypted like other credentials (#35).
+ *   through the provider's API or added by the user (#426), as `setup` declares. The secret is
+ *   stored per connection, encrypted like other credentials (#35).
  */
-export type WebhookRegistration = Readonly<{ kind: "app"; secretEnv: string } | { kind: "connection" }>;
+export type WebhookRegistration = Readonly<{ kind: "app"; secretEnv: string } | { kind: "connection"; setup: ConnectionWebhookSetup }>;
+
+/** A permission that can change the account, not only read it. */
+export type FullAccessPermission = Extract<Permission, { access: "full" }>;
+
+/** What automatic setup hands the provider to create the connection's webhook. */
+export type CreateWebhookInput = Readonly<{
+  credential: OAuthCredential;
+  // The connection's own URL, `/api/webhooks/<provider>/<endpointId>` on this instance's origin.
+  url: string;
+  // The secret StackDash generated. Sent to the provider only when `secretSource` is `stackdash`.
+  secret: Secret;
+  // The accounts the connection includes, for a provider whose webhooks belong to one account or
+  // project rather than to the whole grant.
+  externalAccountIds: readonly string[];
+}>;
+
+export type CreatedWebhook = Readonly<{
+  // The provider's own id for the webhook, kept so disconnecting can delete it.
+  webhookId: string;
+  // The signing secret the provider generated. Required when `secretSource` is `provider`.
+  secret?: Secret;
+}>;
+
+export type RemoveWebhookInput = Readonly<{ credential: OAuthCredential; webhookId: string }>;
+
+/**
+ * Automatic setup (#426): StackDash creates the webhook through the provider's API and deletes it
+ * on disconnect, before revoking. Offered next to setup by hand, never instead of it.
+ */
+export type AutomaticWebhookSetup = Readonly<{
+  // Scopes beyond `oauth.scopes` that creating a webhook needs, each with its reason. Empty when the
+  // grant StackDash already holds can create one (Resend). Requested in a second consent only when
+  // the user chooses automatic setup, and the user is told before the consent screen that
+  // StackDash then holds write access.
+  extraPermissions: readonly FullAccessPermission[];
+  create(input: CreateWebhookInput, ctx: OAuthContext): Promise<CreatedWebhook>;
+  remove(input: RemoveWebhookInput, ctx: OAuthContext): Promise<void>;
+}>;
+
+/**
+ * How a user gets a `connection` webhook (#424, #426): the setup panel on the connection page
+ * offers automatic setup where `automatic` is declared, and setup by hand always.
+ */
+export type ConnectionWebhookSetup = Readonly<{
+  // Who generates the signing secret: StackDash (the user pastes it into the provider) or the
+  // provider (the user pastes it back into StackDash).
+  secretSource: "stackdash" | "provider";
+  // Setup by hand, one plain-language step each, in order. They refer to "the address" and "the
+  // secret" the panel shows beside them.
+  manualSteps: readonly string[];
+  // Removing a webhook added by hand, shown on the panel and when the connection is disconnected.
+  removalSteps: readonly string[];
+  automatic?: AutomaticWebhookSetup;
+}>;
 
 /** One delivery as received: the raw body bytes, never a parsed body, and the request headers. */
 export type WebhookRequest = Readonly<{
@@ -251,6 +305,9 @@ export type AuthorizeUrlParams = Readonly<{
   redirectUri: string;
   // S256 challenge. Required when `oauth.pkce` is true.
   codeChallenge?: string;
+  // Scopes to request on top of `oauth.scopes`: the `extraPermissions` of automatic webhook setup,
+  // passed only when the user chose it (#426). An adapter that declares them must request them.
+  extraScopes?: readonly string[];
 }>;
 
 export type ExchangeCodeInput = Readonly<{

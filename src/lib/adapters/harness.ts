@@ -283,6 +283,27 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
     }
   }
 
+  // The setup panel shows these steps and permissions as they are (#426): a blank step leaves the
+  // user without an instruction, and an extra scope the first consent already asks for would make
+  // every connection hold the write access automatic setup is supposed to ask for separately.
+  if (registration?.kind === "connection") {
+    const { manualSteps, removalSteps, automatic } = registration.setup;
+    for (const [field, steps] of [
+      ["manualSteps", manualSteps],
+      ["removalSteps", removalSteps],
+    ] as const) {
+      if (steps.length === 0 || steps.some(blank)) problems.push(`webhooks.registration.setup.${field} must list the steps, one non-empty step each`);
+    }
+    const extraScopes = new Set<string>();
+    for (const permission of automatic?.extraPermissions ?? []) {
+      const label = `automatic webhook setup permission ${permission.scope}`;
+      if (blank(permission.description) || blank(permission.fullAccessReason)) problems.push(`${label} needs a description and a fullAccessReason`);
+      if (adapter.oauth.scopes.includes(permission.scope)) problems.push(`${label} is already requested by oauth.scopes`);
+      if (extraScopes.has(permission.scope)) problems.push(`${label} is listed twice`);
+      extraScopes.add(permission.scope);
+    }
+  }
+
   return problems;
 }
 
