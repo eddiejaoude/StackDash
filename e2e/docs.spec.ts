@@ -28,8 +28,10 @@ test.describe("docs", () => {
     await expect(main.getByRole("link").first()).toHaveText("Getting started");
     await expect(page.getByRole("region", { name: "Using StackDash" }).getByRole("link")).toHaveText([
       "Getting started",
+      "Connect providers",
       "REST API",
       "MCP server",
+      "Roadmap",
     ]);
 
     const providers = page.getByRole("region", { name: "Providers" });
@@ -41,6 +43,7 @@ test.describe("docs", () => {
       "Deploy to Vercel and Supabase",
       "Jobs: scheduled syncs, retries, and retention",
       "Register the OAuth apps",
+      "Self-host StackDash",
     ]) {
       await expect(operations.getByRole("link", { name, exact: true })).toBeVisible();
     }
@@ -74,6 +77,9 @@ test.describe("docs", () => {
     "/docs/getting-started",
     "/docs/api",
     "/docs/mcp",
+    "/docs/connect-providers",
+    "/docs/roadmap",
+    "/docs/operations/self-hosting",
     "/docs/adapters",
     "/docs/development",
     "/docs/providers/digitalocean",
@@ -187,7 +193,18 @@ test.describe("docs", () => {
     });
   }
 
-  for (const path of ["/docs", "/docs/getting-started", "/docs/api", "/docs/adapters", "/docs/development", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
+  for (const path of [
+    "/docs",
+    "/docs/getting-started",
+    "/docs/connect-providers",
+    "/docs/roadmap",
+    "/docs/operations/self-hosting",
+    "/docs/api",
+    "/docs/adapters",
+    "/docs/development",
+    "/docs/providers/vercel",
+    "/docs/providers/gitlab",
+  ]) {
     test(`${path} has no automatically detectable accessibility violations`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -208,6 +225,20 @@ test.describe("docs", () => {
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/docs/getting-started");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Getting started");
+  });
+
+  test("keyboard focus follows the home page roadmap to the full roadmap", async ({ page }) => {
+    // The fragment makes the roadmap section the starting point of sequential focus navigation.
+    await page.goto("/#roadmap");
+    const fullRoadmap = page.getByRole("region", { name: "Small first release, clear next steps" }).getByRole("link", {
+      name: "Read the full roadmap",
+    });
+
+    await tabTo(page, fullRoadmap, MAX_TAB_PRESSES);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("/docs/roadmap");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Roadmap");
+    await expect(page.getByRole("main").getByRole("heading", { name: "How this page maps to the board", exact: true })).toBeVisible();
   });
 
   test("keyboard focus opens the adapter guide and follows a link to one of its sections", async ({ page }) => {

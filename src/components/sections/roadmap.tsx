@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { Section } from "@/components/section";
+import { getDoc } from "@/lib/docs";
 
 interface Phase {
   name: string;
@@ -32,22 +35,35 @@ const phases: readonly Phase[] = [
       "Revenue against spend, signups, cost per signup, and deploys for the week or month so far",
     ],
   },
+  // The last two phases sum up docs/roadmap.md, which follows the project board: "Coming next" is its
+  // Now, Next, and Later sections, "Further out" its Further out section. Change both together.
   {
-    name: "Straight after",
-    summary: "Connect more of your stack, run it yourself, and share it with a team.",
+    name: "Coming next",
+    summary: "In progress or high on the project board: events within a minute, a hosted version, and more of your stack.",
     items: [
-      "More integrations, starting with ElevenLabs",
-      "Open source release with self-hosting",
-      "Team workspaces with owner, admin, and viewer roles",
-      "Hide the event types you do not care about",
+      "GitLab and Resend events pushed by webhook, within a minute",
+      "A hosted version, with open sign-up and a public demo",
+      "A shorter path from sign-in to a useful timeline",
+      "Better Stack and Render integrations",
     ],
   },
   {
-    name: "Later",
-    summary: "Ideas we will build only if users ask for them.",
-    items: ["Cost optimization suggestions", "Many more integrations"],
+    name: "Further out",
+    summary: "Planned after that, as priorities allow.",
+    items: [
+      "Invite teammates, change their roles, and switch between workspaces",
+      "OpenAI, Anthropic, and ElevenLabs integrations",
+      "A leaderboard of verified stats and a public project directory",
+      "Saved timeline views and hidden event types",
+    ],
   },
 ];
+
+function roadmapDocHref(): string {
+  const doc = getDoc(["roadmap"]);
+  if (!doc) throw new Error("docs/roadmap.md is missing: the roadmap section links to it");
+  return doc.href;
+}
 
 export function Roadmap() {
   return (
@@ -55,7 +71,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose. More integrations and self-hosting follow."
+      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose, and you can host it yourself today. What comes next follows the project board."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (
@@ -74,6 +90,14 @@ export function Roadmap() {
           </li>
         ))}
       </ol>
+      <p className="mt-8 text-sm">
+        <Link
+          href={roadmapDocHref()}
+          className="inline-flex min-h-6 items-center underline decoration-line-strong underline-offset-4 transition-colors hover:text-accent"
+        >
+          Read the full roadmap
+        </Link>
+      </p>
     </Section>
   );
 }
