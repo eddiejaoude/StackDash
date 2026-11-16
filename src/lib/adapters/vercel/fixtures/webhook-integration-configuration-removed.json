@@ -1,0 +1,15 @@
+{
+  "id": "evt_exampleRemoved0003",
+  "type": "integration-configuration.removed",
+  "createdAt": 1793448000000,
+  "region": "iad1",
+  "payload": {
+    "team": { "id": "team_LLHUOMOoDlqOp8wPE4kFo9pE" },
+    "user": { "id": "2tUzTmv4ljvFVHifEf9TGdpH" },
+    "configuration": {
+      "id": "icfg_6uKSUQ359QCbPfECTAY9murE",
+      "projectSelection": "all",
+      "projects": []
+    }
+  }
+}
