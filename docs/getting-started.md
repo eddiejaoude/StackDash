@@ -23,7 +23,7 @@ Only owners and admins of a workspace connect providers. Every member sees what 
 3. Select **Continue to** the provider, for example **Continue to Vercel**, and approve StackDash on the provider's own consent screen.
 4. Back in StackDash, you land on the new connection's page, which says the provider is connected, for example **Vercel connected**, and links to **Open the timeline**. The connection is also listed under **Connected providers** on **Connections**. Its first sync is queued at once; until it finishes, the timeline says **Events are on their way**.
 
-A card that says **Not set up on this instance** belongs to a provider the person who runs your site has not registered yet. Each provider has its own page in these docs, for example [Vercel](providers/vercel.md), with what StackDash reads, what each permission allows, and what is verified or estimated.
+A card that says **Not set up on this instance** belongs to a provider the person who runs your site has not registered yet. Each provider has its own page in these docs, for example [Vercel](providers/vercel.md), with what StackDash reads, what each permission allows, and what is verified or estimated. [Connect providers](connect-providers.md) lists what each provider needs before it connects, and what to do when a connection needs attention.
 
 ## 4. Read the timeline and the dashboard
 
@@ -62,6 +62,8 @@ How each public number is counted is in [Public metrics](architecture/public-met
 
 ## Next steps
 
+- Connect the rest of your stack: [Connect providers](connect-providers.md).
 - Read your workspace from your own scripts with the [REST API](api.md).
 - Ask an AI assistant about your workspace through the [MCP server](mcp.md).
-- Run StackDash yourself: [Deploy to Vercel and Supabase](operations/deploy.md).
+- Run StackDash yourself: [Self-host StackDash](operations/self-hosting.md).
+- See what is coming next: [Roadmap](roadmap.md).
