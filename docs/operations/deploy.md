@@ -18,7 +18,7 @@ Related pages:
 | Next.js app (pages, Server Actions, `/api/connections/*`, `/api/jobs/tick`) | One Vercel project, built from this repository |
 | Postgres, Auth, the invite hook, `pg_cron`, `pg_net` | One production Supabase project |
 | Scheduler | `pg_cron` in the Supabase project calls `POST /api/jobs/tick` every minute through `pg_net`. No Vercel Cron, no separate worker |
-| Auth email | A custom SMTP sender configured in Supabase Auth |
+| Auth email | None in this setup. A custom SMTP sender in Supabase Auth only if you turn on a feature that emails people |
 
 Order matters: the Supabase project must exist before the Vercel environment variables can be filled in, and the production URL must exist before the OAuth apps and the cron job can point at it.
 
@@ -88,7 +88,9 @@ This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-fu
 
 ### Custom SMTP sender
 
-**Authentication, Emails, SMTP Settings**: enable custom SMTP and enter the sender address, sender name, host, port, username, and password from your email provider (for example a Resend domain you have verified). Supabase's built-in sender is rate limited and only meant for testing. The SMTP password stays in Supabase.
+Optional for this setup: with GitHub as the only sign-in provider and the email provider turned off, Supabase Auth sends no email, and the app never asks it to send a link, an invite, or a reset. Configure a sender if you turn on a Supabase Auth feature that emails people, such as email sign-in, because Supabase's built-in sender is rate limited and only meant for testing.
+
+**Authentication, Emails, SMTP Settings**: enable custom SMTP and enter the sender address, sender name, host, port, username, and password from your email provider (for example a Resend domain you have verified). The SMTP password stays in Supabase.
 
 ### JWT signing keys
 

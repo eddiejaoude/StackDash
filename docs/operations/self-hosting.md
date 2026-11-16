@@ -8,7 +8,7 @@ A self-hosted StackDash is your own fork of the repository, deployed to your own
 
 - The guides cover Vercel and Supabase, the stack StackDash is built and checked on. There is no Docker image and no Docker Compose file.
 - Sign-in is GitHub only, and only for the email addresses you invite.
-- StackDash is licensed under the GNU Affero General Public License v3.0 only. If you run a modified version for other people over a network, the license requires you to offer them its source code. A modified version you host for people outside your organization also needs its own name and logo: the trademark terms in `TRADEMARKS.md` say what you can do without asking.
+- StackDash is licensed under the GNU Affero General Public License v3.0 only. If you run a modified version for other people over a network, the license requires you to offer them its source code. The license grants no trademark rights: a modified version you distribute, or a service you host for people outside your organization, needs its own name and logo. The trademark terms in `TRADEMARKS.md` say what you can do without asking.
 
 ## What you need
 
@@ -17,7 +17,7 @@ A self-hosted StackDash is your own fork of the repository, deployed to your own
 | A Supabase project | Yes | The database, sign-in through Supabase Auth, the invite check, and the scheduler (`pg_cron` and `pg_net`) |
 | A Vercel project | Yes | The app itself, built from your fork |
 | A GitHub account that can register an OAuth app | Yes | Signing in to StackDash |
-| An SMTP sender for Supabase Auth | Yes | The emails Supabase Auth sends; its built-in sender is only meant for testing ([Deploy, custom SMTP sender](deploy.md#custom-smtp-sender)) |
+| An SMTP sender for Supabase Auth | Not for the setup these guides describe | Supabase Auth sends no email in it: sign-in is GitHub only, the email provider is turned off, and StackDash never asks Supabase Auth to send a link, an invite, or a reset. It becomes needed if you turn on a Supabase Auth feature that emails people, such as email sign-in, because Supabase's built-in sender is rate limited and only meant for testing ([Deploy, custom SMTP sender](deploy.md#custom-smtp-sender)) |
 | A Resend account with a verified sending domain | Only for alert email | Alert and digest emails. Without it, alerts still show in the app and reach Slack, Discord, and webhook channels ([Alert email](#alert-email)) |
 | A developer account with each provider you want to connect | One per provider | Registering that provider's app ([Register the OAuth apps](oauth-apps.md)) |
 
@@ -25,11 +25,11 @@ On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase 
 
 ## Set it up
 
-Do these in order. Each step needs something the one before it creates: the Supabase project must exist before the Vercel variables can be filled in, and the production URL must exist before the OAuth apps and the scheduler can point at it.
+Do these in order: each step needs something an earlier one creates, and [Deploy, overview](deploy.md#overview) says why.
 
 1. **Fork the repository** on GitHub and clone your fork. You deploy from your fork, and you upgrade by bringing new commits into it ([Upgrade](#upgrade)).
 2. **Create the Supabase project and apply the migrations**: [Deploy, steps 1 and 2](deploy.md#1-create-the-production-supabase-project).
-3. **Configure Supabase Auth**: the site URL, GitHub sign-in, the invite hook, and the SMTP sender, in [Deploy, step 3](deploy.md#3-configure-supabase-auth).
+3. **Configure Supabase Auth**: the site URL, GitHub sign-in, and the invite hook, in [Deploy, step 3](deploy.md#3-configure-supabase-auth).
 4. **Invite yourself** with `npm run invite`: [Deploy, step 4](deploy.md#4-invite-testers).
 5. **Create the Vercel project and set the environment variables**: [Deploy, step 5](deploy.md#5-create-the-vercel-project), with the secrets from [step 6](deploy.md#6-generate-the-deployment-secrets).
 6. **Schedule syncs** by registering the `pg_cron` job: [Jobs, register the pg_cron job](jobs.md#register-the-pg_cron-job).
@@ -44,7 +44,7 @@ Every variable in `.env.example` is documented twice: in `.env.example` itself, 
 - `STACKDASH_ENCRYPTION_KEY`, which encrypts every stored provider credential. Keep a copy in your password manager: losing it means every connection must reconnect. [Key rotation](deploy.md#key-rotation) changes it without downtime.
 - `STACKDASH_SUPER_ADMIN_EMAILS`, the sign-in emails that can open the instance overview at `/app/admin` ([Instance overview](deploy.md#instance-overview)).
 - `STACKDASH_OPERATOR_NAME`, `STACKDASH_OPERATOR_EMAIL`, and `STACKDASH_GOVERNING_LAW`, which publish the privacy policy and terms of use with your details. Set all three or none.
-- `STACKDASH_ALLOW_PRIVATE_WEBHOOKS` and `STACKDASH_TRUSTED_PROXY_COUNT` only apply to an install on your own network or behind your own proxies. Leave both unset on Vercel.
+- `STACKDASH_ALLOW_PRIVATE_WEBHOOKS` lets alert webhook channels post to plain http and to private network addresses, and `STACKDASH_TRUSTED_PROXY_COUNT` tells the per IP rate limit of the public badge, card, and metrics routes how many of your own proxies sit in front of the app. Leave both unset on Vercel.
 
 Never set the test and local only variables in production: `STACKDASH_ENABLE_FAKE_PROVIDER`, `STACKDASH_SIMULATE_PROVIDERS`, and the rest marked "Test only" or "Local only" in the table.
 
@@ -57,11 +57,11 @@ Alert email goes through Resend only. To send it, create a Resend account, verif
 
 Without the key, email stays off: alerts still show in the app and still reach Slack, Discord, and webhook channels, and alert settings says email is not set up. The privacy policy lists Resend as a processor only on a build made with the key set, so deploy again after setting it.
 
-This is separate from the SMTP sender in Supabase Auth, which sends Supabase's own emails. You can use a Resend domain for both, but each is configured on its own.
+Supabase Auth's own emails are a separate matter, and the setup these guides describe sends none: see [What you need](#what-you-need).
 
-## Webhooks and private networks
+## Provider webhooks
 
-Providers that push events deliver them to `https://<your-host>/api/webhooks/<provider>`, so they reach the timeline within a minute. An install without a public URL, such as one on a private network, receives no deliveries and works on polling alone, at each provider's poll interval. [Deploy, provider webhooks](deploy.md#provider-webhooks) and [Jobs, a webhook job](jobs.md#a-webhook-job) have the details.
+Providers that push events deliver them to `https://<production-host>/api/webhooks/<provider>`, so they reach the timeline within a minute. [Deploy, provider webhooks](deploy.md#provider-webhooks) and [Jobs, a webhook job](jobs.md#a-webhook-job) have the details.
 
 ## Run it day to day
 
@@ -77,7 +77,7 @@ Providers that push events deliver them to `https://<your-host>/api/webhooks/<pr
 
 StackDash has no tagged releases yet. Upgrading means moving your fork to a newer commit of the main repository's `main` branch. Versioned releases, with tags and release notes, will come later; until they do, `main` is what you upgrade to, and the commit history is the change log.
 
-Upgrade often. Migrations follow expand then contract: a change adds the new structure first and removes the old one in a later migration, so the build you are running keeps working while its newer migrations are applied. A jump across many commits can apply both halves at once, which shortens that safe window to the minutes between applying the migrations and the new deployment going live.
+Upgrade often. Migrations follow expand then contract: a change adds the new structure first and removes the old one in a later migration, so the build you are running keeps working while its newer migrations are applied. A jump across many commits can apply both halves at once. The build you are running may then fail from the moment the migrations are applied until the new deployment is live, so keep that gap to minutes and check the app as soon as the deployment is promoted.
 
 ### Before you upgrade
 
@@ -114,7 +114,7 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
    supabase migration list --linked     # both columns now match
    ```
 
-   These are the Supabase CLI 2 flags that Deploy uses. The current [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-migration-up) names the target `--remote` instead (`supabase migration up --remote`), so run `supabase migration up --help` to see which your version takes.
+   `--linked` targets the project you linked with `supabase link`. Per the [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-migration-up), `--linked` works on CLI 2 and CLI 3 for both `migration list` and `migration up`; CLI 3 deprecates it in favor of `--remote`, and CLI 4 removes it.
 4. **Deploy**: push `main` to your fork. Vercel builds and promotes the new production deployment.
 5. **Follow any step the changes ask for** that a deployment does not do on its own, such as a new OAuth app setting or a changed `pg_cron` job. The scheduler itself carries over unchanged.
 
