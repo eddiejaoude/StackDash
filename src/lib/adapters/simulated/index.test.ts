@@ -26,7 +26,7 @@ import {
 } from "@/lib/adapters/types";
 import { spendCategories, TOTAL_METRIC_KEY, vercelAdapter } from "@/lib/adapters/vercel";
 import { aggregateDashboard, type AccountInput, type ConnectionInput, type CurrencyAmounts, type SnapshotInput } from "@/lib/dashboard/aggregate";
-import { DEMO_SEED_TEXT, demoAccountSeed, historySteps } from "@/lib/demo/history";
+import { DEMO_HISTORY_DAYS, DEMO_SEED_TEXT, demoAccountSeed, historySteps } from "@/lib/demo/history";
 import { DEMO_VERCEL_BUDGET } from "@/lib/demo/workspace";
 import { toSnapshotRow, utcDate } from "@/lib/jobs/ingest";
 import { londonDayStart } from "@/lib/timeline/query";
@@ -116,13 +116,17 @@ const DAY_CHAIN: Chain = {
   steps: DAY_MS / SIMULATED_BACKFILL_MS,
 };
 // Stripe's sync re-adds 31 days of hourly transactions for its metrics, so its 721 chained syncs are
-// the slowest work in this file, and two places run them: Stripe's `beforeAll` in "simulated %s over
-// a two hour span" (with DAY_CHAIN's 49 syncs, 0.1 s more) and the group test at the end. Each takes
-// about 1.5 s on a laptop on the merged base. On CI the group test took 2.5 s (run 41960569995) and
-// 3.3 s (run 41964081379); CI does not report hook times. Vitest's defaults are 5 s for a test and
-// 10 s for a hook, and the all-provider shape this replaced ran past 5 s on CI (run 41959212551).
-// 20 s is six times the slower CI measurement, for both.
+// the slowest work in this file after the GitLab id windows below, and two places run them: Stripe's
+// `beforeAll` in "simulated %s over a two hour span" (with DAY_CHAIN's 49 syncs, 0.1 s more) and the
+// group test at the end. Each takes about 1.5 s on a laptop on the merged base. On CI the group test
+// took 2.5 s (run 41960569995) and 3.3 s (run 41964081379); CI does not report hook times. Vitest's
+// defaults are 5 s for a test and 10 s for a hook, and the all-provider shape this replaced ran past
+// 5 s on CI (run 41959212551). 20 s is six times the slower CI measurement, for both.
 const WATCH_TIMEOUT_MS = 20_000;
+// The GitLab id windows (#386) are the slowest tests in this file: 30 days of chained syncs at the
+// maximum event volume take about 4 s on a laptop and took 11.1 s on CI (run 43939785887), beside
+// 3.1 s for the default volume's 90 days. 70 s is six times the CI measurement, rounded up.
+const ID_WINDOW_TIMEOUT_MS = 70_000;
 
 /** Syncs every account once per step across the chain, chaining cursors like the runner. */
 async function syncChain(adapter: ProviderAdapter, credential: OAuthCredential, chain: Chain): Promise<SpanSync[]> {
@@ -1413,4 +1417,31 @@ describe("a small product's demo (#264)", () => {
     }
     expect([...environments].sort()).toEqual(Object.keys(refOf).sort());
   });
+});
+
+// GitLab merge requests and releases are keyed by iid and tag in their project (#386), so a number
+// the simulator reuses drops a later event as a duplicate. Before #386 the iids came round every
+// 10,000 slots (about 28 hours) and the tags within 500 versions. The default volume runs the demo's
+// 90 day history, long enough for about 90 releases to meet a repeated tag as well as a repeated
+// iid; the maximum volume runs 30 days, as its first lane is the default volume's own events.
+describe("simulated GitLab merge request and release ids (#386)", () => {
+  const KEYED_BY_NUMBER = ["gitlab.merge_request.merged", "gitlab.release.published"];
+
+  it.each([
+    ["the default", DEFAULT_EVENT_VOLUME, DEMO_HISTORY_DAYS],
+    ["the maximum", MAX_EVENT_VOLUME, 30],
+  ])("repeats no merge request or release dedupe key at %s event volume (%d) over %d days", async (_title, volume, days) => {
+    const adapter = simulatedAdaptersAtVolume(volume).gitlab;
+    const chain: Chain = { start: new Date("2026-08-01T00:00:00.000Z"), stepMs: SIMULATED_BACKFILL_MS, steps: (days * DAY_MS) / SIMULATED_BACKFILL_MS };
+    const events = (await syncChain(adapter, await connect(adapter), chain))
+      .flatMap(({ result }) => result.events)
+      .filter((event) => KEYED_BY_NUMBER.includes(event.typeId));
+    // Both kinds, about 15 merges and one release a day at the default volume.
+    for (const typeId of KEYED_BY_NUMBER) {
+      expect(events.filter((event) => event.typeId === typeId).length, typeId).toBeGreaterThanOrEqual(days * volume / 2);
+    }
+    const counts = new Map<string, number>();
+    for (const { dedupeKey } of events) counts.set(dedupeKey, (counts.get(dedupeKey) ?? 0) + 1);
+    expect([...counts].filter(([, count]) => count > 1)).toEqual([]);
+  }, ID_WINDOW_TIMEOUT_MS);
 });
