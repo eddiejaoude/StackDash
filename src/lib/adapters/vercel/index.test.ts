@@ -42,7 +42,9 @@ import deploymentsPage2 from "./fixtures/deployments-page-2.json";
 // - webhook-*.json: webhook deliveries built from the field tables of Vercel's Webhooks API
 //   reference (envelope `{ id, type, createdAt, region, payload }`), with synthetic ids. The
 //   deployment ids match the deployments fixtures, so a delivery and a poll of one deployment can
-//   be compared. Git `meta`, `url`, and `alias` are kept so the tests prove they are dropped.
+//   be compared. Git `meta`, `url`, and `alias` are kept so the tests prove they are dropped;
+//   `payload.alias` is documented for `deployment.created` only and is added to the succeeded
+//   delivery for that reason.
 import webhookDeploymentError from "./fixtures/webhook-deployment-error.json";
 import webhookDeploymentSucceeded from "./fixtures/webhook-deployment-succeeded.json";
 import webhookRemoved from "./fixtures/webhook-integration-configuration-removed.json";
