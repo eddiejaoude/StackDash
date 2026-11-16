@@ -33,7 +33,10 @@ export const TokenSuccessSchema = z.object({
   refresh_token: z.string().min(1).optional(),
 });
 
-export const TokenResponseSchema = z.union([TokenSuccessSchema, OAuthErrorSchema]);
+export const TokenResponseSchema = z.union([
+  TokenSuccessSchema,
+  OAuthErrorSchema,
+]);
 export type TokenSuccess = z.infer<typeof TokenSuccessSchema>;
 
 export const AccountTypeSchema = z.enum(["User", "Organization"]);
@@ -75,7 +78,9 @@ export const InstallationRepositoriesSchema = z.object({
     }),
   ),
 });
-export type Repository = z.infer<typeof InstallationRepositoriesSchema>["repositories"][number];
+export type Repository = z.infer<
+  typeof InstallationRepositoriesSchema
+>["repositories"][number];
 
 export const StargazersCountSchema = z.object({ count: z.int().nonnegative() });
 
@@ -127,7 +132,7 @@ export const ReleaseSchema = z.object({
 });
 export type Release = z.infer<typeof ReleaseSchema>;
 
-// `GET /repos/{owner}/{repo}/events`, newest first, every event type. Only a `ReleaseEvent` is read,
+// `GET /repos/{owner}/{repo}/events`, roughly newest first, every event type. Only a `ReleaseEvent` is read,
 // and its `payload.release` must hold the release object: a release event whose payload drifted
 // matches neither shape, so the page fails to parse rather than losing releases silently. `actor`
 // (the person) and every other event's payload are never declared, so they are dropped here.
@@ -140,7 +145,9 @@ const OtherFeedEventSchema = z.object({
   type: z.string().refine((type) => type !== "ReleaseEvent"),
   created_at: z.iso.datetime({ offset: true }),
 });
-export const RepositoryEventsSchema = z.array(z.union([ReleaseFeedEventSchema, OtherFeedEventSchema]));
+export const RepositoryEventsSchema = z.array(
+  z.union([ReleaseFeedEventSchema, OtherFeedEventSchema]),
+);
 
 // The repository in a webhook body. An app installation covers one account's repositories, so the
 // owner's id is the installation account's id: the external account the delivery belongs to.
@@ -155,7 +162,9 @@ const WebhookRepositorySchema = z.object({
 export const PullRequestDeliverySchema = z.object({
   action: z.string(),
   repository: WebhookRepositorySchema,
-  pull_request: PullRequestSchema.extend({ merged: z.boolean().nullable().optional() }),
+  pull_request: PullRequestSchema.extend({
+    merged: z.boolean().nullable().optional(),
+  }),
 });
 
 // `X-GitHub-Event: issues`.
@@ -202,7 +211,9 @@ export const BillingUsageSchema = z.object({
     }),
   ),
 });
-export type BillingUsageItem = z.infer<typeof BillingUsageSchema>["usageItems"][number];
+export type BillingUsageItem = z.infer<
+  typeof BillingUsageSchema
+>["usageItems"][number];
 
 // Shared by `/usage/summary`, `/ai_credit/usage`, and `/premium_request/usage`: aggregated items.
 export const AggregatedUsageSchema = z.object({
@@ -216,4 +227,6 @@ export const AggregatedUsageSchema = z.object({
     }),
   ),
 });
-export type AggregatedUsageItem = z.infer<typeof AggregatedUsageSchema>["usageItems"][number];
+export type AggregatedUsageItem = z.infer<
+  typeof AggregatedUsageSchema
+>["usageItems"][number];
