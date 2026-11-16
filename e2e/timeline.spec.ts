@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 import { z } from "zod";
 
 import { REFRESH_MAX_WAIT_MS } from "../src/lib/realtime/refresh-scheduler";
@@ -1828,6 +1828,53 @@ ownerTest.describe("timeline event inspector", () => {
       await inspector.getByRole("button", { name: "Newer event" }).click();
       await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
     } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // Closing a shared link waits for the router's render, so the URL still names the event for one
+  // server round trip. A row clicked in that window must still open its event, though the
+  // selection changes without the panel ever being seen as closed.
+  ownerTest("opens an event clicked while closing a shared link is still on its way", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector shared close race");
+    try {
+      const path = `/w/${workspace.slug}/timeline`;
+      const { data: event, error } = await adminClient()
+        .from("activity_events")
+        .select("id")
+        .eq("workspace_id", workspace.id)
+        .eq("title", "Synthetic event 0")
+        .single();
+      if (error) throw new Error(`Reading the shared event failed (code ${error.code}).`);
+      await page.goto(`${path}?event=${event.id}`);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+
+      // Holds the close's render until the click has landed; any later render goes through.
+      const held = Promise.withResolvers<Route>();
+      let holding = true;
+      await page.route(
+        (url) => url.pathname === path,
+        async (route) => {
+          if (!holding || !isRenderRequest(route.request(), path)) return route.fallback();
+          holding = false;
+          held.resolve(route);
+        },
+      );
+      await inspector.getByRole("button", { name: "Close event" }).click();
+      await expect(inspector).toBeHidden();
+      const closing = await held.promise;
+      await expect(page).toHaveURL(new RegExp(`event=${event.id}$`));
+      await page.getByRole("link", { name: "Synthetic event 1", exact: true }).click();
+      await closing.continue();
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(path);
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
       await deleteTestWorkspace(workspace);
     }
   });
