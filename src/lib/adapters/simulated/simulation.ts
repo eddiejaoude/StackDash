@@ -37,7 +37,7 @@ export type SimulatedProfile = Readonly<{
   eventsInSlot: (accountId: string, slot: number, volume: number) => ActivityEvent[];
   /**
    * A per-connection webhook for a provider whose real adapter declares none yet (#426), used only
-   * while `real.webhooks` is undefined. #428 (GitLab) and #427 (Resend) replace it.
+   * while `real.webhooks` is undefined. #428 (GitLab) replaces it.
    */
   webhooks?: SimulatedWebhookSetup;
 }>;

@@ -171,7 +171,7 @@ The example adapter shows each rule:
 
 ### Webhooks set up per connection
 
-Where an adapter declares `{ kind: "connection", setup }`, because the user has to create the webhook in the provider, the connection page shows a setup panel, "Get events as they happen", once the provider connects. The user chooses between automatic setup and setup by hand before anything is requested or changed. No live adapter declares one yet: GitLab and Resend are planned, and until then only their simulated twins do (see the last bullet below). `registration.setup` declares what the panel offers:
+Where an adapter declares `{ kind: "connection", setup }`, because the user has to create the webhook in the provider, the connection page shows a setup panel, "Get events as they happen", once the provider connects. The user chooses between automatic setup and setup by hand before anything is requested or changed. Resend declares one (`src/lib/adapters/resend/index.ts`, a provider-generated secret and automatic setup with no new access); GitLab is planned, and until then only its simulated twin does (see the last bullet below). `registration.setup` declares what the panel offers:
 
 | Member | Rule |
 |---|---|
@@ -186,7 +186,7 @@ How the panel uses it:
 - **Setup by hand never asks for a scope.** The panel shows the address, StackDash's secret once (with copy buttons, and a new secret to replace it), or a field for the provider's secret, the steps, and when the last delivery arrived.
 - **Disconnect.** An automatic webhook is deleted through `remove` with the stored credential before the grant is revoked; if that fails, the user gets the steps and a reference. For a webhook added by hand, the user gets the removal steps. Either way the endpoint is deleted, so a delivery still sent to its URL is refused like one to an unknown URL. Moving from automatic setup to setup by hand means disconnecting and reconnecting; there is no in-place downgrade.
 - **At most 5 endpoints per workspace.** Each per-connection URL may queue 50 deliveries a minute and the instance applies 50 a minute, oldest first across every workspace, so the number of endpoints a workspace holds bounds how far it can delay everyone else's deliveries. Five is one for each provider that needs a user-created webhook (Resend, GitLab, Polar, Better Stack, Render). The database refuses the sixth (`webhook_endpoints_enforce_limit`), and the panel says the workspace is at its limit instead of offering setup.
-- **Simulated providers.** With `STACKDASH_SIMULATE_PROVIDERS=1`, a provider's simulated twin carries its live adapter's `webhooks`. Until the live GitLab and Resend adapters declare theirs, their profiles declare a simulated one (`src/lib/adapters/simulated/webhooks.ts`), so the panel runs end to end locally and in e2e.
+- **Simulated providers.** With `STACKDASH_SIMULATE_PROVIDERS=1`, a provider's simulated twin carries its live adapter's `webhooks`, with automatic setup's `create` and `remove` swapped for ones that never leave the process (`simulatedConnectionSetup` in `src/lib/adapters/simulated/webhooks.ts`). Until the live GitLab adapter declares its webhook, GitLab's profile declares a simulated one there, so the panel runs end to end locally and in e2e.
 
 ## Achievements
 
