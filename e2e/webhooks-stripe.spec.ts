@@ -130,7 +130,8 @@ ownerTest.describe("Stripe webhooks", () => {
       await expect(events.getByRole("heading", { name: "Payment succeeded: $49.00", exact: true })).toHaveCount(1);
       await expect(page.getByText("Jane Doe")).toHaveCount(0);
       if (process.env.PW_PR_EVIDENCE === "1") {
-        await page.screenshot({ path: "pr-evidence/after/stripe-webhook-timeline.png", animations: "disabled" });
+        // The whole page: the delivered row sits below the activity overview.
+        await page.screenshot({ path: "pr-evidence/after/stripe-webhook-timeline.png", animations: "disabled", fullPage: true });
       }
     } finally {
       await stripe.dispose();
