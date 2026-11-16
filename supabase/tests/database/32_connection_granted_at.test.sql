@@ -2,15 +2,16 @@
 -- members read and nobody writes through the Data API; the backfill fills a connection with no
 -- grant time from its credential's last save, else from when it was created, leaves pending
 -- connections and connections that already have one alone, works in batches, and is re-runnable;
--- list_webhook_targets returns granted_at and still returns credential_updated_at for code
--- deployed before it.
+-- list_webhook_targets returns granted_at, falling back to the credential's last save for a live
+-- connection with no recorded grant, and still returns credential_updated_at for code deployed
+-- before it.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS); anon and authenticated
 -- are impersonated through the same role and JWT claims PostgREST uses.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(20);
+select plan(22);
 
 -- Every other connection in the local database already has its grant time inside this rolled-back
 -- transaction, so the backfill below sees only this file's fixtures.
@@ -48,7 +49,9 @@ values
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind, included)
 values
-  ('c3200004-0000-4000-8000-000000000001', 'c3200002-0000-4000-8000-000000000001', 'c3200003-0000-4000-8000-000000000004', 'granted-acct', 'Account', 'team', true);
+  ('c3200004-0000-4000-8000-000000000001', 'c3200002-0000-4000-8000-000000000001', 'c3200003-0000-4000-8000-000000000004', 'granted-acct', 'Account', 'team', true),
+  ('c3200004-0000-4000-8000-000000000002', 'c3200002-0000-4000-8000-000000000001', 'c3200003-0000-4000-8000-000000000001', 'unstamped-acct', 'Account', 'team', true),
+  ('c3200004-0000-4000-8000-000000000003', 'c3200002-0000-4000-8000-000000000001', 'c3200003-0000-4000-8000-000000000002', 'bare-acct', 'Account', 'team', true);
 
 -- ---------------------------------------------------------------------------
 -- The column and who may touch it
@@ -69,6 +72,18 @@ select is_empty(
 select ok(
   has_function_privilege('service_role', 'public.backfill_connection_granted_at(integer)', 'execute'),
   'backfill_connection_granted_at: the service role can execute it');
+
+-- ---------------------------------------------------------------------------
+-- list_webhook_targets before the backfill: a live connection with no recorded grant
+-- ---------------------------------------------------------------------------
+select is(
+  (select granted_at from public.list_webhook_targets('fake', 'unstamped-acct')),
+  '2026-11-10T12:00:00Z'::timestamptz,
+  'targets: a live connection with no recorded grant falls back to its credential''s last save, as before granted_at (boundary: unstamped)');
+select is(
+  (select granted_at from public.list_webhook_targets('fake', 'bare-acct')),
+  null::timestamptz,
+  'targets: a live connection with neither a recorded grant nor a credential has no grant time (boundary: no credential)');
 
 -- ---------------------------------------------------------------------------
 -- The backfill

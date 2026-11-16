@@ -242,7 +242,7 @@ describe("runWebhookJob", () => {
   });
 
   it.each([
-    ["with no grant time", null],
+    ["with neither a recorded grant nor a credential save", null],
     ["granted one millisecond before the uninstall (boundary)", new Date(UNINSTALLED_AT.getTime() - 1).toISOString()],
     ["granted at the instant of the uninstall (boundary)", UNINSTALLED_AT.toISOString()],
   ])("revokes a connection %s", async (_case, grantedAt) => {
@@ -253,6 +253,23 @@ describe("runWebhookJob", () => {
     expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
   });
+
+  it.each([
+    ["after the uninstall: skipped, as before #476", UNINSTALLED_AT.getTime() + 1, "active"],
+    ["before the uninstall: revoked", UNINSTALLED_AT.getTime() - 1, "needs_attention"],
+  ])(
+    "falls back to the credential's last save for a live connection with no recorded grant, saved %s (boundary: unstamped)",
+    async (_case, savedAtMs, status) => {
+      const harness = setup();
+      // Made by the previous deployment after the backfill, or inserted as live: no grant stamp.
+      const connection = harness.connect(WORKSPACE_A, { granted_at: null });
+      harness.store.credentialUpdatedAt.set(connection.id, new Date(savedAtMs).toISOString());
+      const job = await harness.deliver(uninstall);
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(connection).toMatchObject({ status });
+    },
+  );
 
   it("revokes a connection whose token was refreshed after the removal (boundary: refresh after removal, #476)", async () => {
     const harness = setup();
