@@ -203,7 +203,7 @@ The project (`data.issue.project.id`) is the external account, so an issue deliv
 
 Issue deliveries are matched on the project only, not on the installation that sent them. A connection marked as needing a reconnect after an uninstall still includes its projects, so if the same Sentry organization later installs StackDash again, for another workspace or the same one, the old connection keeps receiving that project's issue events from the new installation until it is reconnected or disconnected.
 
-Fields read from an issue delivery: `action`, `id`, `shortId`, `status`, `substatus`, `level`, `firstSeen`, `lastSeen`, `permalink`, `issueCategory`, and `project.id`. From an installation delivery: `action`, `installation.uuid`, and `data.installation.uuid`. Never read: `title`, `culprit`, `metadata`, `assignedTo`, the `actor` (who triggered the delivery, by name), and the grant `code` in `installation.created`. Logs name the delivery id and why a delivery was refused, never the body.
+Fields read from an issue delivery: `action`, `id`, `shortId`, `substatus`, `level`, `firstSeen`, `permalink`, `issueCategory`, and `project.id`. From an installation delivery: `action`, `installation.uuid`, and `data.installation.uuid`. Never read: `title`, `culprit`, `metadata`, `assignedTo`, `status` and `lastSeen` (the action says what happened), the `actor` (who triggered the delivery, by name), and the grant `code` in `installation.created`. Logs name the delivery id and why a delivery was refused, never the body.
 
 ## Permission risks
 
@@ -222,7 +222,7 @@ Disclose these on the connect screen before redirecting:
 - Projects created after connecting appear after a reconnect, like every provider's accounts.
 - More than 100 new issues, or more than 100 recently active unresolved issues, in one project between two syncs: only the first page is read and a warning is logged. Releases are read one page at a time for the same reason.
 - Without a delivery (webhooks not set up on the integration, or one missed), regressions and resolutions are dated when the sync saw them, up to one poll interval late.
-- One regression and one resolution per issue per UTC day: a second change of the same kind that day is not shown. A change delivered in the last poll interval before midnight UTC and seen by the sync after midnight shows twice.
+- One regression and one resolution per issue per UTC day: a second change of the same kind that day is not shown. A change delivered in the last poll interval before midnight UTC and seen by the sync after midnight shows twice, and a resolution then counts twice toward the resolved achievements (`sentry.issues.resolved_100` and `sentry.issues.bug_squasher`).
 - Without a delivery, a resolution is seen only for issues StackDash remembers: up to 100 per project that were unresolved and active within the last 13 days. An issue resolved weeks after its last event is reported only by its delivery.
 - Renaming the organization changes its slug, which StackDash stores; calls then fail until the user reconnects (unverified whether Sentry redirects old slugs).
 - The hosted integration is unavailable to other organizations until Sentry approves its publication.
@@ -407,7 +407,7 @@ Nothing on this page has been tried against a real Sentry organization. Confirm 
 - Whether the public integration form requires a webhook URL (StackDash now sets one).
 - Webhooks end to end: that deliveries carry `Request-ID`, `Sentry-Hook-Resource`, and `Sentry-Hook-Timestamp` in whole seconds as Sentry's source sets them, and the signature as documented; whether Sentry retries a failed delivery, and under which `Request-ID`.
 - That a regression is delivered as `issue.unresolved` with `substatus: "regressed"`, and that `issueCategory` reads `feedback` for user feedback issues.
-- That `installation.deleted` is sent on uninstall with the `installation.uuid` the install redirect gave as `installationId`.
+- That `installation.deleted` is sent on uninstall with the `installation.uuid` the install redirect gave as `installationId`, at the top level and again under `data.installation` (Sentry documents a payload for `created` only; StackDash ignores a `deleted` body without both).
 - Real rate limits for these endpoints, and how long the issue search lags behind ingestion.
 
 ## Sources
