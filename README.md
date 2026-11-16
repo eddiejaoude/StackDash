@@ -159,8 +159,8 @@ without one, alerts still show in the app and reach Slack, Discord, and webhooks
   [provider page](docs/providers) lists what is still unverified.
 - **Limits:** sign-in is GitHub only and limited to emails on the invite list. Data arrives by
   scheduled sync. Signed provider webhooks are part of the adapter contract
-  ([Webhooks](docs/adapters.md#webhooks)), but no provider's webhook is received yet. There is no
-  hosted version yet.
+  ([Webhooks](docs/adapters.md#webhooks)), and each [provider page](docs/providers) says whether
+  StackDash receives that provider's webhooks. There is no hosted version yet.
   Until Sentry approves the hosted integration for publication, only the organization that
   registered it can install it; self-hosters register their own
   ([Sentry provider page](docs/providers/sentry.md)).

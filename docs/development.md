@@ -298,6 +298,13 @@ If nothing new appears:
   need attention and reconnect them; a simulated connection that needs attention is not synced.
   The Example provider from step 8 is not simulated.
 
+A simulated provider whose real adapter receives webhooks receives them too, at
+`POST /api/webhooks/<provider>`, through the real adapter's signature check and mapping. Its
+deliveries are signed with `STACKDASH_SIMULATED_WEBHOOK_SECRET` from `.env.local` instead of the
+provider's own webhook secret, so simulation never needs one. Unset, the URL answers `503`. Nothing
+sends deliveries on its own: post one signed the way the provider signs, as the
+`e2e/webhooks-<provider>.spec.ts` specs do.
+
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
 sync rather than mix made-up data with real data: their next sync sends nothing to the provider
 and marks them as needing attention. Delete them from their connection page. A simulated
@@ -469,7 +476,8 @@ server needs neither in `.env.local`.
 
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
-(`e2e/simulated-providers.spec.ts` and `e2e/alert-email.spec.ts`) live in a second Playwright
+(`INSTANCE_WIDE_SPECS` in `playwright.config.ts`: `e2e/simulated-providers.spec.ts`,
+`e2e/alert-email.spec.ts`, and every `e2e/webhooks*.spec.ts`, among others) live in a second Playwright
 project, `instance-wide`, which depends on the `chromium` project and so starts only after every
 other spec has finished. `npm run test:e2e` (and CI) runs both projects in that order; if a
 `chromium` test fails, the `instance-wide` specs are skipped. To run the tick specs locally:
