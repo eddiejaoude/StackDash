@@ -6,6 +6,7 @@ import { createContext, use, useEffect, useEffectEvent, useId, useLayoutEffect, 
 
 import { PublishAchievementButton } from "@/components/achievements/achievement-controls";
 import { AchievementEarnedLabel } from "@/components/achievements/achievement-earned-label";
+import { holdLiveRefresh } from "@/components/app/live-refresh";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { GuardedButton } from "@/components/guarded-button";
 import { AchievementShareDialog } from "@/components/public-metrics/achievement-share-dialog";
@@ -87,6 +88,8 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
   const opener = useRef<HTMLAnchorElement | null>(null);
   // True while the open inspector is the history entry `select` pushed, so closing goes back to it.
   const pushed = useRef(false);
+  // Releases the hold on live refreshes this panel placed, while one is in place.
+  const releaseLiveRefresh = useRef<(() => void) | null>(null);
 
   const syncDialog = useEffectEvent(() => {
     if (open && !dialog.ref.current?.open) {
@@ -118,8 +121,30 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
     return () => { root.style.overflow = previous; };
   }, [open]);
 
+  // While the panel is open, the URL names an event through the History API, and Next's router
+  // still holds the page it rendered without it. A live refresh then fetches the URL but seeds the
+  // router with the search it rendered, and Next caches the page empty under that search: closing
+  // goes Back to it, the page suspends for good, and no event opens again until a reload (#477).
+  // So live updates wait while the panel is open and refresh once after the close has rendered.
+  useEffect(() => {
+    if (!open) return;
+    // Opened from the URL (a shared link, Forward); `select` holds before it writes the URL.
+    releaseLiveRefresh.current ??= holdLiveRefresh();
+    return () => {
+      releaseLiveRefresh.current?.();
+      releaseLiveRefresh.current = null;
+    };
+  }, [open]);
+  // A selection whose open never rendered, as when the route unmounts first, must not keep holding.
+  useEffect(() => () => {
+    releaseLiveRefresh.current?.();
+    releaseLiveRefresh.current = null;
+  }, []);
+
   function select(id: string, from: HTMLAnchorElement | null) {
     opener.current = from;
+    // Before the URL changes, so no refresh starts between this write and the render that opens.
+    releaseLiveRefresh.current ??= holdLiveRefresh();
     // A second activation (a double-click, a held Enter) can land before the dialog opens, and
     // closing goes back one entry, so never stack a second selection entry. Read the URL rather
     // than `pushed`: a click between Escape and its popstate would leave `pushed` set on an entry

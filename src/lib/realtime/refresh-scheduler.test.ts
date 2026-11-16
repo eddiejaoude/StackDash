@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 import {
+  createRefreshHolds,
   createRefreshScheduler,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_IN_FLIGHT_MS,
@@ -11,7 +12,7 @@ import {
 function setup() {
   const page = { hidden: false };
   const refresh = vi.fn<() => void>();
-  const scheduler = createRefreshScheduler({ refresh, isHidden: () => page.hidden });
+  const scheduler = createRefreshScheduler({ refresh, isPaused: () => page.hidden });
   return { page, refresh, scheduler };
 }
 
@@ -90,13 +91,13 @@ describe("createRefreshScheduler", () => {
     expect(refresh).not.toHaveBeenCalled();
 
     // Still hidden: a visibility event that does not show the page changes nothing.
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).not.toHaveBeenCalled();
 
     page.hidden = false;
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).toHaveBeenCalledTimes(1);
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -107,13 +108,13 @@ describe("createRefreshScheduler", () => {
     vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
     expect(refresh).not.toHaveBeenCalled();
     page.hidden = false;
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("does not refresh on becoming visible when nothing changed while hidden", () => {
     const { refresh, scheduler } = setup();
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -124,7 +125,7 @@ describe("createRefreshScheduler", () => {
     vi.runAllTimers();
     scheduler.notify();
     vi.runAllTimers();
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).not.toHaveBeenCalled();
   });
 
@@ -134,7 +135,7 @@ describe("createRefreshScheduler", () => {
     scheduler.notify();
     scheduler.dispose();
     page.hidden = false;
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).not.toHaveBeenCalled();
   });
 });
@@ -268,9 +269,9 @@ describe("createRefreshScheduler single flight", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
 
     page.hidden = false;
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).toHaveBeenCalledTimes(2);
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
@@ -280,7 +281,7 @@ describe("createRefreshScheduler single flight", () => {
     page.hidden = true;
     scheduler.notify();
     page.hidden = false;
-    scheduler.visibilityChanged();
+    scheduler.pauseChanged();
     expect(refresh).toHaveBeenCalledTimes(1);
 
     scheduler.settled();
@@ -296,5 +297,84 @@ describe("createRefreshScheduler single flight", () => {
     scheduler.settled();
     vi.runAllTimers();
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createRefreshHolds", () => {
+  /** A scheduler paused by the holds alone, wired the way LiveRefresh wires it. */
+  function setupHeld() {
+    const holds = createRefreshHolds();
+    const refresh = vi.fn<() => void>();
+    const scheduler = createRefreshScheduler({ refresh, isPaused: holds.held });
+    holds.onReleased(() => scheduler.pauseChanged());
+    return { holds, refresh, scheduler };
+  }
+
+  it("holds a change past the max wait and refreshes once when the hold is released", () => {
+    const { holds, refresh, scheduler } = setupHeld();
+    const release = holds.hold();
+    scheduler.notify();
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_MAX_WAIT_MS * 2);
+    expect(refresh).not.toHaveBeenCalled();
+
+    release();
+    expect(holds.held()).toBe(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a debounce that was already running when the hold began", () => {
+    const { holds, refresh, scheduler } = setupHeld();
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS - 1);
+    const release = holds.hold();
+    vi.advanceTimersByTime(1);
+    expect(refresh).not.toHaveBeenCalled();
+    release();
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh on release when nothing changed while held", () => {
+    const { holds, refresh } = setupHeld();
+    holds.hold()();
+    vi.runAllTimers();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("waits for the last of two holds, released in either order", () => {
+    const { holds, refresh, scheduler } = setupHeld();
+    const first = holds.hold();
+    const second = holds.hold();
+    scheduler.notify();
+    first();
+    vi.runAllTimers();
+    expect(holds.held()).toBe(true);
+    expect(refresh).not.toHaveBeenCalled();
+    second();
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a release that runs twice, so it cannot end another hold", () => {
+    const { holds, refresh, scheduler } = setupHeld();
+    const first = holds.hold();
+    const second = holds.hold();
+    first();
+    first();
+    scheduler.notify();
+    vi.runAllTimers();
+    expect(holds.held()).toBe(true);
+    expect(refresh).not.toHaveBeenCalled();
+    second();
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells no listener once it has unsubscribed", () => {
+    const holds = createRefreshHolds();
+    const listener = vi.fn<() => void>();
+    const unsubscribe = holds.onReleased(listener);
+    holds.hold()();
+    unsubscribe();
+    holds.hold()();
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });
