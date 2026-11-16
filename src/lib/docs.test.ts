@@ -10,6 +10,7 @@ import {
   isDocSlug,
   listDocs,
   parseVerification,
+  readingRank,
   resolveDocLink,
   type DocLink,
   type DocVerification,
@@ -226,7 +227,20 @@ describe("listDocs", () => {
       "Self-hosting and operations",
       "Architecture",
     ]);
-    expect(groups[0]?.docs.map((doc) => doc.href)).toEqual(["/docs/getting-started", "/docs/api", "/docs/mcp"]);
+    expect(groups[0]?.docs.map((doc) => doc.href)).toEqual([
+      "/docs/getting-started",
+      "/docs/connect-providers",
+      "/docs/api",
+      "/docs/mcp",
+      "/docs/roadmap",
+    ]);
+    // The self-hosting guide is the starting point of its group, then the pages in the order it links them.
+    expect(groups[2]?.docs.map((doc) => doc.href)).toEqual([
+      "/docs/operations/self-hosting",
+      "/docs/operations/deploy",
+      "/docs/operations/oauth-apps",
+      "/docs/operations/jobs",
+    ]);
     expect(listDocs()[0]?.href).toBe("/docs/getting-started");
     expect(groups.flatMap((group) => group.docs)).toHaveLength(listDocs().length);
   });
@@ -249,7 +263,7 @@ describe("listDocs", () => {
 describe("docGroup", () => {
   it.each<[string, string[], string]>([
     ["a listed guide", ["getting-started"], "guides"],
-    ["the last listed guide", ["mcp"], "guides"],
+    ["the last listed guide", ["roadmap"], "guides"],
     ["a top-level page that is not a guide", ["adapters"], "developers"],
     ["a page in a folder", ["providers", "vercel"], "providers"],
     ["a page in a folder named like a guide", ["api", "keys"], "api"],
@@ -263,5 +277,23 @@ describe("docGroup", () => {
     if (vercel === null) throw new Error("docs/providers/vercel.md is missing");
     const pages = ["developers", "release-notes"].map((group) => ({ ...vercel, group }));
     expect(groupDocs(pages).map((group) => group.label)).toEqual(["Developers", "Release notes"]);
+  });
+});
+
+describe("readingRank", () => {
+  // Guides list five pages and operations four, so an unlisted page ranks 5 and 4 respectively.
+  it.each<[string, string[], number]>([
+    ["the first listed guide", ["getting-started"], 0],
+    ["the last listed guide", ["roadmap"], 4],
+    ["the first listed operations page", ["operations", "self-hosting"], 0],
+    ["the last listed operations page", ["operations", "jobs"], 3],
+    ["an unlisted page in an ordered group, after the listed ones", ["operations", "backups"], 4],
+    ["a file in a subfolder that shares a listed name, as unlisted", ["operations", "notes", "deploy"], 4],
+    ["a page in a guides folder that shares a guide's name, as unlisted", ["guides", "getting-started"], 5],
+    ["a page in a group with no order", ["providers", "vercel"], 0],
+    ["a top-level page that is not a guide", ["adapters"], 0],
+    ["a page in an unknown folder", ["release-notes", "v1"], 0],
+  ])("ranks %s", (_case, slug, expected) => {
+    expect(readingRank(slug)).toBe(expected);
   });
 });

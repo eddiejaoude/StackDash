@@ -30,7 +30,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`, and `webhooks:write` (requested only for automatic webhook setup) | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
 | Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
 | Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
-| GitLab OAuth application | GitLab.com, avatar, Edit profile, Access, Applications | `<SITE_URL>/api/connections/gitlab/callback` | `read_api`, `read_user` | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
+| GitLab OAuth application | GitLab.com, avatar, Edit profile, Access, Applications | `<SITE_URL>/api/connections/gitlab/callback` | `read_api`, `read_user`, `api` (asked for only with automatic webhook setup) | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
 
@@ -188,14 +188,14 @@ Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown onc
 
 ## GitLab OAuth application
 
-Reads compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests on GitLab.com. Full steps: [GitLab, Self-hosted registration](../providers/gitlab.md#self-hosted-registration). Scopes and what they also allow: [GitLab, Permissions](../providers/gitlab.md#permissions) and [Permission risks](../providers/gitlab.md#permission-risks). Registering the hosted application is deferred, so the adapter is not yet confirmed with a real account ([GitLab, Unverified](../providers/gitlab.md#unverified)).
+Reads compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests on GitLab.com, and receives project webhooks for the same activity. Full steps: [GitLab, Self-hosted registration](../providers/gitlab.md#self-hosted-registration). Scopes and what they also allow: [GitLab, Permissions](../providers/gitlab.md#permissions) and [Permission risks](../providers/gitlab.md#permission-risks). Webhooks: [GitLab, Webhooks](../providers/gitlab.md#webhooks). Registering the hosted application is deferred, so the adapter is not yet confirmed with a real account ([GitLab, Unverified](../providers/gitlab.md#unverified)).
 
 Settings that must match the code:
 
 - GitLab.com, avatar, **Edit profile**, **Access**, **Applications**, **Add new application**. To own it as a group, use the group's **Settings**, **Applications**.
 - **Redirect URI**: `<SITE_URL>/api/connections/gitlab/callback`.
 - **Confidential**: checked.
-- **Scopes**: `read_api` and `read_user`. Nothing else: never `api`, which is read and write.
+- **Scopes**: `read_api`, `read_user`, and `api`. Every connection asks for `read_api read_user` only; `api` (read and write) is asked for only from a user who chooses automatic webhook setup, after a warning. GitLab refuses a scope the application does not allow, so an application without `api` offers webhook setup by hand only: choosing automatic setup then fails at GitLab's consent screen. No webhook setting is needed on the application: each webhook is added per project, by StackDash or by hand.
 
 Variables: `GITLAB_CLIENT_ID` (the Application ID), `GITLAB_CLIENT_SECRET` (the Secret; **Renew secret** rotates it and stops the old one at once). GitLab.com only: a self-managed GitLab instance would need its own application and is not supported.
 

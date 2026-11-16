@@ -467,7 +467,7 @@ export async function setUpWebhook(_previous: WebhookActionResult | null, formDa
     const { access, connection, adapter, setup } = target;
     const name = PROVIDER_NAMES[connection.provider];
     const asResult = (kind: WebhookSetupResult) => {
-      const { tone, body: message } = webhookSetupResultCopy(kind, name);
+      const { tone, body: message } = webhookSetupResultCopy(kind, name, setup);
       const result: WebhookActionResult = tone === "success" ? { ok: true, message } : { ok: false, message };
       return { kind: "result", result } as const;
     };

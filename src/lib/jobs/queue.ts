@@ -3,6 +3,7 @@ import "server-only";
 import { evaluateConnectionAchievements } from "@/lib/achievements/run";
 import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import { evaluateWorkspaceAlerts } from "@/lib/alerts/run";
+import { addMissingSourceWebhooks } from "@/lib/connections/webhook-setup";
 import { log, logError } from "@/lib/log/logger";
 import { createNotificationDeps } from "@/lib/notifications/deps";
 
@@ -58,6 +59,7 @@ export function createJobDeps(): SyncDeps {
     log,
     evaluateAlerts: evaluateWorkspaceAlerts,
     evaluateAchievements: evaluateConnectionAchievements,
+    addMissingSourceWebhooks,
     notifications: createNotificationDeps,
   };
 }

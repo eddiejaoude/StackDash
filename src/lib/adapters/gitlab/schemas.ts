@@ -94,6 +94,80 @@ export const MergeRequestSchema = z.object({
 export type MergeRequest = z.infer<typeof MergeRequestSchema>;
 export const MergeRequestsSchema = z.array(MergeRequestSchema);
 
+/*
+ * Webhook deliveries (#428), from GitLab's documented payloads
+ * (https://docs.gitlab.com/user/project/integrations/webhook_events/, checked 2026-11-16). Only the
+ * fields the timeline shows are declared: user names, emails, avatars, commit messages, merge
+ * request titles, and descriptions are dropped by `z.object`.
+ */
+
+// GitLab sends hook times as ISO 8601 with milliseconds (`Gitlab::WebHooks.normalize_dates`), but a
+// value a payload builder formats itself can still read `2016-08-12 15:23:28 UTC`, so both are read.
+const RUBY_UTC = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/;
+const hookDateTime = z
+  .string()
+  .transform((text) => text.replace(RUBY_UTC, "$1T$2Z"))
+  .pipe(isoDateTime);
+
+// The project every delivery StackDash maps names. `path_with_namespace` is the only link to the
+// external account: no payload carries the namespace id `sync` reads.
+const HookProjectSchema = z.object({
+  id: z.int().positive(),
+  path_with_namespace: z.string().min(1),
+  default_branch: z.string().min(1).nullable().optional(),
+});
+export type HookProject = z.infer<typeof HookProjectSchema>;
+
+export const HookEnvelopeSchema = z.object({ object_kind: z.string(), project: HookProjectSchema });
+
+// `Pipeline Hook`: sent on every status change; only `success` and `failed` become events.
+export const PipelineHookSchema = z.object({
+  object_kind: z.literal("pipeline"),
+  object_attributes: z.object({
+    id: z.int().positive(),
+    iid: z.int().positive(),
+    status: z.string().min(1),
+    ref: z.string().min(1),
+    finished_at: hookDateTime.nullable().optional(),
+    url: z.string().min(1).optional(),
+  }),
+});
+
+// `Deployment Hook`. `deployment_id` is the id `GET /projects/:id/deployments` returns; the hook
+// carries neither the deployment's iid nor its ref.
+export const DeploymentHookSchema = z.object({
+  object_kind: z.literal("deployment"),
+  status: z.string().min(1),
+  deployment_id: z.int().positive(),
+  environment: z.string().min(1),
+  status_changed_at: hookDateTime,
+});
+
+// `Merge Request Hook`. `merged_at` arrived in GitLab 19.1; `updated_at` stands in before it.
+export const MergeRequestHookSchema = z.object({
+  object_kind: z.literal("merge_request"),
+  object_attributes: z.object({
+    iid: z.int().positive(),
+    state: z.string().min(1),
+    action: z.string().min(1).optional(),
+    merged_at: hookDateTime.nullable().optional(),
+    updated_at: hookDateTime,
+    url: z.string().min(1).optional(),
+  }),
+});
+
+// `Release Hook`: `create`, `update`, or `delete`.
+export const ReleaseHookSchema = z.object({
+  object_kind: z.literal("release"),
+  action: z.string().min(1),
+  tag: z.string().min(1),
+  released_at: hookDateTime,
+  url: z.string().min(1).optional(),
+});
+
+// `POST /projects/:id/hooks` (https://docs.gitlab.com/api/project_webhooks/). Only the id is kept.
+export const ProjectHookSchema = z.object({ id: z.int().positive() });
+
 const nonNegativeNumber = z.number().nonnegative();
 
 /**

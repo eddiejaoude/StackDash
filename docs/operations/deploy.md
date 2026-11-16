@@ -6,6 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
+- [Self-host StackDash](self-hosting.md): what you need, the order of these steps, alert email, and how to upgrade.
 - [OAuth apps](oauth-apps.md): register the sign-in OAuth app and one app per provider.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
@@ -17,7 +18,7 @@ Related pages:
 | Next.js app (pages, Server Actions, `/api/connections/*`, `/api/jobs/tick`) | One Vercel project, built from this repository |
 | Postgres, Auth, the invite hook, `pg_cron`, `pg_net` | One production Supabase project |
 | Scheduler | `pg_cron` in the Supabase project calls `POST /api/jobs/tick` every minute through `pg_net`. No Vercel Cron, no separate worker |
-| Auth email | A custom SMTP sender configured in Supabase Auth |
+| Auth email | None in this setup. A custom SMTP sender in Supabase Auth only if you turn on a feature that emails people |
 
 Order matters: the Supabase project must exist before the Vercel environment variables can be filled in, and the production URL must exist before the OAuth apps and the cron job can point at it.
 
@@ -87,7 +88,9 @@ This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-fu
 
 ### Custom SMTP sender
 
-**Authentication, Emails, SMTP Settings**: enable custom SMTP and enter the sender address, sender name, host, port, username, and password from your email provider (for example a Resend domain you have verified). Supabase's built-in sender is rate limited and only meant for testing. The SMTP password stays in Supabase.
+Optional for this setup: with GitHub as the only sign-in provider and the email provider turned off, Supabase Auth sends no email, and the app never asks it to send a link, an invite, or a reset. Configure a sender if you turn on a Supabase Auth feature that emails people, such as email sign-in, because Supabase's built-in sender is rate limited and only meant for testing.
+
+**Authentication, Emails, SMTP Settings**: enable custom SMTP and enter the sender address, sender name, host, port, username, and password from your email provider (for example a Resend domain you have verified). The SMTP password stays in Supabase.
 
 ### JWT signing keys
 
@@ -188,6 +191,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `STACKDASH_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
 | `STACKDASH_SIMULATED_WEBHOOK_SECRET` | Local only | **Must be unset** | **Unset** | Signs the webhook deliveries of every simulated provider whose live adapter receives them on its app registration, in local development and end-to-end runs, in place of that provider's own webhook secret; `playwright.config.ts` sets a synthetic value. Unused while `STACKDASH_SIMULATE_PROVIDERS` is unset |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Local CLI only | Not in Vercel | Not in Vercel | Hosted: entered in the Supabase dashboard (step 3) |
+| `E2E_PORT` | Test only | Not in Vercel | Not in Vercel | Port of the dev server Playwright starts for `npm run test:e2e` (3100 when unset). Read from the shell when the Playwright config loads, not from `.env.local`: `E2E_PORT=3200 npm run test:e2e` |
+| `E2E_RESEND_PORT` | Test only | Not in Vercel | Not in Vercel | Port of the fake Resend API that Playwright starts for the alert email spec (`E2E_PORT` plus one when unset). Read from the shell like `E2E_PORT` |
 
 "Server only" values are not secret on their own (a client ID appears in authorize URLs anyway), but they are still set without a `NEXT_PUBLIC_` prefix because only the server uses them. Mark every "Secret" row as **Sensitive** in Vercel so its value cannot be read back from the dashboard. A provider whose variables are missing is shown as not configured; the rest of the app still works.
 

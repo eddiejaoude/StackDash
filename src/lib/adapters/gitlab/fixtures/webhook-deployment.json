@@ -1,0 +1,37 @@
+{
+  "object_kind": "deployment",
+  "status": "success",
+  "status_changed_at": "2026-11-05T07:38:12.000+00:00",
+  "deployment_id": 41,
+  "deployable_id": 796,
+  "deployable_url": "https://gitlab.com/group1/html5-boilerplate/-/jobs/796",
+  "environment": "production",
+  "environment_tier": "production",
+  "environment_slug": "production",
+  "environment_external_url": "https://example.com",
+  "project": {
+    "id": 9,
+    "name": "Html5 Boilerplate",
+    "description": "",
+    "web_url": "https://gitlab.com/group1/html5-boilerplate",
+    "avatar_url": null,
+    "git_ssh_url": "git@gitlab.com:group1/html5-boilerplate.git",
+    "git_http_url": "https://gitlab.com/group1/html5-boilerplate.git",
+    "namespace": "group1",
+    "visibility_level": 0,
+    "path_with_namespace": "group1/html5-boilerplate",
+    "default_branch": "main",
+    "ci_config_path": ""
+  },
+  "short_sha": "279484c0",
+  "user": {
+    "id": 1,
+    "name": "Example User",
+    "username": "example_user",
+    "avatar_url": "https://gitlab.com/uploads/-/system/user/avatar/1/avatar.png",
+    "email": "user@example.com"
+  },
+  "user_url": "https://gitlab.com/example_user",
+  "commit_url": "https://gitlab.com/group1/html5-boilerplate/-/commit/279484c09fbe69ededfced8c1bb6e6d24616b468",
+  "commit_title": "Synthetic commit title"
+}

@@ -58,6 +58,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261116090300_webhook_targets_grant_fallback.sql` | `list_webhook_targets` returns the credential's last save as `granted_at` for a live connection with no recorded grant, on the account and the installation match alike, as `20261116090000_connection_granted_at.sql` does for the three-parameter version |
 | `20261116090400_backfill_granted_at_guard.sql` | `backfill_connection_granted_at` stated again with the body `20261116090100_connection_granted_at_backfill.sql` creates (its update repeats `granted_at is null`), for a database that applied the earlier body; a no-op anywhere else |
 | `20261116120000_webhook_setup.sql` | `webhook_setup_mode`; `webhook_endpoints.setup_mode`, `provider_webhook_id` (set exactly for an automatic endpoint), and `awaiting_provider_secret` (manual only); `webhook_endpoints_enforce_limit`, at most 5 endpoints per workspace, serialized on the workspace row; `webhook_deliveries_endpoint_received_at_idx` replaces `webhook_deliveries_endpoint_id_idx` for the panel's last delivery; `oauth_states.webhook_setup`, set when the user chose automatic webhook setup |
+| `20261116150000_webhook_sources.sql` | `webhook_sources` (service role only): per endpoint, each provider resource (a GitLab project) that holds a webhook StackDash created (`provider_webhook_id`), is still waiting for one, or has sent a delivery (`last_delivery_at`), keyed by `(endpoint_id, source_id)` and deleted with its endpoint; `webhook_sources_enforce_limit`, at most 100 per endpoint, serialized on the endpoint row; `webhook_endpoints.per_source`, an automatic endpoint whose webhooks are per source and so names none in `provider_webhook_id`; `record_webhook_source`, which keeps a delivery's source and the newest arrival; `save_created_webhook_source`, which records a webhook only where the source holds none and returns whether it wrote; `delete_webhook_endpoint`, which returns the endpoint's setup and its sources' webhooks and then deletes it, in one transaction serialized on the endpoint row |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -107,6 +108,7 @@ erDiagram
   triggered_alerts ||--o{ notification_deliveries : "sent once per target"
   connections ||--o| webhook_endpoints : "webhook URL and sealed secret (service role only)"
   webhook_endpoints |o--o{ webhook_deliveries : "received (null for an app-level URL)"
+  webhook_endpoints ||--o{ webhook_sources : "per-project webhooks and deliveries (service role only)"
   webhook_deliveries ||--|| sync_jobs : "processed by one webhook job"
 
   workspaces {
@@ -178,7 +180,7 @@ Every table in `public` has RLS enabled. Policies read the caller's role from `w
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
-| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries`, `webhook_endpoints`, `webhook_deliveries` | none | none (service role; the auth hook reads invites) |
+| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries`, `webhook_endpoints`, `webhook_deliveries`, `webhook_sources` | none | none (service role; the auth hook reads invites) |
 | `api_keys` | admin, every column but `token_hash` | admin creates keys and revokes them (`revoked_at` only, final) |
 | `api_key_request_windows` | none | none (service role) |
 

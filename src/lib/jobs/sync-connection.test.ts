@@ -43,6 +43,8 @@ type Harness = {
   alertCalls: Array<{ workspaceId: string; now: string }>;
   // Each achievement evaluation, with how many events were stored when it ran.
   achievementCalls: Array<{ workspaceId: string; connectionId: string; now: string; storedEvents: number }>;
+  // Each request to give the connection's new sources their webhooks (#428).
+  sourceWebhookCalls: Array<{ workspaceId: string; connectionId: string }>;
 };
 
 function setup(
@@ -54,6 +56,7 @@ function setup(
     random?: number;
     alertsFail?: boolean;
     achievementsFail?: boolean;
+    sourceWebhooksFail?: boolean;
   } = {},
 ): Harness {
   let clock = new Date(options.start ?? "2026-10-14T10:00:00.000Z");
@@ -73,6 +76,7 @@ function setup(
   const references: string[] = [];
   const alertCalls: Harness["alertCalls"] = [];
   const achievementCalls: Harness["achievementCalls"] = [];
+  const sourceWebhookCalls: Harness["sourceWebhookCalls"] = [];
   const adapter = options.adapter ?? fakeAdapter;
   const deps: SyncDeps = {
     store,
@@ -103,6 +107,11 @@ function setup(
       if (options.achievementsFail === true) throw new Error("achievement evaluation failed");
       return 0;
     },
+    addMissingSourceWebhooks: async (workspaceId, connectionId) => {
+      sourceWebhookCalls.push({ workspaceId, connectionId });
+      if (options.sourceWebhooksFail === true) throw new Error("webhook creation failed");
+      return 0;
+    },
     notifications: () => memoryNotificationDeps(),
   };
   return {
@@ -122,6 +131,7 @@ function setup(
     references,
     alertCalls,
     achievementCalls,
+    sourceWebhookCalls,
   };
 }
 
@@ -449,6 +459,29 @@ describe("sync job: achievement evaluation (#413)", () => {
     await harness.tick();
     expect(harness.achievementCalls).toHaveLength(1);
     expect(lastSyncJob(harness).status).toBe("succeeded");
+  });
+});
+
+describe("sync job: webhooks for new sources (#428)", () => {
+  it("asks for the connection's new sources' webhooks once the sync succeeded", async () => {
+    const harness = setup();
+    await harness.tick();
+    expect(harness.sourceWebhookCalls).toEqual([{ workspaceId: WORKSPACE_ID, connectionId: harness.connectionId }]);
+  });
+
+  it("does not ask when the sync fails", async () => {
+    const harness = setup({ mode: "revoked" });
+    await harness.tick();
+    expect(harness.sourceWebhookCalls).toHaveLength(0);
+  });
+
+  it("logs a failure to create them without failing the sync (boundary: provider fails)", async () => {
+    const harness = setup({ sourceWebhooksFail: true });
+    await harness.tick();
+    expect(harness.sourceWebhookCalls).toHaveLength(1);
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).status).toBe("active");
+    expect(harness.references).toHaveLength(1);
   });
 });
 

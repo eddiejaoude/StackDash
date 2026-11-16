@@ -36,7 +36,7 @@ import {
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
 import { vercelProfile } from "./vercel";
-import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionSetup, simulatedConnectionWebhooks } from "./webhooks";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionSetup } from "./webhooks";
 
 /**
  * Simulated providers for local demos and testing (#131), built by one factory from a profile per
@@ -109,36 +109,39 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  * the real `verify` and `parse`. An app-level secret is read from SIMULATED_WEBHOOK_SECRET_ENV
  * instead of the provider's own variable: simulation never reads a real provider secret, and one
  * synthetic value signs every simulated provider's deliveries, locally and in e2e. A per-connection
- * registration keeps the secret stored for its connection, and its automatic setup creates and
- * deletes the webhook in this process instead of at the provider (`simulatedConnectionSetup`). The
- * webhook job does not yet tell simulated connections from real ones (#495): an app-level delivery
- * reaches every connection that includes its account, real ones too.
+ * registration keeps the secret stored for its connection, and its automatic setup is simulated
+ * (`simulatedConnectionSetup`), so the twin never calls the provider. The webhook job does not yet
+ * tell simulated connections from real ones (#495): an app-level delivery reaches every connection
+ * that includes its account, real ones too.
  */
-function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId): WebhookDescriptor {
-  if (real.registration.kind === "connection") {
-    return { ...real, registration: { kind: "connection", setup: simulatedConnectionSetup(provider, real.registration.setup) } };
-  }
-  return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
+function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId, profile: SimulatedProfile): WebhookDescriptor {
+  if (real.registration.kind === "app") return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
+  const { webhookSources } = profile;
+  // Only the accounts of the grant the credential holds: a simulated reconnect mints a new seed, and
+  // `sync` refuses the account of the grant it replaced, so that account has no projects either.
+  const sources =
+    webhookSources === undefined
+      ? undefined
+      : (credential: OAuthCredential, accountIds: readonly string[]) => {
+          const granted = new Set(profile.accounts(seedOf(credential, provider)).map((account) => account.externalId));
+          return accountIds.filter((accountId) => granted.has(accountId)).flatMap((accountId) => webhookSources(accountId));
+        };
+  return { ...real, registration: { kind: "connection", setup: simulatedConnectionSetup(provider, real.registration.setup, sources) } };
 }
 
 /**
- * Whether the twin's automatic webhook setup asks for the simulated write scope: the live
- * adapter's declaration wins, as it does for the push path; otherwise the profile's.
- */
-function automaticSetupNeedsWriteAccess(profile: SimulatedProfile): boolean {
-  const registration = profile.real.webhooks?.registration;
-  if (registration?.kind === "connection") return (registration.setup.automatic?.extraPermissions.length ?? 0) > 0;
-  return profile.webhooks?.writeAccess === true;
-}
-
-/**
- * The write scope of a profile's automatic webhook setup that the consent screen granted
+ * The write scope of the twin's automatic webhook setup that the consent screen granted
  * (`granted_scope`, space-separated), or none: a twin never holds a scope it did not declare.
  */
-function grantedWriteScopes(profile: SimulatedProfile, granted: string | undefined): string[] {
-  if (!automaticSetupNeedsWriteAccess(profile) || granted === undefined) return [];
+function grantedWriteScopes(webhooks: WebhookDescriptor | undefined, granted: string | undefined): string[] {
+  const registration = webhooks?.registration;
+  const declared =
+    registration?.kind === "connection" &&
+    (registration.setup.automatic?.extraPermissions ?? []).some((permission) => permission.scope === SIMULATED_WEBHOOK_WRITE_SCOPE);
+  if (!declared || granted === undefined) return [];
   return granted.split(" ").includes(SIMULATED_WEBHOOK_WRITE_SCOPE) ? [SIMULATED_WEBHOOK_WRITE_SCOPE] : [];
 }
+
 /** A simulated adapter for `provider`, optionally with an incident or at a higher event volume. */
 export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId, options: SimulatedAdapterOptions = {}): ProviderAdapter {
   const { incident, volume = DEFAULT_EVENT_VOLUME } = options;
@@ -149,6 +152,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
   const name = PROVIDER_NAMES[provider];
   const endpoint = (path: string) => simulatedEndpoint(provider, path);
   const metrics = incident?.metrics ?? profile.metrics;
+  const webhooks = real.webhooks === undefined ? undefined : simulatedWebhooks(real.webhooks, provider, profile);
 
   const adapter: ProviderAdapter = {
     id: provider,
@@ -168,13 +172,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     ...(real.dailyTotals === undefined ? {} : { dailyTotals: real.dailyTotals }),
     ...(real.projectedSpend === undefined ? {} : { projectedSpend: real.projectedSpend }),
     ...(real.beta === undefined ? {} : { beta: real.beta }),
-    // The live adapter's push path wins; a profile declares one only where the live adapter has
-    // none yet (simulated/webhooks.ts, #426).
-    ...(real.webhooks !== undefined
-      ? { webhooks: simulatedWebhooks(real.webhooks, provider) }
-      : profile.webhooks === undefined
-        ? {}
-        : { webhooks: simulatedConnectionWebhooks(provider, profile.webhooks) }),
+    ...(webhooks === undefined ? {} : { webhooks }),
     oauth: {
       authorizeUrl: FAKE_AUTHORIZE_PATH,
       // Never requested: `exchangeCode` mints the credential in memory.
@@ -207,7 +205,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
       return {
         accessToken: new Secret(`simulated-at-${crypto.randomUUID()}`),
         // The simulated read scope always; the write scope too when the consent screen granted it.
-        scopes: [SIMULATED_SCOPE, ...grantedWriteScopes(profile, callbackParams.granted_scope)],
+        scopes: [SIMULATED_SCOPE, ...grantedWriteScopes(webhooks, callbackParams.granted_scope)],
         tokenType: "bearer",
         metadata: simulatedCredentialMetadata(crypto.randomUUID().slice(0, 8)),
       };

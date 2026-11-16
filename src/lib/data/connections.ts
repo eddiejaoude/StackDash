@@ -4,6 +4,7 @@ import { cache } from "react";
 import { z } from "zod";
 
 import { afterCursorFilter, encodeCursor, type Cursor, type Page } from "@/lib/data/cursor";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -107,6 +108,30 @@ export const listExternalAccounts = cache(
     return data;
   },
 );
+
+/** Accounts one grant may hold: connecting stores at most this many (src/lib/connections/connect.ts). */
+export const CONNECTION_ACCOUNTS_MAX = 500;
+
+/**
+ * The included accounts of a connection, by external id, at most CONNECTION_ACCOUNTS_MAX. Through
+ * the service role, unlike the reads above: the webhook route and the job tick have no signed-in
+ * user, and webhook setup has authorized its caller for the workspace already.
+ */
+export async function listIncludedAccounts(
+  workspaceId: string,
+  connectionId: string,
+): Promise<Readonly<{ externalId: string; displayName: string }>[]> {
+  const { data, error } = await createAdminClient()
+    .from("external_accounts")
+    .select("external_id, display_name")
+    .eq("workspace_id", workspaceId)
+    .eq("connection_id", connectionId)
+    .eq("included", true)
+    .order("external_id", { ascending: true })
+    .limit(CONNECTION_ACCOUNTS_MAX);
+  if (error) throw new Error(`External accounts lookup failed (code ${error.code}).`);
+  return data.map((row) => ({ externalId: row.external_id, displayName: row.display_name }));
+}
 
 /** Projects an account can be assigned to, by name, at most PROJECT_OPTIONS_LIMIT. */
 export const listProjectOptions = cache(async (workspaceId: string): Promise<ProjectOption[]> => {

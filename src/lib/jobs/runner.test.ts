@@ -63,6 +63,7 @@ function deps(store: MemoryJobStore, now: () => Date): SyncDeps {
     log: silent,
     evaluateAlerts: async () => ({ triggered: 0 }),
     evaluateAchievements: async () => 0,
+    addMissingSourceWebhooks: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
 }
