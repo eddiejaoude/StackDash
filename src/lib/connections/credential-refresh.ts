@@ -12,14 +12,23 @@ import type { LogFields } from "@/lib/log/logger";
  * (credential_refresh_locks, 20261116170000_credential_refresh_locks.sql) and re-reads the
  * credential once it holds it: a refresh that finished while this one waited has already saved a
  * fresh credential, and the token read before waiting is spent.
+ *
+ * The lease is what keeps a second holder out, so the refresh token is spent only while enough of it
+ * is left: the provider's whole request timeout (`ctx.timeoutMs`) plus REFRESH_SAVE_MARGIN_MS for
+ * the save. Its end is measured on this server's clock from just before the winning acquire call;
+ * the database starts the lease at that moment or later, so the estimate is never later than the
+ * real end. What the lease cannot fence: a save that stalls after the provider has answered. The
+ * new token is then spent and held only in memory, and a holder that takes the lease over meanwhile
+ * re-reads the old one; such a save is logged (`credential_refresh.not_saved`) when it fails.
  */
 
 // Refresh this long before the access token expires, so a token never expires mid-use.
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
-// Longer than one refresh can take: the adapter's request timeout (ADAPTER_TIMEOUT_MS in
-// src/lib/adapters/registry.ts, 15 seconds) plus saving the result. A holder that dies frees the
-// lock when this runs out.
+// Longer than one refresh can take: the adapter's request timeout (`ctx.timeoutMs`, 15 seconds in
+// production) plus saving the result. A holder that dies frees the lock when this runs out.
 export const REFRESH_LOCK_LEASE_SECONDS = 60;
+// Lease time kept back, beyond the provider's timeout, for saving the refreshed credential.
+export const REFRESH_SAVE_MARGIN_MS = 10_000;
 // While another refresh holds the lock, ask again this often, this many times: about 20 seconds,
 // enough for a live holder to finish, after which the credential it saved is used as it is.
 export const REFRESH_LOCK_RETRY_MS = 1000;
@@ -37,7 +46,10 @@ export type CredentialRefreshDeps = Readonly<{
   logError: (event: string, error: unknown, fields?: LogFields) => string;
 }>;
 
-/** Another refresh of the connection held the lock for longer than this one waited. */
+/**
+ * The refresh could not run safely under the lock: another refresh held it for longer than this one
+ * waited, or too little of this one's lease was left to spend the refresh token. Nothing was spent.
+ */
 export class CredentialRefreshBusyError extends Error {
   constructor(message: string) {
     super(message);
@@ -50,10 +62,13 @@ function needsRefresh(adapter: ProviderAdapter, credential: OAuthCredential, now
   return credential.expiresAt.getTime() - now.getTime() <= TOKEN_REFRESH_SKEW_MS;
 }
 
-async function acquireLock(key: ConnectionKey, deps: CredentialRefreshDeps): Promise<string> {
+type HeldLock = Readonly<{ lockId: string; leaseEndsAt: number }>;
+
+async function acquireLock(key: ConnectionKey, deps: CredentialRefreshDeps): Promise<HeldLock> {
   for (let attempt = 1; ; attempt += 1) {
+    const askedAt = deps.now().getTime();
     const lockId = await deps.store.acquireCredentialRefreshLock(key, REFRESH_LOCK_LEASE_SECONDS);
-    if (lockId !== null) return lockId;
+    if (lockId !== null) return { lockId, leaseEndsAt: askedAt + REFRESH_LOCK_LEASE_SECONDS * 1000 };
     if (attempt >= REFRESH_LOCK_ATTEMPTS) {
       throw new CredentialRefreshBusyError("Another refresh of the connection's credential is still running.");
     }
@@ -76,11 +91,14 @@ export async function refreshIfExpiring(
 ): Promise<OAuthCredential> {
   if (adapter.refreshTokens === undefined || !needsRefresh(adapter, credential, deps.now())) return credential;
 
-  const lockId = await acquireLock(key, deps);
+  const lock = await acquireLock(key, deps);
   try {
     const current = await deps.store.loadCredential(key);
     if (current === null) throw new Error("The connection's credential was deleted before it could be refreshed.");
     if (!needsRefresh(adapter, current, deps.now())) return current;
+    if (lock.leaseEndsAt - deps.now().getTime() <= ctx.timeoutMs + REFRESH_SAVE_MARGIN_MS) {
+      throw new CredentialRefreshBusyError("Too little of the refresh lock's lease was left to refresh the credential.");
+    }
 
     const refreshed = await adapter.refreshTokens(current, ctx);
     try {
@@ -94,7 +112,7 @@ export async function refreshIfExpiring(
     return refreshed;
   } finally {
     try {
-      await deps.store.releaseCredentialRefreshLock(key, lockId);
+      await deps.store.releaseCredentialRefreshLock(key, lock.lockId);
     } catch (error) {
       // Handled by the lease: the lock frees itself within REFRESH_LOCK_LEASE_SECONDS. Not rethrown,
       // so it never hides the refresh's own outcome.

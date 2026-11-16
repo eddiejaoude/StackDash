@@ -10,6 +10,7 @@ import {
   REFRESH_LOCK_ATTEMPTS,
   REFRESH_LOCK_LEASE_SECONDS,
   REFRESH_LOCK_RETRY_MS,
+  REFRESH_SAVE_MARGIN_MS,
   refreshIfExpiring,
   TOKEN_REFRESH_SKEW_MS,
   type CredentialRefreshDeps,
@@ -56,13 +57,18 @@ function rotatingAdapter() {
 }
 
 function harness(stored: OAuthCredential | null) {
-  const store = new MemoryJobStore(() => NOW);
+  let clock = NOW.getTime();
+  const now = () => new Date(clock);
+  const advance = (ms: number) => {
+    clock += ms;
+  };
+  const store = new MemoryJobStore(now);
   if (stored !== null) store.credentials.set(KEY.connectionId, stored);
   const logError = vi.fn<(event: string, error: unknown) => string>(() => "REF-TEST");
   // Waiting costs nothing here; a test that needs the wait to mean something replaces it.
   const sleep = vi.fn<(ms: number) => Promise<void>>(async () => {});
-  const deps: CredentialRefreshDeps = { store, now: () => NOW, sleep, logError };
-  return { store, deps, sleep, logError };
+  const deps: CredentialRefreshDeps = { store, now, sleep, logError };
+  return { store, deps, sleep, logError, advance };
 }
 
 describe("refreshIfExpiring", () => {
@@ -172,6 +178,31 @@ describe("refreshIfExpiring", () => {
 
     await expect(refreshIfExpiring(adapter, original, KEY, ctx, deps)).rejects.toBeInstanceOf(AuthRevokedError);
     expect(store.savedCredentials).toHaveLength(0);
+    expect(store.refreshLocks.size).toBe(0);
+  });
+
+  it.each([
+    ["exactly the provider timeout and the save margin left: refused", 0, false],
+    ["1 ms more left: refreshed", 1, true],
+  ])("spends the refresh token only while enough of the lease is left (boundary: %s)", async (_case, spareMs, refreshes) => {
+    const original = credential("rt-1", 60_000);
+    const { store, deps, advance } = harness(original);
+    const { adapter, refreshTokens } = rotatingAdapter();
+    // The re-read under the lock stalls until only this much of the lease is left.
+    const load = store.loadCredential.bind(store);
+    vi.spyOn(store, "loadCredential").mockImplementation(async (key) => {
+      advance(REFRESH_LOCK_LEASE_SECONDS * 1000 - ctx.timeoutMs - REFRESH_SAVE_MARGIN_MS - spareMs);
+      return load(key);
+    });
+
+    const refreshing = refreshIfExpiring(adapter, original, KEY, ctx, deps);
+
+    if (refreshes) {
+      expect((await refreshing).refreshToken?.reveal()).toBe("rt-1+");
+    } else {
+      await expect(refreshing).rejects.toBeInstanceOf(CredentialRefreshBusyError);
+      expect(refreshTokens).not.toHaveBeenCalled();
+    }
     expect(store.refreshLocks.size).toBe(0);
   });
 
