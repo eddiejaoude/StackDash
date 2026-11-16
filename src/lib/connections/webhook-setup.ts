@@ -113,7 +113,8 @@ function refusal(error: unknown): SetupRefusal | null {
  * the provider's.
  */
 export async function setUpWebhookByHand({ workspaceId, connectionId, adapter, setup }: SetupTarget): Promise<ManualSetupOutcome> {
-  const refused = await setupRefusal(workspaceId, connectionId);
+  // Setup by hand is never refused for the accounts automatic setup can serve.
+  const refused = await setupRefusal(workspaceId, connectionId, undefined);
   if (refused !== null) return refused;
   const endpointId = randomUUID();
   const secret = newWebhookSecret();
@@ -155,12 +156,14 @@ async function includedAccountIds(workspaceId: string, connectionId: string): Pr
  * webhook covers one account and the connection does not include exactly one. Checked before the
  * write access consent and at the start of either setup, so a stale tab, a repeat, or a connection
  * automatic setup cannot serve gets the reason before anything is asked for or created, at the
- * provider or here.
+ * provider or here. `automatic` is required, and `undefined` only for setup by hand, so a caller
+ * cannot drop it by accident and move the accounts refusal back to after the consent; it picks a
+ * property every automatic setup shape has, so each shape is accepted.
  */
 export async function setupRefusal(
   workspaceId: string,
   connectionId: string,
-  automatic?: Pick<AutomaticWebhookSetup<unknown>, "accounts">,
+  automatic: Pick<AutomaticWebhookSetup<unknown>, "accounts" | "extraPermissions"> | undefined,
 ): Promise<SetupRefusal | null> {
   const [existing, count, included] = await Promise.all([
     getConnectionWebhook(workspaceId, connectionId),

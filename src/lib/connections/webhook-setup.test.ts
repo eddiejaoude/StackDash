@@ -223,19 +223,19 @@ describe("setupRefusal for a webhook that covers one account (Polar, #429)", () 
     ["two included accounts (boundary: many)", [true, true], { kind: "one_account_needed" }],
   ] as const)("answers a connection with %s", async (_case, included, refusal) => {
     accountsIncluded(...included);
-    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one" })).toEqual(refusal);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one", extraPermissions: [] })).toEqual(refusal);
   });
 
   it("does not count accounts where one webhook covers them all, or for setup by hand (boundary: no limit declared)", async () => {
     accountsIncluded(true, true);
-    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, {})).toBeNull();
-    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID)).toBeNull();
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { extraPermissions: [] })).toBeNull();
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, undefined)).toBeNull();
   });
 
   it("names an existing webhook or the workspace limit first, which no change of accounts would fix", async () => {
     accountsIncluded(true, true);
     vi.mocked(countWorkspaceWebhookEndpoints).mockResolvedValue(WEBHOOK_ENDPOINTS_PER_WORKSPACE);
-    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one" })).toEqual({ kind: "limit_reached" });
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one", extraPermissions: [] })).toEqual({ kind: "limit_reached" });
   });
 
   it("asks the provider nothing when automatic setup runs for two included accounts", async () => {
