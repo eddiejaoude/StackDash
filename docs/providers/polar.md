@@ -167,7 +167,7 @@ Counts only, never amounts. The payment and subscription ladder is the same on S
 
 ## Webhooks
 
-Received per connection through the shared webhook route (see [Webhooks set up per connection](../adapters.md#webhooks-set-up-per-connection)), set up by hand or automatically, as decided on #424. Polling stays as the backfill and the only source of revenue, fees, recurring revenue, and counts: Polar's analytics are not pushed.
+Received per connection through the shared webhook route (see [Webhooks set up per connection](../adapters.md#webhooks-set-up-per-connection)), set up by hand or automatically, as the user chooses. Polling stays as the backfill and the only source of revenue, fees, recurring revenue, and counts: Polar's analytics are not pushed.
 
 | Item | Value |
 |---|---|
@@ -196,7 +196,7 @@ On disconnect, StackDash calls `DELETE /v1/webhooks/endpoints/{id}` (answers `20
 Two limits:
 
 - Polar sends to a public URL and treats a redirect as a failure, so automatic setup from a local instance needs a tunnel, and the URL must be the final one (no `www` redirect).
-- An access token lasts 10 days. Automatic setup and the deletion on disconnect use the connection's stored credential, which hourly syncs keep refreshed; until #496 refreshes it right before these calls, a connection whose syncs stopped for days can fail them with `401`. Setup then fails and setup by hand is still offered, and disconnect gives the removal steps.
+- An access token lasts 10 days. Automatic setup and the deletion on disconnect use the connection's stored credential, which hourly syncs keep refreshed. Until StackDash refreshes it right before these calls, a connection whose syncs stopped for days can fail them with `401`: setup then fails and setup by hand is still offered, and disconnect gives the removal steps.
 
 ### Setup by hand
 
@@ -223,7 +223,7 @@ Each delivery goes through the same event builder the sync uses, for the organiz
 
 Only what the sync reads is kept, plus the organization's id: the embedded customer's name, email, billing address, and tax id, metadata, custom fields, and the cancellation comment are dropped at the parse boundary.
 
-`order.refunded` is not subscribed, although #429 listed it: it carries the order rather than the refund, so it cannot produce the refund's dedupe key, and the refund's own deliveries already put the refund on the timeline. `subscription.active` and `refund.updated` are subscribed in addition to #429's list, for the two cases in the table above.
+`order.refunded` is not subscribed: it carries the order rather than the refund, so it cannot produce the refund's dedupe key, and the refund's own deliveries already put the refund on the timeline. `subscription.active` and `refund.updated` are subscribed for the two cases in the table above.
 
 With simulated providers, Polar's twin runs this `verify` and `parse`, with automatic setup kept on the computer and `webhooks:write` replaced by the simulated write scope. Its organization is `sim-org-<seed>`, so a delivery naming it is stored on the simulated connection. `e2e/webhook-setup-polar.spec.ts` covers both setup paths, and `e2e/webhooks-polar.spec.ts` a delivered order on the timeline.
 
