@@ -7,10 +7,12 @@ import type { Database } from "@/lib/supabase/database.types";
  * on: it answers at most `max_rows` (1000, supabase/config.toml) rows per request, whatever
  * `limit` asks for, and says nothing about the rows it left out (#209). The client is the real
  * supabase-js client with `fetch` replaced, so a store's queries are the ones it sends in
- * production. It knows the filters `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `is.null`, and
- * `not.is.null`, the logic filters `or` and `and` over them (a keyset page's
+ * production. It knows the filters `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `like` (Postgres
+ * `LIKE`: `_` is any one character, `%` and PostgREST's `*` any run), `is.null`, and `not.is.null`,
+ * the logic filters `or` and `and` over them (a keyset page's
  * `or=(occurred_at.gt."x",and(occurred_at.eq."x",id.gt.y))`), `order` (asc or desc per column),
- * `offset`, `limit`, and `select` by column name; any other query fails as PostgREST would rather
+ * `offset`, `limit`, `select` by column name, and an exact count (`count: "exact"`, with `head` or
+ * without); any other query fails as PostgREST would rather
  * than answer wrongly. A function call (`.rpc(name, args)`) is answered by the test's handler for
  * `name`, and its rows are then filtered, ordered, paged, and selected like a table's, as PostgREST
  * does with a set returning function; a handler that returns scalars (a `setof text` function) is
@@ -74,6 +76,11 @@ function predicate(filter: string): ((value: string | null) => boolean) | null {
     case "in": {
       const values = inList(operand);
       return (value) => value !== null && values.has(value);
+    }
+    case "like": {
+      const wildcard: Readonly<Record<string, string>> = { "*": ".*", "%": ".*", _: "." };
+      const pattern = new RegExp(`^${[...operand].map((char) => wildcard[char] ?? char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("")}$`);
+      return (value) => value !== null && pattern.test(value);
     }
     default:
       return null;
@@ -190,6 +197,13 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, f
       return new Response(JSON.stringify(values), { status: 200, headers: { "content-type": "application/json" } });
     }
     let rows = source.filter((row) => filters.every((test) => test?.(row) === true));
+    // `Prefer: count=exact`: the total of the filtered rows, in the header PostgREST answers it in.
+    const prefer = new Headers(input instanceof Request ? input.headers : init?.headers).get("Prefer") ?? "";
+    const counted: Record<string, string> = /count=exact/.test(prefer) ? { "content-range": `*/${rows.length}` } : {};
+    if ((input instanceof Request ? input.method : init?.method) === "HEAD") {
+      requests.push({ table, args, filters: sent, offset: 0, limit: null, returned: 0 });
+      return new Response(null, { status: 200, headers: counted });
+    }
     const order = url.searchParams.get("order");
     const columns = (url.searchParams.get("select") ?? "*").split(",");
     // PostgREST orders a function's rows after selecting the columns, so it can order only by a
@@ -209,7 +223,7 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, f
     const page = rows.slice(offset, offset + Math.min(limit ?? MAX_ROWS, MAX_ROWS));
     const body = page.map((row) => (columns[0] === "*" ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
     requests.push({ table, args, filters: sent, offset, limit, returned: body.length });
-    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", ...counted } });
   };
   const db = createClient<Database>("http://postgrest.test", "test-key", {
     auth: { persistSession: false, autoRefreshToken: false },

@@ -34,7 +34,7 @@ const spendAvailability: readonly SpendAvailability[] = [
     provider: "GitHub",
     docSlug: "github",
     spend: "Billed usage, Actions minutes, and Copilot AI Credits for accounts on GitHub's enhanced billing platform. For an organization, an owner installs the app.",
-    everyPlan: "Stars and forks.",
+    everyPlan: "Stars, forks, releases, merged pull requests, and opened issues.",
   },
   {
     provider: "Resend",

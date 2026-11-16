@@ -157,6 +157,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `GITHUB_APP_PRIVATE_KEY` | Secret | Yes | Optional | Same. Paste the PEM; `\n` escapes are accepted |
+| `GITHUB_APP_WEBHOOK_SECRET` | Secret | Yes | Optional | Same. The webhook secret on the GitHub App; the webhook URL is `<SITE_URL>/api/webhooks/github`. Unset, GitHub's deliveries are refused with `503`: pull requests, issues, and releases still arrive by the hourly sync, single stars do not, and an uninstall or suspension is noticed on the next failed sync |
 | `VERCEL_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Vercel Integration](oauth-apps.md#vercel-integration) |
 | `VERCEL_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `VERCEL_INTEGRATION_SLUG` | Server only | Yes | Optional | Same |
@@ -175,7 +176,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `POLAR_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Polar OAuth client](oauth-apps.md#polar-oauth-client) |
 | `POLAR_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `SENTRY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Sentry integration](oauth-apps.md#sentry-integration) |
-| `SENTRY_CLIENT_SECRET` | Secret | Yes | Optional | Same. Also signs the token refresh |
+| `SENTRY_CLIENT_SECRET` | Secret | Yes | Optional | Same. Also signs the token refresh and verifies webhook deliveries |
 | `SENTRY_INTEGRATION_SLUG` | Server only | Yes | Optional | Same |
 | `RAILWAY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Railway OAuth app](oauth-apps.md#railway-oauth-app) |
 | `RAILWAY_CLIENT_SECRET` | Secret | Yes | Optional | Same |

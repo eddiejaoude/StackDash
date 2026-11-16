@@ -1,0 +1,25 @@
+{
+  "action": "created",
+  "starred_at": "2026-10-31T11:30:00Z",
+  "repository": {
+    "id": 5000001,
+    "name": "example-repo",
+    "full_name": "example-org/example-repo",
+    "private": true,
+    "html_url": "https://github.com/example-org/example-repo",
+    "owner": {
+      "login": "example-org",
+      "id": 9000001,
+      "type": "Organization"
+    }
+  },
+  "installation": {
+    "id": 12345678,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTIzNDU2Nzg="
+  },
+  "sender": {
+    "login": "stargazer-a",
+    "id": 8400001,
+    "type": "User"
+  }
+}
