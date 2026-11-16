@@ -18,7 +18,7 @@ Every item on the board is an issue in the [StackDash repository](https://github
 - Work that is done leaves this page. What StackDash does today is in the README's feature list and in these docs.
 - Each line sums up a theme, in what a person using or hosting StackDash would notice, rather than tracking one issue. Bug fixes, test reliability, and internal refactors are on the board too, summed up in one line per section.
 - An issue that is blocked, waiting on a decision or on someone outside the project, stays in its section and says so.
-- Not every issue gets its own mention: security hardening, verification checks, and other work without a visible change stay on the board only.
+- Not every issue gets its own mention. Work without a visible change, such as security hardening or a verification check, is summed up in a section's fixes line at most, and some of it stays on the board only.
 - This page is updated when work ships or priorities change. The date above says when it was last checked against the board.
 - The roadmap on the home page sums up the same sections in fewer words: its **Coming next** card covers Now, Next, and Later, and its **Further out** card covers Further out.
 
