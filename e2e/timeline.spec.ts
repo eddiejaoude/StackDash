@@ -1835,8 +1835,9 @@ ownerTest.describe("timeline event inspector", () => {
   // Closing a shared link waits for the router's render, so the URL still names the event for one
   // server round trip. Whatever happens in that window must leave the details working: the row
   // just closed or another row opens its event although `open` never turned false. Back leaves the
-  // document the shared link loaded, and Forward reopens the shared event. The other controls are
-  // inside the panel, which is already closed.
+  // document the shared link loaded, and Forward reopens the shared event. A link on the page, or
+  // Forward, leaves the entry as Back does: the close never lands, and coming back to the entry
+  // shows the details again.
   for (const during of ["the same event", "another event", "Back"] as const) {
     ownerTest(`keeps the details working after ${during} while closing a shared link is on its way`, async ({ page }) => {
       const workspace = await seedTimeline("Inspector shared close race");
@@ -1882,10 +1883,11 @@ ownerTest.describe("timeline event inspector", () => {
           await page.unrouteAll({ behavior: "ignoreErrors" });
           await page.goForward();
         } else {
-          // Read or abandoned, the held render has to end before a late close could show.
+          // The assertions below run once the held render has come back or failed. A close that
+          // lands after that is not caught here; what is caught is the panel left closed for good.
           const request = closing.request();
           const settled = Promise.race([
-            page.waitForEvent("requestfailed", { predicate: (failed) => failed === request }).then(() => "abandoned", () => "unsettled"),
+            page.waitForEvent("requestfailed", { predicate: (failed) => failed === request }).then(() => "failed", () => "unsettled"),
             page.waitForFunction((name) => performance.getEntriesByName(name).length > 0, request.url()).then(() => "read", () => "unsettled"),
           ]);
           await page.getByRole("link", { name: title, exact: true }).click();
