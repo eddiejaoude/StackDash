@@ -3,9 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { adminClient, CONNECTION_URL, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { postFakeWebhook } from "./fixtures/fake-webhook";
 import { anonymous } from "./fixtures/share";
+import { tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Provider webhooks (#28), end to end against the fake provider: a signed delivery is accepted, a
@@ -34,26 +35,6 @@ async function connectFakeProvider(page: Page, workspace: TestWorkspace): Promis
   await page.getByRole("checkbox", { name: `I understand StackDash gets full access to my ${PROVIDER_NAME} account` }).check();
   await page.getByRole("button", { name: `Continue to ${PROVIDER_NAME}` }).click();
   await expect(page).toHaveURL(CONNECTION_URL);
-}
-
-async function storedCopies(workspace: TestWorkspace, dedupeKey: string): Promise<number | null> {
-  const { count, error } = await adminClient()
-    .from("activity_events")
-    .select("id", { count: "exact", head: true })
-    .eq("workspace_id", workspace.id)
-    .eq("dedupe_key", dedupeKey);
-  if (error) throw new Error(`Reading the events failed (code ${error.code}).`);
-  return count;
-}
-
-/** Ticks until the delivery's event is stored; other workspaces' jobs may share a tick. */
-async function tickUntilStored(page: Page, workspace: TestWorkspace, dedupeKey: string): Promise<void> {
-  const authorization = `Bearer ${cronSecret()}`;
-  await expect(async () => {
-    const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-    expect(response.status()).toBe(200);
-    expect(await storedCopies(workspace, dedupeKey)).toBe(1);
-  }).toPass({ timeout: 90_000 });
 }
 
 ownerTest.describe("provider webhooks", () => {
