@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { Secret, type ProviderId } from "@/lib/adapters/types";
+import { Secret, type ProviderId, type WebhookSource } from "@/lib/adapters/types";
 import { decryptSecret, DecryptionFailedError, encryptSecret, UnknownEncryptionKeyError } from "@/lib/crypto/credentials";
 import { encryptedFromRow, encryptedToColumns } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
@@ -12,10 +12,12 @@ import type { Database } from "@/lib/supabase/database.types";
 /*
  * Repository for `webhook_endpoints` (#28, #426): the per-connection URL of a provider whose
  * webhook is set up per account (`/api/webhooks/<provider>/<endpoint id>`), the secret that
- * verifies its deliveries, sealed like connection credentials (#35), and how it was set up. The
- * table has RLS enabled, no policies, and no grants for anon or authenticated, so only the service
- * role reaches it. Callers must have authorized the user for the workspace: as an admin to create,
- * change, or delete an endpoint, as a member to read its setup.
+ * verifies its deliveries, sealed like connection credentials (#35), and how it was set up; and for
+ * `webhook_sources` (#428): the resources (GitLab projects) of an endpoint whose provider keeps one
+ * webhook per resource, with the webhook StackDash created there and the last delivery from it.
+ * Both tables have RLS enabled, no policies, and no grants for anon or authenticated, so only the
+ * service role reaches them. Callers must have authorized the user for the workspace: as an admin
+ * to create, change, or delete an endpoint, as a member to read its setup.
  *
  * The secret never leaves this module except wrapped in `Secret`, and is never logged. Errors
  * carry the Postgres error code only, never row data.
@@ -40,18 +42,43 @@ export type NewWebhookEndpoint = Readonly<{
   secret: Secret;
   setup:
     | Readonly<{ mode: "manual"; awaitingProviderSecret: boolean }>
-    | Readonly<{ mode: "automatic"; providerWebhookId: string }>;
+    | Readonly<{ mode: "automatic"; providerWebhookId: string }>
+    // Automatic setup with one webhook per source: their ids go to `webhook_sources`.
+    | Readonly<{ mode: "automatic"; perSource: true }>;
 }>;
 
 /** How a connection's webhook is set up, for its page; never the secret. */
 export type ConnectionWebhook = Readonly<{
   id: string;
   setupMode: WebhookSetupMode;
+  // Automatic setup that created one webhook per source (webhook_sources) rather than one in all.
+  perSource: boolean;
   // Manual setup of a provider that generates the signing secret, until the user pastes it.
   awaitingProviderSecret: boolean;
   // Received deliveries are kept 30 days (purge_webhook_deliveries), so older ones are not seen.
   lastDeliveryAt: Date | null;
 }>;
+
+/** One source of an endpoint (a GitLab project), for its setup panel and for automatic setup. */
+export type StoredWebhookSource = Readonly<{
+  sourceId: string;
+  name: string;
+  // The webhook StackDash created there, or null for a source known only from its deliveries.
+  providerWebhookId: string | null;
+  lastDeliveryAt: Date | null;
+}>;
+
+/**
+ * Sources one endpoint may hold, the limit webhook_sources_enforce_limit applies
+ * (supabase/migrations/20261116150000_webhook_sources.sql), so a stream of deliveries naming new
+ * resources cannot grow the table without bound.
+ */
+export const WEBHOOK_SOURCES_PER_ENDPOINT = 100;
+
+/** The endpoint holds WEBHOOK_SOURCES_PER_ENDPOINT sources already (webhook_sources_enforce_limit). */
+export class WebhookSourceLimitError extends Error {
+  override readonly name = "WebhookSourceLimitError";
+}
 
 /** The workspace holds WEBHOOK_ENDPOINTS_PER_WORKSPACE endpoints already (webhook_endpoints_enforce_limit). */
 export class WebhookEndpointLimitError extends Error {
@@ -120,7 +147,8 @@ export async function insertWebhookEndpoint({ id, workspaceId, connectionId, pro
     connection_id: connectionId,
     provider,
     setup_mode: setup.mode,
-    provider_webhook_id: setup.mode === "automatic" ? setup.providerWebhookId : null,
+    provider_webhook_id: "providerWebhookId" in setup ? setup.providerWebhookId : null,
+    per_source: "perSource" in setup,
     awaiting_provider_secret: setup.mode === "manual" && setup.awaitingProviderSecret,
     ...sealSecret(secret, workspaceId, connectionId),
   });
@@ -196,7 +224,7 @@ export async function getConnectionWebhook(workspaceId: string, connectionId: st
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("webhook_endpoints")
-    .select("id, setup_mode, awaiting_provider_secret")
+    .select("id, setup_mode, per_source, awaiting_provider_secret")
     .eq("workspace_id", workspaceId)
     .eq("connection_id", connectionId)
     .maybeSingle();
@@ -216,6 +244,7 @@ export async function getConnectionWebhook(workspaceId: string, connectionId: st
   return {
     id: data.id,
     setupMode: data.setup_mode,
+    perSource: data.per_source,
     awaitingProviderSecret: data.awaiting_provider_secret,
     lastDeliveryAt: last === null ? null : new Date(last.received_at),
   };
@@ -231,14 +260,100 @@ export async function countWorkspaceWebhookEndpoints(workspaceId: string): Promi
   return count ?? 0;
 }
 
-export type RemovedWebhookEndpoint = Readonly<{ setupMode: WebhookSetupMode; providerWebhookId: string | null }>;
+function sourceFromRow(row: { source_id: string; source_name: string; provider_webhook_id: string | null; last_delivery_at: string | null }): StoredWebhookSource {
+  return {
+    sourceId: row.source_id,
+    name: row.source_name,
+    providerWebhookId: row.provider_webhook_id,
+    lastDeliveryAt: row.last_delivery_at === null ? null : new Date(row.last_delivery_at),
+  };
+}
+
+/** The endpoint's sources by name, at most WEBHOOK_SOURCES_PER_ENDPOINT (the table holds no more). */
+export async function listWebhookSources(endpointId: string): Promise<StoredWebhookSource[]> {
+  const { data, error } = await createAdminClient()
+    .from("webhook_sources")
+    .select("source_id, source_name, provider_webhook_id, last_delivery_at")
+    .eq("endpoint_id", endpointId)
+    .order("source_name", { ascending: true })
+    .order("source_id", { ascending: true })
+    .limit(WEBHOOK_SOURCES_PER_ENDPOINT);
+  if (error) throw new Error(`webhook_sources select failed (code ${error.code}).`);
+  return data.map(sourceFromRow);
+}
+
+/**
+ * Records the webhook automatic setup created on a source, keeping any delivery already seen from
+ * it. Throws WebhookSourceLimitError for a new source past the endpoint's limit.
+ */
+export async function saveCreatedWebhookSource({
+  endpointId,
+  source,
+  providerWebhookId,
+}: Readonly<{ endpointId: string; source: WebhookSource; providerWebhookId: string }>): Promise<void> {
+  const { error } = await createAdminClient()
+    .from("webhook_sources")
+    .upsert(
+      { endpoint_id: endpointId, source_id: source.id, source_name: source.name, provider_webhook_id: providerWebhookId },
+      { onConflict: "endpoint_id,source_id" },
+    );
+  if (error?.code === PROGRAM_LIMIT_EXCEEDED) throw new WebhookSourceLimitError("The webhook endpoint has as many sources as it may.");
+  if (error) throw new Error(`webhook_sources upsert failed (code ${error.code}).`);
+}
+
+/**
+ * Notes that a verified delivery to the endpoint came from `source`, for the setup panel. False
+ * when the source is new and the endpoint is at its limit: the delivery itself is unaffected.
+ */
+export async function recordWebhookSource({
+  endpointId,
+  source,
+  receivedAt,
+}: Readonly<{ endpointId: string; source: WebhookSource; receivedAt: Date }>): Promise<boolean> {
+  const { error } = await createAdminClient().rpc("record_webhook_source", {
+    p_endpoint_id: endpointId,
+    p_source_id: source.id,
+    p_source_name: source.name,
+    p_received_at: receivedAt.toISOString(),
+  });
+  if (error?.code === PROGRAM_LIMIT_EXCEEDED) return false;
+  if (error) throw new Error(`record_webhook_source failed (code ${error.code}).`);
+  return true;
+}
+
+export type RemovedWebhookEndpoint = Readonly<{
+  setupMode: WebhookSetupMode;
+  providerWebhookId: string | null;
+  // The webhooks StackDash created per source, to delete at the provider.
+  sourceWebhooks: readonly Readonly<{ sourceId: string; providerWebhookId: string }>[];
+}>;
 
 /**
  * Deletes the connection's endpoint, so its URL answers like an unknown one and any delivery still
- * sent to it is dropped. Returns what was deleted, or null when there was none.
+ * sent to it is dropped. Returns what was deleted, or null when there was none. The sources go
+ * first, returning the webhooks StackDash created on them, because deleting the endpoint would
+ * take them by cascade without saying which.
  */
 export async function deleteWebhookEndpoint(workspaceId: string, connectionId: string): Promise<RemovedWebhookEndpoint | null> {
-  const { data, error } = await createAdminClient()
+  const supabase = createAdminClient();
+  const { data: endpoint, error: lookupError } = await supabase
+    .from("webhook_endpoints")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("connection_id", connectionId)
+    .maybeSingle();
+  if (lookupError) throw failure("select", lookupError);
+  if (endpoint === null) return null;
+
+  const { data: sources, error: sourcesError } = await supabase
+    .from("webhook_sources")
+    .delete()
+    .eq("endpoint_id", endpoint.id)
+    .not("provider_webhook_id", "is", null)
+    .select("source_id, provider_webhook_id");
+  if (sourcesError) throw new Error(`webhook_sources delete failed (code ${sourcesError.code}).`);
+
+  const { data, error } = await supabase
     .from("webhook_endpoints")
     .delete()
     .eq("workspace_id", workspaceId)
@@ -246,5 +361,12 @@ export async function deleteWebhookEndpoint(workspaceId: string, connectionId: s
     .select("setup_mode, provider_webhook_id")
     .maybeSingle();
   if (error) throw failure("delete", error);
-  return data === null ? null : { setupMode: data.setup_mode, providerWebhookId: data.provider_webhook_id };
+  if (data === null) return null;
+  return {
+    setupMode: data.setup_mode,
+    providerWebhookId: data.provider_webhook_id,
+    sourceWebhooks: sources.flatMap((row) =>
+      row.provider_webhook_id === null ? [] : [{ sourceId: row.source_id, providerWebhookId: row.provider_webhook_id }],
+    ),
+  };
 }
