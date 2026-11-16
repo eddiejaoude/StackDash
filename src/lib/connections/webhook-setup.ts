@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import {
@@ -17,7 +18,12 @@ import {
   type WebhookSource,
 } from "@/lib/adapters/types";
 import { listIncludedAccounts } from "@/lib/data/connections";
-import { loadCredential } from "@/lib/data/credentials";
+import {
+  acquireCredentialRefreshLock,
+  loadCredential,
+  releaseCredentialRefreshLock,
+  saveCredential,
+} from "@/lib/data/credentials";
 import {
   countWorkspaceWebhookEndpoints,
   deleteWebhookEndpoint,
@@ -38,6 +44,7 @@ import { log, logError, type LogFields } from "@/lib/log/logger";
 import { messageOrigin } from "@/lib/notifications/links";
 import { PROVIDER_NAMES } from "@/lib/providers";
 
+import { refreshIfExpiring, type CredentialRefreshDeps } from "./credential-refresh";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
 
 /*
@@ -53,9 +60,10 @@ import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
  * endpoint row is stored first, then each source's webhook is created and recorded in
  * `webhook_sources` as soon as it exists, so a webhook is never created without a row that deletes
  * it on disconnect. Sources the connection reads later get theirs after a sync
- * (`addMissingSourceWebhooks`). Each use of the provider credential is one function
- * (`createSourceWebhooks`, `removeSourceWebhooks`, and the single webhook calls), so routing the
- * credential through a refresh first (#496) changes the callers only.
+ * (`addMissingSourceWebhooks`). Every path that calls the provider (setup, removal on disconnect,
+ * and the after-sync pass) loads the stored credential once and refreshes it through
+ * `refreshIfExpiring` (#496) before its first provider call, so one setup, removal, or pass spends a
+ * refresh token at most once, however many sources it covers.
  */
 
 // 32 random bytes, as the providers that take a secret from the caller accept (GitLab allows any
@@ -64,6 +72,20 @@ const SECRET_BYTES = 32;
 // Webhook calls to the provider at once, for a per-source setup or removal. GitLab limits webhook
 // creation per project, not per user, but a hundred calls at once would still be a burst.
 const SOURCE_CALL_CONCURRENCY = 5;
+
+// The provider calls below use the stored credential refreshed first when it is about to expire,
+// under the same per-connection refresh lock a sync takes, so the two never spend one refresh token.
+const refreshDeps: CredentialRefreshDeps = {
+  store: {
+    loadCredential,
+    saveCredential: (key, credential) => saveCredential({ ...key, credential }),
+    acquireCredentialRefreshLock,
+    releaseCredentialRefreshLock,
+  },
+  now: () => new Date(),
+  sleep: (ms) => sleep(ms),
+  logError,
+};
 
 /** The adapter's per-connection webhook setup, or null when its webhooks (if any) are app-level. */
 export function connectionWebhookSetup(adapter: ProviderAdapter): ConnectionWebhookSetup | null {
@@ -327,8 +349,9 @@ async function setUpPerSource({ workspaceId, connectionId, adapter, automatic, c
 }
 
 /**
- * Creates the webhook at the provider with the connection's stored credential, then the endpoint.
- * Refused without a call to the provider when the grant lacks a scope automatic setup needs.
+ * Creates the webhook at the provider with the connection's stored credential, refreshed and saved
+ * first when it is about to expire, then the endpoint. Refused without a call to the provider when
+ * the grant lacks a scope automatic setup needs; a failed refresh is thrown before `create`.
  */
 export async function setUpWebhookAutomatically({
   workspaceId,
@@ -341,17 +364,18 @@ export async function setUpWebhookAutomatically({
   const refused = await setupRefusal(workspaceId, connectionId, setup.automatic);
   if (refused !== null) return refused;
 
-  const [credential, accountIds] = await Promise.all([
+  const [loaded, accountIds] = await Promise.all([
     loadCredential({ workspaceId, connectionId }),
     includedAccountIds(workspaceId, connectionId),
   ]);
-  if (credential === null) throw new Error("The connection has no stored credential to set up a webhook with.");
-  if (setup.automatic.extraPermissions.some((permission) => !credential.scopes.includes(permission.scope))) {
+  if (loaded === null) throw new Error("The connection has no stored credential to set up a webhook with.");
+  if (setup.automatic.extraPermissions.some((permission) => !loaded.scopes.includes(permission.scope))) {
     return { kind: "write_access_missing" };
   }
   const client = loadOAuthClient(adapter);
   if (client === null) return { kind: "not_configured" };
   const ctx = createOAuthContext(client);
+  const credential = await refreshIfExpiring(adapter, loaded, { workspaceId, connectionId }, ctx, refreshDeps);
 
   const endpointId = randomUUID();
   const input = { credential, url: webhookUrl(origin, adapter.id, endpointId), externalAccountIds: accountIds };
@@ -415,16 +439,15 @@ export async function addMissingSourceWebhooks(workspaceId: string, connectionId
   if (endpoint === null) return 0;
   const fields = { provider, workspaceId, connectionId };
 
-  // The stored credential as it is. Safe here only because this runs right after a sync, which has
-  // just refreshed and saved it; once #496 lands this goes through its refresh like the other
-  // provider calls.
-  const [credential, accountIds, stored] = await Promise.all([
+  // Usually fresh, since the sync has just refreshed it, but refreshed here too (#496): a sync that
+  // read many accounts can leave it close to expiry, and no refresh token is spent outside the lock.
+  const [loaded, accountIds, stored] = await Promise.all([
     loadCredential({ workspaceId, connectionId }),
     includedAccountIds(workspaceId, connectionId),
     listWebhookSources(endpoint.id),
   ]);
-  if (credential === null) return 0;
-  if (automatic.extraPermissions.some((permission) => !credential.scopes.includes(permission.scope))) {
+  if (loaded === null) return 0;
+  if (automatic.extraPermissions.some((permission) => !loaded.scopes.includes(permission.scope))) {
     // The write access is gone (a reconnect that gave it up): nothing can be created.
     log.warn("webhook_setup.write_access_gone", fields);
     return 0;
@@ -432,6 +455,7 @@ export async function addMissingSourceWebhooks(workspaceId: string, connectionId
   const client = loadOAuthClient(adapter);
   if (client === null) return 0;
   const ctx = createOAuthContext(client);
+  const credential = await refreshIfExpiring(adapter, loaded, { workspaceId, connectionId }, ctx, refreshDeps);
 
   const known = new Map(stored.map((source) => [source.sourceId, source]));
   let free = WEBHOOK_SOURCES_PER_ENDPOINT - stored.length;
@@ -472,7 +496,8 @@ export type WebhookRemoval =
 /**
  * Deletes the endpoint, so a delivery still sent to it is refused like one to an unknown URL, and
  * then deletes the automatic webhook (or every per-source one) at the provider with the credential
- * StackDash still holds. Run it before revoking that credential. A provider failure is returned,
+ * StackDash still holds, refreshed and saved first when it is about to expire (once for every
+ * source). Run it before revoking that credential. A failed refresh or provider call is returned,
  * not thrown: the disconnect goes on and the user is told how to remove the webhook by hand, and
  * for per-source webhooks, where they still are.
  */
@@ -496,15 +521,16 @@ export async function removeConnectionWebhook({
     if (credential === null) throw new Error("The connection has no stored credential to delete its webhook with.");
     if (client === null) throw new Error(`${provider} is no longer set up on this instance.`);
     const ctx = createOAuthContext(client);
+    const current = await refreshIfExpiring(adapter, credential, { workspaceId, connectionId }, ctx, refreshDeps);
     if (automatic.per === "source") {
-      const result = await removeSourceWebhooks(automatic, credential, removed.sourceWebhooks, ctx);
+      const result = await removeSourceWebhooks(automatic, current, removed.sourceWebhooks, ctx);
       left = result.left;
       if (left.length > 0) {
         throw new Error(`${left.length} of ${removed.sourceWebhooks.length} webhooks could not be deleted.`, { cause: result.failure });
       }
     } else {
       if (removed.providerWebhookId === null) throw new Error(`${provider}'s endpoint names no webhook to delete.`);
-      await automatic.remove({ credential, webhookId: removed.providerWebhookId }, ctx);
+      await automatic.remove({ credential: current, webhookId: removed.providerWebhookId }, ctx);
     }
     return { kind: "removed" };
   } catch (error) {
