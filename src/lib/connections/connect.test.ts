@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { fakeAdapter, fakeScopes } from "@/lib/adapters/fake";
-import { Secret, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
+import { Secret, type OAuthContext, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import { saveCredential } from "@/lib/data/credentials";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
@@ -11,9 +11,10 @@ import type { Database } from "@/lib/supabase/database.types";
 import { completeConnection } from "./connect";
 
 /*
- * What completeConnection writes to the connection row when a grant completes (#476): the grant
- * time, on connect and on reconnect, and nothing when the grant fails part way. The database calls
- * go through a client that answers the reconnect lookup and the insert and records every write.
+ * What completeConnection writes to the connection row when a grant completes: the grant time
+ * (#476) and the installation the credential belongs to (#480), on connect and on reconnect, and
+ * nothing when the grant fails part way. The database calls go through a client that answers the
+ * reconnect lookup and the insert and records every write.
  */
 
 vi.mock("@/lib/supabase/admin");
@@ -117,5 +118,44 @@ describe("completeConnection grant time (#476)", () => {
     ).rejects.toThrow("upsert failed");
 
     expect(writes.filter((write) => write.table === "connections")).toEqual([]);
+  });
+});
+
+describe("completeConnection installation id (#480)", () => {
+  const installed: ProviderAdapter = { ...fakeAdapter, installationIdOf: (granted) => granted.metadata?.installation ?? null };
+  const inInstallation = (installation: string): OAuthCredential => ({ ...credential, metadata: { ...credential.metadata, installation } });
+
+  it("records the installation the credential belongs to on a new connection", async () => {
+    const writes = recordingClient();
+
+    await completeConnection({ adapter: installed, ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential: inInstallation("fake-installation-1") });
+
+    expect(finalUpdate(writes)).toMatchObject({ external_installation_id: "fake-installation-1" });
+  });
+
+  it("records the reconnect's installation, which may differ from the old one", async () => {
+    const writes = recordingClient();
+
+    await completeConnection({
+      adapter: installed,
+      ctx,
+      workspaceId: WORKSPACE_ID,
+      userId: USER_ID,
+      credential: inInstallation("fake-installation-2"),
+      reconnectId: CONNECTION_ID,
+    });
+
+    expect(finalUpdate(writes)).toMatchObject({ external_installation_id: "fake-installation-2" });
+  });
+
+  it.each([
+    ["an adapter that does not declare installationIdOf (boundary: omitted)", fakeAdapter],
+    ["a credential that names no installation (boundary: null)", installed],
+  ])("writes null for %s", async (_case, adapter: ProviderAdapter) => {
+    const writes = recordingClient();
+
+    await completeConnection({ adapter, ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential });
+
+    expect(finalUpdate(writes)).toMatchObject({ external_installation_id: null });
   });
 });

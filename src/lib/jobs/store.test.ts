@@ -301,6 +301,8 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     },
     { kind: "events", externalAccountId: "fake-acct-1", events: [] },
     { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+    { kind: "uninstalled", by: "account", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+    { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "ignored", reason: "unmapped event" },
   ])("reads back the $kind outcome it stored, event and uninstall dates included", (outcome) => {
     // jsonb keeps exactly what JSON keeps.
@@ -317,6 +319,11 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { name: "an occurredAt that is not an ISO instant", value: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...storedEvent, occurredAt: "yesterday" }] } },
     { name: "an uninstall without occurredAt", value: { kind: "uninstalled", externalAccountId: "fake-acct-1" } },
     { name: "an uninstall occurredAt that is not an ISO instant", value: { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: "yesterday" } },
+    { name: "an installation uninstall with an empty id", value: { kind: "uninstalled", by: "installation", installationId: "", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "an installation id without by", value: { kind: "uninstalled", installationId: "fake-installation-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "by installation naming an account", value: { kind: "uninstalled", by: "installation", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "an uninstall naming both", value: { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "an unknown by", value: { kind: "uninstalled", by: "organization", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
   ])("refuses a stored outcome of another shape (boundary: $name)", ({ value }) => {
     expect(webhookOutcomeFromJson(value)).toBeNull();
   });
@@ -386,6 +393,20 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: ENDPOINT_ID });
 
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_endpoint_id: ENDPOINT_ID }]);
+  });
+
+  it("asks for an installation's connections by installation id alone, one target per connection (#480)", async () => {
+    // The function answers an installation with no account.
+    const rows = targets(2).map((row) => ({ ...row, account_id: null }));
+    const { store, requests } = storeWith({ list_webhook_targets: () => rows });
+
+    const read = await store.listInstallationTargets({ provider: "fake", installationId: "fake-installation-1", endpointId: ENDPOINT_ID });
+
+    expect(read).toEqual([
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+    ]);
+    expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_installation_id: "fake-installation-1", p_endpoint_id: ENDPOINT_ID }]);
   });
 
   it.each([
