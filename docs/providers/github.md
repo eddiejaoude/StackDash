@@ -16,20 +16,20 @@ The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Cre
 
 GitHub App, installed on a user or organization account, plus a one-time user authorization (web application flow) that proves the installing user owns the installation.
 
-| Item | Value |
-|---|---|
-| Install URL | `https://github.com/apps/<GITHUB_APP_SLUG>/installations/new?state=<state>` (browser navigation) |
-| Setup URL | `<SITE_URL>/api/connections/github/callback`. GitHub redirects here after install with `installation_id` |
-| User authorize URL | `GET https://github.com/login/oauth/authorize` (browser navigation) |
-| User token URL | `POST https://github.com/login/oauth/access_token` |
-| Callback URL (user authorization) | `<SITE_URL>/api/connections/github/callback` (same route as the setup URL) |
-| API base URL | `https://api.github.com` |
-| API version header | `X-GitHub-Api-Version: 2026-03-10` (latest). `2022-11-28` is supported until 2028-03-10. Requests without the header get `2022-11-28` |
-| App JWT | RS256, signed with the app private key. `iat` 60 seconds in the past, `exp` at most 10 minutes ahead, `iss` = client ID (recommended) or app ID |
-| Installation access token | 1 hour. Minted with the JWT. Starts with `ghs` and an underscore. Since 2026-04-27 new tokens roll out in a longer stateless format (that prefix, the app ID, an underscore, then a JWT), so never assume 40 characters |
-| User access token | 8 hours (`expires_in: 28800`), starts with `ghu` and an underscore. Only when "Expire user authorization tokens" is on (the default) |
-| Refresh token | 6 months (`refresh_token_expires_in: 15897600`), starts with `ghr` and an underscore, rotates on every use |
-| Private key | PEM, PKCS#1 (`BEGIN RSA PRIVATE KEY`). Never expires. Up to 25 keys per app, for rotation |
+| Item                              | Value                                                                                                                                                                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Install URL                       | `https://github.com/apps/<GITHUB_APP_SLUG>/installations/new?state=<state>` (browser navigation)                                                                                                                        |
+| Setup URL                         | `<SITE_URL>/api/connections/github/callback`. GitHub redirects here after install with `installation_id`                                                                                                                |
+| User authorize URL                | `GET https://github.com/login/oauth/authorize` (browser navigation)                                                                                                                                                     |
+| User token URL                    | `POST https://github.com/login/oauth/access_token`                                                                                                                                                                      |
+| Callback URL (user authorization) | `<SITE_URL>/api/connections/github/callback` (same route as the setup URL)                                                                                                                                              |
+| API base URL                      | `https://api.github.com`                                                                                                                                                                                                |
+| API version header                | `X-GitHub-Api-Version: 2026-03-10` (latest). `2022-11-28` is supported until 2028-03-10. Requests without the header get `2022-11-28`                                                                                   |
+| App JWT                           | RS256, signed with the app private key. `iat` 60 seconds in the past, `exp` at most 10 minutes ahead, `iss` = client ID (recommended) or app ID                                                                         |
+| Installation access token         | 1 hour. Minted with the JWT. Starts with `ghs` and an underscore. Since 2026-04-27 new tokens roll out in a longer stateless format (that prefix, the app ID, an underscore, then a JWT), so never assume 40 characters |
+| User access token                 | 8 hours (`expires_in: 28800`), starts with `ghu` and an underscore. Only when "Expire user authorization tokens" is on (the default)                                                                                    |
+| Refresh token                     | 6 months (`refresh_token_expires_in: 15897600`), starts with `ghr` and an underscore, rotates on every use                                                                                                              |
+| Private key                       | PEM, PKCS#1 (`BEGIN RSA PRIVATE KEY`). Never expires. Up to 25 keys per app, for rotation                                                                                                                               |
 
 ### Install
 
@@ -77,13 +77,13 @@ A user access token only has permissions both the app and the user hold. For per
 
 All read-only. Nothing in this list can write.
 
-| Permission (GitHub UI group) | Level | Why | Token types |
-|---|---|---|---|
-| Repository: Metadata | Read | Repo details, star count, star history, forks, list of installed repositories, the `star` webhook, and published releases from the repository events feed (`GET /repos/{owner}/{repo}/events`). Mandatory for every GitHub App | Installation, user |
-| Organization: Administration | Read | Organization billing usage, usage summary, AI credit usage, premium request usage, budgets | Installation, user |
-| Account: Plan | Read | Personal account billing usage, usage summary, AI credit usage, premium request usage | User only |
-| Repository: Pull requests | Read | The `pull_request` webhook and `GET /repos/{owner}/{repo}/pulls`, for merged pull requests on the timeline. Optional | Installation |
-| Repository: Issues | Read | The `issues` webhook and `GET /repos/{owner}/{repo}/issues`, for opened issues on the timeline. Optional | Installation |
+| Permission (GitHub UI group) | Level | Why                                                                                                                                                                                                                            | Token types        |
+| ---------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ |
+| Repository: Metadata         | Read  | Repo details, star count, star history, forks, list of installed repositories, the `star` webhook, and published releases from the repository events feed (`GET /repos/{owner}/{repo}/events`). Mandatory for every GitHub App | Installation, user |
+| Organization: Administration | Read  | Organization billing usage, usage summary, AI credit usage, premium request usage, budgets                                                                                                                                     | Installation, user |
+| Account: Plan                | Read  | Personal account billing usage, usage summary, AI credit usage, premium request usage                                                                                                                                          | User only          |
+| Repository: Pull requests    | Read  | The `pull_request` webhook and `GET /repos/{owner}/{repo}/pulls`, for merged pull requests on the timeline. Optional                                                                                                           | Installation       |
+| Repository: Issues           | Read  | The `issues` webhook and `GET /repos/{owner}/{repo}/issues`, for opened issues on the timeline. Optional                                                                                                                       | Installation       |
 
 The `star` webhook needs only Metadata read. `installation` and `github_app_authorization` deliveries reach every GitHub App without a permission.
 
@@ -103,11 +103,11 @@ Organization owners approve "Administration: read" at install time. On a persona
 
 Daily line items for every metered product. **Only for organizations on the enhanced billing platform**; others get an error (see Unverified for the exact code).
 
-| Query | Meaning |
-|---|---|
-| `year` | Four digit year, default current year |
+| Query   | Meaning                                                            |
+| ------- | ------------------------------------------------------------------ |
+| `year`  | Four digit year, default current year                              |
 | `month` | 1 to 12. No default documented: omitting it returns the whole year |
-| `day` | 1 to 31 |
+| `day`   | 1 to 31                                                            |
 
 Each `usageItems[]` entry: `date` (string, one UTC day), `product` (for example `Actions`), `sku` (for example `Actions Linux`), `quantity` (integer, in `unitType`), `unitType` (for example `minutes`), `pricePerUnit` (USD number), `grossAmount`, `discountAmount`, `netAmount` (USD numbers), `organizationName`, `repositoryName` (optional, `owner/repo`).
 
@@ -133,12 +133,12 @@ Optional, same Administration read permission. Each budget has `budget_type`, `b
 
 ### Personal account equivalents (user access token, Account: Plan read)
 
-| Endpoint | Notes |
-|---|---|
-| `GET /users/{username}/settings/billing/usage` | Same item schema as the organization report without `organizationName`. Enhanced billing platform only |
-| `GET /users/{username}/settings/billing/usage/summary` | Public preview. Filters `repository`, `product`, `sku` |
-| `GET /users/{username}/settings/billing/ai_credit/usage` | Filters `model`, `product` |
-| `GET /users/{username}/settings/billing/premium_request/usage` | Legacy, filters `model`, `product` |
+| Endpoint                                                       | Notes                                                                                                  |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `GET /users/{username}/settings/billing/usage`                 | Same item schema as the organization report without `organizationName`. Enhanced billing platform only |
+| `GET /users/{username}/settings/billing/usage/summary`         | Public preview. Filters `repository`, `product`, `sku`                                                 |
+| `GET /users/{username}/settings/billing/ai_credit/usage`       | Filters `model`, `product`                                                                             |
+| `GET /users/{username}/settings/billing/premium_request/usage` | Legacy, filters `model`, `product`                                                                     |
 
 Installation tokens do **not** work on these. They only cover usage billed to the personal account: Copilot seats paid by an organization show up in that organization's report, not the user's. There is no personal account budgets endpoint in the billing reference.
 
@@ -172,15 +172,15 @@ Issues read. `state=all&sort=created&direction=desc&since=<read start>&per_page=
 
 ### Published releases: `GET /repos/{owner}/{repo}/events`
 
-Metadata read. The repository events feed, newest first, every event type, `per_page=100`. GitHub keeps at most 300 events from the last 30 days in it. StackDash reads `ReleaseEvent` entries (action `published`) and keeps the release's `id`, `tag_name`, `draft`, `published_at`, and `html_url`, the release object "GitHub event types" documents in its payload. It never reads `actor` (the person who published) or any other event's payload. A release event whose payload lacks those fields fails the page's schema, and so the sync, rather than losing releases silently. `GET /repos/{owner}/{repo}/releases` is not used: it needs Contents read.
+Metadata read. The repository events feed, every event type, `per_page=100`, roughly newest first: an event days old can sit among this hour's. GitHub keeps at most 300 events from the last 30 days in it, and a fourth page answers `422`. StackDash reads `ReleaseEvent` entries (action `published`) and keeps the release's `id`, `tag_name`, `draft`, `published_at`, and `html_url`, the release object "GitHub event types" documents in its payload. It never reads `actor` (the person who published) or any other event's payload. A release event whose payload lacks those fields fails the page's schema, and so the sync, rather than losing releases silently. `GET /repos/{owner}/{repo}/releases` is not used: it needs Contents read.
 
-GitHub's events documentation says the feed "is not built to serve real-time use cases. Depending on the time of day, event latency can be anywhere from 30s to 6h." The feed is therefore read back 6 hours further than the other lists. It is read a page at a time until a page is short or reaches back past that window, at most 3 pages (all 300 events).
+GitHub's events documentation says the feed "is not built to serve real-time use cases. Depending on the time of day, event latency can be anywhere from 30s to 6h." The feed is therefore read back 6 hours further than the other lists. It is read a page at a time, at most 3 pages (all 300 events), and a page ends the read only when it is empty, or when even the newest of its last five events is past that window. A short page does not end it: GitHub answers fewer than 100 events while more pages follow (97, 99, and 92 on `kubernetes/kubernetes`, measured in November 2026), and one stray old event at the end of a page must not end it either.
 
 ### Activity read window
 
-The pull request and issue lists are the backfill for the webhooks: they catch a delivery that was missed. The events feed is the only source of releases. Each sync reads one page of each list per repository (the feed up to three), each list from its own previous read less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync, after a long gap, or once a list's permission is granted. The events feed reads 6 hours further back, as above. Each repository's read times are kept per list in the cursor (`activity`), and a list's time moves on only when it was read, not when its permission is missing or GitHub refused it. A full page whose last item is still inside the window (or a third full page of the feed) is logged as `github.sync.activity_truncated` with its page size, by path template only. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
+The pull request and issue lists are the backfill for the webhooks: they catch a delivery that was missed. The events feed is the only source of releases. Each sync reads one page of each list per repository (the feed up to three), each list from its own previous read less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync, after a long gap, or once a list's permission is granted. The events feed reads 6 hours further back, as above. Each repository's read times are kept per list in the cursor (`activity`), and a list's time moves on only when it was read, not when its permission is missing or GitHub refused it. A full page whose last item is still inside the window is logged as `github.sync.activity_truncated` with its page size, by path template only. For the events feed, the signal is three pages that did not reach back to the feed's own previous read (or the backfill start on a first read): events may have been missed between two reads. Three pages that reach back that far but not through the 6 hour allowance are normal on a busy repository and are not logged. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
 
-The activity reads have a time budget: no repository's reads start more than 20 seconds into them, so a sync of 100 busy repositories cannot outlast the 120 second claim a tick holds on its job. The repositories left over keep their read times, are logged as `github.sync.activity_deferred` with how many were deferred, and are read first on the next sync, oldest read first, from where they left off.
+The activity reads have a time budget: no repository's reads start more than 20 seconds into them, so the activity reads add at most about 20 seconds to a sync, plus the reads of the repository in progress. The star count and fork reads that run before them have no budget yet. The repositories left over keep their read times, are logged as `github.sync.activity_deferred` with how many were deferred, and are read first on the next sync: the order is by when each repository's activity was last attempted (`activityAttemptedAt`), never-attempted first, so a list that is never read (a permission not accepted, a list refused) cannot keep a repository at the front or the back.
 
 ### New stars per day: `github.stars.gained.daily`
 
@@ -204,18 +204,18 @@ A usage metric StackDash derives from the `/stargazers/count` snapshots, declare
 
 Pull requests, issues, and single stars arrive by webhook within a minute; the polled rows are the backfill and the only source of the rest, releases included. A delivered event and the same event polled later share a dedupe key, so the timeline stores it once.
 
-| Event | Source | Rule |
-|---|---|---|
-| New stars | Daily snapshot of `/stargazers/count` | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross. Only when the first sync of the next day runs by 02:00 UTC: a later close would report up to two days as one, so that day gets no event. Its stars still show in the star counts (`github.stars.total` and each repository's) |
-| Star milestone | `/stargazers/count` | When the count first reaches 100, 500, 1,000, then every further 1,000. Fire once per milestone per repository, even if the count dips and rises again. Polled only: only the cursor knows which milestones already fired |
-| Repository starred | `star` webhook, `created` | One event per star, at `starred_at`, keyed by repository and `starred_at`. Who starred is never read. Webhook only: the stargazer list that could backfill it is restricted and personal (see [Stargazer list](#stargazer-list-avoid)), so a missed delivery shows only in the daily net and the counts. An unstar (`deleted`) is ignored: the daily net counts it |
-| New fork | `/forks` (newest first) | One event per new fork id, at its `created_at`. Summarize per day if there are many |
-| Pull request merged | `pull_request` webhook (`closed` with `merged: true`), then `/pulls` | One event per merge, at `merged_at`, keyed `github.pull_request.merged:<repository id>:<number>`. Only the number and the repository |
-| Issue opened | `issues` webhook (`opened`), then `/issues` | One event per issue, at `created_at`, keyed `github.issue.opened:<repository id>:<number>`. Only the number and the repository |
-| Release published | `/events` (`ReleaseEvent`, `published`), polled only | One event per published release, at `published_at`, keyed `github.release.published:<repository id>:<release id>`, titled with its tag. Within about an hour, or up to about 7 hours when the feed lags |
-| Spend started | `/usage/summary` | First non-zero `netAmount` for a product in a month: included usage has run out |
-| Daily spend | `/usage` | Net spend per product per UTC day |
-| Budget threshold | `/budgets` plus `/usage/summary` | Month-to-date net spend crosses 75, 90, or 100 percent of a budget (GitHub's own alert levels) |
+| Event               | Source                                                               | Rule                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| New stars           | Daily snapshot of `/stargazers/count`                                | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross. Only when the first sync of the next day runs by 02:00 UTC: a later close would report up to two days as one, so that day gets no event. Its stars still show in the star counts (`github.stars.total` and each repository's)                                  |
+| Star milestone      | `/stargazers/count`                                                  | When the count first reaches 100, 500, 1,000, then every further 1,000. Fire once per milestone per repository, even if the count dips and rises again. Polled only: only the cursor knows which milestones already fired                                                                                                                                          |
+| Repository starred  | `star` webhook, `created`                                            | One event per star, at `starred_at`, keyed by repository and `starred_at`. Who starred is never read. Webhook only: the stargazer list that could backfill it is restricted and personal (see [Stargazer list](#stargazer-list-avoid)), so a missed delivery shows only in the daily net and the counts. An unstar (`deleted`) is ignored: the daily net counts it |
+| New fork            | `/forks` (newest first)                                              | One event per new fork id, at its `created_at`. Summarize per day if there are many                                                                                                                                                                                                                                                                                |
+| Pull request merged | `pull_request` webhook (`closed` with `merged: true`), then `/pulls` | One event per merge, at `merged_at`, keyed `github.pull_request.merged:<repository id>:<number>`. Only the number and the repository                                                                                                                                                                                                                               |
+| Issue opened        | `issues` webhook (`opened`), then `/issues`                          | One event per issue, at `created_at`, keyed `github.issue.opened:<repository id>:<number>`. Only the number and the repository                                                                                                                                                                                                                                     |
+| Release published   | `/events` (`ReleaseEvent`, `published`), polled only                 | One event per published release, at `published_at`, keyed `github.release.published:<repository id>:<release id>`, titled with its tag. Within about an hour, or up to about 7 hours when the feed lags                                                                                                                                                            |
+| Spend started       | `/usage/summary`                                                     | First non-zero `netAmount` for a product in a month: included usage has run out                                                                                                                                                                                                                                                                                    |
+| Daily spend         | `/usage`                                                             | Net spend per product per UTC day                                                                                                                                                                                                                                                                                                                                  |
+| Budget threshold    | `/budgets` plus `/usage/summary`                                     | Month-to-date net spend crosses 75, 90, or 100 percent of a budget (GitHub's own alert levels)                                                                                                                                                                                                                                                                     |
 
 ## Achievements
 
@@ -225,40 +225,40 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 
 `github.stars.daily` is dated to the end of its UTC day: 00:00 UTC the next day, which is always the next London date. Saturday's and Sunday's stars therefore arrive as Sunday and Monday events, so Weekend stargazers looks for a two-day run that starts on a Sunday. Steady glow needs no such change: every day moves by one, so 7 consecutive days stay consecutive.
 
-| Id | Title | How it is earned |
-|---|---|---|
-| `github.stars.10` | 10 GitHub stars | Earned when StackDash records 10 or more stars across the connected GitHub repositories. |
-| `github.stars.100` | 100 GitHub stars | Earned when StackDash records 100 or more stars across the connected GitHub repositories. |
-| `github.stars.1000` | 1,000 GitHub stars | Earned when StackDash records 1,000 or more stars across the connected GitHub repositories. |
-| `github.stars.10000` | 10,000 GitHub stars | Earned when StackDash records 10,000 or more stars across the connected GitHub repositories. |
-| `github.stars.777` | Lucky sevens: 777 GitHub stars | Earned when StackDash records 777 or more stars across the connected GitHub repositories. |
-| `github.stars.1024` | Kilostar: 1,024 GitHub stars | Earned when StackDash records 1,024 or more stars across the connected GitHub repositories. |
-| `github.stars.hot_day` | Trending: 10 new stars in one day | Earned when GitHub repositories StackDash already followed gain 10 or more new stars between them over one UTC day. |
-| `github.stars.steady_glow` | Steady glow: new stars on 7 days in a row | Earned when StackDash records new stars on a connected GitHub repository on each of 7 consecutive days. |
-| `github.stars.weekend` | Weekend stargazers: new stars on a Saturday and the Sunday after it | Earned when StackDash records new stars on a connected GitHub repository on a Saturday and on the Sunday after it. |
-| `github.forks.first` | First fork recorded | Earned when StackDash records the first new fork of a connected GitHub repository. |
-| `github.forks.10` | 10 forks recorded | Earned when StackDash records the 10th new fork of a connected GitHub repository. |
-| `github.forks.100` | 100 forks recorded | Earned when StackDash records the 100th new fork of a connected GitHub repository. |
-| `github.forks.party` | Fork party: 5 forks in one day | Earned when StackDash records 5 new forks of the connected GitHub repositories on one London calendar day. |
+| Id                         | Title                                                               | How it is earned                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `github.stars.10`          | 10 GitHub stars                                                     | Earned when StackDash records 10 or more stars across the connected GitHub repositories.                            |
+| `github.stars.100`         | 100 GitHub stars                                                    | Earned when StackDash records 100 or more stars across the connected GitHub repositories.                           |
+| `github.stars.1000`        | 1,000 GitHub stars                                                  | Earned when StackDash records 1,000 or more stars across the connected GitHub repositories.                         |
+| `github.stars.10000`       | 10,000 GitHub stars                                                 | Earned when StackDash records 10,000 or more stars across the connected GitHub repositories.                        |
+| `github.stars.777`         | Lucky sevens: 777 GitHub stars                                      | Earned when StackDash records 777 or more stars across the connected GitHub repositories.                           |
+| `github.stars.1024`        | Kilostar: 1,024 GitHub stars                                        | Earned when StackDash records 1,024 or more stars across the connected GitHub repositories.                         |
+| `github.stars.hot_day`     | Trending: 10 new stars in one day                                   | Earned when GitHub repositories StackDash already followed gain 10 or more new stars between them over one UTC day. |
+| `github.stars.steady_glow` | Steady glow: new stars on 7 days in a row                           | Earned when StackDash records new stars on a connected GitHub repository on each of 7 consecutive days.             |
+| `github.stars.weekend`     | Weekend stargazers: new stars on a Saturday and the Sunday after it | Earned when StackDash records new stars on a connected GitHub repository on a Saturday and on the Sunday after it.  |
+| `github.forks.first`       | First fork recorded                                                 | Earned when StackDash records the first new fork of a connected GitHub repository.                                  |
+| `github.forks.10`          | 10 forks recorded                                                   | Earned when StackDash records the 10th new fork of a connected GitHub repository.                                   |
+| `github.forks.100`         | 100 forks recorded                                                  | Earned when StackDash records the 100th new fork of a connected GitHub repository.                                  |
+| `github.forks.party`       | Fork party: 5 forks in one day                                      | Earned when StackDash records 5 new forks of the connected GitHub repositories on one London calendar day.          |
 
 ## Verified, estimated, unavailable
 
-| Value | Status |
-|---|---|
-| Net, gross, discount amounts per product and SKU per day (org and personal) | Verified (GitHub's billed figures; the current month is provisional until invoiced) |
-| AI credit and premium request quantities and amounts | Verified |
-| Budgets and their amounts | Verified |
-| Star count, fork count, new fork ids and times | Verified |
-| Star history per week | Verified counts; days are approximate because boundaries are not UTC |
-| Daily new stars from count snapshots | Verified net change at poll time; gross stars per day unavailable |
-| Pull requests merged, issues opened, releases published, single stars | Verified: GitHub's own event, by webhook or from its list or events feed |
-| Month-end spend projection | Estimated (StackDash extrapolation) |
-| Included allowance remaining (for example "$12 of Actions compute left") | Estimated: `discountAmount` is returned, the plan allowance is not; it would come from GitHub's pricing docs |
-| Invoices, payment history, plan name | Unavailable through these permissions |
-| Per user and per workflow usage | Unavailable (detailed report is web only; AI credit `user` filter exists for orgs) |
-| Billing for organizations not on the enhanced billing platform | Unavailable |
-| Enterprise billing | Unavailable (GitHub App access to enterprise billing is not generally available) |
-| Who starred, and when (per user) | Unavailable in practice (restricted since July 2026, and not wanted) |
+| Value                                                                       | Status                                                                                                       |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Net, gross, discount amounts per product and SKU per day (org and personal) | Verified (GitHub's billed figures; the current month is provisional until invoiced)                          |
+| AI credit and premium request quantities and amounts                        | Verified                                                                                                     |
+| Budgets and their amounts                                                   | Verified                                                                                                     |
+| Star count, fork count, new fork ids and times                              | Verified                                                                                                     |
+| Star history per week                                                       | Verified counts; days are approximate because boundaries are not UTC                                         |
+| Daily new stars from count snapshots                                        | Verified net change at poll time; gross stars per day unavailable                                            |
+| Pull requests merged, issues opened, releases published, single stars       | Verified: GitHub's own event, by webhook or from its list or events feed                                     |
+| Month-end spend projection                                                  | Estimated (StackDash extrapolation)                                                                          |
+| Included allowance remaining (for example "$12 of Actions compute left")    | Estimated: `discountAmount` is returned, the plan allowance is not; it would come from GitHub's pricing docs |
+| Invoices, payment history, plan name                                        | Unavailable through these permissions                                                                        |
+| Per user and per workflow usage                                             | Unavailable (detailed report is web only; AI credit `user` filter exists for orgs)                           |
+| Billing for organizations not on the enhanced billing platform              | Unavailable                                                                                                  |
+| Enterprise billing                                                          | Unavailable (GitHub App access to enterprise billing is not generally available)                             |
+| Who starred, and when (per user)                                            | Unavailable in practice (restricted since July 2026, and not wanted)                                         |
 
 ## Rate limits
 
@@ -267,7 +267,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Secondary limits: at most 100 concurrent requests, 900 points per minute for REST (`GET` costs 1), 90 seconds of CPU per minute, and 2,000 OAuth token requests per hour per app. Some endpoints cost more, undisclosed.
 - Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions; use them for pacing, not exact counting.
 - Exceeded: `403` or `429`. If `retry-after` is present, wait that many seconds. If `x-ratelimit-remaining` is `0`, wait until `x-ratelimit-reset`. Otherwise wait at least one minute, then back off exponentially and give up after a fixed number of tries. Continuing while limited can get the app banned.
-- Budget: per repository per sync 2 requests for stars and forks, plus the activity reads within their 20 second budget: one page each of pull requests and issues and usually one page of the events feed (at most 3). About 4 billing calls per account. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request each: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, events (100) 0.55 to 0.75 MB in 1.2 to 2.1 s. So a busy repository's activity is about 3 to 4 s and 1.5 to 2 MB a sync, and the budget reads about 5 to 6 busy repositories, or about 20 quiet ones, per sync; 100 busy repositories cycle in about a day. Webhook deliveries cost no requests. Run requests serially per installation.
+- Budget: per repository per sync 2 requests for stars and forks, plus the activity reads within their 20 second budget: one page each of pull requests and issues and one to three pages of the events feed. About 4 billing calls per account. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Webhook deliveries cost no requests. Run requests serially per installation.
 
 ## Webhooks
 
@@ -279,13 +279,13 @@ StackDash receives the GitHub App's webhooks at `POST <SITE_URL>/api/webhooks/gi
 - **Replay.** GitHub signs no timestamp and not the delivery id, so a captured delivery posted again under a new delivery id verifies. For timeline events that changes nothing: the event's dedupe key is the one already stored. A suspension is dated by the signed `suspended_at`, so a replay after a reconnect is stale. An uninstall and a revoked authorization carry no time, so they are dated when they arrive, and a replay of one marks the connection as needing a reconnect again. It reveals and changes no data, and capturing a delivery takes the TLS traffic to StackDash or the app's delivery log, which only the app's owner sees.
 - **Event name.** `X-GitHub-Event` names the event and is not signed, but each event's body must match that event's shape, so a signed body sent under another name is ignored.
 
-| Event | Actions used | What StackDash does |
-|---|---|---|
-| `pull_request` | `closed` with `merged: true` | Pull request merged. Other actions are ignored |
-| `issues` | `opened` | Issue opened. Other actions are ignored |
-| `star` | `created` | Repository starred, at `starred_at`. `deleted` is ignored: the daily net counts an unstar |
-| `installation` | `deleted`, `suspend` | The account's connections need a reconnect at once (an uninstall for `installation.account.id`). `unsuspend`, `created`, and `new_permissions_accepted` are ignored: the reconnect a suspension asked for, or the next sync, picks them up |
-| `github_app_authorization` | `revoked` | The revoking user's personal account connection needs a reconnect (see below) |
+| Event                      | Actions used                 | What StackDash does                                                                                                                                                                                                                        |
+| -------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pull_request`             | `closed` with `merged: true` | Pull request merged. Other actions are ignored                                                                                                                                                                                             |
+| `issues`                   | `opened`                     | Issue opened. Other actions are ignored                                                                                                                                                                                                    |
+| `star`                     | `created`                    | Repository starred, at `starred_at`. `deleted` is ignored: the daily net counts an unstar                                                                                                                                                  |
+| `installation`             | `deleted`, `suspend`         | The account's connections need a reconnect at once (an uninstall for `installation.account.id`). `unsuspend`, `created`, and `new_permissions_accepted` are ignored: the reconnect a suspension asked for, or the next sync, picks them up |
+| `github_app_authorization` | `revoked`                    | The revoking user's personal account connection needs a reconnect (see below)                                                                                                                                                              |
 
 Every delivery for a repository names its account by `repository.owner.id`: an installation covers one account's repositories, and that account's id is the connection's external account. A delivery reaches every workspace that includes that account and nothing else, and only from repositories the installation covers, the ones the owner selected.
 
@@ -345,14 +345,14 @@ Each deployment registers its own GitHub App, because the private key, client se
 10. **Create GitHub App**. On the settings page note the **App ID** and **Client ID**, click **Generate a new client secret**, and under **Private keys** click **Generate a private key** (downloads a PEM file).
 11. Set the environment variables:
 
-| Variable | Value |
-|---|---|
-| `GITHUB_APP_ID` | Numeric App ID. Accepted as JWT `iss`; GitHub recommends the client ID instead |
-| `GITHUB_APP_SLUG` | Slug from the app's public page URL. Builds the install URL |
-| `GITHUB_APP_PRIVATE_KEY` | Full PEM contents, PKCS#1. If your host cannot store multiline values, store it with `\n` escapes and convert back when loading |
-| `GITHUB_APP_CLIENT_ID` | Client ID (different from the App ID). Used as JWT `iss` and in the user authorization flow |
-| `GITHUB_APP_CLIENT_SECRET` | Client secret. Shown once |
-| `GITHUB_APP_WEBHOOK_SECRET` | The webhook secret from step 7. Leave it unset while the webhook is inactive |
+| Variable                    | Value                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_APP_ID`             | Numeric App ID. Accepted as JWT `iss`; GitHub recommends the client ID instead                                                  |
+| `GITHUB_APP_SLUG`           | Slug from the app's public page URL. Builds the install URL                                                                     |
+| `GITHUB_APP_PRIVATE_KEY`    | Full PEM contents, PKCS#1. If your host cannot store multiline values, store it with `\n` escapes and convert back when loading |
+| `GITHUB_APP_CLIENT_ID`      | Client ID (different from the App ID). Used as JWT `iss` and in the user authorization flow                                     |
+| `GITHUB_APP_CLIENT_SECRET`  | Client secret. Shown once                                                                                                       |
+| `GITHUB_APP_WEBHOOK_SECRET` | The webhook secret from step 7. Leave it unset while the webhook is inactive                                                    |
 
 An app registered before StackDash received webhooks keeps working: in its settings set step 7, add the two repository permissions and the three events from step 8, and save. GitHub then asks the owner of every installation to accept the new permissions; until they do, their connections list the missing ones and keep syncing billing, stars, forks, and releases. An app that already requested Contents read for releases can remove it: StackDash no longer uses it.
 
@@ -518,7 +518,10 @@ The user-level documented example uses `"unitType": "ai-credits"` and `"product"
       "budget_scope": "organization",
       "budget_amount": 500,
       "prevent_further_usage": false,
-      "budget_alerting": { "will_alert": true, "alert_recipients": ["org-owner"] }
+      "budget_alerting": {
+        "will_alert": true,
+        "alert_recipients": ["org-owner"]
+      }
     }
   ],
   "has_next_page": false
@@ -551,9 +554,7 @@ The user-level documented example uses `"unitType": "ai-credits"` and `"product"
 `GET /repos/{owner}/{repo}/stargazers/history` (from documentation, not recorded):
 
 ```json
-[
-  { "week": 1754784000, "total": 19, "days": [0, 12, 7, 0, 0, 0, 0] }
-]
+[{ "week": 1754784000, "total": 19, "days": [0, 12, 7, 0, 0, 0, 0] }]
 ```
 
 `GET /repos/{owner}/{repo}/forks` (from documentation, not recorded; trimmed):
@@ -624,8 +625,18 @@ Content-Type: application/json
 ```json
 {
   "action": "closed",
-  "pull_request": { "number": 2, "merged": true, "merged_at": "2019-05-15T15:21:18Z", "html_url": "https://github.com/Codertocat/Hello-World/pull/2" },
-  "repository": { "id": 186853002, "full_name": "Codertocat/Hello-World", "html_url": "https://github.com/Codertocat/Hello-World", "owner": { "id": 21031067 } },
+  "pull_request": {
+    "number": 2,
+    "merged": true,
+    "merged_at": "2019-05-15T15:21:18Z",
+    "html_url": "https://github.com/Codertocat/Hello-World/pull/2"
+  },
+  "repository": {
+    "id": 186853002,
+    "full_name": "Codertocat/Hello-World",
+    "html_url": "https://github.com/Codertocat/Hello-World",
+    "owner": { "id": 21031067 }
+  },
   "installation": { "id": 1 }
 }
 ```
@@ -633,7 +644,10 @@ Content-Type: application/json
 A `github_app_authorization` delivery body, complete apart from the sender's profile links:
 
 ```json
-{ "action": "revoked", "sender": { "login": "octocat", "id": 1, "type": "User" } }
+{
+  "action": "revoked",
+  "sender": { "login": "octocat", "id": 1, "type": "User" }
+}
 ```
 
 ## Unverified
@@ -656,9 +670,10 @@ Confirm with a test organization and a test personal account before the adapter 
 - What `GET /repos/{owner}/{repo}/issues` answers for a repository with issues turned off (the list documents `404` and `422`, not `410`). StackDash treats `404` and `410` the same: no issues for that repository.
 - That every `installation` delivery carries `installation.account` (an enterprise installation may name no user or organization), and that `suspended_at` is set on `suspend`.
 - Whether someone other than a personal account's owner can authorize against its installation (`GET /user/installations` lists installations the user has "explicit permission" to). If so, their revoked authorization does not match the connection by `sender.id` (see [Webhooks](#webhooks)).
-- That a `ReleaseEvent` in a real repository's events feed carries the release's `id` and `published_at` as documented. GitHub trimmed some event payloads in 2025 (pull request and push events) and its changelog does not name release events; a missing field fails the sync by schema rather than dropping releases silently.
 - How long the events feed lags today. The REST page still says 30 seconds to 6 hours; GitHub's 2025 changelog says events would appear "almost immediately". StackDash reads back the documented 6 hours either way.
-- That an installation token with Metadata read lists a private repository's events.
+- That an installation token with Metadata read lists a private repository's events, and that a private repository's `ReleaseEvent` carries the same release fields. The public half is checked (below).
+
+Checked on a public repository on 2026-11-16: `GET /repos/vercel/next.js/events?per_page=100` (authenticated) honours `per_page=100`, answers `422` for page 4, and holds a `ReleaseEvent` (created 2026-11-15T23:49:25Z, action `published`) whose `payload.release` carries `id` (446440896), `tag_name` (`v16.5.0-canary.52`), `draft` (false), `published_at`, and `html_url`: the five fields `ReleaseSchema` reads.
 
 ## Sources
 
