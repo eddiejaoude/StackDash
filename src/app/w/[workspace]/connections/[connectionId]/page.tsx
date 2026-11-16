@@ -50,6 +50,12 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connection" };
 
+// For this page's Server Actions (Next reads it from the page): disconnect and delete can wait up to
+// about 19 s for the credential refresh lock (#496), then refresh, delete the webhook, and revoke, up
+// to 15 s each (the adapter timeout): about 64 s. Automatic webhook setup is the same 19 s plus a
+// refresh, `create`, and a cleanup `remove`. 90 s covers either with room for the database calls.
+export const maxDuration = 90;
+
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectionPage(props: PageProps<"/w/[workspace]/connections/[connectionId]">) {

@@ -31,6 +31,11 @@ import { requireWorkspaceAction } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { ForbiddenError } from "@/lib/workspaces/permissions";
 
+// The code exchange and account listing (up to 15 s each, the adapter timeout), then automatic
+// webhook setup after consent: up to about 19 s waiting for the credential refresh lock (#496) and a
+// refresh, `create`, and a cleanup `remove` of 15 s each. 120 s covers it with room for the database.
+export const maxDuration = 120;
+
 /**
  * Creates the webhook the user chose to set up automatically (#426), once the grant with its write
  * scopes is stored. The connection is already saved, so a failure here is reported on its page
