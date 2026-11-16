@@ -1,43 +1,55 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthRevokedError } from "@/lib/adapters/errors";
 import { getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
-import { Secret, type ConnectionWebhookSetup, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import {
-  acquireCredentialRefreshLock,
-  loadCredential,
-  releaseCredentialRefreshLock,
-  saveCredential,
-} from "@/lib/data/credentials";
+  Secret,
+  type ConnectionWebhookSetup,
+  type OAuthCredential,
+  type PerSourceWebhookSetup,
+  type ProviderAdapter,
+  type WebhookSource,
+} from "@/lib/adapters/types";
+import { loadCredential } from "@/lib/data/credentials";
 import type * as EndpointsModule from "@/lib/data/webhook-endpoints";
 import {
   countWorkspaceWebhookEndpoints,
   deleteWebhookEndpoint,
   getConnectionWebhook,
+  getWebhookEndpointSetup,
   insertWebhookEndpoint,
+  listWebhookSources,
+  loadWebhookEndpoint,
+  noteSourceWithoutWebhook,
+  saveCreatedWebhookSource,
+  WEBHOOK_SOURCES_PER_ENDPOINT,
   WebhookEndpointExistsError,
   WebhookEndpointLimitError,
+  WebhookSourceLimitError,
+  type ConnectionWebhook,
+  type SourceWebhook,
 } from "@/lib/data/webhook-endpoints";
-import { logError } from "@/lib/log/logger";
+import { log, logError } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fakeSupabase } from "@/lib/supabase/fake-postgrest";
 
-import { TOKEN_REFRESH_SKEW_MS } from "./credential-refresh";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
 import {
+  addMissingSourceWebhooks,
   removeConnectionWebhook,
   setUpWebhookAutomatically,
   setUpWebhookByHand,
+  setupRefusal,
   webhookRemovalMessage,
   webhookUrl,
   webhookWritePermissions,
 } from "./webhook-setup";
 
 /*
- * Webhook setup and removal (#426) against GitLab's and Resend's simulated declarations, with the
- * endpoint repository, the credential store, and the registry replaced: what is asked of the
- * provider, what is stored, and in which order.
+ * Webhook setup and removal (#426, #428) against GitLab's and Resend's simulated declarations, with
+ * the endpoint repository, the credential store, and the registry replaced: what is asked of the
+ * provider, what is stored, and in which order. `withSpies` turns a declaration into one webhook per
+ * connection (as Resend's is), `withSourceSpies` keeps GitLab's one webhook per project.
  */
 
 vi.mock("@/lib/data/webhook-endpoints", async (importOriginal) => {
@@ -47,16 +59,16 @@ vi.mock("@/lib/data/webhook-endpoints", async (importOriginal) => {
     countWorkspaceWebhookEndpoints: vi.fn(),
     deleteWebhookEndpoint: vi.fn(),
     getConnectionWebhook: vi.fn(),
+    getWebhookEndpointSetup: vi.fn(),
     insertWebhookEndpoint: vi.fn(),
+    listWebhookSources: vi.fn(),
+    loadWebhookEndpoint: vi.fn(),
+    noteSourceWithoutWebhook: vi.fn(),
     replaceWebhookEndpointSecret: vi.fn(),
+    saveCreatedWebhookSource: vi.fn(),
   };
 });
-vi.mock("@/lib/data/credentials", () => ({
-  loadCredential: vi.fn(),
-  saveCredential: vi.fn(),
-  acquireCredentialRefreshLock: vi.fn(),
-  releaseCredentialRefreshLock: vi.fn(),
-}));
+vi.mock("@/lib/data/credentials", () => ({ loadCredential: vi.fn() }));
 vi.mock("@/lib/adapters/registry", () => ({ getAdapter: vi.fn(), loadOAuthClient: vi.fn(), createOAuthContext: vi.fn(() => ({})) }));
 vi.mock("@/lib/supabase/admin");
 vi.mock("@/lib/log/logger", () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, logError: vi.fn(() => "ref123") }));
@@ -71,33 +83,22 @@ function credential(scopes: readonly string[]): OAuthCredential {
   return { accessToken: new Secret("simulated-at"), scopes, tokenType: "bearer" };
 }
 
-const WRITE_SCOPES = ["simulated:read", "simulated:webhooks:write"];
-const KEY = { workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID };
-
-function expiringIn(ms: number): OAuthCredential {
-  return { ...credential(WRITE_SCOPES), refreshToken: new Secret("rt-1"), expiresAt: new Date(Date.now() + ms) };
-}
-
-const REFRESHED: OAuthCredential = {
-  accessToken: new Secret("refreshed-at"),
-  refreshToken: new Secret("rt-2"),
-  expiresAt: new Date(Date.now() + 2 * 60 * 60_000),
-  scopes: WRITE_SCOPES,
-  tokenType: "bearer",
-};
-
-/** `spied` with a refresh that rotates the token, as GitLab's does (#496). */
-function refreshing(spied: ProviderAdapter) {
-  const refreshTokens = vi.fn<(current: OAuthCredential) => Promise<OAuthCredential>>(() => Promise.resolve(REFRESHED));
-  const adapter: ProviderAdapter = { ...spied, refreshTokens };
-  vi.mocked(getAdapter).mockReturnValue(adapter);
-  return { adapter, refreshTokens };
-}
-
 const PROVIDER_SECRET = new Secret("whsec_provider");
 
-/** A copy of a simulated adapter whose automatic create and remove are spies. */
-function withSpies(adapter: ProviderAdapter) {
+/** The connection's webhook as getConnectionWebhook reads it. */
+const stored = (setupMode: ConnectionWebhook["setupMode"], perSource = false): ConnectionWebhook => ({
+  id: "e",
+  setupMode,
+  perSource,
+  awaitingProviderSecret: false,
+  lastDeliveryAt: null,
+});
+
+/**
+ * A copy of a simulated adapter whose automatic create and remove are spies, optionally declaring
+ * that its webhook covers one account (Polar's `accounts: "one"`).
+ */
+function withSpies(adapter: ProviderAdapter, accounts?: "one") {
   const webhooks = adapter.webhooks;
   const registration = webhooks?.registration;
   if (webhooks === undefined || registration?.kind !== "connection" || registration.setup.automatic === undefined) {
@@ -105,16 +106,30 @@ function withSpies(adapter: ProviderAdapter) {
   }
   const declared = registration.setup;
   const extraPermissions = declared.automatic?.extraPermissions ?? [];
+  const limit = accounts === undefined ? {} : { accounts };
   // Returns the provider's secret whichever arm calls it; a StackDash-secret provider ignores it.
   const create = vi.fn(() => Promise.resolve({ webhookId: "hook_1", secret: PROVIDER_SECRET }));
   const remove = vi.fn(() => Promise.resolve());
   const setup: ConnectionWebhookSetup =
     declared.secretSource === "stackdash"
-      ? { ...declared, automatic: { extraPermissions, create, remove } }
-      : { ...declared, automatic: { extraPermissions, create, remove } };
+      ? { ...declared, automatic: { extraPermissions, ...limit, create, remove } }
+      : { ...declared, automatic: { extraPermissions, ...limit, create, remove } };
   const spied: ProviderAdapter = { ...adapter, webhooks: { ...webhooks, registration: { kind: "connection", setup } } };
   vi.mocked(getAdapter).mockReturnValue(spied);
   return { adapter: spied, setup, create, remove };
+}
+
+/** The connection's accounts, `included` each as given. */
+function accountsIncluded(...included: readonly boolean[]) {
+  const { db } = fakeSupabase({
+    external_accounts: included.map((isIncluded, index) => ({
+      workspace_id: WORKSPACE_ID,
+      connection_id: CONNECTION_ID,
+      external_id: `org_${index}`,
+      included: isIncluded,
+    })),
+  });
+  vi.mocked(createAdminClient).mockReturnValue(db);
 }
 
 const target = (adapter: ProviderAdapter, setup: ConnectionWebhookSetup) => ({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, adapter, setup });
@@ -123,14 +138,11 @@ beforeEach(() => {
   vi.mocked(countWorkspaceWebhookEndpoints).mockResolvedValue(0);
   vi.mocked(getConnectionWebhook).mockResolvedValue(null);
   vi.mocked(insertWebhookEndpoint).mockResolvedValue();
-  vi.mocked(saveCredential).mockResolvedValue();
-  vi.mocked(acquireCredentialRefreshLock).mockResolvedValue("lock_1");
-  vi.mocked(releaseCredentialRefreshLock).mockResolvedValue();
   vi.mocked(loadOAuthClient).mockReturnValue(client);
   const { db } = fakeSupabase({
     external_accounts: [
-      { workspace_id: WORKSPACE_ID, connection_id: CONNECTION_ID, external_id: "acct_2", included: true },
-      { workspace_id: WORKSPACE_ID, connection_id: CONNECTION_ID, external_id: "acct_1", included: false },
+      { workspace_id: WORKSPACE_ID, connection_id: CONNECTION_ID, external_id: "acct_2", display_name: "acct-two", included: true },
+      { workspace_id: WORKSPACE_ID, connection_id: CONNECTION_ID, external_id: "acct_1", display_name: "acct-one", included: false },
     ],
   });
   vi.mocked(createAdminClient).mockReturnValue(db);
@@ -220,7 +232,7 @@ describe("setUpWebhookAutomatically", () => {
 
   it("asks the provider nothing when the connection has a webhook already (boundary: repeat or stale tab)", async () => {
     const { adapter, setup, create, remove } = withSpies(simulatedAdapters.gitlab);
-    vi.mocked(getConnectionWebhook).mockResolvedValue({ id: "e", setupMode: "automatic", awaitingProviderSecret: false, lastDeliveryAt: null });
+    vi.mocked(getConnectionWebhook).mockResolvedValue(stored("automatic"));
     vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
     expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "already_set_up" });
     expect(create).not.toHaveBeenCalled();
@@ -234,54 +246,50 @@ describe("setUpWebhookAutomatically", () => {
     expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "not_configured" });
     expect(create).not.toHaveBeenCalled();
   });
+});
 
-  it("refreshes an expiring credential and saves it before creating the webhook with it (#496)", async () => {
-    const spies = withSpies(simulatedAdapters.gitlab);
-    const { adapter, refreshTokens } = refreshing(spies.adapter);
-    const stored = expiringIn(60_000);
-    vi.mocked(loadCredential).mockResolvedValue(stored);
-
-    expect(await setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
-
-    expect(refreshTokens).toHaveBeenCalledExactlyOnceWith(stored, expect.anything());
-    expect(saveCredential).toHaveBeenCalledWith({ ...KEY, credential: REFRESHED });
-    expect(spies.create).toHaveBeenCalledWith(expect.objectContaining({ credential: REFRESHED }), expect.anything());
-    expect(vi.mocked(saveCredential).mock.invocationCallOrder[0]).toBeLessThan(spies.create.mock.invocationCallOrder[0] ?? 0);
-    expect(releaseCredentialRefreshLock).toHaveBeenCalledWith(KEY, "lock_1");
+describe("setupRefusal for a webhook that covers one account (Polar, #429)", () => {
+  it.each([
+    ["no account (boundary: none)", [false], { kind: "one_account_needed" }],
+    ["one included account and one excluded", [true, false], null],
+    ["two included accounts (boundary: many)", [true, true], { kind: "one_account_needed" }],
+  ] as const)("answers a connection with %s", async (_case, included, refusal) => {
+    accountsIncluded(...included);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one", extraPermissions: [] })).toEqual(refusal);
   });
 
-  it("creates with an unexpired credential as it is, without the refresh lock (boundary: outside the skew)", async () => {
-    const spies = withSpies(simulatedAdapters.gitlab);
-    const { adapter, refreshTokens } = refreshing(spies.adapter);
-    const stored = expiringIn(TOKEN_REFRESH_SKEW_MS + 60_000);
-    vi.mocked(loadCredential).mockResolvedValue(stored);
-
-    await setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN });
-
-    expect(refreshTokens).not.toHaveBeenCalled();
-    expect(acquireCredentialRefreshLock).not.toHaveBeenCalled();
-    expect(spies.create).toHaveBeenCalledWith(expect.objectContaining({ credential: stored }), expect.anything());
+  it("does not count accounts where one webhook covers them all, or for setup by hand (boundary: no limit declared)", async () => {
+    accountsIncluded(true, true);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { extraPermissions: [] })).toBeNull();
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, undefined)).toBeNull();
   });
 
-  it("refuses setup, creating nothing at the provider or here, when the refresh fails (boundary: refresh refused)", async () => {
-    const spies = withSpies(simulatedAdapters.gitlab);
-    const { adapter, refreshTokens } = refreshing(spies.adapter);
-    refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
-    vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+  it("names an existing webhook or the workspace limit first, which no change of accounts would fix", async () => {
+    accountsIncluded(true, true);
+    vi.mocked(countWorkspaceWebhookEndpoints).mockResolvedValue(WEBHOOK_ENDPOINTS_PER_WORKSPACE);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one", extraPermissions: [] })).toEqual({ kind: "limit_reached" });
+  });
 
-    await expect(setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN })).rejects.toBeInstanceOf(AuthRevokedError);
-
-    expect(spies.create).not.toHaveBeenCalled();
+  it("asks the provider nothing when automatic setup runs for two included accounts", async () => {
+    const { adapter, setup, create } = withSpies(simulatedAdapters.gitlab, "one");
+    accountsIncluded(true, true);
+    vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
+    expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "one_account_needed" });
+    expect(create).not.toHaveBeenCalled();
     expect(insertWebhookEndpoint).not.toHaveBeenCalled();
-    expect(saveCredential).not.toHaveBeenCalled();
-    expect(releaseCredentialRefreshLock).toHaveBeenCalledWith(KEY, "lock_1");
+  });
+
+  it("still sets up by hand for two included accounts: the user picks the one organization in the provider", async () => {
+    const { adapter, setup } = withSpies(simulatedAdapters.resend, "one");
+    accountsIncluded(true, true);
+    expect((await setUpWebhookByHand(target(adapter, setup))).kind).toBe("manual");
   });
 });
 
 describe("removeConnectionWebhook", () => {
   it("deletes an automatic webhook at the provider with the stored credential", async () => {
     const { remove } = withSpies(simulatedAdapters.gitlab);
-    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9" });
+    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9", sourceWebhooks: [] });
     vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
     const removal = await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" });
     expect(removal).toEqual({ kind: "removed" });
@@ -291,12 +299,12 @@ describe("removeConnectionWebhook", () => {
 
   it("leaves a webhook added by hand to the user, with the provider's steps", async () => {
     const { remove } = withSpies(simulatedAdapters.gitlab);
-    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "manual", providerWebhookId: null });
+    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "manual", providerWebhookId: null, sourceWebhooks: [] });
     const removal = await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" });
     expect(removal).toEqual({ kind: "manual" });
     expect(remove).not.toHaveBeenCalled();
     expect(webhookRemovalMessage("gitlab", removal)).toBe(
-      "Remove the webhook you added in GitLab: In GitLab, open the group, then Settings, then Webhooks, and choose Delete next to the StackDash webhook.",
+      "Remove the webhook you added in GitLab: In GitLab, open each project you added it to, then Settings, then Webhooks, and choose Delete next to the StackDash webhook.",
     );
   });
 
@@ -310,40 +318,11 @@ describe("removeConnectionWebhook", () => {
   it("returns a failed deletion with its reference and the steps instead of throwing (boundary: provider fails)", async () => {
     const { remove } = withSpies(simulatedAdapters.gitlab);
     remove.mockRejectedValue(new Error("provider down"));
-    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9" });
+    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9", sourceWebhooks: [] });
     vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
     const removal = await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" });
-    expect(removal).toEqual({ kind: "failed", referenceId: "ref123" });
+    expect(removal).toEqual({ kind: "failed", referenceId: "ref123", left: [] });
     expect(logError).toHaveBeenCalledWith("webhook_setup.remove_failed", expect.any(Error), expect.objectContaining({ provider: "gitlab" }));
-    expect(webhookRemovalMessage("gitlab", removal)).toMatch(/^StackDash could not delete its webhook in GitLab \(reference ref123\)\. In GitLab, open/);
-  });
-
-  it("refreshes an expiring credential and saves it before deleting the webhook with it (#496)", async () => {
-    const spies = withSpies(simulatedAdapters.gitlab);
-    const { refreshTokens } = refreshing(spies.adapter);
-    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9" });
-    vi.mocked(loadCredential).mockResolvedValue(expiringIn(-1));
-
-    const removal = await removeConnectionWebhook({ ...KEY, provider: "gitlab" });
-
-    expect(removal).toEqual({ kind: "removed" });
-    expect(refreshTokens).toHaveBeenCalledOnce();
-    expect(saveCredential).toHaveBeenCalledWith({ ...KEY, credential: REFRESHED });
-    expect(spies.remove).toHaveBeenCalledWith({ credential: REFRESHED, webhookId: "hook_9" }, expect.anything());
-  });
-
-  it("gives the steps by hand, with a reference, when the refresh fails (boundary: refresh refused on disconnect)", async () => {
-    const spies = withSpies(simulatedAdapters.gitlab);
-    const { refreshTokens } = refreshing(spies.adapter);
-    refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
-    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9" });
-    vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
-
-    const removal = await removeConnectionWebhook({ ...KEY, provider: "gitlab" });
-
-    expect(removal).toEqual({ kind: "failed", referenceId: "ref123" });
-    expect(spies.remove).not.toHaveBeenCalled();
-    expect(logError).toHaveBeenCalledWith("webhook_setup.remove_failed", expect.any(AuthRevokedError), expect.objectContaining({ provider: "gitlab" }));
     expect(webhookRemovalMessage("gitlab", removal)).toMatch(/^StackDash could not delete its webhook in GitLab \(reference ref123\)\. In GitLab, open/);
   });
 });
@@ -353,7 +332,7 @@ describe("webhookWritePermissions", () => {
     const { adapter } = withSpies(simulatedAdapters.gitlab);
     const chosen = await webhookWritePermissions({ adapter, workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, chosen: true });
     expect(chosen.map((permission) => permission.scope)).toEqual(["simulated:webhooks:write"]);
-    vi.mocked(getConnectionWebhook).mockResolvedValue({ id: "e", setupMode: "automatic", awaitingProviderSecret: false, lastDeliveryAt: null });
+    vi.mocked(getConnectionWebhook).mockResolvedValue(stored("automatic"));
     expect(await webhookWritePermissions({ adapter, workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, chosen: false })).toEqual(chosen);
   });
 
@@ -363,7 +342,253 @@ describe("webhookWritePermissions", () => {
     ["a reconnect without a webhook", "gitlab", CONNECTION_ID, null],
     ["a provider whose automatic setup needs no new scope", "resend", CONNECTION_ID, "automatic"],
   ] as const)("asks for nothing more on %s (boundary)", async (_case, id, connectionId, mode) => {
-    vi.mocked(getConnectionWebhook).mockResolvedValue(mode === null ? null : { id: "e", setupMode: mode, awaitingProviderSecret: false, lastDeliveryAt: null });
+    vi.mocked(getConnectionWebhook).mockResolvedValue(mode === null ? null : stored(mode));
     expect(await webhookWritePermissions({ adapter: simulatedAdapters[id], workspaceId: WORKSPACE_ID, connectionId, chosen: false })).toEqual([]);
+  });
+});
+
+describe("one webhook per source (#428)", () => {
+  const WRITE = credential(["simulated:read", "simulated:webhooks:write"]);
+  const SOURCES: WebhookSource[] = [
+    { id: "1001", name: "example-group/web" },
+    { id: "1002", name: "example-group/api" },
+  ];
+
+  /** GitLab's simulated declaration, one webhook per project, with spies for the provider calls. */
+  function withSourceSpies(sources: readonly WebhookSource[] = SOURCES) {
+    const adapter = simulatedAdapters.gitlab;
+    const webhooks = adapter.webhooks;
+    const registration = webhooks?.registration;
+    if (webhooks === undefined || registration?.kind !== "connection" || registration.setup.automatic?.per !== "source") {
+      throw new Error("expected GitLab's per-project setup");
+    }
+    const listSources = vi.fn(() => Promise.resolve([...sources]));
+    const create = vi.fn((input: { sourceId: string }) => Promise.resolve({ webhookId: `hook_${input.sourceId}` }));
+    const remove = vi.fn<PerSourceWebhookSetup["remove"]>(() => Promise.resolve());
+    const automatic: PerSourceWebhookSetup = { ...registration.setup.automatic, listSources, create, remove };
+    const setup: ConnectionWebhookSetup = { ...registration.setup, secretSource: "stackdash", automatic };
+    const spied: ProviderAdapter = { ...adapter, webhooks: { ...webhooks, registration: { kind: "connection", setup } } };
+    vi.mocked(getAdapter).mockReturnValue(spied);
+    return { adapter: spied, setup, listSources, create, remove };
+  }
+
+  beforeEach(() => {
+    vi.mocked(saveCreatedWebhookSource).mockResolvedValue(true);
+    vi.mocked(noteSourceWithoutWebhook).mockResolvedValue(true);
+    vi.mocked(listWebhookSources).mockResolvedValue([]);
+    vi.mocked(loadCredential).mockResolvedValue(WRITE);
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", ORIGIN);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  describe("setUpWebhookAutomatically", () => {
+    it("stores the endpoint first, then gives each project its webhook with the URL and secret, recording each", async () => {
+      const { adapter, setup, listSources, create } = withSourceSpies();
+      expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
+
+      const endpoint = vi.mocked(insertWebhookEndpoint).mock.calls[0]?.[0];
+      expect(endpoint?.setup).toEqual({ mode: "automatic", perSource: true });
+      expect(listSources).toHaveBeenCalledWith({ credential: WRITE, externalAccountIds: ["acct_2"] }, expect.anything());
+      const url = webhookUrl(ORIGIN, "gitlab", endpoint?.id ?? "");
+      expect(create.mock.calls.map(([input]) => input)).toEqual([
+        { credential: WRITE, url, secret: endpoint?.secret, sourceId: "1001" },
+        { credential: WRITE, url, secret: endpoint?.secret, sourceId: "1002" },
+      ]);
+      expect(vi.mocked(saveCreatedWebhookSource).mock.calls.map(([input]) => input)).toEqual([
+        { endpointId: endpoint?.id, source: SOURCES[0], providerWebhookId: "hook_1001" },
+        { endpointId: endpoint?.id, source: SOURCES[1], providerWebhookId: "hook_1002" },
+      ]);
+    });
+
+    it("keeps the webhooks that were created when one project fails, and lists that one without a webhook", async () => {
+      const { adapter, setup, create } = withSourceSpies();
+      create.mockRejectedValueOnce(new Error("403 Forbidden"));
+      expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
+      expect(saveCreatedWebhookSource).toHaveBeenCalledTimes(1);
+      expect(logError).toHaveBeenCalledWith("webhook_setup.source_failed", expect.any(Error), expect.objectContaining({ sourceId: "1001" }));
+      // Shown on the panel as having no webhook yet, and tried again after the next sync.
+      expect(vi.mocked(noteSourceWithoutWebhook).mock.calls.map(([input]) => input.source)).toEqual([SOURCES[0]]);
+      expect(deleteWebhookEndpoint).not.toHaveBeenCalled();
+    });
+
+    it("deletes its own webhook again where a racing setup already recorded one (boundary: the source holds a webhook)", async () => {
+      const { adapter, setup, remove } = withSourceSpies([SOURCES[0] ?? { id: "1", name: "a/b" }]);
+      vi.mocked(saveCreatedWebhookSource).mockResolvedValue(false);
+      expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
+      // Covered, not failed: the endpoint stays, and only the recorded webhook is left at GitLab.
+      expect(remove).toHaveBeenCalledWith({ credential: WRITE, webhookId: "hook_1001", sourceId: "1001" }, expect.anything());
+      expect(deleteWebhookEndpoint).not.toHaveBeenCalled();
+      expect(noteSourceWithoutWebhook).not.toHaveBeenCalled();
+    });
+
+    it("deletes the endpoint again and throws when no project got a webhook (boundary: every one fails)", async () => {
+      const { adapter, setup, create } = withSourceSpies();
+      create.mockRejectedValue(new Error("GitLab unavailable"));
+      await expect(setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).rejects.toThrow("No gitlab webhook could be created.");
+      expect(deleteWebhookEndpoint).toHaveBeenCalledWith(WORKSPACE_ID, CONNECTION_ID);
+    });
+
+    it("sets up with no webhook yet when the connection reads no project (boundary: empty)", async () => {
+      const { adapter, setup, create } = withSourceSpies([]);
+      expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
+      expect(create).not.toHaveBeenCalled();
+      expect(deleteWebhookEndpoint).not.toHaveBeenCalled();
+    });
+
+    it("deletes a webhook at GitLab again when it cannot be recorded, so none is left that disconnect would miss", async () => {
+      const { adapter, setup, remove } = withSourceSpies([SOURCES[0] ?? { id: "1", name: "a/b" }]);
+      vi.mocked(saveCreatedWebhookSource).mockRejectedValue(new WebhookSourceLimitError("full"));
+      await expect(setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).rejects.toThrow();
+      expect(remove).toHaveBeenCalledWith({ credential: WRITE, webhookId: "hook_1001", sourceId: "1001" }, expect.anything());
+    });
+
+    it("gives at most as many projects a webhook as an endpoint may hold (boundary: one over)", async () => {
+      const many = Array.from({ length: WEBHOOK_SOURCES_PER_ENDPOINT + 1 }, (_, index) => ({ id: String(index + 1), name: `g/p${index + 1}` }));
+      const { adapter, setup, create } = withSourceSpies(many);
+      await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN });
+      expect(create).toHaveBeenCalledTimes(WEBHOOK_SOURCES_PER_ENDPOINT);
+    });
+
+    it("asks GitLab nothing when the grant lacks the write scope (boundary: consent not given)", async () => {
+      const { adapter, setup, listSources, create } = withSourceSpies();
+      vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read"]));
+      expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "write_access_missing" });
+      expect(listSources).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("removeConnectionWebhook", () => {
+    const hook = (sourceId: string): SourceWebhook => ({ sourceId, name: `example-group/p${sourceId}`, providerWebhookId: `hook_${sourceId}` });
+    const removed = (sourceWebhooks: readonly SourceWebhook[]) =>
+      vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: null, sourceWebhooks });
+
+    it("deletes every project's webhook with the stored credential", async () => {
+      const { remove } = withSourceSpies();
+      removed([hook("1001"), hook("1002")]);
+      const removal = await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" });
+      expect(removal).toEqual({ kind: "removed" });
+      expect(remove.mock.calls.map(([input]) => input)).toEqual([
+        { credential: WRITE, webhookId: "hook_1001", sourceId: "1001" },
+        { credential: WRITE, webhookId: "hook_1002", sourceId: "1002" },
+      ]);
+      expect(webhookRemovalMessage("gitlab", removal)).toBe("StackDash deleted its webhooks in GitLab.");
+    });
+
+    it("tries every project and names the ones whose webhook is still there when one cannot be deleted", async () => {
+      const { remove } = withSourceSpies();
+      remove.mockRejectedValueOnce(new Error("GitLab unavailable"));
+      removed([hook("1001"), hook("1002")]);
+      const removal = await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" });
+      expect(removal).toEqual({ kind: "failed", referenceId: "ref123", left: ["example-group/p1001"] });
+      expect(remove).toHaveBeenCalledTimes(2);
+      expect(webhookRemovalMessage("gitlab", removal)).toMatch(
+        /^StackDash could not delete its webhooks in GitLab \(reference ref123\)\. They are still in example-group\/p1001\. In GitLab, open each project/,
+      );
+    });
+
+    it("names three projects and counts the rest when many are left (boundary: more than three)", () => {
+      withSourceSpies();
+      const removal = { kind: "failed", referenceId: "ref123", left: ["a/1", "a/2", "a/3", "a/4", "a/5"] } as const;
+      expect(webhookRemovalMessage("gitlab", removal)).toContain("They are still in a/1, a/2, a/3 and 2 more.");
+    });
+
+    it("names every project when the credential is gone and none could be tried", async () => {
+      withSourceSpies();
+      vi.mocked(loadCredential).mockResolvedValue(null);
+      removed([hook("1001"), hook("1002")]);
+      const removal = await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" });
+      expect(removal).toEqual({ kind: "failed", referenceId: "ref123", left: ["example-group/p1001", "example-group/p1002"] });
+    });
+
+    it("says nothing when automatic setup never found a project (boundary: none created)", async () => {
+      const { remove } = withSourceSpies();
+      removed([]);
+      expect(await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" })).toEqual({ kind: "none" });
+      expect(remove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("addMissingSourceWebhooks", () => {
+    const ENDPOINT = {
+      id: "42600000-0000-4000-8000-000000000003",
+      provider: "gitlab" as const,
+      workspaceId: WORKSPACE_ID,
+      connectionId: CONNECTION_ID,
+      secret: new Secret("stored-endpoint-secret"),
+    };
+
+    beforeEach(() => {
+      vi.mocked(getWebhookEndpointSetup).mockResolvedValue({ id: ENDPOINT.id, setupMode: "automatic", perSource: true });
+      vi.mocked(loadWebhookEndpoint).mockResolvedValue(ENDPOINT);
+    });
+
+    it("gives a project the sync reads since setup its webhook, on the instance's address with the stored secret", async () => {
+      const { create } = withSourceSpies();
+      vi.mocked(listWebhookSources).mockResolvedValue([{ sourceId: "1001", name: "example-group/web", providerWebhookId: "hook_1001", lastDeliveryAt: null }]);
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
+      expect(create.mock.calls.map(([input]) => input)).toEqual([
+        { credential: WRITE, url: webhookUrl(ORIGIN, "gitlab", ENDPOINT.id), secret: ENDPOINT.secret, sourceId: "1002" },
+      ]);
+    });
+
+    it("gives a project known only from its deliveries a webhook too, without taking a new place", async () => {
+      const { create } = withSourceSpies();
+      const full = Array.from({ length: WEBHOOK_SOURCES_PER_ENDPOINT - 1 }, (_, index) => ({
+        sourceId: `9${index}`,
+        name: `g/p${index}`,
+        providerWebhookId: `hook_9${index}`,
+        lastDeliveryAt: null,
+      }));
+      vi.mocked(listWebhookSources).mockResolvedValue([...full, { sourceId: "1001", name: "example-group/web", providerWebhookId: null, lastDeliveryAt: null }]);
+      // The endpoint is at its limit: 1001 already has a row, and 1002 would need a new one.
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
+      expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1001"]);
+    });
+
+    it.each([
+      ["no webhook", null],
+      ["a webhook added by hand", { id: "e", setupMode: "manual", perSource: false }],
+      ["one automatic webhook for the whole connection", { id: "e", setupMode: "automatic", perSource: false }],
+    ] as const)("does nothing for a connection with %s", async (_case, endpoint) => {
+      const { listSources, create } = withSourceSpies();
+      vi.mocked(getWebhookEndpointSetup).mockResolvedValue(endpoint);
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(0);
+      expect(listSources).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("reads nothing for a provider without per-source webhooks (boundary: every other provider's sync)", async () => {
+      withSpies(simulatedAdapters.resend);
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "resend")).toBe(0);
+      expect(getWebhookEndpointSetup).not.toHaveBeenCalled();
+      expect(getConnectionWebhook).not.toHaveBeenCalled();
+    });
+
+    it("does nothing, with a warning, once a reconnect gave up the write access (boundary)", async () => {
+      const { listSources } = withSourceSpies();
+      vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read"]));
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(0);
+      expect(listSources).not.toHaveBeenCalled();
+      expect(log.warn).toHaveBeenCalledWith("webhook_setup.write_access_gone", expect.objectContaining({ connectionId: CONNECTION_ID }));
+    });
+
+    it("asks nothing more when every project has its webhook (boundary: none missing)", async () => {
+      const { create } = withSourceSpies();
+      vi.mocked(listWebhookSources).mockResolvedValue(
+        SOURCES.map((source) => ({ sourceId: source.id, name: source.name, providerWebhookId: `hook_${source.id}`, lastDeliveryAt: null })),
+      );
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(0);
+      expect(create).not.toHaveBeenCalled();
+    });
+
+    it("throws when every missing webhook fails, so the sync logs it (boundary: GitLab fails)", async () => {
+      const { create } = withSourceSpies();
+      create.mockRejectedValue(new Error("GitLab unavailable"));
+      await expect(addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).rejects.toThrow("No new gitlab webhook could be created.");
+    });
   });
 });

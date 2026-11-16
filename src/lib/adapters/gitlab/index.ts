@@ -1,30 +1,53 @@
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 import type { Achievement } from "../achievements";
-import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError, readOAuthErrorCode } from "../errors";
+import {
+  AuthRevokedError,
+  fetchJson,
+  fetchNoContent,
+  InvalidResponseError,
+  PermissionMissingError,
+  readOAuthErrorCode,
+} from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
   Secret,
+  type AdapterContext,
   type ExternalAccount,
   type FetchLike,
+  type FullAccessPermission,
   type OAuthContext,
   type OAuthCredential,
   type ProviderAdapter,
   type SyncResult,
+  type WebhookConnection,
+  type WebhookDescriptor,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookSource,
+  type WebhookVerification,
 } from "../types";
 import {
+  DeploymentHookSchema,
   DeploymentsSchema,
+  HookEnvelopeSchema,
+  MergeRequestHookSchema,
   MergeRequestsSchema,
   NamespaceSchema,
   NamespacesSchema,
+  PipelineHookSchema,
   PipelinesSchema,
+  ProjectHookSchema,
   ProjectsSchema,
+  ReleaseHookSchema,
   ReleasesSchema,
   TokenResponseSchema,
   UsageResponseSchema,
   UserSchema,
   type Deployment,
+  type HookProject,
   type MergeRequest,
   type Namespace,
   type Pipeline,
@@ -36,11 +59,13 @@ import {
 /**
  * GitLab.com adapter (docs/providers/gitlab.md, issue #112).
  *
- * OAuth authorization code flow with PKCE as a confidential application, read-only scopes only.
+ * OAuth authorization code flow with PKCE as a confidential application, read-only scopes only
+ * unless the user opts in to automatic webhook setup, which adds `api` (#428).
  * One external account per top-level namespace the user owns (a group or the personal namespace).
  * Sync reads compute minutes and storage through GraphQL, the plan through REST, and polls
  * pipelines, deployments, releases, and merged merge requests of the most recently active
- * projects. GitLab.com only: a self-managed instance would need its own OAuth app and origin.
+ * projects; project webhooks push the same events (see "Webhook" below). GitLab.com only: a
+ * self-managed instance would need its own OAuth app and origin.
  */
 
 const GITLAB_ORIGIN = "https://gitlab.com";
@@ -52,8 +77,8 @@ const REVOKE_URL = `${GITLAB_ORIGIN}/oauth/revoke`;
 
 const READ_API = "read_api";
 const READ_USER = "read_user";
-// Never `api`: it is read and write. Automatic webhook setup needs it, so that waits on an opt-in
-// decision (#424, #428).
+// Never `api` in the base request: it is read and write. Automatic webhook setup adds it only when
+// the user opts in (`webhookWritePermission`, #424, #428).
 const SCOPES = [READ_API, READ_USER] as const;
 
 // Non-secret values kept on the credential. The refresh request repeats the authorize request's
@@ -292,8 +317,16 @@ export function pipelineEvent(project: ProjectRef, pipeline: Pipeline, externalA
   };
 }
 
+/**
+ * What a deployment event needs. A webhook delivery carries no iid, ref, or environment id, so its
+ * event leaves out the body that names them.
+ */
+type DeploymentFacts = Pick<Deployment, "id" | "status" | "updated_at"> &
+  Readonly<{ environment: Pick<Deployment["environment"], "name"> & Partial<Pick<Deployment["environment"], "id">> }> &
+  Partial<Pick<Deployment, "iid" | "ref">>;
+
 /** Only finished deployments become events, one per deployment and final status. */
-export function deploymentEvent(project: ProjectRef, deployment: Deployment, externalAccountId: string): ActivityEvent | undefined {
+export function deploymentEvent(project: ProjectRef, deployment: DeploymentFacts, externalAccountId: string): ActivityEvent | undefined {
   if (deployment.status !== "success" && deployment.status !== "failed") return undefined;
   const succeeded = deployment.status === "success";
   const environment = deployment.environment.name;
@@ -303,7 +336,9 @@ export function deploymentEvent(project: ProjectRef, deployment: Deployment, ext
     // `production`, `prod`, or a `production/...` review folder.
     severity: succeeded ? "success" : /^prod(uction)?(\/|$)/i.test(environment) ? "critical" : "warning",
     title: `Deployment to ${shorten(environment)} ${succeeded ? "succeeded" : "failed"} in ${shorten(project.path_with_namespace)}`,
-    body: `Deployment #${deployment.iid} of ${shorten(deployment.ref)}.`,
+    ...(deployment.iid === undefined || deployment.ref === undefined
+      ? {}
+      : { body: `Deployment #${deployment.iid} of ${shorten(deployment.ref)}.` }),
     externalAccountId,
     // No link: the API returns none, and a built environments URL would be a guess.
     dedupeKey: `gitlab.deployment:${project.id}:${deployment.id}:${deployment.status}`,
@@ -736,6 +771,258 @@ function readCursor(raw: string | undefined, ctx: OAuthContext): Date | undefine
   return undefined;
 }
 
+/* Webhook -------------------------------------------------------------------------------------- */
+
+/*
+ * Project webhooks (#428, docs/providers/gitlab.md "Webhooks"): one per project, every one pointing
+ * at the connection's own URL with the one secret StackDash generates. Created by automatic setup
+ * on each project the sync reads (needs `api`, the opt-in write access), or added by hand per
+ * project. Group webhooks would need a paid GitLab tier, so they are not used.
+ *
+ * Verification: GitLab sends the secret token back as plain text in `X-Gitlab-Token`, compared here
+ * in constant time. It is a shared secret, not a signature over the body: whoever reads one
+ * delivery's headers can send any body under a new delivery id, and since the token covers no
+ * timestamp, only each event's `dedupeKey` bounds such a replay. GitLab now recommends a signing
+ * token (an HMAC over the body) for new webhooks; moving to it changes how setup by hand works and
+ * is #512.
+ *
+ * Delivery id: `webhook-id`, which GitLab documents as unique per delivery and the same across its
+ * retries, and which equals `Idempotency-Key` (sent since GitLab 17.4, read when `webhook-id` is
+ * absent). Not `X-Gitlab-Event-UUID`: webhooks triggered by an earlier webhook share it.
+ *
+ * Account: no delivery names the namespace id `sync` reads, only the project's path, so `parse`
+ * matches the path's top-level namespace against the connection's accounts by name (their
+ * `displayName` is the namespace's full path, `listAccounts`). A namespace renamed since the
+ * connection was made matches nothing until it is reconnected; its deliveries are acknowledged and
+ * dropped, and polling still brings its events.
+ */
+
+export const GITLAB_TOKEN_HEADER = "x-gitlab-token";
+const DELIVERY_ID_HEADERS = ["webhook-id", "idempotency-key"] as const;
+const API = "api";
+// The trigger flags of `POST /projects/:id/hooks` StackDash needs. `push_events` is on unless
+// turned off, so it is sent too.
+const HOOK_TRIGGERS = {
+  pipeline_events: true,
+  deployment_events: true,
+  releases_events: true,
+  merge_requests_events: true,
+  push_events: false,
+} as const;
+// `X-Gitlab-Event` of the deliveries those triggers send.
+export const WEBHOOK_SUBSCRIPTIONS = ["Pipeline Hook", "Deployment Hook", "Release Hook", "Merge Request Hook"] as const;
+// A source's name is the project's path, shortened to fit `webhook_sources.source_name`.
+const SOURCE_NAME_MAX = 250;
+
+export const webhookWritePermission: FullAccessPermission = {
+  scope: API,
+  access: "full",
+  description:
+    "Add a webhook to each project StackDash reads, and delete those webhooks when you disconnect, so pipelines, deployments, releases, and merges reach the timeline as they happen. StackDash uses it for nothing else.",
+  fullAccessReason:
+    "GitLab has no read-only access that can create a webhook. The api scope can read and change every group and project you can reach, not only webhooks.",
+};
+
+export const webhookManualSteps = [
+  "In GitLab, open a project StackDash reads, then Settings, then Webhooks, and choose Add new webhook. You need the Maintainer or Owner role in the project.",
+  "Paste the address below into URL and the secret below into Secret token.",
+  "Under Trigger, select Pipeline events, Deployment events, Releases events, and Merge request events, then choose Add webhook.",
+  "Repeat for each project you want events from. Projects without the webhook still reach the timeline on the schedule.",
+] as const;
+
+export const webhookRemovalSteps = [
+  "In GitLab, open each project you added it to, then Settings, then Webhooks, and choose Delete next to the StackDash webhook.",
+] as const;
+
+/** A GitLab id taken from our own stored values, checked before it goes into a URL path. */
+function numericId(value: string, what: string): string {
+  if (!/^\d+$/.test(value)) throw new TypeError(`GitLab ${what} must be a numeric id`);
+  return value;
+}
+
+function toSource(project: Pick<Project, "id" | "path_with_namespace">): WebhookSource {
+  return { id: String(project.id), name: shorten(project.path_with_namespace, SOURCE_NAME_MAX) };
+}
+
+function verifyWebhook({ headers }: WebhookRequest, secret: Secret): WebhookVerification {
+  const token = headers.get(GITLAB_TOKEN_HEADER);
+  if (token === null || token === "") return { ok: false, reason: "missing_signature" };
+  if (!safeEqual(token, secret.reveal())) return { ok: false, reason: "bad_signature" };
+  for (const name of DELIVERY_ID_HEADERS) {
+    const deliveryId = readDeliveryId(headers, name);
+    if (deliveryId !== undefined) return { ok: true, deliveryId };
+  }
+  return { ok: false, reason: "malformed" };
+}
+
+/** The decoded JSON body, or undefined when it is not JSON. Only read once the token matches. */
+function readJsonBody(rawBody: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+}
+
+/** The connection's account a project belongs to: its top-level namespace, matched by path. */
+function accountOf(project: HookProject, connection: WebhookConnection | undefined): string | undefined {
+  // GitLab paths are unique regardless of case, and a delivery spells them as GitLab stores them.
+  const topLevel = project.path_with_namespace.split("/")[0]?.toLowerCase();
+  return connection?.accounts.find((account) => account.displayName.toLowerCase() === topLevel)?.externalId;
+}
+
+type HookResult = Readonly<{ event: ActivityEvent } | { reason: string }>;
+
+/**
+ * One delivery through the sync's own builders, so the event has the dedupe key a poll of the same
+ * pipeline, deployment, release, or merge gives it and is stored once whichever arrives first. A
+ * deployment delivery carries no iid or ref, so pushed first it is stored without the body a poll
+ * adds.
+ */
+function hookEvent(raw: unknown, kind: string, project: HookProject, externalAccountId: string, ctx: AdapterContext): HookResult {
+  const unreadable = (): HookResult => {
+    // A subscribed kind StackDash cannot read means GitLab changed the payload. `kind` is one of
+    // the mapped names below, so it quotes nothing else from the body.
+    ctx.logger.warn("gitlab.webhook.unreadable", { kind });
+    return { reason: "not a delivery GitLab maps" };
+  };
+  const outcome = (event: ActivityEvent | undefined, reason: string): HookResult => (event === undefined ? { reason } : { event });
+  switch (kind) {
+    case "pipeline": {
+      const parsed = PipelineHookSchema.safeParse(raw);
+      if (!parsed.success) return unreadable();
+      const { id, iid, status, ref, finished_at: finishedAt, url } = parsed.data.object_attributes;
+      if (finishedAt === null || finishedAt === undefined) return { reason: "pipeline has not finished" };
+      const pipeline = { id, iid, status, ref, web_url: url ?? "", updated_at: finishedAt };
+      return outcome(pipelineEvent(project, pipeline, externalAccountId), "pipeline neither succeeded nor failed");
+    }
+    case "deployment": {
+      const parsed = DeploymentHookSchema.safeParse(raw);
+      if (!parsed.success) return unreadable();
+      const delivery = parsed.data;
+      const deployment = {
+        id: delivery.deployment_id,
+        status: delivery.status,
+        updated_at: delivery.status_changed_at,
+        environment: { name: delivery.environment },
+      };
+      return outcome(deploymentEvent(project, deployment, externalAccountId), "deployment neither succeeded nor failed");
+    }
+    case "merge_request": {
+      const parsed = MergeRequestHookSchema.safeParse(raw);
+      if (!parsed.success) return unreadable();
+      const { iid, state, action, merged_at: mergedAt, updated_at: updatedAt, url } = parsed.data.object_attributes;
+      // Every later update of a merged merge request is sent with state `merged` too.
+      if (action !== "merge") return { reason: "merge request action is not a merge" };
+      const mergeRequest = { iid, state, merged_at: mergedAt ?? updatedAt, web_url: url ?? "" };
+      return outcome(mergeRequestEvent(project, mergeRequest, externalAccountId), "merge request is not merged");
+    }
+    case "release": {
+      const parsed = ReleaseHookSchema.safeParse(raw);
+      if (!parsed.success) return unreadable();
+      const { action, tag, released_at: releasedAt, url } = parsed.data;
+      if (action === "delete") return { reason: "release deleted" };
+      const release = { tag_name: tag, released_at: releasedAt, ...(url === undefined ? {} : { _links: { self: url } }) };
+      // An upcoming release is left to the sync, which reads it once it is out.
+      return outcome(releaseEvent(project, release, externalAccountId, ctx.now()), "release is upcoming");
+    }
+    default:
+      return { reason: "event kind is not on the timeline" };
+  }
+}
+
+function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext, connection?: WebhookConnection): WebhookOutcome {
+  const raw = readJsonBody(rawBody);
+  const envelope = HookEnvelopeSchema.safeParse(raw);
+  if (!envelope.success) return { kind: "ignored", reason: "not a GitLab project delivery" };
+  const { object_kind: kind, project } = envelope.data;
+  const externalAccountId = accountOf(project, connection);
+  // No source either: a project outside the connection's namespaces (one the user only maintains, or
+  // a namespace renamed since connecting) can never put an event on the timeline, so the panel must
+  // not list it as delivering.
+  if (externalAccountId === undefined) return { kind: "ignored", reason: "project is outside the connection's namespaces" };
+  const source = toSource(project);
+  const result = hookEvent(raw, kind, project, externalAccountId, ctx);
+  return "event" in result
+    ? { kind: "events", externalAccountId, events: [result.event], source }
+    : { kind: "ignored", reason: result.reason, source };
+}
+
+/** The projects each included namespace's sync reads, most recently active first. */
+async function listWebhookSources(
+  { credential, externalAccountIds }: Readonly<{ credential: OAuthCredential; externalAccountIds: readonly string[] }>,
+  ctx: OAuthContext,
+): Promise<WebhookSource[]> {
+  const perNamespace = await Promise.all(
+    externalAccountIds.map(async (externalAccountId) => {
+      const namespace = await getJson(ctx, credential, apiUrl(`/namespaces/${numericId(externalAccountId, "namespace")}`), NamespaceSchema);
+      return listProjects(ctx, credential, namespace);
+    }),
+  );
+  return perNamespace.flat().map(toSource);
+}
+
+async function createProjectWebhook(
+  { credential, url, secret, sourceId }: Readonly<{ credential: OAuthCredential; url: string; secret: Secret; sourceId: string }>,
+  ctx: OAuthContext,
+): Promise<Readonly<{ webhookId: string }>> {
+  const hook = await fetchJson(
+    ctx,
+    apiUrl(`/projects/${numericId(sourceId, "project")}/hooks`),
+    {
+      method: "POST",
+      headers: { ...bearer(credential), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        token: secret.reveal(),
+        name: "StackDash",
+        description: "Pipelines, deployments, releases, and merged merge requests for the StackDash timeline.",
+        enable_ssl_verification: true,
+        ...HOOK_TRIGGERS,
+      }),
+    },
+    ProjectHookSchema,
+  );
+  return { webhookId: String(hook.id) };
+}
+
+/** GitLab documents the delete as idempotent; a webhook already gone (404) is removed all the same. */
+async function removeProjectWebhook(
+  { credential, webhookId, sourceId }: Readonly<{ credential: OAuthCredential; webhookId: string; sourceId: string }>,
+  ctx: OAuthContext,
+): Promise<void> {
+  const url = apiUrl(`/projects/${numericId(sourceId, "project")}/hooks/${numericId(webhookId, "webhook")}`);
+  try {
+    await fetchNoContent(ctx, url, { method: "DELETE", headers: bearer(credential) });
+  } catch (error) {
+    if (error instanceof InvalidResponseError && error.status === 404) return;
+    throw error;
+  }
+}
+
+const webhooks: WebhookDescriptor = {
+  registration: {
+    kind: "connection",
+    setup: {
+      manualSteps: webhookManualSteps,
+      removalSteps: webhookRemovalSteps,
+      sourceNoun: { one: "project", many: "projects" },
+      secretSource: "stackdash",
+      automatic: {
+        per: "source",
+        extraPermissions: [webhookWritePermission],
+        listSources: listWebhookSources,
+        create: createProjectWebhook,
+        remove: removeProjectWebhook,
+      },
+    },
+  },
+  subscriptions: WEBHOOK_SUBSCRIPTIONS,
+  verify: verifyWebhook,
+  parse: parseWebhook,
+};
+
 export const gitlabAdapter: ProviderAdapter = {
   id: "gitlab",
   displayName: PROVIDER_NAMES.gitlab,
@@ -785,16 +1072,18 @@ export const gitlabAdapter: ProviderAdapter = {
   },
   // Hourly, the contract default: compute minutes are monthly and activity is not urgent.
   pollIntervalSeconds: 3600,
+  webhooks,
 
-  buildAuthorizeUrl({ client, state, redirectUri, codeChallenge }) {
+  buildAuthorizeUrl({ client, state, redirectUri, codeChallenge, extraScopes = [] }) {
     if (codeChallenge === undefined) throw new TypeError("GitLab requires a PKCE S256 code challenge");
     const url = new URL(AUTHORIZE_URL);
     url.searchParams.set("client_id", client.clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("state", state);
-    // Always explicit: never let the granted scopes depend on what an omitted `scope` means.
-    url.searchParams.set("scope", SCOPES.join(" "));
+    // Always explicit: never let the granted scopes depend on what an omitted `scope` means. `api`
+    // only when the user chose automatic webhook setup (#428).
+    url.searchParams.set("scope", [...SCOPES, ...extraScopes].join(" "));
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
     return url;

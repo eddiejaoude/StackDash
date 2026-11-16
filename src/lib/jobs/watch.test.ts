@@ -324,6 +324,7 @@ function syncDeps(store: MemoryJobStore, getAdapter: SyncDeps["getAdapter"], now
     log: { info: () => {}, warn: () => {}, error: () => {} },
     evaluateAlerts: async () => undefined,
     evaluateAchievements: async () => 0,
+    addMissingSourceWebhooks: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
 }

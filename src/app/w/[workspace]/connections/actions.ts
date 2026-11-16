@@ -467,7 +467,7 @@ export async function setUpWebhook(_previous: WebhookActionResult | null, formDa
     const { access, connection, adapter, setup } = target;
     const name = PROVIDER_NAMES[connection.provider];
     const asResult = (kind: WebhookSetupResult) => {
-      const { tone, body: message } = webhookSetupResultCopy(kind, name);
+      const { tone, body: message } = webhookSetupResultCopy(kind, name, setup);
       const result: WebhookActionResult = tone === "success" ? { ok: true, message } : { ok: false, message };
       return { kind: "result", result } as const;
     };
@@ -489,8 +489,9 @@ export async function setUpWebhook(_previous: WebhookActionResult | null, formDa
     } else if (setup.automatic === undefined) {
       return { ok: false, message: STALE_FORM_MESSAGE };
     } else if (needsWriteAccess(setup)) {
-      // Never send the user to a write access consent the webhook could not use.
-      const refused = await setupRefusal(access.workspace.id, connection.id);
+      // Never send the user to a write access consent the webhook could not use, including a
+      // connection whose accounts automatic setup cannot serve.
+      const refused = await setupRefusal(access.workspace.id, connection.id, setup.automatic);
       if (refused !== null) {
         next = asResult(refused.kind);
       } else {

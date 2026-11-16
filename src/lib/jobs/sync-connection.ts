@@ -51,6 +51,11 @@ export type SyncDeps = Readonly<{
   // evaluateConnectionAchievements from src/lib/achievements/run.ts in production (#413); injected
   // so tests stub it.
   evaluateAchievements: (workspaceId: string, connectionId: string, now: Date) => Promise<unknown>;
+  // addMissingSourceWebhooks from src/lib/connections/webhook-setup.ts in production (#428): gives
+  // the sources a connection reads since its last sync (GitLab projects) their webhook, for a
+  // connection whose webhooks were set up automatically per source. Injected so tests stub it.
+  // Returns before any query for a provider without per-source webhooks.
+  addMissingSourceWebhooks: (workspaceId: string, connectionId: string, provider: ProviderId) => Promise<unknown>;
   // Built per alert_dispatch or digest job (createNotificationDeps in production), so a broken
   // email configuration fails that job only.
   notifications: () => NotificationDeps;
@@ -116,6 +121,17 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
     await deps.evaluateAchievements(key.workspaceId, key.connectionId, deps.now());
   } catch (error) {
     deps.logError("sync.achievement_evaluation_failed", error, {
+      jobId: job.id,
+      workspaceId: key.workspaceId,
+      connectionId: key.connectionId,
+    });
+  }
+  // A source added since the last sync gets its webhook (#428). Likewise never fails the sync: the
+  // next sync tries again, and polling brings the source's events meanwhile.
+  try {
+    await deps.addMissingSourceWebhooks(key.workspaceId, key.connectionId, connection.provider);
+  } catch (error) {
+    deps.logError("sync.source_webhooks_failed", error, {
       jobId: job.id,
       workspaceId: key.workspaceId,
       connectionId: key.connectionId,

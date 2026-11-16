@@ -17,7 +17,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: `Does ${site.name} need write access to my accounts?`,
-    answer: `No. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect, and ${site.name} still only performs read operations.`,
+    answer: `No. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect, and ${site.name} only reads with that access, except to add and delete its own webhook if you choose automatic webhook setup.`,
   },
   {
     question: "Will any of my data be public?",

@@ -1,8 +1,8 @@
 # GitLab
 
-Provider id: `gitlab`. Verification: documentation only. Docs checked 2026-11-05.
+Provider id: `gitlab`. Verification: documentation only. Docs checked 2026-11-05; webhooks checked 2026-11-16.
 
-StackDash reads GitLab.com compute minutes, storage, and plan, plus pipelines, deployments, releases, and merged merge requests. It asks for the read-only `read_api` and `read_user` scopes.
+StackDash reads GitLab.com compute minutes, storage, and plan, plus pipelines, deployments, releases, and merged merge requests. It asks for the read-only `read_api` and `read_user` scopes. Project webhooks push the same activity as it happens: set up by hand they keep StackDash read-only, and automatic setup is an opt-in that adds the `api` scope (see [Webhooks](#webhooks)).
 
 **Not yet confirmed with a real account.** Registering the OAuth application on GitLab.com is deferred, so everything below comes from GitLab's official documentation and was checked on 2026-11-05. The adapter is tested against sample responses copied from that documentation, not recorded traffic. Every claim that a real account still has to confirm is in [Unverified](#unverified). Until then, try GitLab locally with the simulator (`STACKDASH_SIMULATE_PROVIDERS=1`).
 
@@ -27,14 +27,14 @@ OAuth 2.0 authorization code flow with PKCE (S256), as a confidential applicatio
 | Callback URL | `<SITE_URL>/api/connections/gitlab/callback` |
 | REST base URL | `https://gitlab.com/api/v4` |
 | GraphQL URL | `POST https://gitlab.com/api/graphql` |
-| Scopes | `read_api read_user` |
+| Scopes | `read_api read_user`, plus `api` only when the user chooses automatic webhook setup |
 | Access token | 2 hours (`expires_in: 7200`) |
 | Refresh token | No documented lifetime. Rotates on every use |
 | Client authentication | `client_id` and `client_secret` in the form body. Never also in a Basic header: GitLab answers `400` when both are sent |
 
 ### Authorize
 
-Query: `client_id`, `redirect_uri`, `response_type=code`, `state`, `scope=read_api read_user`, `code_challenge`, `code_challenge_method=S256`. The scope is always sent: the guide describes `scope` as the list the app requests, and StackDash never relies on what an omitted value means. `root_namespace_id` is only for groups with SAML SSO and is not sent (see [Limitations](#limitations)).
+Query: `client_id`, `redirect_uri`, `response_type=code`, `state`, `scope=read_api read_user`, `code_challenge`, `code_challenge_method=S256`. The scope is always sent: the guide describes `scope` as the list the app requests, and StackDash never relies on what an omitted value means. When the user chooses automatic webhook setup, the reconnect that follows asks for `scope=read_api read_user api` (the connect screen warns about write access first). `root_namespace_id` is only for groups with SAML SSO and is not sent (see [Limitations](#limitations)).
 
 ### Token exchange
 
@@ -51,7 +51,8 @@ StackDash refreshes through the shared path (`refreshIfExpiring` in `src/lib/con
 ### Disconnect and revoke
 
 - From StackDash: `POST /oauth/revoke` with `client_id`, `client_secret`, and `token` (the refresh token, or the access token when no refresh token is stored). Success is `200` with `{}`. The stored credential is deleted either way.
-- From GitLab: avatar, **Edit profile**, **Access**, **Applications**, then **Revoke** next to StackDash under **Authorized applications**. Without webhooks StackDash finds out on the next sync, which fails with `401` and marks the connection as needing attention.
+- From GitLab: avatar, **Edit profile**, **Access**, **Applications**, then **Revoke** next to StackDash under **Authorized applications**. StackDash finds out on the next sync, which fails with `401` and marks the connection as needing attention. GitLab sends no webhook when an application is revoked.
+- Disconnecting deletes every project webhook StackDash created, before revoking (see [Webhooks](#webhooks)). A webhook added by hand stays in GitLab: the disconnect message says how to delete it.
 
 ## Permissions
 
@@ -59,8 +60,11 @@ StackDash refreshes through the shared path (`refreshIfExpiring` in `src/lib/con
 |---|---|---|---|
 | `read_api` | Read | Namespaces and plan, compute minutes and storage (GraphQL), projects, pipelines, deployments, releases, merge requests | Read access to the whole API for everything the user can see: code through the API, issues, the container and package registries |
 | `read_user` | Read | The user's id and username at connect time | The user's profile through `/user` (username, public email, full name) and read-only endpoints under `/users` |
+| `api` | Full, opt-in | Only with automatic webhook setup: add a webhook to each project StackDash reads (`POST /projects/:id/hooks`), and delete them on disconnect (`DELETE /projects/:id/hooks/:hook_id`) | Read and write access to the whole API for everything the user can reach: push code, change settings, delete projects (see [Permission risks](#permission-risks)) |
 
-Not requested: `api` (read and write), `read_repository`, `openid`, `profile`, `email`. **No activity in this adapter needs a write scope.** Setting up webhooks automatically would need `api` (see [Webhooks](#webhooks)), which is why activity is polled.
+Not requested: `read_repository`, `openid`, `profile`, `email`. **No polled activity needs a write scope.** GitLab has no read-only scope that can create a webhook, so `api` is asked for only when the user chooses automatic webhook setup, after a warning; setup by hand needs no new scope.
+
+An `api` grant does not replace the earlier `read_api` grant: GitLab's OAuth provider (Doorkeeper with `reuse_access_token` off, [`config/initializers/doorkeeper.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/initializers/doorkeeper.rb), checked 2026-11-16) issues a new token for each authorization with the scopes that authorization asked for, and leaves earlier tokens valid until they expire or are revoked. The token response's `scope` names what the new token holds, and StackDash keeps only that newest credential. The earlier refresh token stays valid at GitLab until it is revoked; **Revoke** under **Authorized applications** ends every token of the application at once.
 
 ## Data
 
@@ -153,13 +157,41 @@ GitLab.com allows 2,000 authenticated API requests a minute per user, 600 a minu
 
 ## Webhooks
 
-Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. Project and group webhooks are created through the API with the `api` scope, which is read and write, so automatic setup would be an opt-in; a webhook set up by hand keeps StackDash read-only. Pipeline, deployment, release, and merge request events would then reach the timeline as they happen; compute minutes and storage stay polled.
+Project webhooks, received at the connection's own URL through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. Compute minutes and storage stay polled. One webhook per project: group webhooks need a paid GitLab tier ([Webhooks, "Group webhooks"](https://docs.gitlab.com/user/project/integrations/webhooks/#group-webhooks)), so every project gets its own webhook, all pointing at the one URL with the one secret token StackDash generates.
+
+| Item | Value |
+|---|---|
+| URL | `<SITE_URL>/api/webhooks/gitlab/<endpoint id>`, one per connection |
+| Triggers | Pipeline events, Deployment events, Releases events, Merge request events (`X-Gitlab-Event`: `Pipeline Hook`, `Deployment Hook`, `Release Hook`, `Merge Request Hook`). Push events off |
+| Verification | The secret token StackDash generates (32 random bytes), sent back as plain text in `X-Gitlab-Token` and compared in constant time. A missing or wrong token gets `401` and is logged without the body |
+| Delivery id | `webhook-id`, read from `Idempotency-Key` when absent. A repeated id is acknowledged with `200` and dropped |
+| Account | The project's top-level namespace, matched by path against the connection's accounts |
+
+**Delivery id, settled.** GitLab documents `webhook-id` as a "unique message ID consistent across webhook retries", equal to `Idempotency-Key` (sent since GitLab 17.4; `webhook-id` since 19.0) ([Webhooks, "Delivery headers"](https://docs.gitlab.com/user/project/integrations/webhooks/#delivery-headers), checked 2026-11-16). GitLab's source agrees: `WebHookService` makes one random UUID per webhook call and passes it on to the retries of that call ([`app/services/web_hook_service.rb`](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/services/web_hook_service.rb)), and **Resend Request** in **Recent events** keeps it too. Two webhooks on one project (two StackDash workspaces) get different ids. `X-Gitlab-Event-UUID` is not used: webhooks triggered by an earlier webhook share it.
+
+**Shared secret, not a signature.** The token is not a signature over the body, so whoever reads one delivery's headers can post any body under a new delivery id; nothing but each event's dedupe key bounds such a replay, since the token covers no timestamp. GitLab 19.0 added a signing token (an HMAC over `webhook-id`, `webhook-timestamp`, and the body, following Standard Webhooks) and now calls the secret token not recommended for new webhooks ([Webhooks, "Signing tokens"](https://docs.gitlab.com/user/project/integrations/webhooks/#signing-tokens)). Moving to it is planned; it changes setup by hand, where GitLab generates the signing token.
+
+**Events.** A delivery goes through the sync's own event builders, so it carries the dedupe key a poll of the same pipeline, deployment, merge, or release gives it, and the timeline shows it once whichever arrives first. Only finished pipelines (`success`, `failed`), finished deployments, merges (`action: merge`), and created or updated releases that are out become events; everything else is acknowledged and ignored. A deployment delivery carries no iid or ref, so one pushed before the poll is stored without the "Deployment #n of ref" line. No delivery names the namespace id the sync reads, only the project's `path_with_namespace`, so the account is the connection's account whose name (the namespace's full path) matches the path's first segment, ignoring case. A namespace renamed since the connection was made matches nothing until it is reconnected: its deliveries are acknowledged and dropped, and polling still brings its events. Names, emails, titles, descriptions, and commit messages in the payload are never read.
+
+**Automatic setup (opt-in, needs `api`).** After the write access warning and GitLab's consent screen, StackDash lists the projects each included namespace's sync reads (the 10 most recently active per namespace) and adds a webhook to each with `POST /projects/:id/hooks` (`url`, `token`, the four triggers, `push_events: false`, SSL verification on). Each webhook's id is stored as soon as it exists (`webhook_sources`), at most 100 per connection, and never over one already stored: if two setups of one connection race for a project, the second webhook is deleted again. A project that fails (for example a role below Maintainer) is logged, listed on the panel as having no webhook yet, and tried again after the next sync; when every project fails, setup fails and nothing is kept. **Projects StackDash starts reading later get a webhook on the next sync.** A webhook the user deletes in GitLab is not added again. On disconnect, the stored webhooks are read and the endpoint deleted in one transaction, then each webhook is deleted with `DELETE /projects/:id/hooks/:hook_id` (a `404` counts as deleted) before the grant is revoked; if one cannot be deleted, the disconnect goes on and the message names the projects it is still in.
+
+**Setup by hand (read-only).** The panel shows the URL and the secret once, and these steps, repeated for each project (the Maintainer or Owner role is needed in the project):
+
+1. In GitLab, open a project StackDash reads, then **Settings**, then **Webhooks**, and choose **Add new webhook**.
+2. Paste the address into **URL** and the secret into **Secret token**.
+3. Under **Trigger**, select **Pipeline events**, **Deployment events**, **Releases events**, and **Merge request events**, then choose **Add webhook**.
+
+**Which projects have sent a delivery.** Every verified delivery from a project in one of the connection's namespaces names its project, and the panel lists each project with its last delivery, alongside the projects automatic setup added a webhook to. GitLab's **Test** button on a webhook sends a sample event, so a project shows up there as soon as its webhook is tested. A delivery from a project outside the connection's namespaces (a group the user maintains but does not own, or a namespace renamed since connecting) is acknowledged and dropped, and not listed: it can never put an event on the timeline.
+
+**Shared delivery limit.** Every project webhook of a connection posts to the connection's one URL, so they share its limit of 50 verified deliveries a minute (`WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE`). GitLab sends more deliveries than become events: one per pipeline status change, one per merge request update, one per deployment status. A delivery over the limit is answered `429`. GitLab does not retry a refused delivery on its own: any `4xx` or `5xx` answer counts as a failure, four in a row disable that project's webhook for a while (one minute, growing to 24 hours), and forty disable it until someone tests it ([Webhooks, "Auto-disabled webhooks"](https://docs.gitlab.com/user/project/integrations/webhooks/#auto-disabled-webhooks), checked 2026-11-16). The same counting applies to the `401` every project gets after **Make a new secret**, until its secret token is replaced. Nothing is lost for good: the hourly poll brings the events a refused delivery carried.
 
 ## Permission risks
 
 Disclose these on the connect screen before redirecting:
 
 - **`read_api` is broad.** It reads everything the user can see through the API: source code through the repository files API, issues, merge request contents, CI/CD job logs, and the container and package registries, across every group and project the user belongs to. StackDash calls only the endpoints listed in [Data](#data).
+- **`api` (automatic webhook setup only) is read and write on everything the user can reach.** It can push code, change project and group settings, and delete projects, not only manage webhooks. StackDash calls only the two webhook endpoints in [Webhooks](#webhooks). The connect screen and the setup panel say so before GitLab's consent screen, and setup by hand is offered for anyone who wants StackDash to stay read-only. The access lasts while the automatic webhooks do: a reconnect keeps asking for it, and disconnecting deletes the webhooks and revokes the grant.
+- **The webhook secret token is sent in plain text** in every delivery's headers. Anyone who can read a delivery (GitLab's **Recent events** masks it) could post forged deliveries to the connection's URL until the secret is replaced. Setup by hand can make a new secret on the panel.
 - **`read_user`** reads the user's profile, including public email and full name. StackDash keeps only the user id and username.
 - The access token lasts 2 hours, but the refresh token has no documented expiry, so a stored refresh token keeps access alive until it is revoked. It is encrypted at rest and rotates on every refresh.
 - The client secret can exchange any code issued to the app. Store it only in the server environment, and use **Renew secret** in the application settings to rotate it.
@@ -182,7 +214,7 @@ Each deployment registers its own GitLab.com application, because the callback U
 2. **Name**: for example `StackDash (your name)`.
 3. **Redirect URI**: `<SITE_URL>/api/connections/gitlab/callback`.
 4. **Confidential**: checked. StackDash keeps the secret on the server.
-5. **Scopes**: `read_api` and `read_user`. Nothing else.
+5. **Scopes**: `read_api`, `read_user`, and `api`. `api` is requested only from users who choose automatic webhook setup, but GitLab refuses a scope the application does not allow, so leave it out only if this instance should offer webhook setup by hand alone.
 6. **Save application**. Copy the **Application ID** and, with **Copy**, the **Secret**.
 7. Set the environment variables:
 
@@ -296,6 +328,9 @@ All from GitLab's API reference (checked 2026-11-05), trimmed, with synthetic na
 
 Confirm with a real GitLab.com account and a test group once the application is registered:
 
+- That a project webhook created through the API with `token` sends it back in `X-Gitlab-Token`, and that `name` and `description` are accepted (GitLab 17.1 and later).
+- That `POST /projects/:id/hooks` with an OAuth token holding `api` works for a Maintainer, and answers `403` for a Developer.
+- How many deliveries a busy group sends a minute across its projects, against the shared limit of 50, and how quickly GitLab's auto-disable reacts to `429` answers in practice.
 - That the token response carries `scope`, and in which form (space separated is assumed). Without it, StackDash records the requested scopes.
 - That the refresh request needs `redirect_uri` (the guide's example sends it; RFC 6749 does not require it) and that `invalid_grant` is the error for a spent or revoked refresh token.
 - That revoking the refresh token also ends its access token and removes StackDash from **Authorized applications**.
@@ -310,9 +345,11 @@ Confirm with a real GitLab.com account and a test group once the application is 
 - That the compute minutes month runs on UTC days.
 - Whether `updated_at` of a finished pipeline or deployment matches its finish time in practice.
 
+Settled on 2026-11-16 from GitLab's documentation and source (see [Webhooks](#webhooks) and [Permissions](#permissions)): the delivery id header and its stability across retries, and that an `api` grant and a `read_api` grant for the same user and application coexist rather than one replacing the other.
+
 ## Sources
 
-All checked 2026-11-05.
+All checked 2026-11-05; the webhook and OAuth provider sources below on 2026-11-16.
 
 - [OAuth 2.0 identity provider API](https://docs.gitlab.com/api/oauth2/)
 - [Configure GitLab as an OAuth 2.0 authentication identity provider (scopes, registering an application)](https://docs.gitlab.com/integration/oauth_provider/)
@@ -330,3 +367,8 @@ All checked 2026-11-05.
 - [GitLab.com rate limits](https://docs.gitlab.com/user/gitlab_com/rate_limits/)
 - [GitLab pricing (compute minutes and storage per plan)](https://about.gitlab.com/pricing/)
 - [GitLab press kit (brand color)](https://about.gitlab.com/press/press-kit/)
+- [Webhooks (delivery headers, signing tokens, group webhooks)](https://docs.gitlab.com/user/project/integrations/webhooks/)
+- [Webhook events and payloads](https://docs.gitlab.com/user/project/integrations/webhook_events/)
+- [Project webhooks API](https://docs.gitlab.com/api/project_webhooks/)
+- [GitLab source: `app/services/web_hook_service.rb` (idempotency key per call)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/services/web_hook_service.rb)
+- [GitLab source: `config/initializers/doorkeeper.rb` (`reuse_access_token` off)](https://gitlab.com/gitlab-org/gitlab/-/blob/master/config/initializers/doorkeeper.rb)

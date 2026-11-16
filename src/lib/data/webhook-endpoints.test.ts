@@ -13,7 +13,9 @@ import { fakeSupabase, type Row } from "@/lib/supabase/fake-postgrest";
 import {
   getConnectionWebhook,
   insertWebhookEndpoint,
+  listWebhookSources,
   loadWebhookEndpoint,
+  WEBHOOK_SOURCES_PER_ENDPOINT,
   WebhookEndpointExistsError,
   WebhookEndpointLimitError,
   type NewWebhookEndpoint,
@@ -200,7 +202,13 @@ describe("webhook setup (#426)", () => {
 
     const webhook = await getConnectionWebhook(WORKSPACE_ID, CONNECTION_ID);
 
-    expect(webhook).toEqual({ id: ENDPOINT_ID, setupMode: "manual", awaitingProviderSecret: false, lastDeliveryAt: new Date("2026-11-16T10:00:00.000Z") });
+    expect(webhook).toEqual({
+      id: ENDPOINT_ID,
+      setupMode: "manual",
+      perSource: false,
+      awaitingProviderSecret: false,
+      lastDeliveryAt: new Date("2026-11-16T10:00:00.000Z"),
+    });
   });
 
   it("reads no last delivery when none arrived (boundary: empty), and no webhook for a connection without one", async () => {
@@ -208,5 +216,38 @@ describe("webhook setup (#426)", () => {
     expect((await getConnectionWebhook(WORKSPACE_ID, CONNECTION_ID))?.lastDeliveryAt).toBeNull();
     expect(await getConnectionWebhook(WORKSPACE_ID, OTHER_CONNECTION_ID)).toBeNull();
     expect(await getConnectionWebhook(OTHER_WORKSPACE_ID, CONNECTION_ID)).toBeNull();
+  });
+});
+
+describe("webhook sources (#428)", () => {
+  it("lists the endpoint's own sources by name, with the webhook StackDash created and the last delivery", async () => {
+    const source = (id: string, endpointId: string, name: string, providerWebhookId: string | null, lastDeliveryAt: string | null): Row => ({
+      endpoint_id: endpointId,
+      source_id: id,
+      source_name: name,
+      provider_webhook_id: providerWebhookId,
+      last_delivery_at: lastDeliveryAt,
+    });
+    const { db, requests } = fakeSupabase({
+      webhook_sources: [
+        source("10", ENDPOINT_ID, "group1/web", null, "2026-11-16T10:00:00.000Z"),
+        source("9", ENDPOINT_ID, "group1/api", "17", null),
+        source("11", "28100000-0000-4000-8000-000000000009", "other/app", "18", null),
+      ],
+    });
+    vi.mocked(createAdminClient).mockReturnValue(db);
+
+    expect(await listWebhookSources(ENDPOINT_ID)).toEqual([
+      { sourceId: "9", name: "group1/api", providerWebhookId: "17", lastDeliveryAt: null },
+      { sourceId: "10", name: "group1/web", providerWebhookId: null, lastDeliveryAt: new Date("2026-11-16T10:00:00.000Z") },
+    ]);
+    // Bounded by what the table may hold for one endpoint.
+    expect(requests.map((request) => request.limit)).toEqual([WEBHOOK_SOURCES_PER_ENDPOINT]);
+  });
+
+  it("lists none for an endpoint without sources (boundary: empty)", async () => {
+    const { db } = fakeSupabase({ webhook_sources: [] });
+    vi.mocked(createAdminClient).mockReturnValue(db);
+    expect(await listWebhookSources(ENDPOINT_ID)).toEqual([]);
   });
 });

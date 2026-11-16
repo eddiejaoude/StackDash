@@ -273,11 +273,18 @@ const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({ kind: z.literal("ignored"), reason: z.string() }),
 ]);
 
-/** A delivery's outcome as record_webhook_delivery stores it. */
+/**
+ * A delivery's outcome as record_webhook_delivery stores it. A `source` (#428) is left out: the
+ * route records it for the setup panel, and the job has no use for it.
+ */
 export function webhookOutcomeToJson(outcome: WebhookOutcome): Json {
   if (outcome.kind === "uninstalled") return { ...outcome, occurredAt: outcome.occurredAt.toISOString() };
-  if (outcome.kind !== "events") return { ...outcome };
-  return { ...outcome, events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) };
+  if (outcome.kind === "ignored") return { kind: outcome.kind, reason: outcome.reason };
+  return {
+    kind: outcome.kind,
+    externalAccountId: outcome.externalAccountId,
+    events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })),
+  };
 }
 
 /** A stored outcome read back, or null when it is not the shape webhookOutcomeToJson writes. */

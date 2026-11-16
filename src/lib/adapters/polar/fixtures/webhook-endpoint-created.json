@@ -1,0 +1,22 @@
+{
+  "created_at": "2026-11-16T10:00:00.000000Z",
+  "modified_at": null,
+  "id": "e0d0e0d0-0000-4000-8000-000000000001",
+  "url": "https://stackdash.example.com/api/webhooks/polar/0f0f0f0f-0000-4000-8000-000000000001",
+  "name": "StackDash",
+  "api_version": "2026-10",
+  "format": "raw",
+  "secret": "whsec_EXAMPLE",
+  "organization_id": "1dbfc517-0bbf-4301-9ba8-555ca42b9737",
+  "events": [
+    "order.paid",
+    "subscription.created",
+    "subscription.active",
+    "subscription.canceled",
+    "subscription.revoked",
+    "refund.created",
+    "refund.updated"
+  ],
+  "enabled": true,
+  "uses_standard_webhook_signature": true
+}
