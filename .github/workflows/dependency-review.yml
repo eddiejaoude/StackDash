@@ -32,5 +32,6 @@ jobs:
           # it never fails on an advisory that already exists on the base branch.
           fail-on-severity: low
           # Development dependencies run in CI and on every contributor's machine, so a
-          # vulnerable one is as much a supply-chain risk as a runtime one.
-          fail-on-scopes: runtime, development
+          # vulnerable one is as much a supply-chain risk as a runtime one. `unknown` covers a
+          # dependency the graph cannot classify, which would otherwise pass unchecked.
+          fail-on-scopes: runtime, development, unknown

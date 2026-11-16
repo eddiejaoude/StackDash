@@ -450,8 +450,8 @@ in docs and build fake keys at runtime in tests. `.gitleaks.toml` allowlists onl
 already-pushed commits that added such a value, once the current tree no longer has it.
 
 Two more workflows run on every pull request. Dependency review
-(`.github/workflows/dependency-review.yml`) fails a pull request that adds or changes a runtime or
-development dependency with a known vulnerability of any severity. It judges only what the pull
+(`.github/workflows/dependency-review.yml`) fails a pull request that adds or changes a dependency
+with a known vulnerability of any severity. It judges only what the pull
 request changes, so an advisory already on `main` does not fail it; `npm audit` covers the whole
 tree. To accept one advisory after reading it, add its GHSA id to the action's `allow-ghsas` input,
 with the reason beside it. CodeQL (`.github/workflows/codeql.yml`) analyzes the JavaScript and
