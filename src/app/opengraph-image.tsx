@@ -8,7 +8,8 @@ import { SITE_IMAGE } from "@/lib/site-metadata";
  * convention
  * (node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/01-metadata/opengraph-image.md):
  * no request data, so it is generated once at build time and served as a static file. It also
- * writes the page's `og:image` and `twitter:image` tags; see SITE_IMAGE in src/lib/site-metadata.ts.
+ * writes the page's `og:image` tags, which Next.js copies to `twitter:image`; see SITE_IMAGE in
+ * src/lib/site-metadata.ts.
  */
 
 export const alt = SITE_IMAGE.alt;

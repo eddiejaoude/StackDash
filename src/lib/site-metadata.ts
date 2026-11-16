@@ -12,9 +12,10 @@ import { site } from "@/lib/site";
 const PLACEHOLDER_TITLE = `${site.name}: coming soon`;
 
 /**
- * The 1200 by 630 preview image, src/app/opengraph-image.tsx. The file convention writes the
- * `og:image` and `twitter:image` tags itself, with a cache hash, and replaces any `images` named in
- * the metadata below, so none are named there.
+ * The 1200 by 630 preview image, src/app/opengraph-image.tsx. The file convention writes `og:image`
+ * itself, with a cache hash, and replaces any `openGraph.images` named below. Next.js then copies
+ * that image to `twitter:image`, but only while `twitter.images` is unset: one named below would
+ * win and drop the hash. So neither card names an image.
  */
 export const SITE_IMAGE = {
   width: 1200,
