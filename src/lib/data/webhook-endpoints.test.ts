@@ -10,13 +10,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 import { fakeSupabase, type Row } from "@/lib/supabase/fake-postgrest";
 
-import { createWebhookEndpoint, loadWebhookEndpoint } from "./webhook-endpoints";
+import {
+  getConnectionWebhook,
+  insertWebhookEndpoint,
+  loadWebhookEndpoint,
+  WebhookEndpointExistsError,
+  WebhookEndpointLimitError,
+  type NewWebhookEndpoint,
+} from "./webhook-endpoints";
 
 /*
- * A per-connection webhook secret (#28) sealed by createWebhookEndpoint and read back by
+ * A per-connection webhook secret (#28) sealed by insertWebhookEndpoint and read back by
  * loadWebhookEndpoint, the way the route reads it. The write goes through a client that records
- * the row the upsert sends; the read goes through the fake PostgREST over that row, so the
- * ciphertext, its key id, and its associated data make the whole round trip.
+ * the row the insert sends; the read goes through the fake PostgREST over that row, so the
+ * ciphertext, its key id, and its associated data make the whole round trip. The setup panel's read
+ * (#426) goes through the same fake.
  */
 
 vi.mock("@/lib/supabase/admin");
@@ -29,12 +37,15 @@ const ENDPOINT_ID = "28100000-0000-4000-8000-000000000005";
 
 const CONNECTION: Row = { id: CONNECTION_ID, workspace_id: WORKSPACE_ID, provider: "fake" };
 
-// The row the upsert sends: every column is text (bytea travels as Postgres hex).
-const WrittenRowSchema = z.record(z.string(), z.string());
+// The row the insert sends: bytea travels as Postgres hex text, the setup columns as they are.
+const WrittenRowSchema = z.record(z.string(), z.union([z.string(), z.boolean(), z.null()]));
 
-/** A client whose connection lookup answers from `connections` and that records each upserted endpoint row. */
-function recordingClient(connections: readonly Row[]) {
-  const written: Array<Record<string, string>> = [];
+/**
+ * A client whose connection lookup answers from `connections` and that records each inserted
+ * endpoint row, or answers the insert with the Postgres error `insertError` names.
+ */
+function recordingClient(connections: readonly Row[], insertError?: string) {
+  const written: Row[] = [];
   const db = createClient<Database>("http://postgrest.test", "test-key", {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
@@ -44,9 +55,10 @@ function recordingClient(connections: readonly Row[]) {
           const filters = [...url.searchParams].filter(([column]) => column !== "select");
           return Response.json(connections.filter((row) => filters.every(([column, filter]) => filter === `eq.${String(row[column])}`)));
         }
+        if (insertError !== undefined) return Response.json({ code: insertError, message: "refused" }, { status: 409 });
         const body: unknown = JSON.parse(String(init?.body));
         written.push(WrittenRowSchema.parse(body));
-        return Response.json({ id: ENDPOINT_ID });
+        return new Response(null, { status: 201 });
       },
     },
   });
@@ -54,19 +66,29 @@ function recordingClient(connections: readonly Row[]) {
   return written;
 }
 
-function readFrom(rows: readonly Row[]) {
-  const { db, requests } = fakeSupabase({ webhook_endpoints: rows });
+function readFrom(rows: readonly Row[], deliveries: readonly Row[] = []) {
+  const { db, requests } = fakeSupabase({ webhook_endpoints: rows, webhook_deliveries: deliveries });
   vi.mocked(createAdminClient).mockReturnValue(db);
   return requests;
 }
 
+const newEndpoint = (secret: string): NewWebhookEndpoint => ({
+  id: ENDPOINT_ID,
+  workspaceId: WORKSPACE_ID,
+  connectionId: CONNECTION_ID,
+  provider: "fake",
+  secret: new Secret(secret),
+  setup: { mode: "manual", awaitingProviderSecret: false },
+});
+
 /** Seals `secret` for the fake connection and returns the stored row, as the database would hold it. */
 async function sealed(secret: string): Promise<Row> {
   const written = recordingClient([CONNECTION]);
-  const id = await createWebhookEndpoint({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "fake", secret: new Secret(secret) });
-  expect(id).toBe(ENDPOINT_ID);
+  await insertWebhookEndpoint(newEndpoint(secret));
   expect(written).toHaveLength(1);
-  return { ...written[0], id };
+  const [row] = written;
+  if (row === undefined) throw new Error("expected one written row");
+  return row;
 }
 
 beforeEach(() => {
@@ -80,7 +102,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createWebhookEndpoint and loadWebhookEndpoint (#28)", () => {
+describe("insertWebhookEndpoint and loadWebhookEndpoint (#28)", () => {
   it("seals the secret so the endpoint loads it back with its workspace, connection, and provider", async () => {
     const secret = randomBytes(24).toString("hex");
     const row = await sealed(secret);
@@ -101,9 +123,9 @@ describe("createWebhookEndpoint and loadWebhookEndpoint (#28)", () => {
   ] as const)("refuses to attach a secret to a connection of $name (boundary: wrong owner)", async ({ workspaceId, provider }) => {
     const written = recordingClient([CONNECTION]);
 
-    await expect(
-      createWebhookEndpoint({ workspaceId, connectionId: CONNECTION_ID, provider, secret: new Secret("whsec-test") }),
-    ).rejects.toThrow("the connection does not belong to this workspace and provider");
+    await expect(insertWebhookEndpoint({ ...newEndpoint("whsec-test"), workspaceId, provider })).rejects.toThrow(
+      "the connection does not belong to this workspace and provider",
+    );
     expect(written).toEqual([]);
   });
 
@@ -144,5 +166,47 @@ describe("createWebhookEndpoint and loadWebhookEndpoint (#28)", () => {
     vi.spyOn(log, "warn").mockImplementation(() => undefined);
 
     expect(await loadWebhookEndpoint(ENDPOINT_ID)).toBeNull();
+  });
+});
+
+describe("webhook setup (#426)", () => {
+  it.each([
+    { name: "manual, awaiting the provider's secret", setup: { mode: "manual", awaitingProviderSecret: true } as const, providerWebhookId: null, awaiting: true },
+    { name: "automatic", setup: { mode: "automatic", providerWebhookId: "hook_1" } as const, providerWebhookId: "hook_1", awaiting: false },
+  ])("stores how the endpoint was set up: $name", async ({ setup, providerWebhookId, awaiting }) => {
+    const written = recordingClient([CONNECTION]);
+    await insertWebhookEndpoint({ ...newEndpoint("whsec-test"), setup });
+    expect(written[0]).toMatchObject({ id: ENDPOINT_ID, setup_mode: setup.mode, provider_webhook_id: providerWebhookId, awaiting_provider_secret: awaiting });
+  });
+
+  it.each([
+    { name: "the workspace is at its limit", code: "54000", error: WebhookEndpointLimitError },
+    { name: "the connection already has one (a second setup raced the first)", code: "23505", error: WebhookEndpointExistsError },
+  ])("refuses a new endpoint when $name (boundary)", async ({ code, error }) => {
+    recordingClient([CONNECTION], code);
+    await expect(insertWebhookEndpoint(newEndpoint("whsec-test"))).rejects.toBeInstanceOf(error);
+  });
+
+  it("reads the setup and the newest delivery of the connection's own endpoint", async () => {
+    const row = await sealed("whsec-test");
+    readFrom(
+      [row],
+      [
+        { id: "d1", endpoint_id: ENDPOINT_ID, received_at: "2026-11-16T09:00:00.000Z" },
+        { id: "d2", endpoint_id: ENDPOINT_ID, received_at: "2026-11-16T10:00:00.000Z" },
+        { id: "d3", endpoint_id: "28100000-0000-4000-8000-000000000009", received_at: "2026-11-16T11:00:00.000Z" },
+      ],
+    );
+
+    const webhook = await getConnectionWebhook(WORKSPACE_ID, CONNECTION_ID);
+
+    expect(webhook).toEqual({ id: ENDPOINT_ID, setupMode: "manual", awaitingProviderSecret: false, lastDeliveryAt: new Date("2026-11-16T10:00:00.000Z") });
+  });
+
+  it("reads no last delivery when none arrived (boundary: empty), and no webhook for a connection without one", async () => {
+    readFrom([await sealed("whsec-test")]);
+    expect((await getConnectionWebhook(WORKSPACE_ID, CONNECTION_ID))?.lastDeliveryAt).toBeNull();
+    expect(await getConnectionWebhook(WORKSPACE_ID, OTHER_CONNECTION_ID)).toBeNull();
+    expect(await getConnectionWebhook(OTHER_WORKSPACE_ID, CONNECTION_ID)).toBeNull();
   });
 });
