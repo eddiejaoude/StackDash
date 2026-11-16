@@ -27,7 +27,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
 | DigitalOcean OAuth app | DigitalOcean control panel, API, OAuth Applications | `<SITE_URL>/api/connections/digitalocean/callback` | `billing:read`, `actions:read`, `app:read`, `droplet:read`, `account:read` (sent with each authorize request) | `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` |
 | PostHog client ID metadata document | Nothing to create: StackDash serves the document at `<SITE_URL>/oauth/posthog/client-metadata` | `<SITE_URL>/api/connections/posthog/callback` (listed in the document) | `billing:read`, `organization:read`, `project:read`, `query:read` | `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` |
-| Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read` | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
+| Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`, and `webhooks:write` (requested only for automatic webhook setup) | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
 | Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
 | Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
 | GitLab OAuth application | GitLab.com, avatar, Edit profile, Access, Applications | `<SITE_URL>/api/connections/gitlab/callback` | `read_api`, `read_user`, `api` (asked for only with automatic webhook setup) | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
@@ -146,13 +146,13 @@ Variables: `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` (a P-256 or RS
 
 ## Polar OAuth client
 
-Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted StackDash; the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
+Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events, which a webhook can also push. Not yet registered for hosted StackDash; the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
 
 Settings that must match the code:
 
 - Polar, **Account Settings**, **Developer** ([link](https://polar.sh/dashboard/account/developer)), create an OAuth 2.0 client of the confidential type, not a public client.
 - **Redirect URIs**: `<SITE_URL>/api/connections/polar/callback`. Polar requires HTTPS except on `localhost`.
-- **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`. Nothing else, and no `:write` scope. Webhooks would need `webhooks:write`, so the timeline is polled instead.
+- **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`, and `webhooks:write`. Nothing else. A connection asks for the six read scopes; `webhooks:write` is asked for in a second consent only when a user chooses automatic webhook setup ([Polar, Webhooks](../providers/polar.md#webhooks)). Without it on the client, automatic setup cannot get the scope, and setup by hand still works.
 - Register in production (`polar.sh`), not the sandbox: the adapter calls `https://api.polar.sh` only.
 
 Variables: `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`.

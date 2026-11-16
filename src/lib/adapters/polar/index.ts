@@ -5,6 +5,7 @@ import {
   InvalidResponseError,
   PermissionMissingError,
   fetchJson,
+  fetchNoContent,
   readOAuthErrorCode,
 } from "@/lib/adapters/errors";
 import { titleWithAmount, type ActivityEvent, type EventSeverity, type EventType } from "@/lib/adapters/events";
@@ -12,27 +13,43 @@ import type { AdapterMetric } from "@/lib/adapters/metrics";
 import {
   Secret,
   type AdapterContext,
+  type CreateWebhookInput,
   type ExternalAccount,
   type FetchLike,
+  type FullAccessPermission,
   type OAuthContext,
   type OAuthCredential,
   type Permission,
   type ProviderAdapter,
+  type RemoveWebhookInput,
   type SyncInput,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
 } from "@/lib/adapters/types";
 import { addDecimals, InvalidDecimalError, parseDecimal, toMinorUnits, type Decimal } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import {
+  STANDARD_WEBHOOK_HEADERS,
+  standardWebhookKey,
+  standardWebhookSignature,
+  verifyStandardWebhook,
+} from "@/lib/webhooks/standard-webhooks";
+import {
   CustomerSchema,
   MetricPeriodSchema,
   MetricsResponseSchema,
+  OrderDeliverySchema,
   OrderSchema,
   OrganizationSchema,
+  RefundDeliverySchema,
   RefundSchema,
   RevokeResponseSchema,
+  SubscriptionDeliverySchema,
   SubscriptionSchema,
   TokenResponseSchema,
+  WebhookEndpointSchema,
+  WebhookTypeSchema,
   polarListSchema,
   type MetricPeriod,
   type MetricsResponse,
@@ -50,7 +67,20 @@ import {
  *
  * OAuth 2.0 authorization code flow with PKCE (S256) as a confidential client. Money, recurring
  * revenue, and counts come from Polar's own analytics (`GET /v1/metrics/`); the timeline polls
- * orders, subscriptions, and refunds, because push events would need `webhooks:write`.
+ * orders, subscriptions, and refunds.
+ *
+ * Webhooks (#429): one per connection, on the connection's own URL, in one of the connection's
+ * organizations: a Polar endpoint belongs to one organization and has its own secret, while a
+ * connection has one URL and one secret, so automatic setup is refused before any consent unless
+ * the connection includes exactly one organization (`accounts: "one"`). Set up by hand, which keeps
+ * the grant read-only, or, when the user chooses it, created with `POST /v1/webhooks/endpoints` and
+ * deleted with `DELETE /v1/webhooks/endpoints/{id}` under `webhooks:write`, which a second consent
+ * asks for. Polar generates the secret on create; its setup guide says the dashboard also lets a
+ * user type one, so setup by hand asks for a generated one. Deliveries are signed with Standard
+ * Webhooks over the delivery id, the timestamp, and the raw body, so a captured delivery replayed
+ * under a new id fails the signature, and one replayed under its own id is a duplicate. Each
+ * delivery maps through the sync's own event builders and its 30 day floor, so a change seen both
+ * ways has one type and dedupe key and is stored once, and no delivery stores what the sync never would.
  */
 
 const AUTHORIZE_URL = "https://polar.sh/oauth2/authorize";
@@ -63,6 +93,7 @@ const CUSTOMERS_URL = `${API_BASE}/v1/customers/`;
 const ORDERS_URL = `${API_BASE}/v1/orders/`;
 const SUBSCRIPTIONS_URL = `${API_BASE}/v1/subscriptions/`;
 const REFUNDS_URL = `${API_BASE}/v1/refunds/`;
+const WEBHOOK_ENDPOINTS_URL = `${API_BASE}/v1/webhooks/endpoints`;
 // RFC 9207: Polar's discovery document sets `authorization_response_iss_parameter_supported`.
 const POLAR_ISSUER = "https://api.polar.sh";
 // Pinned on every call, the OAuth2 token and revoke requests too (both are in the 2026-10
@@ -328,6 +359,15 @@ function toCredential(token: TokenResponse, issuedAt: Date, previousRefresh: Sec
   };
 }
 
+// Every REST call: the bearer token and the pinned API version.
+function bearerHeaders(credential: OAuthCredential): Record<string, string> {
+  return {
+    Authorization: `Bearer ${credential.accessToken.reveal()}`,
+    Accept: "application/json",
+    "Polar-Version": POLAR_API_VERSION,
+  };
+}
+
 async function polarGet<T>(
   ctx: AdapterContext,
   credential: OAuthCredential,
@@ -344,11 +384,7 @@ async function polarGet<T>(
       target,
       {
         method: "GET",
-        headers: {
-          Authorization: `Bearer ${credential.accessToken.reveal()}`,
-          Accept: "application/json",
-          "Polar-Version": POLAR_API_VERSION,
-        },
+        headers: bearerHeaders(credential),
       },
       schema,
     );
@@ -797,6 +833,193 @@ async function settle<T>(
   }
 }
 
+/* Webhook -------------------------------------------------------------------------------------- */
+
+// The deliveries that carry the timeline's four event types (2026-10 webhook events). Two more
+// than polling strictly needs: `subscription.active`, because a subscription created before its
+// first payment has no `started_at` yet, and `refund.updated`, because a refund created pending
+// succeeds later. `subscription.active` is also sent when a past-due subscription's payment is
+// recovered, and `subscription.revoked` at the end of a canceled subscription's paid period: both
+// map to the event of the subscription's original start or cancellation, which the dedupe key
+// absorbs, or which the sync's 30 day floor drops when it is older (`parseWebhook`).
+// `order.refunded` is left out: it carries the order, not the refund, so it cannot produce the
+// refund's own dedupe key, and the refund's deliveries already do.
+const WEBHOOK_SUBSCRIPTIONS = [
+  "order.paid",
+  "subscription.created",
+  "subscription.active",
+  "subscription.canceled",
+  "subscription.revoked",
+  "refund.created",
+  "refund.updated",
+] as const;
+type WebhookSubscription = (typeof WEBHOOK_SUBSCRIPTIONS)[number];
+
+function isSubscribed(type: string): type is WebhookSubscription {
+  return WEBHOOK_SUBSCRIPTIONS.some((subscribed) => subscribed === type);
+}
+
+// Polar has no read-only scope that can create a webhook; asked for only when the user chooses
+// automatic setup (#424).
+const WEBHOOK_WRITE_PERMISSION: FullAccessPermission = {
+  scope: "webhooks:write",
+  access: "full",
+  description: "Create the webhook that sends paid orders, subscriptions, and refunds to StackDash, and delete it when you disconnect",
+  fullAccessReason:
+    "Polar has no read-only access that can create a webhook. This permission lets StackDash create, change, and delete any webhook in the Polar organizations it reaches, and a webhook can send order and customer details to any address. StackDash only adds its own webhook and deletes it when you disconnect. You can revoke access at any time in your Polar account settings.",
+};
+
+/**
+ * The HMAC keys a Polar secret can stand for (Polar, "Handle & monitor webhook deliveries", Custom
+ * validation): Standard Webhooks' (base64 after `whsec_`) for a secret made on or after
+ * 2026-09-08, and Polar's original HMAC, keyed by the UTF-8 bytes of the whole `whsec_` string, for
+ * an older one. Polar's own SDKs try both, so an endpoint added by hand before then still verifies.
+ */
+function signingKeys(secret: Secret): Buffer[] {
+  const standard = standardWebhookKey(secret);
+  const original = Buffer.from(secret.reveal().trim(), "utf8");
+  return standard === null ? [original] : [standard, original];
+}
+
+/**
+ * The `webhook-signature` value Polar sends for a delivery under a secret made since 2026-09-08:
+ * `v1,` and the base64 HMAC-SHA256 of `<webhook-id>.<webhook-timestamp>.<raw body>`. For tests and
+ * e2e runs.
+ */
+export function polarWebhookSignature(secret: Secret, deliveryId: string, timestamp: string, rawBody: Uint8Array): string {
+  const key = standardWebhookKey(secret);
+  if (key === null) throw new RangeError("A Polar signing secret decodes to at least 16 bytes");
+  return standardWebhookSignature(key, deliveryId, timestamp, rawBody);
+}
+
+// A subscribed delivery read through the sync's own builder: the organization it belongs to and
+// its event, which is undefined when the sync would show nothing either (a pending refund, a
+// subscription not started yet). Null when the body is not the shape Polar documents.
+type MappedDelivery = Readonly<{ organizationId: string; event: ActivityEvent | undefined }> | null;
+
+function mapDelivery(type: WebhookSubscription, raw: unknown): MappedDelivery {
+  switch (type) {
+    case "order.paid": {
+      const parsed = OrderDeliverySchema.safeParse(raw);
+      if (!parsed.success) return null;
+      const organizationId = parsed.data.data.customer.organization_id;
+      return { organizationId, event: orderEvent(parsed.data.data, organizationId) };
+    }
+    case "subscription.created":
+    case "subscription.active":
+    case "subscription.canceled":
+    case "subscription.revoked": {
+      const parsed = SubscriptionDeliverySchema.safeParse(raw);
+      if (!parsed.success) return null;
+      const organizationId = parsed.data.data.customer.organization_id;
+      // A revoked subscription is canceled when the customer or merchant canceled it (`canceled_at`
+      // set); one revoked for unpaid renewals has no `canceled_at`, and the sync shows it nowhere.
+      const started = type === "subscription.created" || type === "subscription.active";
+      const event = started ? subscriptionStartedEvent(parsed.data.data, organizationId) : subscriptionCanceledEvent(parsed.data.data, organizationId);
+      return { organizationId, event };
+    }
+    case "refund.created":
+    case "refund.updated": {
+      const parsed = RefundDeliverySchema.safeParse(raw);
+      if (!parsed.success) return null;
+      const organizationId = parsed.data.data.organization_id;
+      return { organizationId, event: refundEvent(parsed.data.data, organizationId) };
+    }
+  }
+}
+
+/**
+ * Maps a verified delivery onto the timeline's event types, for the organization it names. Reads
+ * only what the sync reads, plus that organization's id: never the embedded customer's name, email,
+ * or address. An event dated before the sync's own 30 day floor is ignored, as the sync ignores it:
+ * a recovered payment or a revocation at the end of a paid period names a start or cancellation
+ * from months ago, which would otherwise reach the timeline and its achievements dated then.
+ */
+function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "ignored", reason: "body is not JSON" };
+  }
+  const typed = WebhookTypeSchema.safeParse(raw);
+  if (!typed.success) return { kind: "ignored", reason: "not a Polar webhook delivery" };
+  const { type } = typed.data;
+  if (!isSubscribed(type)) return { kind: "ignored", reason: "event type is not on the timeline" };
+  const mapped = mapDelivery(type, raw);
+  if (mapped === null) {
+    // A subscribed event in a shape StackDash cannot read: Polar changed the payload, and every such
+    // delivery is acknowledged and dropped, so say so. Names the type only.
+    ctx.logger.warn("polar.webhook.unreadable", { type });
+    return { kind: "ignored", reason: "not a delivery Polar maps" };
+  }
+  if (mapped.event === undefined) return { kind: "ignored", reason: "not on the timeline yet" };
+  if (mapped.event.occurredAt.getTime() < ctx.now().getTime() - EVENTS_BACKFILL_MS) {
+    return { kind: "ignored", reason: "older than the sync's window" };
+  }
+  return { kind: "events", externalAccountId: mapped.organizationId, events: [mapped.event] };
+}
+
+/**
+ * `POST /v1/webhooks/endpoints` in the connection's organization. A Polar endpoint belongs to one
+ * organization and has its own secret, and a connection has one URL and one secret, so automatic
+ * setup needs a connection that includes exactly one organization: `setupRefusal` refuses any other
+ * connection before the consent (`accounts: "one"`), and this throw is the backstop. Payloads are
+ * pinned to POLAR_API_VERSION, the shape the schemas read. A response without a usable secret leaves
+ * an endpoint nothing could verify, so it is deleted again before failing.
+ */
+async function createWebhook(
+  { credential, url, externalAccountIds }: CreateWebhookInput,
+  ctx: OAuthContext,
+): Promise<Readonly<{ webhookId: string; secret: Secret }>> {
+  const [organizationId, ...others] = externalAccountIds;
+  if (organizationId === undefined || others.length > 0) {
+    throw new RangeError(`Polar automatic webhook setup needs one organization; the connection includes ${externalAccountIds.length}`);
+  }
+  const created = await fetchJson(
+    ctx,
+    WEBHOOK_ENDPOINTS_URL,
+    {
+      method: "POST",
+      headers: { ...bearerHeaders(credential), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        name: "StackDash",
+        format: "raw",
+        api_version: POLAR_API_VERSION,
+        events: WEBHOOK_SUBSCRIPTIONS,
+        organization_id: organizationId,
+      }),
+    },
+    WebhookEndpointSchema,
+  );
+  const secret = typeof created.secret === "string" ? created.secret.trim() : "";
+  if (secret !== "" && standardWebhookKey(new Secret(secret)) !== null) return { webhookId: created.id, secret: new Secret(secret) };
+  try {
+    await removeWebhook({ credential, webhookId: created.id }, ctx);
+  } catch (error) {
+    ctx.logger.warn("polar.webhook.cleanup_failed", { provider: "polar", error: error instanceof Error ? error.name : typeof error });
+  }
+  throw new InvalidResponseError("Polar created a webhook endpoint without a usable secret", { endpoint: WEBHOOK_ENDPOINTS_URL });
+}
+
+/** `DELETE /v1/webhooks/endpoints/{id}`, which answers 204. An endpoint already gone (the user deleted it in Polar) is removed. */
+async function removeWebhook({ credential, webhookId }: RemoveWebhookInput, ctx: OAuthContext): Promise<void> {
+  try {
+    await fetchNoContent(ctx, `${WEBHOOK_ENDPOINTS_URL}/${encodeURIComponent(webhookId)}`, {
+      method: "DELETE",
+      headers: bearerHeaders(credential),
+    });
+  } catch (error) {
+    if (error instanceof InvalidResponseError && error.status === 404) {
+      ctx.logger.info("polar.webhook.already_removed", { provider: "polar" });
+      return;
+    }
+    throw error;
+  }
+}
+
 export const polarAdapter: ProviderAdapter = {
   id: "polar",
   displayName: PROVIDER_NAMES.polar,
@@ -831,15 +1054,41 @@ export const polarAdapter: ProviderAdapter = {
   },
   // Hourly, like Stripe: about six requests per organization per sync against 500 per minute.
   pollIntervalSeconds: 3600,
+  // Per connection (#424, #429): a Polar endpoint belongs to one organization and Polar generates
+  // its secret. Automatic setup asks for `webhooks:write` in a second consent.
+  webhooks: {
+    registration: {
+      kind: "connection",
+      setup: {
+        secretSource: "provider",
+        manualSteps: [
+          "In Polar, pick one organization this connection tracks. A connection takes one webhook, so add it to that organization only: an endpoint in a second organization has its own secret, and StackDash refuses its deliveries.",
+          "Open that organization's Settings, then Webhooks, and choose Add Endpoint.",
+          "Paste the address below as the URL and leave the format on Raw.",
+          "For the secret, choose Generate rather than typing your own.",
+          `Select the ${WEBHOOK_SUBSCRIPTIONS.join(", ")} events, and create the endpoint.`,
+          "Copy the endpoint's secret and paste it into the field below.",
+        ],
+        removalSteps: [
+          "In Polar, open the organization's Settings, then Webhooks, open the endpoint whose URL is StackDash's address, and delete it.",
+        ],
+        automatic: { extraPermissions: [WEBHOOK_WRITE_PERMISSION], accounts: "one", create: createWebhook, remove: removeWebhook },
+      },
+    },
+    subscriptions: WEBHOOK_SUBSCRIPTIONS,
+    verify: (request, secret, now) => verifyStandardWebhook(request, signingKeys(secret), STANDARD_WEBHOOK_HEADERS, now),
+    parse: parseWebhook,
+  },
 
-  buildAuthorizeUrl({ client, state, redirectUri, codeChallenge }) {
+  buildAuthorizeUrl({ client, state, redirectUri, codeChallenge, extraScopes = [] }) {
     if (codeChallenge === undefined) throw new TypeError("Polar requires a PKCE S256 code challenge");
     const url = new URL(AUTHORIZE_URL);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", client.clientId);
     url.searchParams.set("redirect_uri", redirectUri);
-    // Always explicit: never let the scope default by omission.
-    url.searchParams.set("scope", requestedScopes.join(" "));
+    // Always explicit: never let the scope default by omission. `extraScopes` is automatic webhook
+    // setup's `webhooks:write`, only when the user chose it.
+    url.searchParams.set("scope", [...requestedScopes, ...extraScopes].join(" "));
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");

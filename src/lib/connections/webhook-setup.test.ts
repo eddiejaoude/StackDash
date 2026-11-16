@@ -39,6 +39,7 @@ import {
   removeConnectionWebhook,
   setUpWebhookAutomatically,
   setUpWebhookByHand,
+  setupRefusal,
   webhookRemovalMessage,
   webhookUrl,
   webhookWritePermissions,
@@ -93,8 +94,11 @@ const stored = (setupMode: ConnectionWebhook["setupMode"], perSource = false): C
   lastDeliveryAt: null,
 });
 
-/** A copy of a simulated adapter whose automatic create and remove are spies. */
-function withSpies(adapter: ProviderAdapter) {
+/**
+ * A copy of a simulated adapter whose automatic create and remove are spies, optionally declaring
+ * that its webhook covers one account (Polar's `accounts: "one"`).
+ */
+function withSpies(adapter: ProviderAdapter, accounts?: "one") {
   const webhooks = adapter.webhooks;
   const registration = webhooks?.registration;
   if (webhooks === undefined || registration?.kind !== "connection" || registration.setup.automatic === undefined) {
@@ -102,16 +106,30 @@ function withSpies(adapter: ProviderAdapter) {
   }
   const declared = registration.setup;
   const extraPermissions = declared.automatic?.extraPermissions ?? [];
+  const limit = accounts === undefined ? {} : { accounts };
   // Returns the provider's secret whichever arm calls it; a StackDash-secret provider ignores it.
   const create = vi.fn(() => Promise.resolve({ webhookId: "hook_1", secret: PROVIDER_SECRET }));
   const remove = vi.fn(() => Promise.resolve());
   const setup: ConnectionWebhookSetup =
     declared.secretSource === "stackdash"
-      ? { ...declared, automatic: { extraPermissions, create, remove } }
-      : { ...declared, automatic: { extraPermissions, create, remove } };
+      ? { ...declared, automatic: { extraPermissions, ...limit, create, remove } }
+      : { ...declared, automatic: { extraPermissions, ...limit, create, remove } };
   const spied: ProviderAdapter = { ...adapter, webhooks: { ...webhooks, registration: { kind: "connection", setup } } };
   vi.mocked(getAdapter).mockReturnValue(spied);
   return { adapter: spied, setup, create, remove };
+}
+
+/** The connection's accounts, `included` each as given. */
+function accountsIncluded(...included: readonly boolean[]) {
+  const { db } = fakeSupabase({
+    external_accounts: included.map((isIncluded, index) => ({
+      workspace_id: WORKSPACE_ID,
+      connection_id: CONNECTION_ID,
+      external_id: `org_${index}`,
+      included: isIncluded,
+    })),
+  });
+  vi.mocked(createAdminClient).mockReturnValue(db);
 }
 
 const target = (adapter: ProviderAdapter, setup: ConnectionWebhookSetup) => ({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, adapter, setup });
@@ -227,6 +245,44 @@ describe("setUpWebhookAutomatically", () => {
     vi.mocked(loadOAuthClient).mockReturnValue(null);
     expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "not_configured" });
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe("setupRefusal for a webhook that covers one account (Polar, #429)", () => {
+  it.each([
+    ["no account (boundary: none)", [false], { kind: "one_account_needed" }],
+    ["one included account and one excluded", [true, false], null],
+    ["two included accounts (boundary: many)", [true, true], { kind: "one_account_needed" }],
+  ] as const)("answers a connection with %s", async (_case, included, refusal) => {
+    accountsIncluded(...included);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one", extraPermissions: [] })).toEqual(refusal);
+  });
+
+  it("does not count accounts where one webhook covers them all, or for setup by hand (boundary: no limit declared)", async () => {
+    accountsIncluded(true, true);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { extraPermissions: [] })).toBeNull();
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, undefined)).toBeNull();
+  });
+
+  it("names an existing webhook or the workspace limit first, which no change of accounts would fix", async () => {
+    accountsIncluded(true, true);
+    vi.mocked(countWorkspaceWebhookEndpoints).mockResolvedValue(WEBHOOK_ENDPOINTS_PER_WORKSPACE);
+    expect(await setupRefusal(WORKSPACE_ID, CONNECTION_ID, { accounts: "one", extraPermissions: [] })).toEqual({ kind: "limit_reached" });
+  });
+
+  it("asks the provider nothing when automatic setup runs for two included accounts", async () => {
+    const { adapter, setup, create } = withSpies(simulatedAdapters.gitlab, "one");
+    accountsIncluded(true, true);
+    vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
+    expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "one_account_needed" });
+    expect(create).not.toHaveBeenCalled();
+    expect(insertWebhookEndpoint).not.toHaveBeenCalled();
+  });
+
+  it("still sets up by hand for two included accounts: the user picks the one organization in the provider", async () => {
+    const { adapter, setup } = withSpies(simulatedAdapters.resend, "one");
+    accountsIncluded(true, true);
+    expect((await setUpWebhookByHand(target(adapter, setup))).kind).toBe("manual");
   });
 });
 

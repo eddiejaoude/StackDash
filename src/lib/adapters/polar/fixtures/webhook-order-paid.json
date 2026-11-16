@@ -1,0 +1,86 @@
+{
+  "type": "order.paid",
+  "timestamp": "2026-11-10T09:30:06.000000Z",
+  "api_version": "2026-10",
+  "data": {
+    "id": "0a1b2c3d-0000-4000-8000-000000000001",
+    "created_at": "2026-11-10T09:30:00.000000Z",
+    "modified_at": "2026-11-10T09:30:05.000000Z",
+    "status": "paid",
+    "paid": true,
+    "subtotal_amount": 4900,
+    "discount_amount": 0,
+    "net_amount": 4900,
+    "tax_amount": 980,
+    "total_amount": 5880,
+    "applied_balance_amount": 0,
+    "due_amount": 0,
+    "refunded_amount": 0,
+    "refunded_tax_amount": 0,
+    "currency": "usd",
+    "billing_reason": "purchase",
+    "billing_name": "Jane Doe",
+    "billing_address": {
+      "line1": "1 Main Street",
+      "line2": null,
+      "postal_code": "12345",
+      "city": "Springfield",
+      "state": "US-IL",
+      "country": "US"
+    },
+    "invoice_number": "EXAMPLE-0001",
+    "is_invoice_generated": true,
+    "receipt_number": null,
+    "seats": null,
+    "units": null,
+    "customer_id": "c0ffee00-0000-4000-8000-000000000001",
+    "product_id": "b0b0b0b0-0000-4000-8000-000000000001",
+    "discount_id": null,
+    "subscription_id": null,
+    "checkout_id": "ce0ce0ce-0000-4000-8000-000000000001",
+    "metadata": {
+      "internal_note": "VIP"
+    },
+    "custom_field_data": {
+      "company": "Acme Rockets"
+    },
+    "platform_fee_amount": 295,
+    "platform_fee_currency": "usd",
+    "customer": {
+      "id": "c0ffee00-0000-4000-8000-000000000001",
+      "created_at": "2026-11-10T09:29:00.000000Z",
+      "email": "jane.doe@example.com",
+      "email_verified": true,
+      "name": "Jane Doe",
+      "billing_address": {
+        "line1": "1 Main Street",
+        "city": "Springfield",
+        "postal_code": "12345",
+        "country": "US"
+      },
+      "tax_id": [
+        "EU123456789",
+        "eu_vat"
+      ],
+      "organization_id": "1dbfc517-0bbf-4301-9ba8-555ca42b9737"
+    },
+    "product": {
+      "id": "b0b0b0b0-0000-4000-8000-000000000001",
+      "name": "Starter kit",
+      "is_recurring": false
+    },
+    "discount": null,
+    "subscription": null,
+    "items": [
+      {
+        "label": "Starter kit",
+        "amount": 4900,
+        "tax_amount": 980,
+        "proration": false
+      }
+    ],
+    "description": "Starter kit",
+    "refundable_amount": 4900,
+    "refundable_tax_amount": 980
+  }
+}

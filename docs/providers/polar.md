@@ -1,8 +1,8 @@
 # Polar
 
-Provider id: `polar`. Verification: documentation only. Docs checked 2026-11-05 against Polar API version `2026-10`.
+Provider id: `polar`. Verification: documentation only. Docs checked 2026-11-05 against Polar API version `2026-10`; webhooks checked 2026-11-16.
 
-StackDash reads your Polar revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. It asks for six read-only scopes and never writes to Polar.
+StackDash reads your Polar revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. It asks for six read-only scopes. It writes to Polar only if you choose automatic webhook setup, which asks for `webhooks:write` separately and adds and deletes StackDash's own webhook.
 
 **Not yet confirmed with a real Polar account.** StackDash has not registered a Polar OAuth client yet. Everything below comes from Polar's documentation, and every claim that only a real account can confirm is listed under [Unverified](#unverified). The adapter's tests run against sample responses built from the API reference, and the simulated Polar provider (`STACKDASH_SIMULATE_PROVIDERS=1`) shows the whole flow locally without an account.
 
@@ -10,7 +10,7 @@ StackDash reads your Polar revenue, Polar fees, recurring revenue, orders, subsc
 
 **Go for demos with the simulated provider. No-go for real connections until the Unverified list is checked with a real organization.** Polar has OAuth 2.0 with PKCE and read-only scopes for everything StackDash reads: revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. All money comes from Polar's own analytics endpoint, so StackDash shows Polar's numbers rather than recomputing them from orders.
 
-The timeline is polled. Setting up Polar webhooks automatically would need `webhooks:write`, which is not read-only (see [Webhooks](#webhooks)).
+The timeline is polled, and pushed by a webhook once one is set up: by hand, which keeps StackDash read-only, or automatically, which asks for `webhooks:write` (see [Webhooks](#webhooks)).
 
 ## Connection
 
@@ -53,11 +53,11 @@ The callback carries `code` and `state`, and `iss` when Polar sends it: the disc
 ### Disconnect and revoke
 
 - From StackDash: disconnecting revokes the refresh token, then the access token, at `POST /v1/oauth2/revoke` with `token`, `token_type_hint`, `client_id`, `client_secret`. Polar answers `200` with `{}`. Both are revoked because the docs do not say whether revoking one ends the other.
-- From Polar: the user can remove the app's access in their Polar account. Without webhooks StackDash finds out on the next sync, when the API answers `401` and the connection asks to reconnect.
+- From Polar: the user can remove the app's access in their Polar account. Polar sends no webhook for that, so StackDash finds out on the next sync, when the API answers `401` and the connection asks to reconnect.
 
 ## Permissions
 
-All read-only. Descriptions in the second column are Polar's own wording from the authorize schema.
+All read-only, except `webhooks:write`, which is asked for only when the user chooses automatic webhook setup. Descriptions in the second column are Polar's own wording from the authorize schema.
 
 | Scope | Polar's description | Why StackDash asks |
 |---|---|---|
@@ -67,8 +67,9 @@ All read-only. Descriptions in the second column are Polar's own wording from th
 | `subscriptions:read` | Read subscriptions made on your organizations | New and canceled subscriptions on the timeline |
 | `customers:read` | Read customers | Counting new customers this month |
 | `refunds:read` | Read refunds made on your organizations | Refunds on the timeline |
+| `webhooks:write` | Create or modify webhooks | Only for automatic webhook setup, in a second consent after the connection exists: creating StackDash's webhook and deleting it on disconnect. Never asked for on a first connect or when the webhook is set up by hand |
 
-Not requested: `webhooks:write` (push events, not read-only), `webhooks:read` (StackDash has no webhook to read), `openid`, `profile`, `email`, `user:read` (no identity needed), `payments:read`, `transactions:read`, `payouts:read`, and every `:write` scope.
+Not requested: `webhooks:read` (StackDash never lists or reads webhooks), `openid`, `profile`, `email`, `user:read` (no identity needed), `payments:read`, `transactions:read`, `payouts:read`, and every other `:write` scope.
 
 ## Data
 
@@ -166,7 +167,69 @@ Counts only, never amounts. The payment and subscription ladder is the same on S
 
 ## Webhooks
 
-Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. Polar's webhook endpoints need `webhooks:write` to create, which is not read-only, so automatic setup would be an opt-in; an endpoint set up by hand keeps StackDash read-only. The useful events are `order.paid`, `order.refunded`, `subscription.created`, `subscription.canceled`, `subscription.revoked`, and `refund.created`, from Polar's webhook event list.
+Received per connection through the shared webhook route (see [Webhooks set up per connection](../adapters.md#webhooks-set-up-per-connection)), set up by hand or automatically, as the user chooses. Polling stays as the backfill and the only source of revenue, fees, recurring revenue, and counts: Polar's analytics are not pushed.
+
+| Item | Value |
+|---|---|
+| Registration | One Polar webhook endpoint per connection, at the connection's own URL: `POST /api/webhooks/polar/<endpointId>`. A Polar endpoint belongs to one organization, so it covers one of the connection's organizations; any others stay polled |
+| Events subscribed | `order.paid`, `subscription.created`, `subscription.active`, `subscription.canceled`, `subscription.revoked`, `refund.created`, `refund.updated` |
+| Payload version | `2026-10`, set as the endpoint's `api_version` on automatic setup, the version the schemas read. Setup by hand uses the dashboard's default |
+| Signing secret | `whsec_` followed by base64. Polar generates it when automatic setup creates the endpoint: the 2026-10 create request takes no secret. In the dashboard, Polar's setup guide says the user can type their own or generate one, so setup by hand asks for a generated one. A secret whose key is under 16 bytes verifies nothing, so every delivery is refused, and after 10 refusals Polar disables the endpoint: the panel does not yet warn when such a secret is pasted. Stored encrypted per connection |
+| Signature | [Standard Webhooks](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md). Headers `webhook-id`, `webhook-timestamp`, and `webhook-signature`, a space-separated list of `v1,<base64>` entries. Each is the HMAC-SHA256 of `<webhook-id>.<webhook-timestamp>.<raw body>`. The key depends on when Polar made the secret: for one made on or after 2026-09-08, 00:00 UTC, the base64-decoded part after `whsec_`; for an older one, Polar's original HMAC keyed by the UTF-8 bytes of the whole `whsec_` string. StackDash tries both, as Polar's own SDKs do. A key under 16 bytes verifies nothing. Checked against the raw body, in constant time, against every entry |
+| Freshness | `webhook-timestamp` within 5 minutes of now, either side: the Standard Webhooks libraries' tolerance |
+| Replay | `webhook-id` is part of what is signed, so a captured delivery posted again under a new id fails the signature, and one posted again under its own id is a duplicate |
+| Deduplication | On `webhook-id`, per endpoint |
+| Retries | Up to 10 times with exponential backoff, after a 10 second timeout. Polar disables an endpoint after 10 failed deliveries in a row and emails the organization's members, so StackDash acknowledges every verified delivery it does not map instead of refusing it |
+| Rejected | Unsigned, wrongly signed, stale, or malformed deliveries are answered `401` and logged with the reason only, never the body |
+| Not pushed | Revenue, fees, recurring revenue, and counts from Polar's analytics. Polling stays |
+
+The code shares the Standard Webhooks check with any other provider that signs that way (`verifyStandardWebhook` in `src/lib/webhooks/standard-webhooks.ts`).
+
+### Automatic setup
+
+Offered next to setup by hand. Polar has no read-only scope that can create a webhook, so the setup panel says that automatic setup gives StackDash write access and that setting up by hand keeps it read-only, then opens the connect screen again with `webhooks:write` listed as full access, before Polar's own consent screen. The grant with `webhooks:write` replaces the stored credential, the connection page shows the write access while it is held, and a reconnect asks for it again so the webhook can still be deleted.
+
+`POST /v1/webhooks/endpoints` with `{ "url": "<the connection's URL>", "name": "StackDash", "format": "raw", "api_version": "2026-10", "events": [...], "organization_id": "<the connection's organization>" }`. The response carries the endpoint's `id` and `secret`; only those two are read, and the secret is stored encrypted and never shown. If the response names the endpoint but carries no secret that decodes to at least 16 bytes, StackDash deletes the endpoint again and setup fails with a reference, rather than leave an endpoint nothing could verify.
+
+`organization_id` is required with a user token, and an endpoint has one secret while a connection has one URL and one secret, so automatic setup needs a connection that includes exactly one organization. The panel checks this before asking for `webhooks:write`: a connection that includes none, or more than one, is told "Polar adds a webhook to one account at a time, so automatic setup needs this connection to include exactly one account", with the way out (include only the account you want events from under Accounts, or set up the webhook by hand in that account), and no consent screen is shown. The adapter's create refuses the same connection again as a backstop.
+
+On disconnect, StackDash calls `DELETE /v1/webhooks/endpoints/{id}` (answers `204`) before revoking the grant. A `404` means the user already deleted it in Polar and counts as removed. Any other failure gives the user the removal steps and a reference.
+
+Two limits:
+
+- Polar sends to a public URL and treats a redirect as a failure, so automatic setup from a local instance needs a tunnel, and the URL must be the final one (no `www` redirect).
+- An access token lasts 10 days. Automatic setup and the deletion on disconnect use the connection's stored credential, which hourly syncs keep refreshed. Until StackDash refreshes it right before these calls, a connection whose syncs stopped for days can fail them with `401`: setup then fails and setup by hand is still offered, and disconnect gives the removal steps.
+
+### Setup by hand
+
+Never asks for a scope: the grant stays read-only.
+
+1. In Polar, pick one organization this connection tracks. A connection takes one webhook, so add it to that organization only: an endpoint in a second organization has its own secret, and StackDash refuses its deliveries, which after 10 refusals gets that endpoint disabled.
+2. Open that organization's Settings, then Webhooks, and choose Add Endpoint.
+3. Paste the address the panel shows as the URL and leave the format on Raw.
+4. For the secret, choose Generate rather than typing your own. A typed secret may not be one StackDash can verify (see the Signing secret row above, and Unverified).
+5. Select the `order.paid`, `subscription.created`, `subscription.active`, `subscription.canceled`, `subscription.revoked`, `refund.created`, and `refund.updated` events, and create the endpoint.
+6. Copy the endpoint's secret and paste it into the panel. Every delivery is refused until it is pasted.
+
+To remove it: in Polar, open the organization's Settings, then Webhooks, open the endpoint whose URL is StackDash's address, and delete it.
+
+### Mapping
+
+Each delivery goes through the same event builder the sync uses, for the organization the delivery names, so a change seen by webhook and by polling has one type, title, time, and dedupe key, and is stored once. The sync's 30 day floor applies too: an event dated more than 30 days before the delivery arrives is ignored, as the sync ignores it.
+
+| Delivery | Organization | Timeline |
+|---|---|---|
+| `order.paid` | `data.customer.organization_id` | `polar.order.paid`, dedupe key `order:<id>`, when the order's status is paid, refunded, or partially refunded |
+| `subscription.created`, `subscription.active` | `data.customer.organization_id` | `polar.subscription.started`, dedupe key `subscription_started:<id>`, once `started_at` is set. A subscription created before its first payment has none yet, so its start arrives with `subscription.active`. Polar also sends `subscription.active` when a past-due subscription's payment is recovered: that names the original start, which the dedupe key absorbs, or the 30 day floor drops when it is older |
+| `subscription.canceled`, `subscription.revoked` | `data.customer.organization_id` | `polar.subscription.canceled`, dedupe key `subscription_canceled:<id>`, when `canceled_at` is set. A subscription revoked for unpaid renewals has none and is ignored, as polling ignores it. One revoked at the end of a canceled subscription's paid period names the original cancellation, absorbed or dropped the same way |
+| `refund.created`, `refund.updated` | `data.organization_id` | `polar.refund.succeeded`, dedupe key `refund:<id>`, once the refund's status is `succeeded`. A refund created pending arrives with `refund.updated` when it succeeds |
+| Any other event type | | Ignored |
+
+Only what the sync reads is kept, plus the organization's id: the embedded customer's name, email, billing address, and tax id, metadata, custom fields, and the cancellation comment are dropped at the parse boundary.
+
+`order.refunded` is not subscribed: it carries the order rather than the refund, so it cannot produce the refund's dedupe key, and the refund's own deliveries already put the refund on the timeline. `subscription.active` and `refund.updated` are subscribed for the two cases in the table above.
+
+With simulated providers, Polar's twin runs this `verify` and `parse`, with automatic setup kept on the computer and `webhooks:write` replaced by the simulated write scope. Its organization is `sim-org-<seed>`, so a delivery naming it is stored on the simulated connection. The twin does not apply the one-organization limit: each simulated grant names a new organization, so the write access consent's reconnect adds a second one, and the limit would refuse every simulated automatic setup. `e2e/webhook-setup-polar.spec.ts` covers both setup paths and shows the refusal's message, and `e2e/webhooks-polar.spec.ts` a delivered order on the timeline.
 
 ## Permission risks
 
@@ -175,6 +238,7 @@ Disclose these on the connect screen before redirecting:
 - **`customers:read`** returns every customer's email, name, billing address, and tax id. StackDash parses only `id` and `created_at` and drops the rest at the parse boundary, but the token can read all of it.
 - **`orders:read` and `subscriptions:read`** responses embed the customer and their billing details, and subscriptions carry the customer's free text cancellation comment. StackDash keeps only ids, statuses, times, Polar's enum reason codes, and each order's and refund's amount and currency.
 - The token is **user-scoped**: unless the user limits it on the consent screen, it reaches every organization the user belongs to now or joins later.
+- **`webhooks:write`**, only when the user chooses automatic webhook setup, lets the token create, change, and delete any webhook endpoint in every organization it reaches, and a webhook can send order and customer details to any address. StackDash only calls `POST /v1/webhooks/endpoints` for its own endpoint and `DELETE /v1/webhooks/endpoints/{id}` for that endpoint on disconnect. That is a code promise, not a technical limit, which is why the panel recommends setup by hand to anyone who wants StackDash to stay read-only, and the connection page shows the write access for as long as it is held.
 - The access token lasts 10 days and the refresh token longer. Both are encrypted at rest and revoked on disconnect.
 
 ## Limitations
@@ -183,7 +247,9 @@ Disclose these on the connect screen before redirecting:
 - The sandbox environment is not supported: it has its own URLs and OAuth clients, and the adapter calls production only. Test with a real organization in a test workspace, or with the simulated provider.
 - One connection covers every organization the grant reaches; each organization is an external account that can be excluded.
 - Refunds, customers, and new orders are read newest first with a cap of 10 pages of 100 per sync. A larger month leaves new customers unreported and logs a warning.
-- A pending order that is paid more than a day after it was created, and a refund that succeeds more than a day after it was created, never reach the timeline.
+- Without a webhook, a pending order that is paid more than a day after it was created, and a refund that succeeds more than a day after it was created, never reach the timeline. A webhook delivers both.
+- A webhook covers one organization. A connection that includes several keeps the others polled, and automatic setup needs a connection that includes exactly one.
+- A connection's URL answers `429` after 50 verified deliveries in one minute (the shared webhook route's limit), and Polar counts any answer other than `2xx` as a failed delivery and disables an endpoint after 10 in a row, emailing the organization's members. About 20 new subscriptions in one minute (each sends `order.paid`, `subscription.created`, and `subscription.active`) can therefore get the endpoint disabled, as can 10 deliveries between creating the endpoint by hand and pasting its secret. Nothing is lost, because polling continues, but the panel shows only an old "Last delivery" time. To recover, enable the endpoint again in the organization's webhook settings in Polar.
 - Polar API version `2026-10` is removed in the first week of April 2027 ([API versioning](https://polar.sh/docs/api-reference/2026-10/versioning): about nine months per version, then "a malformed, unknown, or removed version returns `404 Not Found`"). From then every Polar sync fails with `invalid_response`. Before then: set `POLAR_API_VERSION` in `src/lib/adapters/polar/index.ts` to the then Current version, re-read every endpoint this page lists in that version's reference, and refresh the fixtures and sample responses.
 
 ## Self-hosted registration
@@ -194,7 +260,7 @@ Each deployment registers its own OAuth client, because the redirect URI and cli
 2. **Application name**: for example `StackDash (your name)`. It is shown to users on the consent screen.
 3. **Client type**: confidential (not a public client). StackDash keeps the secret on the server and sends PKCE as well.
 4. **Redirect URIs**: `<SITE_URL>/api/connections/polar/callback`. HTTPS is required except for `localhost`, so a local development client can use `http://localhost:3000/api/connections/polar/callback`.
-5. **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`. Nothing else.
+5. **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`, and `webhooks:write`. Nothing else. `webhooks:write` is requested only when a user chooses automatic webhook setup; leave it off and only setup by hand works.
 6. **Homepage URL**: `<SITE_URL>`. Optionally add the terms of service and privacy policy URLs; Polar shows them on the consent screen.
 7. Create the client and copy the **Client ID** and **Client Secret**.
 8. Set the environment variables:
@@ -326,6 +392,42 @@ All samples are from documentation, not recorded: shaped after the API reference
 }
 ```
 
+`POST /v1/webhooks/endpoints` (201, trimmed; the secret is a placeholder):
+
+```json
+{
+  "id": "e0d0e0d0-0000-4000-8000-000000000001",
+  "url": "https://stackdash.example.com/api/webhooks/polar/0f0f0f0f-0000-4000-8000-000000000001",
+  "name": "StackDash",
+  "api_version": "2026-10",
+  "format": "raw",
+  "secret": "whsec_EXAMPLE",
+  "organization_id": "1dbfc517-0bbf-4301-9ba8-555ca42b9737",
+  "events": ["order.paid", "subscription.created", "subscription.active", "subscription.canceled", "subscription.revoked", "refund.created", "refund.updated"],
+  "enabled": true,
+  "uses_standard_webhook_signature": true
+}
+```
+
+`order.paid` delivery (trimmed; the customer is dropped at the parse boundary except its `organization_id`):
+
+```json
+{
+  "type": "order.paid",
+  "timestamp": "2026-11-10T09:30:06.000000Z",
+  "api_version": "2026-10",
+  "data": {
+    "id": "0a1b2c3d-0000-4000-8000-000000000001",
+    "created_at": "2026-11-10T09:30:00.000000Z",
+    "status": "paid",
+    "billing_reason": "purchase",
+    "total_amount": 5880,
+    "currency": "usd",
+    "customer": { "id": "c0ffee00-0000-4000-8000-000000000001", "email": "jane.doe@example.com", "name": "Jane Doe", "organization_id": "1dbfc517-0bbf-4301-9ba8-555ca42b9737" }
+  }
+}
+```
+
 ## Unverified
 
 Confirm with a real Polar organization before the adapter is used for real connections. The code refers to these by number.
@@ -343,10 +445,15 @@ Confirm with a real Polar organization before the adapter is used for real conne
 11. Token prefixes beyond `polar_at_`, `polar_rt_`, and `polar_oat_` (used by log redaction).
 12. What `pagination.max_page` is for an empty list (`0` or `1`); the adapter stops on an empty page either way.
 13. Where a user removes a third-party OAuth app's access in the Polar dashboard.
+14. That a user-scoped OAuth token with `webhooks:write` can create and delete an endpoint in an organization named by `organization_id`, as the create reference's "Required unless you use an organization token" implies.
+15. The dashboard labels in the steps for setup by hand ("Settings", "Webhooks", "Add Endpoint", "Raw"), taken from Polar's "Setup Webhooks" guide, and whether the dashboard lets the user pick the payload's API version. A dashboard endpoint on a version other than `2026-10` could send a shape the parse does not read; such deliveries are acknowledged and logged as `polar.webhook.unreadable`.
+16. Whether `started_at` is already set on `subscription.created` for a subscription that is active at once, and on `subscription.active`.
+17. Whether Polar's consent screen offers `webhooks:write` again on a reconnect of a connection that already holds it.
+18. Whether the dashboard still lets a user type an endpoint's secret, as the "Setup Webhooks" guide and its screenshot say, and which key Polar signs with for a typed one (Standard Webhooks' base64 key, or the UTF-8 bytes of the text). Setup by hand asks for a generated secret until this is known.
 
 ## Sources
 
-All checked 2026-11-05.
+All checked 2026-11-05, except the webhook pages, checked 2026-11-16.
 
 - [OAuth 2.0 introduction](https://polar.sh/docs/integrate/oauth2/introduction)
 - [OAuth 2.0 Connect](https://polar.sh/docs/integrate/oauth2/connect)
@@ -370,3 +477,10 @@ All checked 2026-11-05.
 - [Sandbox environment](https://polar.sh/docs/integrate/sandbox)
 - [Multi-currency design document (Polar handbook)](https://handbook.polar.sh/engineering/design-documents/multi-currency)
 - [Brand assets](https://polar.sh/brand) (the logomark in `src/components/icons.tsx`)
+- [Setup Webhooks](https://polar.sh/docs/integrate/webhooks/endpoints)
+- [Handle and monitor webhook deliveries (signing schemes, retries, disabling)](https://polar.sh/docs/integrate/webhooks/delivery)
+- [Webhook events](https://polar.sh/docs/integrate/webhooks/events)
+- [API reference 2026-10: Create Webhook Endpoint](https://polar.sh/docs/api-reference/2026-10/webhooks/create-webhook-endpoint)
+- [API reference 2026-10: Delete Webhook Endpoint](https://polar.sh/docs/api-reference/2026-10/webhooks/delete-webhook-endpoint)
+- [API reference 2026-10: order.paid](https://polar.sh/docs/api-reference/2026-10/order_paid), [subscription.created](https://polar.sh/docs/api-reference/2026-10/subscription_created), [subscription.canceled](https://polar.sh/docs/api-reference/2026-10/subscription_canceled), [subscription.revoked](https://polar.sh/docs/api-reference/2026-10/subscription_revoked), [refund.created](https://polar.sh/docs/api-reference/2026-10/refund_created), [refund.updated](https://polar.sh/docs/api-reference/2026-10/refund_updated) (payload schemas in the [2026-10 OpenAPI document](https://polar.sh/docs/openapi/2026-10.openapi.json))
+- [Standard Webhooks specification](https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md)

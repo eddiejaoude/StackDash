@@ -172,6 +172,11 @@ export type AutomaticWebhookSetup<Create> = Readonly<{
   // the user chooses automatic setup, and the user is told before the consent screen that
   // StackDash then holds write access.
   extraPermissions: readonly FullAccessPermission[];
+  // "one" when the provider's webhook belongs to one account and has its own secret, while a
+  // connection has one URL and one secret (a Polar organization, #429): automatic setup is refused,
+  // before any consent, unless the connection includes exactly one account. Omitted when one
+  // webhook covers every account the grant reaches (Resend).
+  accounts?: "one";
   create: Create;
   remove(input: RemoveWebhookInput, ctx: OAuthContext): Promise<void>;
 }>;

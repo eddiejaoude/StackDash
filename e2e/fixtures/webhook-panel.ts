@@ -16,18 +16,23 @@ export function panel(page: Page): Locator {
   return page.getByRole("region", { name: WEBHOOK_PANEL });
 }
 
+/** Next's development indicator (`nextjs-portal`, dev server only), hidden in evidence captures. */
+export const HIDE_DEV_INDICATOR = "nextjs-portal { display: none !important; }";
+
+// The sticky app header would cover the top of a panel taller than the viewport, so it is hidden
+// for an element capture too; it is not part of the captured element.
+const ELEMENT_EVIDENCE_STYLE = `header.sticky { visibility: hidden !important; } ${HIDE_DEV_INDICATOR}`;
+
 /** A named screenshot for the pull request (PW_PR_EVIDENCE=1), with every secret field masked. */
 export async function evidence(locator: Locator, name: string): Promise<void> {
   if (!EVIDENCE) return;
   const page = locator.page();
   const mask = [page.getByRole("textbox", { name: "Webhook secret" }), page.getByLabel(/^Signing secret from /)];
-  // The sticky app header would cover the top of a panel taller than the viewport, so it is hidden
-  // for the capture; it is not part of the captured element.
   await locator.screenshot({
     path: `pr-evidence/after/${name}.png`,
     animations: "disabled",
     mask,
-    style: "header.sticky { visibility: hidden !important; }",
+    style: ELEMENT_EVIDENCE_STYLE,
   });
 }
 
