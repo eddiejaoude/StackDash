@@ -739,6 +739,15 @@ describe("vercelAdapter webhooks", () => {
     expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: USER_ID, occurredAt: new Date(1793448000000) });
   });
 
+  it.each([
+    ["a deployment", webhookDeploymentSucceeded, "events"],
+    ["an uninstall", webhookRemoved, "uninstalled"],
+  ])("maps %s for a team without an acting user (boundary)", (_case, base, kind) => {
+    for (const user of [undefined, null]) {
+      expect(parsed(withPayload({ user }, base))).toMatchObject({ kind, externalAccountId: TEAM_ID });
+    }
+  });
+
   it.each<[string, string, Delivery, string]>([
     ["no signature header", SUCCEEDED_BODY, { signature: null }, "missing_signature"],
     ["an empty signature header", SUCCEEDED_BODY, { signature: "" }, "missing_signature"],
@@ -771,23 +780,29 @@ describe("vercelAdapter webhooks", () => {
     expect(verified(withEnvelope({ id: ` ${id} ` }))).toEqual({ ok: true, deliveryId: id });
   });
 
-  it("returns the same delivery id for a repeated delivery, so the route drops the repeat", () => {
-    expect(verified(SUCCEEDED_BODY)).toEqual(verified(SUCCEEDED_BODY));
-  });
-
   it.each([
     ["project.created, since accounts are teams and not projects", withEnvelope({ type: "project.created" })],
     ["project.removed", withEnvelope({ type: "project.removed" })],
     ["deployment.created, which the sync never shows", withEnvelope({ type: "deployment.created" })],
     ["deployment.canceled", withEnvelope({ type: "deployment.canceled" })],
     ["deployment.ready, sent only to integrations that register checks", withEnvelope({ type: "deployment.ready" })],
-    ["a deployment delivery without a deployment id", withPayload({ deployment: { name: "docs" } })],
-    ["a deployment delivery without a user", withPayload({ user: undefined })],
-    ["an uninstall without a user", withPayload({ user: undefined }, webhookRemoved)],
     ["a JSON array", "[]"],
-  ])("ignores %s (boundary)", (_case, body) => {
-    const outcome = descriptor().parse(delivery(body), makeCtx(fakeVercel().fetch).ctx);
+  ])("ignores %s without a warning (boundary)", (_case, body) => {
+    const { ctx, logger } = makeCtx(fakeVercel().fetch);
+    const outcome = descriptor().parse(delivery(body), ctx);
     expect(outcome).toMatchObject({ kind: "ignored" });
     expect(checkWebhookOutcome(vercelAdapter, outcome)).toEqual([]);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a deployment delivery without a deployment id", withPayload({ deployment: { name: "docs" } }), "deployment.succeeded"],
+    ["a Hobby deployment delivery without a user", withPayload({ team: null, user: undefined }), "deployment.succeeded"],
+    ["a Hobby uninstall with a null user", withPayload({ team: { id: null }, user: null }, webhookRemoved), "integration-configuration.removed"],
+  ])("ignores %s and warns with the event type only (boundary)", (_case, body, type) => {
+    const { ctx, logger } = makeCtx(fakeVercel().fetch);
+    const outcome = descriptor().parse(delivery(body), ctx);
+    expect(outcome).toEqual({ kind: "ignored", reason: "not a delivery Vercel maps" });
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("vercel.webhook.unreadable", { type });
   });
 });

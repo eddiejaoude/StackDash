@@ -13,6 +13,7 @@ import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
   Secret,
+  type AdapterContext,
   type ExternalAccount,
   type FetchLike,
   type OAuthContext,
@@ -345,7 +346,7 @@ function environmentLabel(target: string | null | undefined): string {
 
 /**
  * A finished deployment as both read paths describe it: the deployments list (`deploymentEvent`)
- * and a webhook delivery (`deploymentDeliveryEvent`). One builder, so a deployment pushed by
+ * and a webhook delivery (`parseWebhook`). One builder, so a deployment pushed by
  * webhook and then polled shares its type, title, severity, and dedupe key and is stored once.
  */
 type FinishedDeployment = Readonly<{
@@ -495,18 +496,26 @@ function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now
 /**
  * Maps a verified delivery. A deployment goes through the sync's own builder, dated to when Vercel
  * generated the event. A delivery carries no error code, so a failed deployment pushed first is
- * stored without the "Error code" line a poll would add (events are stored once, first write wins).
+ * stored without the "Error code" line a poll would add (events are stored once, first write wins);
+ * #499 owns getting it back.
  */
-function parseWebhook({ rawBody }: WebhookRequest): WebhookOutcome {
+function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
   const raw = readJsonBody(rawBody);
   const typed = WebhookTypeSchema.safeParse(raw);
   if (!typed.success) return { kind: "ignored", reason: "not a Vercel webhook delivery" };
-  if (!mappedWebhookTypes.has(typed.data.type)) return { kind: "ignored", reason: "event type is not on the timeline" };
+  const { type } = typed.data;
+  if (!mappedWebhookTypes.has(type)) return { kind: "ignored", reason: "event type is not on the timeline" };
   const parsed = WebhookDeliverySchema.safeParse(raw);
-  if (!parsed.success) return { kind: "ignored", reason: "not a delivery Vercel maps" };
-  const delivery = parsed.data;
   // The team, or the user for a Hobby account: the external account `sync` reads.
-  const externalAccountId = delivery.payload.team?.id ?? delivery.payload.user.id;
+  const externalAccountId = parsed.success ? (parsed.data.payload.team?.id ?? parsed.data.payload.user?.id) : undefined;
+  if (!parsed.success || externalAccountId === undefined) {
+    // A subscribed event StackDash cannot read means Vercel changed the payload: every such
+    // delivery is acknowledged and dropped, so say so. `type` is one of the subscribed names and
+    // quotes nothing else from the body.
+    ctx.logger.warn("vercel.webhook.unreadable", { type });
+    return { kind: "ignored", reason: "not a delivery Vercel maps" };
+  }
+  const delivery = parsed.data;
   const occurredAt = new Date(delivery.createdAt);
   if (delivery.type === UNINSTALL_WEBHOOK_TYPE) return { kind: "uninstalled", externalAccountId, occurredAt };
   const { deployment, links, target } = delivery.payload;

@@ -112,11 +112,12 @@ export const UNINSTALL_WEBHOOK_TYPE = "integration-configuration.removed";
 
 /**
  * The account a delivery belongs to. `team.id` is null (or `team` itself is) for a Hobby account,
- * whose deliveries name only the user.
+ * whose deliveries name only the user. `user` is read only then, so a team delivery without one
+ * (a removal Vercel performs itself has no obvious acting user) still maps.
  */
 const WebhookOwnerSchema = z.object({
   team: z.object({ id: z.string().min(1).nullish() }).nullish(),
-  user: z.object({ id: z.string().min(1) }),
+  user: z.object({ id: z.string().min(1) }).nullish(),
 });
 
 /** `deployment.succeeded` and `deployment.error`. `deployment.meta` (Git commit fields) and `url` are never declared. */
