@@ -1,0 +1,75 @@
+# Dependabot version updates. Security updates are switched on in the repository settings: they
+# open whenever an advisory lands, outside this schedule, the groups, and the open pull request
+# limit, but they take the commit format and labels set here.
+# Docs: https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    # Minor and patch bumps arrive as one grouped pull request. A major bump gets its own, because
+    # it needs its changelog read, except where package.json pins packages to the same version:
+    # next with eslint-config-next, and react with react-dom and their types, each arrive as one
+    # pull request per major so main never holds mismatched majors. A dependency joins the first
+    # group it matches, and the two major groups match majors only.
+    groups:
+      next-major:
+        patterns:
+          - next
+          - eslint-config-next
+        update-types:
+          - major
+      react-major:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - major
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Types follow the Node major in .nvmrc and package.json engines (22), not npm latest.
+      # Raise this bound in the same pull request that raises the Node version.
+      - dependency-name: "@types/node"
+        versions:
+          - ">=23.0.0"
+    # A group pull request counts as one, so the minor and patch group leaves room for two major
+    # pull requests (single or grouped) at a time.
+    open-pull-requests-limit: 3
+    # build(deps): ... and build(deps-dev): ..., the repository's type(scope) commit format.
+    commit-message:
+      prefix: build
+      include: scope
+    # Only labels that exist in the repository. Dependabot ignores a missing one, and defining
+    # any label stops it creating its default `dependencies` and ecosystem labels.
+    labels:
+      - "area: ci"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    # One group pull request plus one major bump.
+    open-pull-requests-limit: 2
+    # ci(deps): ...
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - "area: ci"
