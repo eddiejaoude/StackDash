@@ -461,7 +461,11 @@ alerts appear on the pull request and in the repository's **Security** tab.
 Dependabot (`.github/dependabot.yml`) opens version update pull requests for npm and GitHub Actions
 every Monday: one grouped pull request for the minor and patch updates of each ecosystem, and one
 per major update, with at most three npm and two GitHub Actions pull requests open at a time.
-Security updates open as soon as an advisory lands, outside that schedule.
+Packages that `package.json` pins together get one pull request per major: `next` with
+`eslint-config-next`, and `react` with `react-dom`, `@types/react`, and `@types/react-dom`.
+`@types/node` stays on the Node major in `.nvmrc` (22): raise the `ignore` bound in
+`.github/dependabot.yml` when the Node version goes up. Security updates open as soon as an
+advisory lands, outside that schedule.
 
 ### End-to-end tests
 

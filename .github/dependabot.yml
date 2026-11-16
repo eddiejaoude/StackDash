@@ -11,14 +11,38 @@ updates:
       day: monday
       time: "06:00"
       timezone: Europe/London
-    # Minor and patch bumps arrive as one grouped pull request. Each major bump gets its own,
-    # because it needs its changelog read.
+    # Minor and patch bumps arrive as one grouped pull request. A major bump gets its own, because
+    # it needs its changelog read, except where package.json pins packages to the same version:
+    # next with eslint-config-next, and react with react-dom and their types, each arrive as one
+    # pull request per major so main never holds mismatched majors. A dependency joins the first
+    # group it matches, and the two major groups match majors only.
     groups:
+      next-major:
+        patterns:
+          - next
+          - eslint-config-next
+        update-types:
+          - major
+      react-major:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
+        update-types:
+          - major
       npm-minor-and-patch:
         update-types:
           - minor
           - patch
-    # The group counts as one, so this leaves room for two major bumps at a time.
+    ignore:
+      # Types follow the Node major in .nvmrc and package.json engines (22), not npm latest.
+      # Raise this bound in the same pull request that raises the Node version.
+      - dependency-name: "@types/node"
+        versions:
+          - ">=23.0.0"
+    # A group pull request counts as one, so the minor and patch group leaves room for two major
+    # pull requests (single or grouped) at a time.
     open-pull-requests-limit: 3
     # build(deps): ... and build(deps-dev): ..., the repository's type(scope) commit format.
     commit-message:
