@@ -95,7 +95,7 @@ describe("resolveDocLink", () => {
     ["source file", "../../src/lib/docs.ts", "src/lib/docs.ts"],
     ["migration folder", "../../supabase/migrations/", "supabase/migrations"],
     ["dot file at the root", "/.env.example", ".env.example"],
-    ["Markdown file outside docs/", "../../README.md#checks", "README.md"],
+    ["Markdown file outside docs/", "../../README.md#license", "README.md"],
     ["doc that does not exist", "missing.md", "docs/operations/missing.md"],
     ["doc folder", "../providers/", "docs/providers"],
   ])("shows a repository %s as a path, not a link", (_case, href, repoPath) => {

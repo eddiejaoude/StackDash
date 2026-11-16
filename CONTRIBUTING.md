@@ -66,10 +66,12 @@ file a new provider touches, the provider page template, and how adapters are re
 
 ## Set up
 
-Follow [Run it locally](README.md#run-it-locally) in the README from a fresh clone, in order: the
-prerequisites, `npm ci`, the local Supabase stack, `.env.local`, migrations, seed data, signing in,
-and the fake provider. Fork the repository first and clone your fork instead of the main
-repository. If a step is missing or wrong, fix the README in the same pull request.
+Follow [Run it locally](docs/development.md#run-it-locally) in the local development guide from a
+fresh clone, in order: the prerequisites, `npm ci`, the local Supabase stack, `.env.local`,
+migrations, seed data, signing in, and the fake provider. Fork the repository first and clone your
+fork instead of the main repository. If a step is missing or wrong, fix `docs/development.md` in
+the same pull request, and the README's short version in "Try it with simulated data" when the
+step is one of steps 1 to 6.
 
 Three things to know before you write code:
 
@@ -85,8 +87,8 @@ Three things to know before you write code:
 
 ## Checks
 
-Run these before you ask for review. [Checks](README.md#checks) in the README explains each one,
-and which need the local Supabase stack running.
+Run these before you ask for review. [Checks](docs/development.md#checks) in the local development
+guide explains each one, and which need the local Supabase stack running.
 
 ```bash
 npm run typecheck        # generate route types, then tsc

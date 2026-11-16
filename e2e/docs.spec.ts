@@ -75,6 +75,7 @@ test.describe("docs", () => {
     "/docs/api",
     "/docs/mcp",
     "/docs/adapters",
+    "/docs/development",
     "/docs/providers/digitalocean",
     "/docs/architecture/schema",
   ]) {
@@ -186,7 +187,7 @@ test.describe("docs", () => {
     });
   }
 
-  for (const path of ["/docs", "/docs/getting-started", "/docs/api", "/docs/adapters", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
+  for (const path of ["/docs", "/docs/getting-started", "/docs/api", "/docs/adapters", "/docs/development", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
     test(`${path} has no automatically detectable accessibility violations`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
