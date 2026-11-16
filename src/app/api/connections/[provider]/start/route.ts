@@ -18,6 +18,8 @@ import {
   reconnectMismatch,
   type ConnectFeedback,
 } from "@/lib/connections/oauth-state";
+import { needsWriteAccess } from "@/lib/connections/webhook-copy";
+import { connectionWebhookSetup, setupRefusal, webhookWritePermissions } from "@/lib/connections/webhook-setup";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
 import { logError } from "@/lib/log/logger";
 import { requireWorkspaceAction, type WorkspaceAccess } from "@/lib/workspaces/access";
@@ -31,8 +33,10 @@ function textField(form: FormData, name: string): string | null {
 }
 
 /**
- * Starts connecting a provider (#40): a `POST` of `workspace=<slug>&consent=1[&connection=<id>]`
- * from the permission disclosure form. It creates a state row and sends the user to a provider, so
+ * Starts connecting a provider (#40): a `POST` of
+ * `workspace=<slug>&consent=1[&connection=<id>][&webhook=automatic]` from the permission
+ * disclosure form; `webhook=automatic` asks for automatic webhook setup's write scopes too (#426).
+ * It creates a state row and sends the user to a provider, so
  * it refuses a request posted from another site. Authorizes the member, checks consent for
  * full-access permissions, stores a single-use state (with the PKCE verifier sealed), and answers
  * with a page that moves on to the provider's consent screen by meta refresh. Not a redirect:
@@ -75,8 +79,13 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
     return NextResponse.redirect(url, 303);
   };
 
-  const reconnectExtra: Record<string, string> =
-    reconnectParam === null ? {} : { connection: reconnectParam };
+  // `webhook=automatic`: the user chose automatic webhook setup on the connection page (#426), so
+  // this reconnect also asks for the scopes that create the webhook.
+  const webhookSetup = textField(form, "webhook") === "automatic";
+  const reconnectExtra: Record<string, string> = {
+    ...(reconnectParam === null ? {} : { connection: reconnectParam }),
+    ...(webhookSetup ? { webhook: "automatic" } : {}),
+  };
 
   // `redirect()` answers a route handler with a 307, which would re-post the form to the sign-in
   // page, so a signed-out user gets an explicit 303 instead. `next` keeps the reconnect target, so
@@ -101,10 +110,11 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
   const adapter = getAdapter(provider);
   const client = loadOAuthClient(adapter);
   if (client === null) return back(connectionsPath, { error: "not_configured", provider });
-
-  const needsConsent = adapter.permissions.some((permission) => permission.access === "full");
-  if (needsConsent && textField(form, "consent") !== "1") {
-    return back(disclosurePath, { error: "consent_required", provider }, reconnectExtra);
+  // Automatic setup that needs write access goes through this consent; it is chosen for an
+  // existing connection, never while connecting for the first time.
+  const webhookSetupDeclared = connectionWebhookSetup(adapter);
+  if (webhookSetup && (reconnectParam === null || webhookSetupDeclared === null || !needsWriteAccess(webhookSetupDeclared))) {
+    return back(connectionsPath, { error: "invalid", provider });
   }
 
   try {
@@ -123,6 +133,28 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       reconnectId = existing.id;
     }
 
+    // Never ask for write access the webhook could not use: the connection has one already, or the
+    // workspace is at its limit (a stale tab or a race). The connection page explains which.
+    if (webhookSetup && reconnectId !== undefined) {
+      const refused = await setupRefusal(access.workspace.id, reconnectId);
+      if (refused !== null) {
+        const url = new URL(`${connectionsPath}/${reconnectId}`, request.nextUrl.origin);
+        url.searchParams.set("webhook", refused.kind);
+        return NextResponse.redirect(url, 303);
+      }
+    }
+
+    const extraPermissions = await webhookWritePermissions({
+      adapter,
+      workspaceId: access.workspace.id,
+      connectionId: reconnectId,
+      chosen: webhookSetup,
+    });
+    const needsConsent = [...adapter.permissions, ...extraPermissions].some((permission) => permission.access === "full");
+    if (needsConsent && textField(form, "consent") !== "1") {
+      return back(disclosurePath, { error: "consent_required", provider }, reconnectExtra);
+    }
+
     const state = newStateToken();
     const pkce = adapter.oauth.pkce ? createPkcePair() : null;
     const appOrigin = connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL);
@@ -135,6 +167,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       userId: access.user.id,
       ...(pkce === null ? {} : { codeVerifier: pkce.verifier }),
       ...(reconnectId === undefined ? {} : { reconnectId }),
+      ...(webhookSetup ? { webhookSetup } : {}),
       now: new Date(),
     });
 
@@ -143,6 +176,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       state,
       redirectUri,
       ...(pkce === null ? {} : { codeChallenge: pkce.challenge }),
+      ...(extraPermissions.length === 0 ? {} : { extraScopes: extraPermissions.map((permission) => permission.scope) }),
     });
     return handoffResponse({ providerName: adapter.displayName, authorizeUrl, appOrigin });
   } catch (error) {

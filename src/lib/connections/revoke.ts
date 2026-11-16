@@ -7,6 +7,8 @@ import { logError } from "@/lib/log/logger";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+import { removeConnectionWebhook, type WebhookRemoval } from "./webhook-setup";
+
 /*
  * Removing StackDash's access at a provider, shared by disconnect and delete connection (#40) and
  * account deletion (#42). Callers authorize the user for the connection's workspace first.
@@ -91,18 +93,23 @@ export function manualRevokeMessage(provider: ProviderId, outcome: RevokeOutcome
   }
 }
 
+export type DisconnectOutcome = Readonly<{ revoke: RevokeOutcome; webhook: WebhookRemoval }>;
+
 /**
- * Revokes where possible, deletes the stored credential, and marks the connection disconnected.
- * The caller must have authorized `userId` to manage connections in `workspaceId`. A failed revoke
- * is returned, not thrown; a failed credential delete or status write throws.
+ * Deletes the connection's webhook (#426), revokes where possible, deletes the stored credential,
+ * and marks the connection disconnected. The caller must have authorized `userId` to manage
+ * connections in `workspaceId`. A failed webhook deletion or revoke is returned, not thrown; a
+ * failed endpoint delete, credential delete, or status write throws.
  */
 export async function disconnectConnection({
   workspaceId,
   connectionId,
   provider,
   userId,
-}: Readonly<{ workspaceId: string; connectionId: string; provider: ProviderId; userId: string }>): Promise<RevokeOutcome> {
-  const outcome = await revokeAtProvider(workspaceId, connectionId, provider);
+}: Readonly<{ workspaceId: string; connectionId: string; provider: ProviderId; userId: string }>): Promise<DisconnectOutcome> {
+  // First: deleting a webhook StackDash created needs the credential the revoke ends.
+  const webhook = await removeConnectionWebhook({ workspaceId, connectionId, provider });
+  const revoke = await revokeAtProvider(workspaceId, connectionId, provider);
   await deleteCredential({ workspaceId, connectionId });
   // Status and schedule are server-written columns; the caller was authorized above.
   const { error } = await createAdminClient()
@@ -111,5 +118,5 @@ export async function disconnectConnection({
     .eq("workspace_id", workspaceId)
     .eq("id", connectionId);
   if (error) throw new Error(`Disconnect status update failed (code ${error.code}).`);
-  return outcome;
+  return { revoke, webhook };
 }

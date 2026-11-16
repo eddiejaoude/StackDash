@@ -110,4 +110,17 @@ export const resendProfile: SimulatedProfile = {
   accounts: (seed) => [{ externalId: `sim${seed}`, displayName: "Resend team (mail.example.com)", kind: "team" }],
   metrics,
   eventsInSlot,
+  // Until #427 gives the live adapter its webhook: Resend creates webhooks with the access already
+  // granted and generates each one's signing secret, which setup by hand pastes back.
+  webhooks: {
+    subscriptions: ["email.bounced", "email.complained", "email.delivery_delayed", "domain.updated"],
+    secretSource: "provider",
+    writeAccess: false,
+    manualSteps: [
+      "In Resend, open Webhooks and choose Add Webhook.",
+      "Paste the address below into Endpoint URL, tick the email bounced, complained, and delivery delayed events and the domain updated event, then choose Add.",
+      "Open the new webhook, copy its signing secret, and paste it into the field below.",
+    ],
+    removalSteps: ["In Resend, open Webhooks, open the StackDash webhook, and choose Delete."],
+  },
 };

@@ -303,6 +303,7 @@ export function DisconnectDialog({
   providerName,
   canRevoke,
   revoked,
+  webhook,
 }: {
   workspaceSlug: string;
   connectionId: string;
@@ -310,6 +311,8 @@ export function DisconnectDialog({
   canRevoke: boolean;
   // Already disconnected: nothing to confirm, but the last result stays readable.
   revoked: boolean;
+  // The connection's webhook (#426), with the steps that remove one added by hand; null when none.
+  webhook: Readonly<{ mode: "automatic" | "manual"; removalSteps: string }> | null;
 }) {
   return (
     <ConfirmDialog
@@ -323,6 +326,13 @@ export function DisconnectDialog({
     >
       <p>Disconnecting does this:</p>
       <ul className="mt-2 list-disc space-y-1 pl-5">
+        {webhook === null ? null : webhook.mode === "automatic" ? (
+          <li>Deletes the webhook StackDash added in {providerName}. If that fails, you are told how to do it there.</li>
+        ) : (
+          <li>
+            Stops accepting the webhook you added in {providerName}. Remove it there afterwards: {webhook.removalSteps}
+          </li>
+        )}
         <li>Deletes the stored credential, so StackDash can no longer reach {providerName}.</li>
         {canRevoke ? (
           <li>Asks {providerName} to revoke StackDash&apos;s access. If that fails, you are told how to do it there.</li>
