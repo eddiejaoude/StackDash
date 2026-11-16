@@ -71,9 +71,10 @@ Settings that must match the code:
 - Create it in the Vercel team that should own it: **Integrations, Integrations Console, Create**.
 - **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`. It is a single field, so one integration serves one origin.
 - **API Scopes**: `billing` Read, `deployment` Read, `project` Read, `team` Read. Everything else None.
-- **Webhook URL** and **Configuration URL**: empty.
+- **Webhook URL**: `<SITE_URL>/api/webhooks/vercel`, with only `deployment.succeeded`, `deployment.error`, and `integration-configuration.removed` ticked. Leave it empty on a local development integration, which no delivery can reach. See [Vercel, Webhooks](../providers/vercel.md#webhooks).
+- **Configuration URL**: empty.
 
-Variables: `VERCEL_CLIENT_ID` (`oac_...`), `VERCEL_CLIENT_SECRET` (from **Credentials**; **Rotate Secret** is there too), `VERCEL_INTEGRATION_SLUG` (the URL Slug, used to build `https://vercel.com/integrations/<slug>/new`).
+Variables: `VERCEL_CLIENT_ID` (`oac_...`), `VERCEL_CLIENT_SECRET` (from **Credentials**; **Rotate Secret** is there too; it also verifies webhook deliveries, so rotating it changes the webhook key at once), `VERCEL_INTEGRATION_SLUG` (the URL Slug, used to build `https://vercel.com/integrations/<slug>/new`).
 
 Adding or upgrading a scope later emails every installer for confirmation, so register with exactly these four.
 

@@ -1,10 +1,10 @@
 # Vercel
 
-Provider id: `vercel`. Verification: documentation only. Docs checked 2026-10-31.
+Provider id: `vercel`. Verification: documentation only. Docs checked 2026-10-31; webhook docs checked 2026-11-16.
 
 StackDash reads your Vercel billing charges and deployments for one team or Hobby account. It installs as a Vercel Integration with four scopes, all at Read level, and billing is available on Pro and Enterprise teams only.
 
-StackDash connects to Vercel through a **Vercel Integration** (a "connectable account" integration, external installation flow). The integration gets a long-lived access token for one Vercel scope (a team or a Hobby account), limited to the API scopes chosen in the Integrations Console. StackDash uses it to poll billing charges (FOCUS format) and deployments.
+StackDash connects to Vercel through a **Vercel Integration** (a "connectable account" integration, external installation flow). The integration gets a long-lived access token for one Vercel scope (a team or a Hobby account), limited to the API scopes chosen in the Integrations Console. StackDash uses it to poll billing charges (FOCUS format) and deployments, and it receives Vercel's deployment and uninstall webhooks so a finished deployment reaches the timeline within a minute (see [Webhooks](#webhooks)).
 
 ## Connection
 
@@ -58,7 +58,7 @@ When `team_id` is not null, append `teamId=<team_id>` to every API call. A missi
 - **No token revocation endpoint is documented for integration tokens.** Uninstalling the integration is the only documented way to invalidate the token.
 - `DELETE /v1/integrations/configuration/{id}` removes an installation and all its resources, but it needs the `integration-configuration` scope at **Read/Write**. StackDash does not request that scope, so it cannot uninstall itself.
 - StackDash "disconnect" therefore means: delete the stored token, then tell the user to uninstall in Vercel (Dashboard, **Integrations**, **Manage** next to the integration, **Settings**, **Uninstall Integration**).
-- A user can uninstall from Vercel at any time. Until StackDash receives Vercel webhooks (see [Webhooks](#webhooks)), it learns about it on the next poll when calls start failing. The exact status code after uninstall is not documented (see Unverified).
+- A user can uninstall from Vercel at any time. Vercel then sends `integration-configuration.removed` (see [Webhooks](#webhooks)), and StackDash asks for a reconnect at once. Without a delivery (no public Webhook URL, or a delivery lost after Vercel's 24 hours of retries), StackDash learns about it on the next poll when calls start failing. The exact status code after uninstall is not documented (see Unverified).
 - **Disabled installations.** The token belongs to the developer who installed the integration. If that person leaves the team, the installation is disabled: API calls fail with `403` and `code: "integration_configuration_disabled"`. Team owners get 30 days to transfer ownership, then the installation is deleted. Treat this code as "needs reconnection" and show it to the user, never retry.
 
 ## Scopes requested
@@ -254,13 +254,31 @@ The connection flow should read `billing.plan` after install and tell Hobby user
 
 ## Webhooks
 
-Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. They need no extra access. Notes:
+Received, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill and the only source of spend. They need no extra access.
 
-- One Webhook URL per integration, set in the Integrations Console, with event checkboxes. Integration events include `deployment.created`, `deployment.error`, `deployment.canceled`, `deployment.succeeded`, `deployment.ready`, `project.created`, `project.removed`, `integration-configuration.removed`, `integration-configuration.permission-upgraded`, `integration-configuration.scope-change-confirmed`, `integration-configuration.transferred`, `domain.created`.
-- Envelope: `{ type, id, createdAt, region, payload }`. Deployment payloads carry `payload.team.id`, `payload.user.id`, `payload.deployment.{id,url,name,meta}`, `payload.links.{deployment,project}`, `payload.target`, `payload.project.id`, `payload.plan`, `payload.regions`.
-- Signature: header `x-vercel-signature` is the **hex HMAC-SHA1** of the raw request body, keyed with the integration's Client Secret. Compare in constant time. Rotating the client secret in the console changes the webhook key too.
-- Delivery: 30 second timeout; non-2xx responses are retried with exponential backoff for up to 24 hours, then dropped.
-- `integration-configuration.removed` would replace failure-based uninstall detection. Disabled installations still receive `project.created`, `project.removed`, and `integration-configuration.removed`.
+| Item | Value |
+|---|---|
+| Registration | App level: the integration's one **Webhook URL**, `<SITE_URL>/api/webhooks/vercel`, receives every installation's deliveries |
+| Subscribed events | `deployment.succeeded`, `deployment.error`, `integration-configuration.removed` |
+| Signature | Header `x-vercel-signature`: the lowercase **hex HMAC SHA-1** of the raw request body, keyed with the integration's client secret (`VERCEL_CLIENT_SECRET`). Compared in constant time. Rotating the client secret in the console changes the webhook key too |
+| Delivery id | The envelope's `id`. Vercel sends no delivery id header, so it is read from the body once the signature matches |
+| Freshness | The envelope's `createdAt` (Unix milliseconds) must be within 25 hours of now, either side: Vercel's 24 hours of retries plus an hour for a last retry's delay and clock skew. Older is `stale` |
+| Account | `payload.team.id`, or `payload.user.id` when the team is null (a Hobby account): the same external account the sync reads. A delivery for an account no workspace has connected is acknowledged and dropped |
+| Delivery | 30 second timeout; non-2xx responses are retried with exponential backoff for up to 24 hours, then discarded |
+
+Envelope: `{ id, type, createdAt, region, payload }`. Deployment payloads carry `payload.team.id`, `payload.user.id`, `payload.deployment.{id,url,name,meta}`, `payload.links.{deployment,project}`, `payload.target`, `payload.project.id`, `payload.plan`, `payload.regions`. StackDash reads `team.id`, `user.id`, `deployment.id`, `deployment.name`, `links.deployment`, and `target`, and never declares `meta` (Git commit fields), `url`, or `alias`.
+
+What each event does:
+
+- `deployment.succeeded` and `deployment.error` become **Deployment succeeded** and **Deployment failed**, built by the same function as the sync, with the same dedupe key (`<deployment id>:READY` or `:ERROR`), so a deployment pushed and then polled shows once. The event is dated to the envelope's `createdAt`, when Vercel generated it, which is within a second or two of the `ready` time a poll reads. A delivery carries no error code, so a failure stored from a delivery has no "Error code" line; the poll that reads it later does not add one, because an event is stored once.
+- `integration-configuration.removed` marks the account's connections as needing a reconnect at once, dated to the envelope's `createdAt`. A connection reconnected after that time is left to its next sync.
+- Not subscribed: `deployment.ready` fires only for an integration that registers checks, which StackDash does not; `deployment.created` and `deployment.canceled` are states the timeline never shows; `project.created` and `project.removed` change nothing, because a Vercel account in StackDash is a team or a personal account, not a project. A delivery of any of these, if a console subscribes to it anyway, is acknowledged and ignored.
+
+Replay: Vercel signs no timestamp header, but the signature covers the whole body, envelope `id` and `createdAt` included. A captured delivery posted again keeps its signed `id` and is acknowledged as a duplicate, and it cannot be re-sent under a new id or a fresh `createdAt` without the secret. Once it is more than 25 hours old it is refused as `stale`, well inside the 30 days StackDash keeps delivery ids.
+
+Disabled installations still receive `project.created`, `project.removed`, and `integration-configuration.removed`.
+
+On a local machine or a private network no delivery arrives, and Vercel works on polling alone, hourly. A simulated Vercel connection (`STACKDASH_SIMULATE_PROVIDERS=1`) runs the same verification with `STACKDASH_SIMULATED_WEBHOOK_SECRET` in place of the client secret.
 
 ## Interesting timeline events
 
@@ -273,7 +291,7 @@ From polling:
 - New project created (project list `createdAt`, via scope `project`).
 - Daily spend jumped compared with the trailing average, or a new SKU appeared in charges [derived].
 
-Webhook-only (see [Webhooks](#webhooks)): instant rollback (`deployment.rollback`), promotion (`deployment.promoted`), domain events.
+Webhook-only and not received (see [Webhooks](#webhooks)): instant rollback (`deployment.rollback`), promotion (`deployment.promoted`), domain events.
 
 ## Permission risks
 
@@ -307,7 +325,7 @@ Every StackDash deployment registers its own Vercel integration, because the cli
 2. Fill in the required profile fields: **Name** (max 64 characters), **URL Slug** (max 32), **Developer**, **Contact email**, **Support contact email** (public), **Short Description** (max 40), **Logo** (square PNG, at least 256 px, not transparent), **Category** (for example Dev Tools), **Website**, **Documentation URL**, **EULA URL**, **Privacy Policy URL**, **Support URL**, **Overview** (max 768), and at least one **Feature media** image (16:9, 1920x1080 PNG).
 3. **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`, where `<SITE_URL>` is the public origin of the StackDash deployment (for local development use `http://localhost:3000/api/connections/vercel/callback` in a separate integration).
 4. **API Scopes**: set `billing` to Read, `deployment` to Read, `project` to Read, `team` to Read, everything else to None.
-5. Leave **Webhook URL** and **Configuration URL** empty. The webhook URL is set once StackDash receives Vercel webhooks (see [Webhooks](#webhooks)).
+5. **Webhook URL**: `<SITE_URL>/api/webhooks/vercel`, with the events `deployment.succeeded`, `deployment.error`, and `integration-configuration.removed` ticked and no others. Like the Redirect URL it is a single field, so one integration serves one origin; leave it empty for a local development integration, which no delivery can reach. Leave **Configuration URL** empty.
 6. Accept the Vercel Integrations Marketplace Agreement and submit.
 7. Copy the client (integration) id and the client secret from the **Credentials** section at the bottom of the integration settings. **Rotate Secret** is available there.
 8. Set the environment variables:
@@ -315,7 +333,7 @@ Every StackDash deployment registers its own Vercel integration, because the cli
 | Variable | Value | Notes |
 |---|---|---|
 | `VERCEL_CLIENT_ID` | Integration client id (`oac_…`) | Server only |
-| `VERCEL_CLIENT_SECRET` | Integration client secret | Server only. Also the webhook signing key later |
+| `VERCEL_CLIENT_SECRET` | Integration client secret | Server only. Also verifies webhook deliveries (`x-vercel-signature`) |
 | `VERCEL_INTEGRATION_SLUG` | The URL Slug from step 2 | Needed to build `https://vercel.com/integrations/<slug>/new` |
 
 The Redirect URL used in the token exchange must equal the one in the console, so derive it from `SITE_URL` the same way in both places.
@@ -446,6 +464,8 @@ Could not be confirmed from documentation on 2026-10-31. Check each with a test 
 - Whether `GET /v9/projects/{idOrName}` returns decrypted environment variable values to an integration token.
 - Whether a newly created Community integration needs a Vercel review before users outside the owning team can install it.
 - Whether the installation deep link `https://vercel.com/d/dashboard/integrations/{slug}/{installationId}` (documented for native integrations) also works for connectable account integrations, which would make a better "uninstall in Vercel" link.
+- Whether a Hobby account's webhook payload sends `team: null` or `team: { id: null }`. StackDash accepts both.
+- Whether a `deployment.error` delivery ever carries an error code. None is documented, so a failure first seen by webhook is stored without one.
 
 ## Alternative considered: Sign in with Vercel
 
@@ -474,7 +494,9 @@ All checked 2026-10-31.
 - [Limits: rate limits](https://vercel.com/docs/limits#rate-limits). Checked 2026-10-31.
 - [REST API errors](https://vercel.com/docs/rest-api/errors). Checked 2026-10-31.
 - [Make your first Vercel API request](https://vercel.com/docs/rest-api/getting-started): `teamId`, `401`/`403`/`429` handling. Checked 2026-10-31.
-- [Webhooks API reference](https://vercel.com/docs/webhooks/webhooks-api): payloads, `x-vercel-signature`, retries. Checked 2026-10-31.
+- [Webhooks API reference](https://vercel.com/docs/webhooks/webhooks-api): payloads, `x-vercel-signature`, retries. Checked 2026-11-16.
+- [Webhooks](https://vercel.com/docs/webhooks): integration Webhook URL and event checkboxes, envelope with `createdAt` in Unix milliseconds. Checked 2026-11-16.
+- [Request headers, `x-vercel-signature`](https://vercel.com/docs/headers/request-headers#x-vercel-signature): HMAC SHA-1, constant-time comparison. Checked 2026-11-16.
 - [Sign in with Vercel: Authorization Server API](https://vercel.com/docs/sign-in-with-vercel/authorization-server-api) and [Scopes and Permissions](https://vercel.com/docs/sign-in-with-vercel/scopes-and-permissions). Checked 2026-10-31.
 - [Vercel Community: Integration installation access token (2026-01-05)](https://community.vercel.com/t/integration-installation-access-token/30847): token lifetime answer from Vercel staff. Checked 2026-10-31.
 
