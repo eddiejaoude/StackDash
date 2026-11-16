@@ -522,8 +522,9 @@ function toCredential(
   return {
     accessToken: new Secret(tokens.access_token),
     refreshToken: new Secret(tokens.refresh_token),
-    // 7200 seconds (2 hours) per the guide; taken from the response, never assumed. The sync
-    // runner refreshes before expiry, one sync per connection at a time.
+    // 7200 seconds (2 hours) per the guide; taken from the response, never assumed. StackDash
+    // refreshes before expiry, one refresh per connection at a time (`refreshIfExpiring` in
+    // src/lib/connections/credential-refresh.ts).
     expiresAt: new Date(ctx.now().getTime() + tokens.expires_in * 1000),
     // RFC 6749 section 5.1: an omitted scope means the requested (or previously granted) scope.
     scopes: tokens.scope === undefined ? fallbackScopes : tokens.scope.split(" ").filter((value) => value.length > 0),
