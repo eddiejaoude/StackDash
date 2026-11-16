@@ -16,14 +16,32 @@ import { ConnectionStatusBadge } from "@/components/connections/connection-statu
 import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
+import { WebhookSetupPanel, type WebhookPanelView } from "@/components/connections/webhook-setup-panel";
 import { LockIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
+import { ReferenceNote } from "@/components/ui/live-region";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import { availableProviders } from "@/lib/adapters/registry";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import { requestPublicOrigin } from "@/lib/connections/oauth-state";
+import {
+  automaticChoiceCopy,
+  endpointLimitCopy,
+  isWebhookSetupResult,
+  manualChoiceCopy,
+  needsWriteAccess,
+  pollingCopy,
+  switchToManualCopy,
+  WEBHOOK_ENDPOINTS_PER_WORKSPACE,
+  WEBHOOK_PANEL_HEADING,
+  webhookSetupResultCopy,
+} from "@/lib/connections/webhook-copy";
+import { connectionWebhookSetup, webhookUrl } from "@/lib/connections/webhook-setup";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
+import { countWorkspaceWebhookEndpoints, getConnectionWebhook } from "@/lib/data/webhook-endpoints";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
+import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -51,15 +69,21 @@ async function ConnectionContent({
   if (connection === null) notFound();
 
   const canManage = canPerform(role, "manage_connections");
-  const [accounts, projects] = await Promise.all([
-    listExternalAccounts(workspace.id, connection.id),
-    canManage ? listProjectOptions(workspace.id) : Promise.resolve([]),
-  ]);
-  // Read after the request data above, so the clock never runs during prerendering.
-  const now = new Date();
-
   // The fake provider is absent from the registry when its flag is off; its rows still render.
   const adapter = availableProviders().find((candidate) => candidate.id === connection.provider);
+  const revoked = connection.status === "revoked";
+  // Disconnecting deletes the endpoint, so a disconnected connection has no webhook to show.
+  const webhookSetup = adapter === undefined || revoked ? null : connectionWebhookSetup(adapter);
+  const [accounts, projects, webhook, endpointCount, origin] = await Promise.all([
+    listExternalAccounts(workspace.id, connection.id),
+    canManage ? listProjectOptions(workspace.id) : Promise.resolve([]),
+    webhookSetup === null ? Promise.resolve(null) : getConnectionWebhook(workspace.id, connection.id),
+    webhookSetup === null || !canManage ? Promise.resolve(0) : countWorkspaceWebhookEndpoints(workspace.id),
+    requestPublicOrigin(),
+  ]);
+  // Read after the request data above, so the clock is safe to read now.
+  const now = new Date();
+
   const providerName = PROVIDER_NAMES[connection.provider];
   const simulated = isSimulatedConnection(connection);
   const connectionsPath = workspacePath(workspace.slug, "connections");
@@ -72,7 +96,46 @@ async function ConnectionContent({
   );
   const cooldownNotice = syncCooldownNotice(remaining);
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
-  const revoked = connection.status === "revoked";
+  // Write access StackDash holds for automatic webhook setup, listed while the grant has it.
+  const heldWriteAccess = (webhookSetup?.automatic?.extraPermissions ?? []).filter((permission) =>
+    connection.granted_scopes.includes(permission.scope),
+  );
+  const webhookResult = isWebhookSetupResult(query.webhook) ? webhookSetupResultCopy(query.webhook, providerName) : null;
+  const webhookRef = typeof query.ref === "string" && REFERENCE_ID_PATTERN.test(query.ref) ? query.ref : undefined;
+  const webhookView: WebhookPanelView | null =
+    webhookSetup === null
+      ? null
+      : {
+          workspaceSlug: workspace.slug,
+          connectionId: connection.id,
+          providerName,
+          pollingNote: pollingCopy(providerName),
+          choices: {
+            automatic: webhookSetup.automatic === undefined ? null : automaticChoiceCopy(providerName, webhookSetup),
+            manual: manualChoiceCopy(providerName, webhookSetup),
+          },
+          writeAccess: needsWriteAccess(webhookSetup),
+          secretSource: webhookSetup.secretSource,
+          manualSteps: webhookSetup.manualSteps,
+          removalSteps: webhookSetup.removalSteps,
+          switchNote: switchToManualCopy(providerName),
+          limitMessage: webhook === null && endpointCount >= WEBHOOK_ENDPOINTS_PER_WORKSPACE ? endpointLimitCopy(providerName) : null,
+          endpoint:
+            webhook === null
+              ? null
+              : {
+                  mode: webhook.setupMode,
+                  url: webhookUrl(origin, connection.provider, webhook.id),
+                  awaitingProviderSecret: webhook.awaitingProviderSecret,
+                  lastDelivery:
+                    webhook.lastDeliveryAt === null
+                      ? null
+                      : {
+                          iso: webhook.lastDeliveryAt.toISOString(),
+                          text: `${formatRelative(webhook.lastDeliveryAt, now)} (${formatDateTime(webhook.lastDeliveryAt)})`,
+                        },
+                },
+        };
 
   return (
     <>
@@ -108,6 +171,15 @@ async function ConnectionContent({
           </FeedbackBanner>
         )
       ) : null}
+
+      {webhookResult === null ? null : (
+        <FeedbackBanner tone={webhookResult.tone} title={webhookResult.title}>
+          <p>
+            {webhookResult.body}
+            <ReferenceNote referenceId={webhookRef} />
+          </p>
+        </FeedbackBanner>
+      )}
 
       {connection.status === "needs_attention" && connection.missing_scopes.length > 0 ? (
         <section
@@ -155,6 +227,57 @@ async function ConnectionContent({
           <dd>{connection.missing_scopes.length === 0 ? "None" : connection.missing_scopes.join(", ")}</dd>
         </dl>
       </section>
+
+      {webhookView === null ? null : (
+        <section aria-labelledby="webhook-title" className="mt-6 rounded-xl border border-line bg-panel">
+          <h2 id="webhook-title" className="border-b border-line px-6 py-4 text-sm font-semibold">
+            {WEBHOOK_PANEL_HEADING}
+          </h2>
+          {heldWriteAccess.length === 0 ? null : (
+            <div className="border-b border-line px-6 py-4 text-sm">
+              <h3 className="font-semibold text-warning">Write access StackDash holds in {providerName}</h3>
+              <ul className="mt-2 space-y-3">
+                {heldWriteAccess.map((permission) => (
+                  <li key={permission.scope}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="font-mono text-xs">{permission.scope}</code>
+                      <span className="rounded-full border border-warning/50 px-2 py-0.5 text-xs font-medium text-warning">
+                        Full access
+                      </span>
+                    </div>
+                    <p className="mt-1 leading-6">{permission.description}</p>
+                    <p className="mt-1 leading-6 text-muted">
+                      <span className="font-medium text-foreground">Why full access: </span>
+                      {permission.fullAccessReason}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {canManage ? (
+            <WebhookSetupPanel view={webhookView} />
+          ) : (
+            <div className="px-6 py-4 text-sm leading-6">
+              {webhookView.endpoint === null ? (
+                <p className="text-muted">{webhookView.pollingNote}</p>
+              ) : (
+                <>
+                  <p>{webhookView.endpoint.mode === "automatic" ? "Set up automatically." : "Set up by hand."}</p>
+                  <p className="mt-1">
+                    <span className="font-medium">Last delivery: </span>
+                    {webhookView.endpoint.lastDelivery === null ? (
+                      "None has arrived yet."
+                    ) : (
+                      <time dateTime={webhookView.endpoint.lastDelivery.iso}>{webhookView.endpoint.lastDelivery.text}</time>
+                    )}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       <section aria-labelledby="accounts-title" className="mt-6 rounded-xl border border-line bg-panel">
         <h2 id="accounts-title" className="border-b border-line px-6 py-4 text-sm font-semibold">
@@ -226,6 +349,11 @@ async function ConnectionContent({
               providerName={providerName}
               canRevoke={adapter?.revoke !== undefined}
               revoked={revoked}
+              webhook={
+                webhook === null || webhookSetup === null
+                  ? null
+                  : { mode: webhook.setupMode, removalSteps: webhookSetup.removalSteps.join(" ") }
+              }
             />
             <DeleteConnectionDialog workspaceSlug={workspace.slug} connectionId={connection.id} providerName={providerName} />
           </div>

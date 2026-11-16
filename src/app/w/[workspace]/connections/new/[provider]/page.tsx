@@ -14,6 +14,8 @@ import { getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapte
 import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import { ProviderIdSchema } from "@/lib/adapters/types";
 import { connectErrorMessage, reconnectMismatch } from "@/lib/connections/oauth-state";
+import { automaticChoiceCopy, needsWriteAccess } from "@/lib/connections/webhook-copy";
+import { connectionWebhookSetup, webhookWritePermissions } from "@/lib/connections/webhook-setup";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -55,28 +57,46 @@ async function ConnectProviderContent({
       ? await getConnection(workspace.id, connectionParam)
       : null;
   if (connectionParam !== undefined && (reconnect === null || reconnect.provider !== provider)) notFound();
+  // The user chose automatic webhook setup on the connection page (#426): this reconnect also asks
+  // for the write access that creates the webhook, and says so before the provider's screen.
+  const webhookChosen = query.webhook === "automatic";
+  const webhookSetup = connectionWebhookSetup(adapter);
+  if (webhookChosen && (reconnect === null || webhookSetup === null || !needsWriteAccess(webhookSetup))) notFound();
+  const extraPermissions = await webhookWritePermissions({
+    adapter,
+    workspaceId: workspace.id,
+    connectionId: reconnect?.id,
+    chosen: webhookChosen,
+  });
+  const permissions = [...adapter.permissions, ...extraPermissions];
 
   const canConnect = canPerform(role, "manage_connections");
   const configured = loadOAuthClient(adapter) !== null;
   const simulated = isSimulatedAdapter(adapter);
   // A real connection is never reconnected through the simulator, nor the reverse (#131).
   const mismatch = reconnect === null ? null : reconnectMismatch(reconnect, simulated);
-  const fullAccess = adapter.permissions.filter((permission) => permission.access === "full");
+  const fullAccess = permissions.filter((permission) => permission.access === "full");
   const consentMissing = query.error === "consent_required";
-  const title = reconnect === null ? `Connect ${adapter.displayName}` : `Reconnect ${adapter.displayName}`;
+  const title = webhookChosen
+    ? `Set up ${adapter.displayName} webhooks automatically`
+    : reconnect === null
+      ? `Connect ${adapter.displayName}`
+      : `Reconnect ${adapter.displayName}`;
 
   return (
     <>
       <PageHeader
         title={title}
         description={
-          reconnect !== null
-            ? mismatch !== null
-              ? `${reconnect.display_name} cannot be reconnected on this instance.`
-              : `Approve access again for ${reconnect.display_name}. The connection keeps its history and project assignments.`
-            : simulated
-              ? `${adapter.displayName} is simulated on this instance. StackDash approves at once and makes up example ${adapter.displayName} data on this computer; no ${adapter.displayName} account is connected.`
-              : `Review what StackDash asks ${adapter.displayName} for. You approve it on ${adapter.displayName}'s own consent screen next.`
+          webhookChosen && webhookSetup !== null
+            ? automaticChoiceCopy(adapter.displayName, webhookSetup)
+            : reconnect !== null
+              ? mismatch !== null
+                ? `${reconnect.display_name} cannot be reconnected on this instance.`
+                : `Approve access again for ${reconnect.display_name}. The connection keeps its history and project assignments.`
+              : simulated
+                ? `${adapter.displayName} is simulated on this instance. StackDash approves at once and makes up example ${adapter.displayName} data on this computer; no ${adapter.displayName} account is connected.`
+                : `Review what StackDash asks ${adapter.displayName} for. You approve it on ${adapter.displayName}'s own consent screen next.`
         }
       />
 
@@ -100,7 +120,7 @@ async function ConnectProviderContent({
           {simulated ? <SimulatedBadge /> : null}
         </div>
         <ul className="divide-y divide-line">
-          {adapter.permissions.map((permission) => (
+          {permissions.map((permission) => (
             <li key={permission.scope} className="px-6 py-4 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <code className="font-mono text-xs">{permission.scope}</code>
@@ -158,6 +178,7 @@ async function ConnectProviderContent({
         <form method="post" action={`/api/connections/${provider}/start`} className="mt-6" noValidate>
           <input type="hidden" name="workspace" value={workspace.slug} />
           {reconnect === null ? null : <input type="hidden" name="connection" value={reconnect.id} />}
+          {webhookChosen ? <input type="hidden" name="webhook" value="automatic" /> : null}
           {fullAccess.length === 0 ? null : (
             <div className="rounded-xl border border-warning/40 bg-panel px-6 py-4">
               <div className="flex items-start gap-3">

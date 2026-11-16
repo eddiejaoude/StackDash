@@ -9,7 +9,7 @@ import {
   isProviderSimulated,
   loadOAuthClient,
 } from "@/lib/adapters/registry";
-import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
+import { ProviderIdSchema, type ProviderAdapter, type ProviderId } from "@/lib/adapters/types";
 import { getCurrentUser } from "@/lib/auth/session";
 import { completeConnection, ReconnectMismatchError, ReconnectTargetMissingError } from "@/lib/connections/connect";
 import { githubCallbackStep, type CallbackStep } from "@/lib/connections/github-steps";
@@ -22,12 +22,37 @@ import {
   type ConnectFeedback,
   type ConsumedState,
 } from "@/lib/connections/oauth-state";
+import type { WebhookSetupResult } from "@/lib/connections/webhook-copy";
+import { connectionWebhookSetup, setUpWebhookAutomatically } from "@/lib/connections/webhook-setup";
 import { getLastWorkspaceSlug } from "@/lib/data/workspaces";
 import { logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { ForbiddenError } from "@/lib/workspaces/permissions";
+
+/**
+ * Creates the webhook the user chose to set up automatically (#426), once the grant with its write
+ * scopes is stored. The connection is already saved, so a failure here is reported on its page
+ * rather than as a failed connect.
+ */
+async function setUpAfterConsent({
+  workspaceId,
+  connectionId,
+  adapter,
+  origin,
+}: Readonly<{ workspaceId: string; connectionId: string; adapter: ProviderAdapter; origin: string }>): Promise<
+  Readonly<{ webhook: WebhookSetupResult; ref?: string }>
+> {
+  try {
+    const setup = connectionWebhookSetup(adapter);
+    if (setup === null) throw new Error(`${adapter.id} declares no per-connection webhook setup.`);
+    return { webhook: (await setUpWebhookAutomatically({ workspaceId, connectionId, adapter, setup, origin })).kind };
+  } catch (error) {
+    unstable_rethrow(error);
+    return { webhook: "failed", ref: logError("connections.webhook_setup_failed", error, { provider: adapter.id }) };
+  }
+}
 
 /**
  * Where the provider sends the browser back (#40). The state row is read and deleted in one
@@ -130,7 +155,16 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
       credential,
       ...(consumed.reconnectId === undefined ? {} : { reconnectId: consumed.reconnectId }),
     });
-    return redirectTo(`${connectionsPath}/${result.connectionId}?connected=1`);
+    const connectionPath = `${connectionsPath}/${result.connectionId}`;
+    if (!consumed.webhookSetup) return redirectTo(`${connectionPath}?connected=1`);
+    // The user chose automatic webhook setup (#426) and approved its write access just now.
+    const webhook = await setUpAfterConsent({
+      workspaceId: access.workspace.id,
+      connectionId: result.connectionId,
+      adapter,
+      origin: connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL),
+    });
+    return redirectTo(`${connectionPath}?${new URLSearchParams(webhook).toString()}`);
   } catch (error) {
     unstable_rethrow(error);
     if (error instanceof ForbiddenError) return withFeedback(connectionsPath, { error: "forbidden", provider });

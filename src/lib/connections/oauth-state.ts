@@ -103,6 +103,9 @@ export type CreateStateInput = Readonly<{
   reconnectId?: string;
   // GitHub second step only: the installation from the first step, still untrusted.
   pendingInstallationId?: string;
+  // The user chose automatic webhook setup (#426): the callback creates the webhook once the
+  // grant with its extra scopes is stored.
+  webhookSetup?: boolean;
   now: Date;
 }>;
 
@@ -122,6 +125,7 @@ export async function createOAuthState(input: CreateStateInput): Promise<void> {
       key_id: sealed?.keyId ?? null,
       reconnect_connection_id: input.reconnectId ?? null,
       pending_installation_id: input.pendingInstallationId ?? null,
+      webhook_setup: input.webhookSetup ?? false,
       expires_at: stateExpiresAt(input.now).toISOString(),
     });
   if (error) throw new Error(`oauth_states insert failed (code ${error.code}).`);
@@ -134,6 +138,7 @@ export type ConsumedState = Readonly<{
   codeVerifier: string | undefined;
   reconnectId: string | undefined;
   pendingInstallationId: string | undefined;
+  webhookSetup: boolean;
   expiresAt: Date;
 }>;
 
@@ -149,7 +154,7 @@ export async function consumeOAuthState(state: string): Promise<ConsumedState | 
     .delete()
     .eq("state", state)
     .select(
-      "workspace_id, provider, user_id, code_verifier_iv, code_verifier_ciphertext, code_verifier_tag, key_id, reconnect_connection_id, pending_installation_id, expires_at",
+      "workspace_id, provider, user_id, code_verifier_iv, code_verifier_ciphertext, code_verifier_tag, key_id, reconnect_connection_id, pending_installation_id, webhook_setup, expires_at",
     )
     .maybeSingle();
   if (error) throw new Error(`oauth_states consume failed (code ${error.code}).`);
@@ -179,6 +184,7 @@ export async function consumeOAuthState(state: string): Promise<ConsumedState | 
     codeVerifier,
     reconnectId: data.reconnect_connection_id ?? undefined,
     pendingInstallationId: data.pending_installation_id ?? undefined,
+    webhookSetup: data.webhook_setup,
     expiresAt: new Date(data.expires_at),
   };
 }

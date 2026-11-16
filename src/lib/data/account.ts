@@ -203,12 +203,14 @@ export async function deleteUserAccount(userId: string): Promise<AccountDeletion
         outcomes[index] = { kind: "revoked" };
         continue;
       }
-      outcomes[index] = await disconnectConnection({
+      // The webhook's endpoint is deleted with the rest; account deletion reports revocation only.
+      const { revoke } = await disconnectConnection({
         workspaceId: connection.workspace_id,
         connectionId: connection.id,
         provider: connection.provider,
         userId,
       });
+      outcomes[index] = revoke;
     }
   };
   await Promise.all(Array.from({ length: Math.min(REVOKE_CONCURRENCY, connections.length) }, worker));
