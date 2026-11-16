@@ -1572,7 +1572,7 @@ describe("webhooks", () => {
     expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: "9000002", occurredAt: NOW });
     expect(checkWebhookOutcome(githubAdapter, outcome)).toEqual([]);
     // Never the organization: its connection syncs with installation tokens a revoked authorization does not touch.
-    expect(outcome.kind === "uninstalled" ? outcome.externalAccountId : undefined).not.toBe(ACCOUNT_ID);
+    expect(outcome.kind === "uninstalled" && outcome.by !== "installation" ? outcome.externalAccountId : undefined).not.toBe(ACCOUNT_ID);
   });
 
   it.each<[string, string | null, unknown]>([
