@@ -27,7 +27,6 @@ Want something that is not here? Search the issues first, then open a new one: a
 ## Now
 
 - **Events pushed by webhook from GitLab, Resend, and Polar**, so pipelines, deployments, releases, merge requests, email and domain events, orders, subscriptions, and refunds reach the timeline within a minute instead of at the next hourly sync.
-- **Security scanning in CI**: dependency review, code scanning, and secret scanning on every pull request.
 - **Fixes** to how connections set up and remove their webhooks.
 
 ## Next
