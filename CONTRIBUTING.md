@@ -103,8 +103,11 @@ npm run test:e2e         # Playwright end-to-end tests
 While you work, run the narrowest check that proves your change, such as `npx vitest run <file>`
 or `npx playwright test <spec>`, then the full set once at the end. CI
 (`.github/workflows/ci.yml`) runs the same checks on pull requests, plus `supabase db lint`,
-`npm audit`, and a gitleaks secret scan. It needs no repository secrets, so a pull request from a
-fork gets the same checks.
+`npm audit`, and a gitleaks secret scan. Two more workflows run on every pull request: dependency
+review (`.github/workflows/dependency-review.yml`) fails it when it adds or changes a dependency
+with a known vulnerability, and CodeQL (`.github/workflows/codeql.yml`) scans the TypeScript and
+the workflows for security problems. None of them needs repository secrets, so a pull request from
+a fork gets the same checks.
 
 ## Branches and commits
 

@@ -1,0 +1,51 @@
+# Dependabot version updates. Security updates are switched on in the repository settings: they
+# open whenever an advisory lands, outside this schedule, the groups, and the open pull request
+# limit, but they take the commit format and labels set here.
+# Docs: https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    # Minor and patch bumps arrive as one grouped pull request. Each major bump gets its own,
+    # because it needs its changelog read.
+    groups:
+      npm-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    # The group counts as one, so this leaves room for two major bumps at a time.
+    open-pull-requests-limit: 3
+    # build(deps): ... and build(deps-dev): ..., the repository's type(scope) commit format.
+    commit-message:
+      prefix: build
+      include: scope
+    # Only labels that exist in the repository. Dependabot ignores a missing one, and defining
+    # any label stops it creating its default `dependencies` and ecosystem labels.
+    labels:
+      - "area: ci"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    groups:
+      actions-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    # One group pull request plus one major bump.
+    open-pull-requests-limit: 2
+    # ci(deps): ...
+    commit-message:
+      prefix: ci
+      include: scope
+    labels:
+      - "area: ci"

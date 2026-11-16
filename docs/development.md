@@ -449,6 +449,20 @@ Never commit a credential-shaped value, even a sample: use a placeholder such as
 in docs and build fake keys at runtime in tests. `.gitleaks.toml` allowlists only exact
 already-pushed commits that added such a value, once the current tree no longer has it.
 
+Two more workflows run on every pull request. Dependency review
+(`.github/workflows/dependency-review.yml`) fails a pull request that adds or changes a runtime or
+development dependency with a known vulnerability of any severity. It judges only what the pull
+request changes, so an advisory already on `main` does not fail it; `npm audit` covers the whole
+tree. To accept one advisory after reading it, add its GHSA id to the action's `allow-ghsas` input,
+with the reason beside it. CodeQL (`.github/workflows/codeql.yml`) analyzes the JavaScript and
+TypeScript and the GitHub Actions workflows on pull requests, on pushes to `main`, and weekly. Its
+alerts appear on the pull request and in the repository's **Security** tab.
+
+Dependabot (`.github/dependabot.yml`) opens version update pull requests for npm and GitHub Actions
+every Monday: one grouped pull request for the minor and patch updates of each ecosystem, and one
+per major update, with at most three npm and two GitHub Actions pull requests open at a time.
+Security updates open as soon as an advisory lands, outside that schedule.
+
 ### End-to-end tests
 
 Install the browser once, then run the suite:
