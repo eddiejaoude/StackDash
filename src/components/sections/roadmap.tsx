@@ -35,24 +35,24 @@ const phases: readonly Phase[] = [
       "Revenue against spend, signups, cost per signup, and deploys for the week or month so far",
     ],
   },
-  // The last two phases sum up docs/roadmap.md, which follows the project board: "Coming next" is its
-  // Now, Next, and Later sections, "Further out" its Further out section. Change both together.
+  // The last two phases sum up docs/roadmap.md at theme level, so one issue closing does not make
+  // them wrong: "Coming next" is its Now, Next, and Later sections, "Further out" its Further out
+  // section. Never list a blocked item as coming next. CONTRIBUTING.md says when to update both.
   {
     name: "Coming next",
-    summary: "In progress or high on the project board: events within a minute, a hosted version, and more of your stack.",
+    summary: "What is being built now and what follows it.",
     items: [
-      "GitLab and Resend events pushed by webhook, within a minute",
+      "More providers pushing events within a minute",
       "A hosted version, with open sign-up and a public demo",
       "A shorter path from sign-in to a useful timeline",
-      "Better Stack and Render integrations",
     ],
   },
   {
     name: "Further out",
     summary: "Planned after that, as priorities allow.",
     items: [
+      "More integrations",
       "Invite teammates, change their roles, and switch between workspaces",
-      "OpenAI, Anthropic, and ElevenLabs integrations",
       "A leaderboard of verified stats and a public project directory",
       "Saved timeline views and hidden event types",
     ],
@@ -71,7 +71,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose, and you can host it yourself today. What comes next follows the project board."
+      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose, and you can host it yourself today. The full roadmap says what is being built now and what comes next."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (
