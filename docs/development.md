@@ -219,10 +219,11 @@ npm run jobs:tick
 ```
 
 This runs one scheduler tick directly with the settings in `.env.local`: it schedules due syncs,
-runs up to 10 queued jobs, and prints the counts as JSON. It needs no dev server and no
-`CRON_SECRET`. An open dashboard, timeline, alerts, or connections page updates by itself within a
-few seconds of the tick, with no reload. In production `pg_cron` calls `POST /api/jobs/tick` every
-minute instead, see [Jobs](operations/jobs.md).
+runs up to 10 queued jobs of every kind but `webhook` and up to 50 `webhook` jobs on top, and
+prints the counts as JSON. It needs no dev server and no `CRON_SECRET`. An open dashboard,
+timeline, alerts, or connections page updates by itself within a few seconds of the tick, with no
+reload. In production `pg_cron` calls `POST /api/jobs/tick` every minute instead, see
+[Jobs](operations/jobs.md).
 
 Most connections are due once an hour (Supabase every 15 minutes), and the Example provider adds a
 signup and a deployment each day, so running the tick again soon after usually brings nothing new.
@@ -261,9 +262,9 @@ It is for local use only: the app refuses it on a Vercel production deployment.
    ```
 
    It runs a tick every 10 seconds (`--interval 30` for every 30 seconds, at least 5), syncs every
-   simulated connection on each tick (up to 100 jobs per tick), and prints one line per tick with
-   the time and the number of jobs synced, events written, and failures. Press Ctrl+C to stop it
-   after the current tick.
+   simulated connection on each tick (up to 100 jobs of every kind but `webhook` per tick, and up
+   to 50 `webhook` jobs on top), and prints one line per tick with the time and the number of jobs
+   synced, events written, and failures. Press Ctrl+C to stop it after the current tick.
 
    It reads `.env.local` once, when it starts: if you add the flag while a watcher is already
    running, stop it and start it again.

@@ -1,12 +1,14 @@
 /*
  * Runs one job tick locally: schedules due syncs and the daily retention job, then runs up to 10
- * claimed jobs, exactly as POST /api/jobs/tick does.
+ * claimed jobs of every kind but `webhook` and up to 50 `webhook` jobs on top, exactly as
+ * POST /api/jobs/tick does.
  *
  *   npm run jobs:tick
  *   npm run jobs:tick -- --watch [--interval <seconds>] [--volume <1-20>]
  *
  * `--watch` repeats the tick every 10 seconds (at least 5) until Ctrl+C or SIGTERM, which stop it
- * after the tick in progress, and claims up to 100 jobs per tick instead of 10. With
+ * after the tick in progress, and claims up to 100 jobs of every kind but `webhook` per tick
+ * instead of 10; the `webhook` claim stays at WEBHOOK_TICK_CLAIM_LIMIT (50). With
  * STACKDASH_SIMULATE_PROVIDERS=1 each iteration first makes the connections the simulator made due,
  * so they sync on every tick (#131). It prints one line of counts per tick.
  *
