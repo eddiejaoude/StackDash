@@ -4,13 +4,27 @@ import { refresh } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
+import { getAdapter } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
-import type { ProviderId } from "@/lib/adapters/types";
+import { Secret, type ConnectionWebhookSetup, type ProviderAdapter, type ProviderId } from "@/lib/adapters/types";
+import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/lib/connections/revoke";
+import { needsWriteAccess, webhookSetupResultCopy, type WebhookSetupResult } from "@/lib/connections/webhook-copy";
+import {
+  connectionWebhookSetup,
+  setupRefusal,
+  removeConnectionWebhook,
+  rotateWebhookSecret,
+  setUpWebhookAutomatically,
+  setUpWebhookByHand,
+  webhookRemovalMessage,
+} from "@/lib/connections/webhook-setup";
 import { CONNECTIONS_LIMIT } from "@/lib/data/dashboard";
+import { getConnectionWebhook, replaceWebhookEndpointSecret } from "@/lib/data/webhook-endpoints";
 import { addSampleData, SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { log, logError } from "@/lib/log/logger";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction, type WorkspaceAccess } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -22,9 +36,11 @@ import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions
  * workspace get the same answer. No credential, token, or provider error text is ever returned.
  */
 
-export type ConnectionActionResult =
-  | { ok: true; message?: string }
-  | { ok: false; fieldErrors?: Record<string, string>; message: string; referenceId?: string };
+export type ConnectionActionResult = { ok: true; message?: string } | ConnectionActionFailure;
+type ConnectionActionFailure = { ok: false; fieldErrors?: Record<string, string>; message: string; referenceId?: string };
+
+/** A webhook setup action's result (#426): `secret` is a new secret to show once, never stored here. */
+export type WebhookActionResult = { ok: true; message: string; secret?: string } | ConnectionActionFailure;
 
 const NOT_FOUND_MESSAGE = "That item no longer exists in this workspace. Reload the page to see what is current.";
 const STALE_FORM_MESSAGE = "This form is out of date. Reload the page and try again.";
@@ -42,7 +58,7 @@ const connectionSchema = z.object({ workspace: z.string().min(1), connectionId: 
 const workspaceSchema = z.object({ workspace: z.string().min(1) }).strict();
 
 /** Expected failures become messages; anything else is logged and answered with a reference. */
-function failure(event: string, error: unknown, message: string): ConnectionActionResult {
+function failure(event: string, error: unknown, message: string): ConnectionActionFailure {
   unstable_rethrow(error);
   if (error instanceof ForbiddenError) return { ok: false, message: actionDeniedReason("manage_connections") };
   return { ok: false, message, referenceId: logError(event, error) };
@@ -274,32 +290,30 @@ export async function disconnect(
   });
   if (!parsed.success) return { ok: false, message: STALE_FORM_MESSAGE };
 
-  let manualStep: string | null;
+  let message: string;
   try {
     const access = await requireWorkspaceAction(parsed.data.workspace, "manage_connections");
     const connection = await findConnection(access, parsed.data.connectionId);
     if (connection === null) return { ok: false, message: NOT_FOUND_MESSAGE };
 
-    manualStep = manualRevokeMessage(
-      connection.provider,
-      await disconnectConnection({
-        workspaceId: access.workspace.id,
-        connectionId: connection.id,
-        provider: connection.provider,
-        userId: access.user.id,
-      }),
-    );
+    const outcome = await disconnectConnection({
+      workspaceId: access.workspace.id,
+      connectionId: connection.id,
+      provider: connection.provider,
+      userId: access.user.id,
+    });
+    message = [
+      "Disconnected. The credential is deleted and the history is kept.",
+      webhookRemovalMessage(connection.provider, outcome.webhook),
+      manualRevokeMessage(connection.provider, outcome.revoke),
+    ]
+      .filter((part) => part !== null)
+      .join(" ");
   } catch (error) {
     return failure("connections.disconnect_failed", error, "The connection could not be disconnected. Try again in a moment.");
   }
   refresh();
-  return {
-    ok: true,
-    message:
-      manualStep === null
-        ? "Disconnected. The credential is deleted and the history is kept."
-        : `Disconnected. The credential is deleted and the history is kept. ${manualStep}`,
-  };
+  return { ok: true, message };
 }
 
 export async function deleteConnection(
@@ -315,12 +329,16 @@ export async function deleteConnection(
   let connectionsPath: string;
   let provider: ProviderId;
   let manualStep: string | null = null;
+  let webhookLeft = false;
   try {
     const access = await requireWorkspaceAction(parsed.data.workspace, "manage_connections");
     const connection = await findConnection(access, parsed.data.connectionId);
     if (connection === null) return { ok: false, message: NOT_FOUND_MESSAGE };
     provider = connection.provider;
     if (connection.status !== "revoked") {
+      // Before the revoke and the cascade: deleting a webhook StackDash created needs the credential.
+      const removal = await removeConnectionWebhook({ workspaceId: access.workspace.id, connectionId: connection.id, provider });
+      webhookLeft = removal.kind === "manual" || removal.kind === "failed";
       manualStep = manualRevokeMessage(
         connection.provider,
         await revokeAtProvider(access.workspace.id, connection.id, connection.provider),
@@ -342,6 +360,7 @@ export async function deleteConnection(
   }
   const query = new URLSearchParams({ deleted: provider });
   if (manualStep !== null) query.set("revoke", "manual");
+  if (webhookLeft) query.set("webhook", "remove");
   redirect(`${connectionsPath}?${query.toString()}`);
 }
 
@@ -380,4 +399,178 @@ export async function exploreWithSampleData(
     );
   }
   redirect(`${timelinePath}?${new URLSearchParams({ [SAMPLE_DATA_ADDED_PARAM]: "added" }).toString()}`);
+}
+
+const webhookSetupSchema = z
+  .object({ workspace: z.string().min(1), connectionId: Id, mode: z.enum(["automatic", "manual"]) })
+  .strict();
+// Provider signing secrets are a few dozen characters (Svix's `whsec_` keys are 38); the bound only
+// keeps a pasted page out of the database.
+const SIGNING_SECRET_MAX_LENGTH = 500;
+const signingSecretSchema = z
+  .object({
+    workspace: z.string().min(1),
+    connectionId: Id,
+    signingSecret: z
+      .string()
+      .trim()
+      .min(1, "Paste the signing secret before saving.")
+      .max(SIGNING_SECRET_MAX_LENGTH, `A signing secret is at most ${SIGNING_SECRET_MAX_LENGTH} characters. Copy only the secret.`),
+  })
+  .strict();
+
+const WEBHOOK_FAILED_MESSAGE = "The webhook could not be set up. Try again in a moment.";
+
+type WebhookTarget = Readonly<{
+  access: WorkspaceAccess;
+  connection: NonNullable<Awaited<ReturnType<typeof findConnection>>>;
+  adapter: ProviderAdapter;
+  setup: ConnectionWebhookSetup;
+}>;
+
+/**
+ * The caller's connection whose provider takes a per-connection webhook, or the failure to return.
+ * Owners and admins only, re-read inside the caller's workspace.
+ */
+async function findWebhookTarget(workspace: string, connectionId: string): Promise<WebhookTarget | ConnectionActionFailure> {
+  const access = await requireWorkspaceAction(workspace, "manage_connections");
+  const connection = await findConnection(access, connectionId);
+  if (connection === null) return { ok: false, message: NOT_FOUND_MESSAGE };
+  if (connection.status === "revoked") {
+    return { ok: false, message: "This connection is disconnected. Reconnect it before setting up a webhook." };
+  }
+  const adapter = getAdapter(connection.provider);
+  const setup = connectionWebhookSetup(adapter);
+  if (setup === null) return { ok: false, message: STALE_FORM_MESSAGE };
+  return { access, connection, adapter, setup };
+}
+
+/**
+ * Sets up the connection's webhook the way the user chose on the setup panel (#426). By hand never
+ * asks the provider for anything. Automatic setup that needs write access goes to the connect
+ * screen first, which shows the write access and asks for consent before the provider's own
+ * screen; automatic setup with the access already granted (Resend) creates the webhook now.
+ */
+export async function setUpWebhook(_previous: WebhookActionResult | null, formData: FormData): Promise<WebhookActionResult> {
+  const parsed = webhookSetupSchema.safeParse({
+    workspace: formData.get("workspace"),
+    connectionId: formData.get("connectionId"),
+    mode: formData.get("mode"),
+  });
+  if (!parsed.success) return { ok: false, message: "Choose how to set up the webhook, then try again." };
+  const { workspace, connectionId, mode } = parsed.data;
+
+  let next: Readonly<{ kind: "result"; result: WebhookActionResult }> | Readonly<{ kind: "consent"; path: string }>;
+  try {
+    const target = await findWebhookTarget(workspace, connectionId);
+    if ("ok" in target) return target;
+    const { access, connection, adapter, setup } = target;
+    const name = PROVIDER_NAMES[connection.provider];
+    const asResult = (kind: WebhookSetupResult) => {
+      const { tone, body: message } = webhookSetupResultCopy(kind, name);
+      const result: WebhookActionResult = tone === "success" ? { ok: true, message } : { ok: false, message };
+      return { kind: "result", result } as const;
+    };
+    if (mode === "manual") {
+      const outcome = await setUpWebhookByHand({ workspaceId: access.workspace.id, connectionId: connection.id, adapter, setup });
+      if (outcome.kind !== "manual") {
+        next = asResult(outcome.kind);
+      } else if (outcome.secret === null) {
+        next = {
+          kind: "result",
+          result: { ok: true, message: `Webhook address created. Add it in ${name} with the steps below, then paste ${name}'s signing secret here.` },
+        };
+      } else {
+        next = {
+          kind: "result",
+          result: { ok: true, message: `Webhook address and secret created. Add them in ${name} with the steps below.`, secret: outcome.secret.reveal() },
+        };
+      }
+    } else if (setup.automatic === undefined) {
+      return { ok: false, message: STALE_FORM_MESSAGE };
+    } else if (needsWriteAccess(setup)) {
+      // Never send the user to a write access consent the webhook could not use.
+      const refused = await setupRefusal(access.workspace.id, connection.id);
+      if (refused !== null) {
+        next = asResult(refused.kind);
+      } else {
+        const query = new URLSearchParams({ connection: connection.id, webhook: "automatic" });
+        next = { kind: "consent", path: `${workspacePath(access.workspace.slug, "connections")}/new/${connection.provider}?${query.toString()}` };
+      }
+    } else {
+      const outcome = await setUpWebhookAutomatically({
+        workspaceId: access.workspace.id,
+        connectionId: connection.id,
+        adapter,
+        setup,
+        origin: await requestPublicOrigin(),
+      });
+      next = asResult(outcome.kind);
+    }
+  } catch (error) {
+    return failure("connections.webhook_setup_failed", error, WEBHOOK_FAILED_MESSAGE);
+  }
+  if (next.kind === "consent") redirect(next.path);
+  refresh();
+  return next.result;
+}
+
+/** A new secret for a webhook set up by hand with StackDash's secret, shown once; the old one stops working at once. */
+export async function regenerateWebhookSecret(_previous: WebhookActionResult | null, formData: FormData): Promise<WebhookActionResult> {
+  const parsed = connectionSchema.safeParse({ workspace: formData.get("workspace"), connectionId: formData.get("connectionId") });
+  if (!parsed.success) return { ok: false, message: STALE_FORM_MESSAGE };
+
+  let secret: string;
+  let name: string;
+  try {
+    const target = await findWebhookTarget(parsed.data.workspace, parsed.data.connectionId);
+    if ("ok" in target) return target;
+    const { access, connection, setup } = target;
+    const webhook = await getConnectionWebhook(access.workspace.id, connection.id);
+    // StackDash holds no secret the user can see for an automatic webhook or a provider's secret.
+    if (webhook?.setupMode !== "manual" || setup.secretSource !== "stackdash") return { ok: false, message: STALE_FORM_MESSAGE };
+    const regenerated = await rotateWebhookSecret(access.workspace.id, connection.id);
+    if (regenerated === null) return { ok: false, message: NOT_FOUND_MESSAGE };
+    secret = regenerated.reveal();
+    name = PROVIDER_NAMES[connection.provider];
+  } catch (error) {
+    return failure("connections.webhook_secret_failed", error, "A new secret could not be made. The old one still works. Try again in a moment.");
+  }
+  refresh();
+  return { ok: true, message: `New secret made. The old one no longer works: replace it in ${name} now.`, secret };
+}
+
+/** Stores the signing secret the provider generated for a webhook set up by hand. */
+export async function saveWebhookSigningSecret(_previous: WebhookActionResult | null, formData: FormData): Promise<WebhookActionResult> {
+  const parsed = signingSecretSchema.safeParse({
+    workspace: formData.get("workspace"),
+    connectionId: formData.get("connectionId"),
+    signingSecret: formData.get("signingSecret"),
+  });
+  if (!parsed.success) {
+    const fieldError = parsed.error.issues.find((issue) => issue.path[0] === "signingSecret")?.message;
+    return fieldError === undefined
+      ? { ok: false, message: STALE_FORM_MESSAGE }
+      : { ok: false, message: `The signing secret was not saved. ${fieldError}`, fieldErrors: { signingSecret: fieldError } };
+  }
+
+  let name: string;
+  try {
+    const target = await findWebhookTarget(parsed.data.workspace, parsed.data.connectionId);
+    if ("ok" in target) return target;
+    const { access, connection, setup } = target;
+    const webhook = await getConnectionWebhook(access.workspace.id, connection.id);
+    if (webhook?.setupMode !== "manual" || setup.secretSource !== "provider") return { ok: false, message: STALE_FORM_MESSAGE };
+    const saved = await replaceWebhookEndpointSecret({
+      workspaceId: access.workspace.id,
+      connectionId: connection.id,
+      secret: new Secret(parsed.data.signingSecret),
+    });
+    if (!saved) return { ok: false, message: NOT_FOUND_MESSAGE };
+    name = PROVIDER_NAMES[connection.provider];
+  } catch (error) {
+    return failure("connections.webhook_signing_secret_failed", error, "The signing secret could not be saved. Try again in a moment.");
+  }
+  refresh();
+  return { ok: true, message: `Signing secret saved. Deliveries ${name} signs with it are accepted from now on.` };
 }

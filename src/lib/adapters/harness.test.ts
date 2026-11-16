@@ -14,7 +14,15 @@ import {
 import type { AdapterMetric } from "./metrics";
 import { getAdapter } from "./registry";
 import { simulatedAdapters } from "./simulated";
-import { liveProviderIds, type ProviderAdapter, type SyncResult, type WebhookDescriptor, type WebhookOutcome } from "./types";
+import {
+  liveProviderIds,
+  type ConnectionWebhookSetup,
+  type FullAccessPermission,
+  type ProviderAdapter,
+  type SyncResult,
+  type WebhookDescriptor,
+  type WebhookOutcome,
+} from "./types";
 
 const NOW = new Date("2026-11-16T00:00:00.000Z");
 const ACCOUNT = "acct_1001";
@@ -51,6 +59,42 @@ function webhooksWith(change: Partial<WebhookDescriptor>): WebhookDescriptor {
   const { webhooks } = exampleAdapter;
   if (webhooks === undefined) throw new Error("the example adapter declares no webhook");
   return { ...webhooks, ...change };
+}
+
+const writeHooks = {
+  scope: "hooks:write",
+  access: "full",
+  description: "Create and delete webhooks.",
+  fullAccessReason: "Example Cloud has no read-only scope that can create a webhook.",
+} as const;
+
+/**
+ * The example adapter with a per-connection webhook whose automatic setup asks for
+ * `extraPermissions`, and an authorize URL that requests them when passed as `extraScopes`, as the
+ * contract requires.
+ */
+function withConnectionSetup(
+  change: Readonly<{ manualSteps?: readonly string[]; removalSteps?: readonly string[]; extraPermissions?: readonly FullAccessPermission[] }> = {},
+): Partial<ProviderAdapter<string>> {
+  const setup: ConnectionWebhookSetup = {
+    secretSource: "stackdash",
+    manualSteps: change.manualSteps ?? ["Open Webhooks and add the address and the secret below."],
+    removalSteps: change.removalSteps ?? ["Open Webhooks and delete the StackDash webhook."],
+    automatic: {
+      extraPermissions: change.extraPermissions ?? [writeHooks],
+      create: () => Promise.resolve({ webhookId: "hook_1" }),
+      remove: () => Promise.resolve(),
+    },
+  };
+  return {
+    webhooks: webhooksWith({ registration: { kind: "connection", setup } }),
+    buildAuthorizeUrl(params) {
+      const url = exampleAdapter.buildAuthorizeUrl(params);
+      const scope = [url.searchParams.get("scope") ?? "", ...(params.extraScopes ?? [])].join(" ").trim();
+      url.searchParams.set("scope", scope);
+      return url;
+    },
+  };
 }
 
 describe("checkAdapterDeclaration", () => {
@@ -169,7 +213,18 @@ describe("checkAdapterDeclaration", () => {
 
   describe("webhooks", () => {
     it("passes a connection-level webhook, which names no instance secret", () => {
-      expect(checkAdapterDeclaration(adapterWith({ webhooks: webhooksWith({ registration: { kind: "connection" } }) }))).toEqual([]);
+      expect(checkAdapterDeclaration(adapterWith(withConnectionSetup()))).toEqual([]);
+    });
+
+    it("passes a connection-level webhook with setup by hand only, or automatic setup that needs no new scope (boundary: none)", () => {
+      const manualOnly = webhooksWith({
+        registration: {
+          kind: "connection",
+          setup: { secretSource: "provider", manualSteps: ["Add the address below."], removalSteps: ["Delete the webhook."] },
+        },
+      });
+      expect(checkAdapterDeclaration(adapterWith({ webhooks: manualOnly }))).toEqual([]);
+      expect(checkAdapterDeclaration(adapterWith(withConnectionSetup({ extraPermissions: [] })))).toEqual([]);
     });
 
     it("passes a single subscription (boundary: one)", () => {
@@ -206,6 +261,48 @@ describe("checkAdapterDeclaration", () => {
         "webhooks without the events capability",
         { eventTypes: [], achievements: [], capabilities: { ...exampleAdapter.capabilities, events: false } },
         "webhooks are declared but capabilities.events is false",
+      ],
+      [
+        "no steps for setup by hand",
+        withConnectionSetup({ manualSteps: [] }),
+        "webhooks.registration.setup.manualSteps must list the steps, one non-empty step each",
+      ],
+      [
+        "a blank removal step",
+        withConnectionSetup({ removalSteps: ["Open Webhooks.", " "] }),
+        "webhooks.registration.setup.removalSteps must list the steps, one non-empty step each",
+      ],
+      [
+        "an automatic setup scope the first consent already asks for",
+        { ...withConnectionSetup(), oauth: { ...exampleAdapter.oauth, scopes: [...exampleAdapter.oauth.scopes, writeHooks.scope] } },
+        "automatic webhook setup permission hooks:write is already requested by oauth.scopes",
+      ],
+      [
+        "an automatic setup scope without its reason",
+        withConnectionSetup({ extraPermissions: [{ ...writeHooks, fullAccessReason: " " }] }),
+        "automatic webhook setup permission hooks:write needs a description and a fullAccessReason",
+      ],
+      [
+        "an automatic setup scope listed twice",
+        withConnectionSetup({ extraPermissions: [writeHooks, writeHooks] }),
+        "automatic webhook setup permission hooks:write is listed twice",
+      ],
+      [
+        "an authorize URL that ignores extraScopes",
+        { ...withConnectionSetup(), buildAuthorizeUrl: exampleAdapter.buildAuthorizeUrl },
+        "automatic webhook setup permission hooks:write is not requested when passed in extraScopes",
+      ],
+      [
+        "an authorize URL that always asks for the write scope",
+        {
+          ...withConnectionSetup(),
+          buildAuthorizeUrl(params) {
+            const url = exampleAdapter.buildAuthorizeUrl(params);
+            url.searchParams.set("scope", `${url.searchParams.get("scope") ?? ""} ${writeHooks.scope}`);
+            return url;
+          },
+        },
+        "automatic webhook setup permission hooks:write is requested without extraScopes",
       ],
     ])("reports %s (boundary)", (_case, change, problem) => {
       expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);

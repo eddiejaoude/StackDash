@@ -16,6 +16,7 @@ import { availableProviders, isProviderConfigured, isProviderSimulated } from "@
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { ProviderIdSchema, type ProviderAdapter } from "@/lib/adapters/types";
 import { connectErrorMessage, ConnectFeedbackSchema } from "@/lib/connections/oauth-state";
+import { webhookRemovalSteps } from "@/lib/connections/webhook-setup";
 import { listConnections, type ConnectionSummary } from "@/lib/data/connections";
 import { decodeCursor } from "@/lib/data/cursor";
 import { formatDateTime, formatRelative } from "@/lib/format";
@@ -90,6 +91,11 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
             <p className="mt-1">
               StackDash could not revoke access at {PROVIDER_NAMES[deleted.data]}. Remove StackDash&apos;s access in your{" "}
               {PROVIDER_NAMES[deleted.data]} account settings.
+            </p>
+          ) : null}
+          {first(query.webhook) === "remove" ? (
+            <p className="mt-1">
+              Remove the webhook in {PROVIDER_NAMES[deleted.data]} too: {webhookRemovalSteps(deleted.data)}
             </p>
           ) : null}
         </FeedbackBanner>
