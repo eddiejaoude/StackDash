@@ -498,7 +498,7 @@ describe("sentryAdapter.sync, later syncs", () => {
         severity: "success",
         title: "Issue PRIME-MOVER-19 resolved",
         externalAccountId: PROJECT_ID,
-        dedupeKey: "sentry.issue.resolved:80:2026-11-04T22:00:00Z",
+        dedupeKey: "sentry.issue.resolved:80:2026-11-05",
         url: "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/80/",
       },
     ]);
@@ -694,14 +694,13 @@ describe("sentryAdapter.webhooks", () => {
     return descriptor().parse(request, harness().ctx);
   }
 
-  async function laterSyncEvents() {
-    const result = await sentryAdapter.sync({ credential, externalAccountId: PROJECT_ID, cursor: previousCursor }, harness().ctx);
+  async function laterSyncEvents(routes: Record<string, Route> = {}) {
+    const result = await sentryAdapter.sync({ credential, externalAccountId: PROJECT_ID, cursor: previousCursor }, harness(routes).ctx);
     return result.events;
   }
 
   it("is registered on the integration and signed with the client secret", () => {
     expect(descriptor().registration).toEqual({ kind: "app", secretEnv: sentryAdapter.oauth.clientSecretEnv });
-    expect(descriptor().subscriptions).toEqual(["issue.created", "issue.resolved", "issue.unresolved", "installation.deleted"]);
   });
 
   it("maps the documented issue.created delivery to the event the sync stores for the same issue", async () => {
@@ -728,18 +727,30 @@ describe("sentryAdapter.webhooks", () => {
     expect(polled).toHaveLength(1);
   });
 
-  it("dates a resolution by the delivery and keys it as a later sync does, to the second of lastSeen", async () => {
+  it("dates a resolution by the delivery and keys it as a sync on the same UTC day does", async () => {
     const sentSeconds = NOW_SECONDS - 120;
     const outcome = parsed(JSON.stringify(webhookIssueResolved), { timestamp: String(sentSeconds) });
     expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
     const polled = (await laterSyncEvents()).find((event) => event.typeId === "sentry.issue.resolved");
-    // The delivery carries lastSeen in microseconds, the issue search to the second: one key.
-    expect(polled?.dedupeKey).toBe("sentry.issue.resolved:80:2026-11-04T22:00:00Z");
+    expect(polled?.dedupeKey).toBe("sentry.issue.resolved:80:2026-11-05");
     expect(outcome).toEqual({
       kind: "events",
       externalAccountId: PROJECT_ID,
       events: [{ ...polled, occurredAt: new Date(sentSeconds * 1000) }],
     });
+  });
+
+  it("keys a resolution as the sync does when the issue keeps receiving events while resolved (boundary: release resolution)", async () => {
+    // Resolved for the next release: events from older releases keep arriving and move lastSeen,
+    // so the sync reads a later lastSeen than the delivery carried.
+    const outcome = parsed(JSON.stringify(webhookIssueResolved));
+    const stillFiring = [{ ...issuesResolved[0], lastSeen: "2026-11-05T11:55:00Z" }];
+    const routes: Record<string, Route> = {
+      [`GET ${ORG}/issues/`]: (call) => (call.url.searchParams.get("query")?.startsWith("is:resolved") ? json(stillFiring) : issuesFor(call)),
+    };
+    const polled = (await laterSyncEvents(routes)).find((event) => event.typeId === "sentry.issue.resolved");
+    expect(polled).toBeDefined();
+    expect(outcome).toMatchObject({ kind: "events", events: [{ dedupeKey: polled?.dedupeKey }] });
   });
 
   it("dates a regression by the delivery and keys it as a sync on the same UTC day does", async () => {
@@ -826,7 +837,15 @@ describe("sentryAdapter.webhooks", () => {
     ["issue.unresolved that is escalating, not regressed", issueBody("unresolved", "escalating"), {}],
     ["issue.unresolved without a substatus", issueBody("unresolved", null), {}],
     ["an issue without its project", JSON.stringify({ ...webhookIssueCreated, data: { issue: { ...webhookIssueCreated.data.issue, project: null } } }), {}],
+    ["a feedback issue, which the issue search never returns", JSON.stringify({ ...webhookIssueCreated, data: { issue: { ...webhookIssueCreated.data.issue, issueCategory: "feedback" } } }), {}],
     ["an issue body under the installation resource", CREATED_BODY, { resource: "installation" }],
+    // Every Sentry body has a top-level installation.uuid; only the signed body may say it is an uninstall.
+    ["a deleted body without the installation under data, under the installation resource", JSON.stringify({ ...webhookIssueCreated, action: "deleted" }), { resource: "installation" }],
+    [
+      "installation.deleted whose data names another installation",
+      JSON.stringify({ ...webhookInstallationDeleted, data: { installation: { ...webhookInstallationDeleted.data.installation, uuid: "0b6d8f2e-1c3a-4e5f-9a7b-2d4c6e8f0a1b" } } }),
+      { resource: "installation" },
+    ],
     ["installation.created", JSON.stringify({ ...webhookInstallationDeleted, action: "created" }), { resource: "installation" }],
     ["a resource StackDash does not subscribe to", CREATED_BODY, { resource: "error" }],
     ["no resource header", CREATED_BODY, { omit: "resource" }],

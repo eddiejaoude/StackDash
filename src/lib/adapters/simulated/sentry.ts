@@ -84,16 +84,12 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
 function issue(accountId: string, slot: number, lane: number, ...parts: readonly (string | number)[]): IssueSnapshot {
   const level = unit(accountId, slot, ...parts, "level");
   const laneDigits = lane === 0 ? "" : String(lane).padStart(2, "0");
-  const firstSeen = instantInSlot(slot, accountId, ...parts, "first-seen");
   return {
     // Account first, so two projects or two simulated connections never share an issue id.
     id: `${accountId}${slot}${between(0, 9, accountId, slot, ...parts, "id")}${laneDigits}`,
     shortId: `${projectOf(accountId).toUpperCase()}-${Math.floor(unit(accountId, slot, ...parts, "short") * 36 ** 3).toString(36).toUpperCase()}`,
     level: level < 0.1 ? "fatal" : level < 0.8 ? "error" : "warning",
-    firstSeen,
-    // One event per simulated issue: a resolution's dedupe key reads it, and the id is already
-    // unique per slot and lane.
-    lastSeen: firstSeen,
+    firstSeen: instantInSlot(slot, accountId, ...parts, "first-seen"),
     permalink: null,
   };
 }

@@ -381,7 +381,7 @@ function isSentryLink(value: string | null | undefined): value is string {
 }
 
 /** The fields an issue event is built from; titles and messages are deliberately not among them. */
-export type IssueSnapshot = Pick<Issue, "id" | "shortId" | "level" | "firstSeen" | "lastSeen" | "permalink">;
+export type IssueSnapshot = Pick<Issue, "id" | "shortId" | "level" | "firstSeen" | "permalink">;
 
 function levelBody(level: string | null | undefined): { body: string } | Record<string, never> {
   const trimmed = level?.trim();
@@ -411,17 +411,13 @@ export function issueCreatedEvent(issue: IssueSnapshot, externalAccountId: strin
  * An issue that regressed or was resolved. A delivery dates it when Sentry sent it; a sync, which
  * cannot tell when the status changed, dates it when it saw the change.
  *
- * The dedupe key tells one change of an issue from another the same way whether a webhook or a
- * sync saw it, so the timeline stores it once (#421):
- * - Resolved: the issue's `lastSeen`, to the second. A resolved issue receives no events (a new one
- *   regresses it), so `lastSeen` stands still from the resolution until the next regression: a
- *   delivery and every later sync read the same value, and the next resolution has a later one.
- *   Whole seconds, because the issue search may report it to the second where a delivery carries
- *   microseconds.
- * - Regressed: the UTC day it was seen. Nothing on a regressed issue stands still (each new event
- *   moves `lastSeen`), so a delivery and the next sync agree by day: one regression event per issue
- *   per UTC day, and a regression delivered in the last poll interval before midnight UTC can show
- *   twice when the sync sees it after midnight (docs/providers/sentry.md, Limitations).
+ * The dedupe key is the issue and the UTC day of the change, the one value a delivery and the next
+ * sync both know, so the timeline stores the change once (#421). Nothing on the issue stands still
+ * across a change: each new event moves `lastSeen`, and an issue resolved for a release or a commit
+ * keeps receiving events from older releases while it stays resolved. So: one regression and one
+ * resolution per issue per UTC day, and a change delivered in the last poll interval before
+ * midnight UTC can show twice when the sync sees it after midnight (docs/providers/sentry.md,
+ * Limitations).
  */
 export function issueStatusEvent(
   change: "regressed" | "resolved",
@@ -430,7 +426,7 @@ export function issueStatusEvent(
   occurredAt: Date,
 ): ActivityEvent {
   const regressed = change === "regressed";
-  const changeKey = regressed ? occurredAt.toISOString().slice(0, 10) : searchTime(issue.lastSeen);
+  const utcDay = occurredAt.toISOString().slice(0, 10);
   const severity: EventSeverity = regressed
     ? issue.level === "fatal" || issue.level === "error"
       ? "critical"
@@ -443,7 +439,7 @@ export function issueStatusEvent(
     title: `Issue ${issue.shortId} ${change}`,
     ...(regressed ? levelBody(issue.level) : {}),
     externalAccountId,
-    dedupeKey: `sentry.issue.${change}:${issue.id}:${changeKey}`,
+    dedupeKey: `sentry.issue.${change}:${issue.id}:${utcDay}`,
     ...issueLink(issue),
   };
 }
@@ -709,7 +705,8 @@ function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now
  * a resolution and a regression (`unresolved` with substatus `regressed`) when Sentry sent the
  * delivery. `installation.deleted` names only the installation (#480): every connection granted
  * for it needs a reconnect, unless granted again after Sentry sent the delivery. `assigned`,
- * `archived`, any other `unresolved`, `installation.created`, and every other resource are
+ * `archived`, any other `unresolved`, feedback issues (which the issue search never returns, so
+ * polling never reports them either), `installation.created`, and every other resource are
  * ignored. The reasons are fixed text: nothing from the body reaches them.
  */
 function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
@@ -739,6 +736,7 @@ function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
   const { action, data } = parsed.data;
   const { issue } = data;
   const externalAccountId = issue.project.id;
+  if (issue.issueCategory === "feedback") return { kind: "ignored", reason: "feedback issues are not on the timeline" };
   if (action === "created") return { kind: "events", externalAccountId, events: [issueCreatedEvent(issue, externalAccountId)] };
   const change = action === "resolved" ? "resolved" : action === "unresolved" && issue.substatus === "regressed" ? "regressed" : undefined;
   if (change === undefined) return { kind: "ignored", reason: "issue action is not on the timeline" };
