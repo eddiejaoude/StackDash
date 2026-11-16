@@ -1790,10 +1790,11 @@ ownerTest.describe("timeline event inspector", () => {
     }
   });
 
-  // A shared link closes with replaceState, so the timeline entry keeps the search the link was
-  // rendered with. An event opened from it, a live update, and Forward back to that event must still
-  // open it: Forward reopens from the URL, which holds live updates too.
-  ownerTest("reopens with Forward after a shared link was closed and a live update arrived", async ({ page }) => {
+  // Closing a shared link renders the timeline through the router, so the entry's stored search
+  // matches its URL. With replaceState it kept the link's search: an event opened from it, a live
+  // update, and Forward back to that event reopened it, but Older and Newer then changed the URL
+  // and the panel never moved, because the restore they start reached a page Next cached empty.
+  ownerTest("moves through events after Forward to one opened from a closed shared link and a live update", async ({ page }) => {
     const workspace = await seedTimeline("Inspector shared live update");
     try {
       const path = `/w/${workspace.slug}/timeline`;
@@ -1821,6 +1822,10 @@ ownerTest.describe("timeline event inspector", () => {
       await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
 
       await page.goForward();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+      await inspector.getByRole("button", { name: "Older event" }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 2", exact: true })).toBeVisible();
+      await inspector.getByRole("button", { name: "Newer event" }).click();
       await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);

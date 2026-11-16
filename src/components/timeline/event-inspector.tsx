@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createContext, use, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { PublishAchievementButton } from "@/components/achievements/achievement-controls";
@@ -72,6 +72,8 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
   children: ReactNode;
 }) {
   const searchParams = useSearchParams();
+  // The router's own method, stable across renders, unlike the object around it.
+  const { replace } = useRouter();
   const selectedId = parseTimelineEventId(searchParams.get("event") ?? undefined);
   const open = selectedId !== null;
   const selected = events.find((event) => event.id === selectedId)
@@ -172,8 +174,13 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
       window.history.back();
       return;
     }
+    // Opened by a document load (a shared link, a reload), so the router rendered this entry with
+    // the event in its search. replaceState would keep that search under a URL without it: an
+    // event opened from here copies it, and once a live refresh has run, Back or Forward to that
+    // event restores a page Next cached empty, so Older and Newer stop moving the panel (#477).
+    // The router renders the entry again instead, at the cost of one server render.
     url.searchParams.delete("event");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
   }
 
   function moveTo(event: InspectorEvent | undefined) {
