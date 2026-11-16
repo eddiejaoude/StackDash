@@ -4,8 +4,6 @@ import { expect, type Page, type Request } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import type { Database } from "../../src/lib/supabase/database.types";
-
 import { adminClient } from "./db";
 
 // A change reaches an open page within a few seconds: Realtime delivery, the refresh debounce, and
@@ -78,6 +76,12 @@ export async function expectSubscribed(channel: LiveChannel): Promise<void> {
 // The one column `insertUnheard` reads from a delivered row.
 const InsertedRowSchema = z.object({ id: z.string() });
 
+// The tables in the `supabase_realtime` publication
+// (supabase/migrations/20261104090000_realtime_publication.sql): the only ones Realtime delivers
+// changes from. The same list as `LIVE_TABLES` in src/components/app/live-refresh.tsx, which a spec
+// cannot import (a client component).
+type PublishedTable = "activity_events" | "usage_snapshots" | "connections" | "triggered_alerts";
+
 /**
  * Runs `insert`, which writes one row to `table` in the workspace and returns its id, and resolves
  * with that id once Realtime has read the insert, so a page that subscribes afterwards never hears
@@ -86,13 +90,15 @@ const InsertedRowSchema = z.object({ id: z.string() });
  * just before a page opens can still reach that page once it subscribes, and LiveRefresh renders
  * the route again `REFRESH_DEBOUNCE_MS` later (src/lib/realtime/refresh-scheduler.ts). That is
  * harmless until the test deletes the row: the refresh then renders the page after the delete, as
- * not found. Seed a row the test deletes behind an open page through this.
+ * not found. Seed a row in a published table that the test deletes behind an open page through
+ * this. A row in any other table never reaches a page, needs nothing, and could never be awaited
+ * here, so `table` admits only the published ones.
  *
  * A service role channel subscribes before the insert, which makes its delivery certain; once it
  * has arrived there, Realtime has read it, and a later subscription is never matched against it.
  */
 export async function insertUnheard(
-  table: keyof Database["public"]["Tables"],
+  table: PublishedTable,
   workspaceId: string,
   insert: () => Promise<string>,
 ): Promise<string> {
