@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { ProviderUnavailableError } from "@/lib/adapters/errors";
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
+import { exampleAdapter } from "@/lib/adapters/example";
 import { gitlabAdapter, metricKeys as gitlabMetricKeys } from "@/lib/adapters/gitlab";
 import { githubAdapter } from "@/lib/adapters/github";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
@@ -21,6 +22,7 @@ import {
   type OAuthCredential,
   type ProviderAdapter,
   type SyncResult,
+  type WebhookDescriptor,
 } from "@/lib/adapters/types";
 import { spendCategories, TOTAL_METRIC_KEY, vercelAdapter } from "@/lib/adapters/vercel";
 import { aggregateDashboard, type AccountInput, type ConnectionInput, type CurrencyAmounts, type SnapshotInput } from "@/lib/dashboard/aggregate";
@@ -38,6 +40,7 @@ import {
   SIMULATED_POLL_INTERVAL_SECONDS,
   simulatedAdapters,
   simulatedAdaptersAtVolume,
+  SIMULATED_WEBHOOK_SECRET_ENV,
 } from "./index";
 import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
 import { DAY_MS, DEFAULT_EVENT_VOLUME, isLaunchDay, isWeekend, MAX_EVENT_VOLUME, type SimulatedIncident } from "./simulation";
@@ -237,6 +240,38 @@ describe("simulated adapter declarations", () => {
       state: "state-1",
       redirect_uri: "http://localhost:3000/api/connections/stripe/callback",
       scope: SIMULATED_SCOPE,
+    });
+  });
+
+  it.each(liveProviderIds)("%s receives webhooks exactly when its live adapter does, through the live verify and parse", (id) => {
+    const real = REAL[id].webhooks;
+    const simulated = simulatedAdapters[id].webhooks;
+    if (real === undefined) {
+      expect(simulated).toBeUndefined();
+      return;
+    }
+    expect(simulated?.subscriptions).toBe(real.subscriptions);
+    expect(simulated?.verify).toBe(real.verify);
+    expect(simulated?.parse).toBe(real.parse);
+  });
+
+  describe("webhook secrets (#479)", () => {
+    const descriptor = exampleAdapter.webhooks;
+    if (descriptor === undefined) throw new Error("the example adapter declares webhooks");
+    const withWebhooks = (webhooks: WebhookDescriptor) =>
+      createSimulatedAdapter({ ...vercelProfile, real: { ...vercelAdapter, webhooks } }, "vercel").webhooks;
+
+    it("reads an app-level secret from the one simulated variable, never the provider's own", () => {
+      const simulated = withWebhooks(descriptor);
+      expect(descriptor.registration).toEqual({ kind: "app", secretEnv: "EXAMPLE_WEBHOOK_SECRET" });
+      expect(simulated?.registration).toEqual({ kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV });
+      expect(simulated?.verify).toBe(descriptor.verify);
+      expect(simulated?.parse).toBe(descriptor.parse);
+    });
+
+    it("keeps a per-connection registration, whose secret is stored for its connection", () => {
+      const perConnection: WebhookDescriptor = { ...descriptor, registration: { kind: "connection" } };
+      expect(withWebhooks(perConnection)?.registration).toEqual({ kind: "connection" });
     });
   });
 });
