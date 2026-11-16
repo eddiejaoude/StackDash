@@ -2,11 +2,11 @@ import { z } from "zod";
 import { InvalidResponseError, PermissionMissingError } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { OAuthContext, Secret } from "../types";
-import { getRepositoryJson, repositoryEndpoint, type ActivityPermission, type RepositoryPath } from "./api";
+import { getRepositoryJson, repositoryEndpoint, type RepositoryPath } from "./api";
 import {
   IssuesSchema,
   PullRequestsSchema,
-  ReleasesSchema,
+  RepositoryEventsSchema,
   type Issue,
   type PullRequest,
   type Release,
@@ -14,10 +14,12 @@ import {
 
 /**
  * Developer activity for the timeline (#62): pull requests merged, issues opened, and releases
- * published, per docs/providers/github.md ("Timeline events"). Webhooks deliver them within a
- * minute (./webhooks.ts); the hourly sync reads the same three lists as the backfill. Both build
- * every event with the functions here, so a delivered event and the same event polled later share
- * a dedupe key and the timeline stores it once.
+ * published, per docs/providers/github.md ("Timeline events"). Webhooks deliver merges and issues
+ * within a minute (./webhooks.ts), and the hourly sync reads the same lists as the backfill.
+ * Releases are polled only, from the repository events feed: the `release` webhook and the release
+ * list need Contents read, which also reads code, and the feed needs only Metadata read (decided by
+ * Eddie on #62). Both paths build every event with the functions here, so a delivered event and the
+ * same event polled later share a dedupe key and the timeline stores it once.
  *
  * Only a number, a tag, a time, and a link are kept: titles, bodies, and authors are written by
  * people (anyone can open an issue on a public repository), so they never reach an event.
@@ -122,16 +124,23 @@ export function releasePublishedEvent(repo: ActivityRepository, release: Release
 // only has to catch what a delivery missed: a hundred merges or new issues in one repository
 // within a poll is beyond any repository's normal hour, and a fuller page is logged.
 export const ACTIVITY_PAGE_SIZE = 100;
-// Release pages carry release notes and asset lists, so they are read 30 at a time, GitHub's default.
-const RELEASES_PAGE_SIZE = 30;
+// The events feed holds every event type and at most 300 events from the last 30 days ("REST API
+// endpoints for events"), so a busy repository can need all three of its pages to reach back to
+// the read window.
+const EVENTS_MAX_PAGES = 3;
+// GitHub: "This API is not built to serve real-time use cases. Depending on the time of day, event
+// latency can be anywhere from 30s to 6h." The feed is read back that much further than the other
+// lists, so a release that reached the feed late is still inside the window; the dedupe key absorbs
+// the overlap.
+export const EVENTS_FEED_LATENCY_MS = 6 * 60 * 60 * 1000;
 
 /** One activity list: the permission it needs, its path, and what it is called in a partial error. */
-type ActivityRead = Readonly<{ permission: ActivityPermission; suffix: string; what: string }>;
+type ActivityRead = Readonly<{ permission: string; suffix: string; what: string }>;
 
 export const activityReads = {
   pullRequests: { permission: "pull_requests", suffix: "/pulls", what: "merged pull requests" },
   issues: { permission: "issues", suffix: "/issues", what: "opened issues" },
-  releases: { permission: "contents", suffix: "/releases", what: "published releases" },
+  releases: { permission: "metadata", suffix: "/events", what: "published releases" },
 } as const satisfies Record<string, ActivityRead>;
 
 /** The permission a timeline read needs, refused or not granted, as the partial error the sync reports. */
@@ -167,7 +176,7 @@ async function readActivity<T>(read: () => Promise<T>, what: ActivityRead, ctx: 
 export type ActivityResult = {
   events: ActivityEvent[];
   // Permissions that were granted but refused for this repository.
-  refused: Map<ActivityPermission, PermissionMissingError>;
+  refused: Map<string, PermissionMissingError>;
 };
 
 /**
@@ -179,11 +188,11 @@ export async function collectActivity(
   installationToken: Secret,
   repo: ActivityRepository & RepositoryPath,
   since: Date,
-  granted: ReadonlySet<ActivityPermission>,
+  granted: ReadonlySet<string>,
   externalAccountId: string,
 ): Promise<ActivityResult> {
   const events: ActivityEvent[] = [];
-  const refused = new Map<ActivityPermission, PermissionMissingError>();
+  const refused = new Map<string, PermissionMissingError>();
   const after = (iso: string) => Date.parse(iso) > since.getTime();
   const truncated = (what: ActivityRead) =>
     ctx.logger.warn("github.sync.activity_truncated", { endpoint: repositoryEndpoint(what.suffix), pageSize: ACTIVITY_PAGE_SIZE });
@@ -245,19 +254,33 @@ export async function collectActivity(
 
   if (granted.has(activityReads.releases.permission)) {
     const what = activityReads.releases;
-    const result = await readActivity(
-      () => getRepositoryJson(ctx, repo, what.suffix, installationToken, ReleasesSchema, { per_page: String(RELEASES_PAGE_SIZE) }),
-      what,
-      ctx,
-    );
-    if (result.ok) {
-      for (const release of result.value) {
-        if (release.published_at === null || !after(release.published_at)) continue;
+    const releasesSince = since.getTime() - EVENTS_FEED_LATENCY_MS;
+    for (let page = 1; page <= EVENTS_MAX_PAGES; page += 1) {
+      const result = await readActivity(
+        () =>
+          getRepositoryJson(ctx, repo, what.suffix, installationToken, RepositoryEventsSchema, {
+            per_page: String(ACTIVITY_PAGE_SIZE),
+            page: String(page),
+          }),
+        what,
+        ctx,
+      );
+      if (!result.ok) {
+        if (result.refused !== undefined) refused.set(what.permission, activityPermissionError(what, result.refused));
+        break;
+      }
+      for (const feedEvent of result.value) {
+        // Only a `ReleaseEvent` carries a payload (RepositoryEventsSchema); `published` is its only action.
+        if (!("payload" in feedEvent) || feedEvent.payload.action !== "published") continue;
+        const { release } = feedEvent.payload;
+        if (release.published_at === null || Date.parse(release.published_at) <= releasesSince) continue;
         const event = releasePublishedEvent(repo, release, externalAccountId);
         if (event !== undefined) events.push(event);
       }
-    } else if (result.refused !== undefined) {
-      refused.set(what.permission, activityPermissionError(what, result.refused));
+      const last = result.value.at(-1);
+      // Newest first: a short page, or one reaching back past the window, is the end of the read.
+      if (result.value.length < ACTIVITY_PAGE_SIZE || last === undefined || Date.parse(last.created_at) <= releasesSince) break;
+      if (page === EVENTS_MAX_PAGES) truncated(what);
     }
   }
 

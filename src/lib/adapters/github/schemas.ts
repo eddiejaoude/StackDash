@@ -116,7 +116,8 @@ export const IssueSchema = z.object({
 export const IssuesSchema = z.array(IssueSchema);
 export type Issue = z.infer<typeof IssueSchema>;
 
-// `GET /repos/{owner}/{repo}/releases`. A draft has no `published_at` until it is published.
+// The release object (`GET /repos/{owner}/{repo}/releases/{release_id}`), as a `ReleaseEvent` in the
+// repository events feed carries it. A draft has no `published_at` until it is published.
 export const ReleaseSchema = z.object({
   id: z.int().positive(),
   tag_name: z.string().min(1),
@@ -124,8 +125,22 @@ export const ReleaseSchema = z.object({
   published_at: z.iso.datetime({ offset: true }).nullable(),
   html_url: z.string(),
 });
-export const ReleasesSchema = z.array(ReleaseSchema);
 export type Release = z.infer<typeof ReleaseSchema>;
+
+// `GET /repos/{owner}/{repo}/events`, newest first, every event type. Only a `ReleaseEvent` is read,
+// and its `payload.release` must hold the release object: a release event whose payload drifted
+// matches neither shape, so the page fails to parse rather than losing releases silently. `actor`
+// (the person) and every other event's payload are never declared, so they are dropped here.
+const ReleaseFeedEventSchema = z.object({
+  type: z.literal("ReleaseEvent"),
+  created_at: z.iso.datetime({ offset: true }),
+  payload: z.object({ action: z.string(), release: ReleaseSchema }),
+});
+const OtherFeedEventSchema = z.object({
+  type: z.string().refine((type) => type !== "ReleaseEvent"),
+  created_at: z.iso.datetime({ offset: true }),
+});
+export const RepositoryEventsSchema = z.array(z.union([ReleaseFeedEventSchema, OtherFeedEventSchema]));
 
 // The repository in a webhook body. An app installation covers one account's repositories, so the
 // owner's id is the installation account's id: the external account the delivery belongs to.
@@ -149,13 +164,6 @@ export const IssuesDeliverySchema = z.object({
   action: z.string(),
   repository: WebhookRepositorySchema,
   issue: IssueSchema,
-});
-
-// `X-GitHub-Event: release`.
-export const ReleaseDeliverySchema = z.object({
-  action: z.string(),
-  repository: WebhookRepositorySchema,
-  release: ReleaseSchema,
 });
 
 // `X-GitHub-Event: star`. `starred_at` is null on `deleted`. The stargazer (`sender`) is not read.

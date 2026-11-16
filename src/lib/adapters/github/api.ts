@@ -185,12 +185,11 @@ export function assertNotSuspended(installation: Installation): void {
   }
 }
 
-// Repository permissions the timeline's activity reads use (#62): merged pull requests, opened
-// issues, and published releases. Each is optional, because an installation made before they were
-// added keeps them only once its owner accepts the app's new permissions, and until then stars,
-// forks, and billing must keep syncing.
-export const activityPermissions = ["pull_requests", "issues", "contents"] as const;
-export type ActivityPermission = (typeof activityPermissions)[number];
+// Repository permissions the timeline's activity reads add (#62): merged pull requests and opened
+// issues. Each is optional, because an installation made before they were added keeps them only once
+// its owner accepts the app's new permissions, and until then stars, forks, releases, and billing
+// must keep syncing. Releases need none: the repository events feed needs only Metadata read.
+export const activityPermissions = ["pull_requests", "issues"] as const;
 
 /** True when the installation holds `permission` at read level or above. */
 export function grantsRead(installation: Installation, permission: string): boolean {

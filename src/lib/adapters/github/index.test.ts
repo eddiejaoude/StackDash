@@ -26,7 +26,9 @@ import installationToken from "./fixtures/installation-token.json";
 import issues from "./fixtures/issues.json";
 import premiumRequestUsage from "./fixtures/premium-request-usage.json";
 import pulls from "./fixtures/pulls.json";
-import releases from "./fixtures/releases.json";
+// Shaped like "GitHub event types" (common properties, `ReleaseEvent` with the release object),
+// with synthetic ids and people.
+import repositoryEvents from "./fixtures/repository-events.json";
 import stargazersCount from "./fixtures/stargazers-count.json";
 import userInstallations from "./fixtures/user-installations.json";
 import userToken from "./fixtures/user-token.json";
@@ -38,7 +40,6 @@ import installationDeleted from "./fixtures/webhook-installation-deleted.json";
 import installationSuspend from "./fixtures/webhook-installation-suspend.json";
 import issueOpenedDelivery from "./fixtures/webhook-issues-opened.json";
 import pullRequestClosedDelivery from "./fixtures/webhook-pull-request-closed.json";
-import releasePublishedDelivery from "./fixtures/webhook-release-published.json";
 import starCreatedDelivery from "./fixtures/webhook-star-created.json";
 
 const NOW = new Date("2026-10-31T12:00:00Z");
@@ -76,7 +77,7 @@ function orgRoutes(): Routes {
     // events; "sync: timeline activity" below reads the recorded lists.
     [`GET ${api(`${repoPath}/pulls`)}`]: json([]),
     [`GET ${api(`${repoPath}/issues`)}`]: json([]),
-    [`GET ${api(`${repoPath}/releases`)}`]: json([]),
+    [`GET ${api(`${repoPath}/events`)}`]: json([]),
     [`GET ${api(`${orgBilling}/usage/summary`)}`]: json(billingSummary),
     [`GET ${api(`${orgBilling}/usage`)}`]: json(billingUsage),
     [`GET ${api(`${orgBilling}/ai_credit/usage`)}`]: json(aiCreditUsage),
@@ -190,16 +191,16 @@ describe("githubAdapter descriptor", () => {
   it("discloses every read permission before connecting, with what each activity permission also allows", () => {
     // GitHub Apps have no OAuth scopes: the connect screen lists the app's permissions instead.
     expect(githubAdapter.oauth.scopes).toEqual([]);
+    // No Contents read: it also reads code, so releases come from the events feed (Metadata read).
     expect(githubAdapter.permissions.map((permission) => [permission.scope, permission.access])).toEqual([
       ["metadata:read", "read"],
       ["organization_administration:read", "read"],
       ["plan:read", "read"],
       ["pull_requests:read", "read"],
       ["issues:read", "read"],
-      ["contents:read", "read"],
     ]);
     const descriptionOf = (scope: string) => githubAdapter.permissions.find((permission) => permission.scope === scope)?.description ?? "";
-    expect(descriptionOf("contents:read")).toMatch(/can also read the code/);
+    expect(descriptionOf("metadata:read")).toMatch(/published releases from each repository's event feed/);
     expect(descriptionOf("pull_requests:read")).toMatch(/keeps only the number/);
     expect(descriptionOf("issues:read")).toMatch(/keeps only the number/);
     // The activity permissions are optional: a grant without them is not missing anything at connect.
@@ -531,7 +532,7 @@ describe("sync", () => {
     expect(Object.fromEntries(summaryCall?.url.searchParams ?? [])).toEqual({ year: "2026", month: "10" });
     const [mint] = callsTo("POST", api(`/app/installations/${INSTALLATION_ID}/access_tokens`));
     expect(JSON.parse(mint?.body ?? "{}")).toEqual({
-      permissions: { metadata: "read", organization_administration: "read", pull_requests: "read", issues: "read", contents: "read" },
+      permissions: { metadata: "read", organization_administration: "read", pull_requests: "read", issues: "read" },
     });
     // Premium requests are only the fallback when AI credits have no rows.
     expect(callsTo("GET", api(`${orgBilling}/premium_request/usage`))).toHaveLength(0);
@@ -794,10 +795,20 @@ describe("sync: timeline activity", () => {
   const recorded = {
     [`GET ${api(`${repoPath}/pulls`)}`]: json(pulls),
     [`GET ${api(`${repoPath}/issues`)}`]: json(issues),
-    [`GET ${api(`${repoPath}/releases`)}`]: json(releases),
+    [`GET ${api(`${repoPath}/events`)}`]: json(repositoryEvents),
   };
   const activityKeys = (events: SyncResult["events"]) =>
     events.filter((event) => !event.typeId.startsWith("github.stars.") && !event.typeId.startsWith("github.forks.")).map((event) => event.dedupeKey);
+  // The fixture's release v1.2.0 event, written out so each boundary case can bend one field of it.
+  const releaseEvent = {
+    type: "ReleaseEvent",
+    actor: { id: 8300001, login: "maintainer-a" },
+    created_at: "2026-10-31T08:00:01Z",
+    payload: {
+      action: "published",
+      release: { id: 6000002, tag_name: "v1.2.0", draft: false, published_at: "2026-10-31T08:00:00Z", html_url: "https://github.com/example-org/example-repo/releases/tag/v1.2.0" },
+    },
+  };
 
   it("backfills a week of merges, opened issues, and published releases on the first sync (happy path)", async () => {
     const { ctx, callsTo } = harness(recorded);
@@ -806,7 +817,8 @@ describe("sync: timeline activity", () => {
     expect(checkSyncResult(githubAdapter, ACCOUNT_ID, result)).toEqual([]);
     expect(result.partialErrors).toBeUndefined();
     // Pull request 41 was closed unmerged, 40 merged before the week, issue 42 is pull request 42,
-    // issue 39 was opened before the week, and v1.3.0 is a draft.
+    // issue 39 was opened before the week, release v1.1.0 was published before the week, and the
+    // watch and push events in the feed are not releases.
     expect(activityKeys(result.events)).toEqual([
       "github.pull_request.merged:5000001:42",
       "github.issue.opened:5000001:43",
@@ -841,24 +853,72 @@ describe("sync: timeline activity", () => {
         url: "https://github.com/example-org/example-repo/releases/tag/v1.2.0",
       },
     ]);
-    // Titles, notes, and people are never read.
-    for (const text of ["Synthetic", "contributor-a", "reporter-a", "maintainer-a"]) expect(JSON.stringify(result.events)).not.toContain(text);
+    // Titles, notes, and people (authors, the feed's actors) are never read.
+    for (const text of ["Synthetic", "contributor-a", "reporter-a", "maintainer-a", "stargazer-a"]) expect(JSON.stringify(result.events)).not.toContain(text);
 
     const query = (path: string) => Object.fromEntries(callsTo("GET", api(`${repoPath}${path}`))[0]?.url.searchParams ?? []);
     expect(query("/pulls")).toEqual({ state: "closed", sort: "updated", direction: "desc", per_page: "100" });
     expect(query("/issues")).toEqual({ state: "all", sort: "created", direction: "desc", since: "2026-10-24T12:00:00.000Z", per_page: "100" });
-    expect(query("/releases")).toEqual({ per_page: "30" });
+    expect(query("/events")).toEqual({ per_page: "100", page: "1" });
+    // No Contents read: the release list is never called.
+    expect(callsTo("GET", api(`${repoPath}/releases`))).toEqual([]);
     expect((JSON.parse(result.cursor ?? "{}") as Cursor).activityReadAt).toBe(NOW.toISOString());
   });
 
-  it("reads back to the previous sync less one poll interval, so the overlap is the same keys (boundary: chained syncs)", async () => {
+  it("reads back to the previous sync less one poll interval, and the events feed six hours further, so the overlap is the same keys (boundary: chained syncs)", async () => {
     const first = await githubAdapter.sync(syncInput(), harness(recorded).ctx);
-    // Half an hour later: the read starts at 11:00 less an hour, so only issue 43 (11:00) is in it.
+    // Half an hour later: the lists read from 11:00 less an hour, so only issue 43 (11:00) is in
+    // them. The events feed reads from 04:00, GitHub's documented 6 hour latency earlier, so release
+    // v1.2.0 (08:00) is read again; its key is the one already stored.
     const later = new Date("2026-10-31T12:30:00Z");
     const previous = { ...(JSON.parse(first.cursor ?? "{}") as Cursor), activityReadAt: "2026-10-31T11:00:00.000Z" };
     const next = await githubAdapter.sync(syncInput(JSON.stringify(previous)), harness(recorded, { now: later }).ctx);
-    expect(activityKeys(next.events)).toEqual(["github.issue.opened:5000001:43"]);
-    expect(activityKeys(first.events)).toContain("github.issue.opened:5000001:43");
+    expect(activityKeys(next.events)).toEqual(["github.issue.opened:5000001:43", "github.release.published:5000001:6000002"]);
+    expect(activityKeys(first.events)).toEqual(expect.arrayContaining(activityKeys(next.events)));
+  });
+
+  it.each([
+    { name: "published inside the latency allowance", publishedAt: "2026-10-31T04:00:01Z", read: true },
+    { name: "published exactly at the allowance's start", publishedAt: "2026-10-31T04:00:00Z", read: false },
+  ])("reads a release that reached the feed late (boundary: $name)", async ({ publishedAt, read }) => {
+    // The previous sync ran at 11:00, so the lists read from 10:00 and the feed from 04:00.
+    const late = { ...releaseEvent, payload: { ...releaseEvent.payload, release: { ...releaseEvent.payload.release, published_at: publishedAt } } };
+    const previous: Cursor = { v: 1, repos: {}, activityReadAt: "2026-10-31T11:00:00.000Z" };
+    const { ctx } = harness({ ...recorded, [`GET ${api(`${repoPath}/events`)}`]: json([late]) });
+    const result = await githubAdapter.sync(syncInput(JSON.stringify(previous)), ctx);
+    expect(activityKeys(result.events).includes("github.release.published:5000001:6000002")).toBe(read);
+  });
+
+  it("reads further pages of the feed until it reaches back past the window, at most three (boundary: busy repository)", async () => {
+    const watch = repositoryEvents[0];
+    if (watch === undefined) throw new Error("expected the watch event fixture");
+    const busy = Array.from({ length: 100 }, () => ({ ...watch, created_at: "2026-10-31T11:00:00Z" }));
+    const pages: Record<string, unknown[]> = { "1": busy, "2": [...busy.slice(0, 99), releaseEvent], "3": busy };
+    const { ctx, callsTo, warnings } = harness({
+      ...recorded,
+      [`GET ${api(`${repoPath}/events`)}`]: (call) => Response.json(pages[call.url.searchParams.get("page") ?? ""] ?? []),
+    });
+    const result = await githubAdapter.sync(syncInput(), ctx);
+    expect(activityKeys(result.events)).toContain("github.release.published:5000001:6000002");
+    // Page 2 ends with an event inside the window, so page 3 is read, and it is still full and inside: logged, and no page 4.
+    expect(callsTo("GET", api(`${repoPath}/events`)).map((call) => call.url.searchParams.get("page"))).toEqual(["1", "2", "3"]);
+    expect(warnings).toContain("github.sync.activity_truncated");
+  });
+
+  it("stops at the first page that is short or reaches back past the window (boundary: one page)", async () => {
+    const { ctx, callsTo, warnings } = harness(recorded);
+    await githubAdapter.sync(syncInput(), ctx);
+    expect(callsTo("GET", api(`${repoPath}/events`))).toHaveLength(1);
+    expect(warnings).not.toContain("github.sync.activity_truncated");
+  });
+
+  it("fails the sync on a release event that lost its id or publish time, naming the template (boundary: feed payload drift)", async () => {
+    const { id: _dropped, ...withoutId } = releaseEvent.payload.release;
+    const drifted = { ...releaseEvent, payload: { ...releaseEvent.payload, release: withoutId } };
+    const { ctx } = harness({ ...recorded, [`GET ${api(`${repoPath}/events`)}`]: json([drifted]) });
+    const error = await githubAdapter.sync(syncInput(), ctx).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(InvalidResponseError);
+    expect(error instanceof InvalidResponseError ? error.endpoint : undefined).toBe("https://api.github.com/repos/{owner}/{repo}/events");
   });
 
   it.each([
@@ -879,9 +939,10 @@ describe("sync: timeline activity", () => {
     });
     const result = await githubAdapter.sync(syncInput(), ctx);
 
-    expect(result.partialErrors?.map((error) => error.missingScopes)).toEqual([["pull_requests:read"], ["issues:read"], ["contents:read"]]);
-    expect(calls.some((call) => /\/(pulls|issues|releases)$/.test(call.url.pathname))).toBe(false);
-    expect(activityKeys(result.events)).toEqual([]);
+    // Releases need only Metadata read, so they are still read.
+    expect(result.partialErrors?.map((error) => error.missingScopes)).toEqual([["pull_requests:read"], ["issues:read"]]);
+    expect(calls.some((call) => /\/(pulls|issues)$/.test(call.url.pathname))).toBe(false);
+    expect(activityKeys(result.events)).toEqual(["github.release.published:5000001:6000002", "github.release.published:5000002:6000002"]);
     expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 190 });
     expect(metric(result.metrics, "github.spend.actions")).toBeDefined();
     // The token asks only for what the installation holds: GitHub cannot grant more.
@@ -976,7 +1037,7 @@ describe("sync: new stars over one UTC day", () => {
     for (const repo of repos) {
       routes[`GET ${api(`/repos/example-org/${repo.name}/stargazers/count`)}`] = json({ count: repo.count });
       routes[`GET ${api(`/repos/example-org/${repo.name}/forks`)}`] = json([]);
-      for (const list of ["pulls", "issues", "releases"]) routes[`GET ${api(`/repos/example-org/${repo.name}/${list}`)}`] = json([]);
+      for (const list of ["pulls", "issues", "events"]) routes[`GET ${api(`/repos/example-org/${repo.name}/${list}`)}`] = json([]);
     }
     const cursor: Cursor = { v: 1, repos: previous };
     const result = await githubAdapter.sync(syncInput(JSON.stringify(cursor)), harness(routes, { now }).ctx);
@@ -1137,7 +1198,8 @@ describe("webhooks", () => {
 
   it("is an app registration whose secret is GITHUB_APP_WEBHOOK_SECRET, subscribed to the timeline and app events", () => {
     expect(descriptor().registration).toEqual({ kind: "app", secretEnv: "GITHUB_APP_WEBHOOK_SECRET" });
-    expect(descriptor().subscriptions).toEqual(["pull_request", "issues", "release", "star", "installation", "github_app_authorization"]);
+    // No `release`: it needs Contents read, so releases are polled from the events feed.
+    expect(descriptor().subscriptions).toEqual(["pull_request", "issues", "star", "installation", "github_app_authorization"]);
     expect(checkAdapterDeclaration(githubAdapter)).toEqual([]);
   });
 
@@ -1166,18 +1228,16 @@ describe("webhooks", () => {
     expect(descriptor().verify(delivery("pull_request", pullRequestClosedDelivery, options), WEBHOOK_SECRET, NOW)).toEqual({ ok: false, reason });
   });
 
-  it("maps a merge, an opened issue, and a published release to the events the sync stores for them", async () => {
+  it("maps a merge and an opened issue to the events the sync stores for them", async () => {
     const { ctx } = harness({
       [`GET ${api(`${repoPath}/pulls`)}`]: json(pulls),
       [`GET ${api(`${repoPath}/issues`)}`]: json(issues),
-      [`GET ${api(`${repoPath}/releases`)}`]: json(releases),
     });
     const polled = (await githubAdapter.sync(syncInput(), ctx)).events;
 
     for (const [event, body, dedupeKey] of [
       ["pull_request", pullRequestClosedDelivery, "github.pull_request.merged:5000001:42"],
       ["issues", issueOpenedDelivery, "github.issue.opened:5000001:43"],
-      ["release", releasePublishedDelivery, "github.release.published:5000001:6000002"],
     ] as const) {
       const outcome = received(event, body);
       expect(checkWebhookOutcome(githubAdapter, outcome), event).toEqual([]);
@@ -1244,8 +1304,9 @@ describe("webhooks", () => {
     ["a pull request closed without merging", "pull_request", { ...pullRequestClosedDelivery, pull_request: { ...pullRequestClosedDelivery.pull_request, merged: false, merged_at: null } }],
     ["a pull request opened", "pull_request", { ...pullRequestClosedDelivery, action: "opened" }],
     ["an issue edited", "issues", { ...issueOpenedDelivery, action: "edited" }],
-    ["a release created as a draft", "release", { ...releasePublishedDelivery, action: "created" }],
-    ["a release published as a draft", "release", { ...releasePublishedDelivery, release: { ...releasePublishedDelivery.release, draft: true } }],
+    // Not subscribed (it needs Contents read): a delivery that arrives anyway is ignored, and the
+    // events feed brings the release.
+    ["a release, which the app does not subscribe to", "release", { action: "published", repository: pullRequestClosedDelivery.repository, release: { id: 6000002, tag_name: "v1.2.0", draft: false, published_at: "2026-10-31T08:00:00Z", html_url: "https://github.com/example-org/example-repo/releases/tag/v1.2.0" } }],
     ["an unstar, which the daily net counts", "star", { ...starCreatedDelivery, action: "deleted", starred_at: null }],
     ["a star without its time", "star", { ...starCreatedDelivery, starred_at: null }],
     ["an installation unsuspended", "installation", { ...installationSuspend, action: "unsuspend" }],

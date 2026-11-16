@@ -47,10 +47,10 @@ import { githubWebhooks } from "./webhooks";
  * Sync mints a short-lived installation token from the app JWT every run. Personal accounts keep
  * the user token as well, because personal billing endpoints only accept user tokens.
  *
- * Webhooks (./webhooks.ts) put merged pull requests, opened issues, published releases, and new
- * stars on the timeline within a minute, and report an uninstall, a suspension, or a revoked user
- * authorization at once; the hourly sync stays the backfill (./activity.ts) and the only source of
- * billing, star counts, and forks.
+ * Webhooks (./webhooks.ts) put merged pull requests, opened issues, and new stars on the timeline
+ * within a minute, and report an uninstall, a suspension, or a revoked user authorization at once;
+ * the hourly sync stays the backfill (./activity.ts), the only source of published releases (from
+ * the repository events feed), and the only source of billing, star counts, and forks.
  */
 
 const OAUTH_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
@@ -68,7 +68,6 @@ const appPermissions = {
   plan: "plan:read",
   pullRequests: "pull_requests:read",
   issues: "issues:read",
-  contents: "contents:read",
 } as const;
 
 /** What a request to the shared callback route carries, for the route to pick the next step. */
@@ -310,7 +309,7 @@ export const githubAdapter: ProviderAdapter = {
       scope: appPermissions.metadata,
       access: "read",
       description:
-        "Repository metadata: the repositories you choose, their star counts, and new forks. On private repositories it can also read collaborators and contributors; StackDash does not.",
+        "Repository metadata: the repositories you choose, their star counts, new forks, and published releases from each repository's event feed. On private repositories it can also read collaborators, contributors, and who did what in that feed; StackDash keeps only each release's tag, time, and link.",
     },
     {
       scope: appPermissions.organizationAdministration,
@@ -334,12 +333,6 @@ export const githubAdapter: ProviderAdapter = {
       access: "read",
       description:
         "Issues: when one is opened, for the timeline. It can also read issue titles, comments, and labels; StackDash keeps only the number.",
-    },
-    {
-      scope: appPermissions.contents,
-      access: "read",
-      description:
-        "Contents: when a release is published, for the timeline. GitHub sends release events only with this permission. It can also read the code, commits, and branches of the repositories you choose; StackDash reads only releases.",
     },
   ],
   dataCollected: [
@@ -464,7 +457,7 @@ export const githubAdapter: ProviderAdapter = {
   /**
    * Metadata read is always needed; billing needs Organization Administration read on an
    * organization or Account Plan read on a personal account, so either one satisfies it. The
-   * timeline's pull request, issue, and contents permissions are optional: an installation made
+   * timeline's pull request and issue permissions are optional: an installation made
    * before they were requested keeps syncing, and each sync reports the ones it lacks as partial
    * errors (`collectRepositories`), which clear once the owner accepts them on GitHub.
    */

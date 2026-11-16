@@ -2,20 +2,21 @@ import type { z } from "zod";
 import { hmacHex, readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 import type { ActivityEvent } from "../events";
 import type { AdapterContext, Secret, WebhookDescriptor, WebhookOutcome, WebhookRequest, WebhookVerification } from "../types";
-import { issueOpenedEvent, pullRequestMergedEvent, releasePublishedEvent } from "./activity";
+import { issueOpenedEvent, pullRequestMergedEvent } from "./activity";
 import { newStarEvent } from "./repositories";
 import {
   AppAuthorizationDeliverySchema,
   InstallationDeliverySchema,
   IssuesDeliverySchema,
   PullRequestDeliverySchema,
-  ReleaseDeliverySchema,
   StarDeliverySchema,
 } from "./schemas";
 
 /**
  * GitHub App webhooks (#62), per docs/providers/github.md ("Webhooks"). One URL and one secret on
  * the app registration receive every installation's deliveries at `POST /api/webhooks/github`.
+ * Releases are not among them: the `release` webhook needs Contents read, which also reads code, so
+ * releases are polled from the repository events feed instead (./activity.ts, decided on #62).
  *
  * Verification: `X-Hub-Signature-256` is `sha256=` and the hex HMAC SHA-256 of the raw body, keyed
  * with GITHUB_APP_WEBHOOK_SECRET, compared in constant time. `X-GitHub-Delivery` is the delivery id
@@ -24,7 +25,7 @@ import {
  * Replay: GitHub signs neither a timestamp nor its delivery id, so there is no freshness check, and
  * a captured delivery posted again under a new delivery id verifies. What bounds it:
  * - timeline events: each event's dedupe key, which the sync builds the same way, so a replayed
- *   pull request, issue, release, or star is the event already stored;
+ *   pull request, issue, or star is the event already stored;
  * - `installation` `suspend`: the signed `suspended_at`, so a replay after a reconnect is stale;
  * - `installation` `deleted` and `github_app_authorization` `revoked`: nothing in the body says
  *   when they happened, so `occurredAt` is when StackDash received the delivery, and a replay marks
@@ -46,7 +47,7 @@ export const GITHUB_WEBHOOK_SECRET_ENV = "GITHUB_APP_WEBHOOK_SECRET";
 
 // Event names to tick on the app registration. `installation` and `github_app_authorization` are
 // sent to every GitHub App without a subscription; they are listed because StackDash handles them.
-export const githubWebhookSubscriptions = ["pull_request", "issues", "release", "star", "installation", "github_app_authorization"] as const;
+export const githubWebhookSubscriptions = ["pull_request", "issues", "star", "installation", "github_app_authorization"] as const;
 
 /** The `X-Hub-Signature-256` value GitHub sends for `rawBody`. Exported for tests and e2e deliveries. */
 export function githubWebhookSignature(secret: Secret, rawBody: Uint8Array | string): string {
@@ -102,11 +103,6 @@ function parseWebhook({ headers, rawBody }: WebhookRequest, ctx: AdapterContext)
       const body = bodyAs(IssuesDeliverySchema, raw);
       if (body === undefined || body.action !== "opened") break;
       return eventOutcome(issueOpenedEvent(body.repository, body.issue, String(body.repository.owner.id)));
-    }
-    case "release": {
-      const body = bodyAs(ReleaseDeliverySchema, raw);
-      if (body === undefined || body.action !== "published") break;
-      return eventOutcome(releasePublishedEvent(body.repository, body.release, String(body.repository.owner.id)));
     }
     case "star": {
       const body = bodyAs(StarDeliverySchema, raw);

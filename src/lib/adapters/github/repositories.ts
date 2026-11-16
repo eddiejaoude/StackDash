@@ -4,7 +4,7 @@ import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import type { OAuthContext, Secret } from "../types";
 import { activityEventTypes, activityPermissionError, activityReads, collectActivity, httpsUrl, type ActivityRepository } from "./activity";
-import { activityPermissions, getJson, getRepositoryJson, grantsRead, type ActivityPermission } from "./api";
+import { getJson, getRepositoryJson, grantsRead } from "./api";
 import {
   ForksSchema,
   InstallationRepositoriesSchema,
@@ -306,10 +306,11 @@ export async function collectRepositories(
   // soon after midnight; undefined when none did (nothing to report, so no reading is written).
   let starsGainedYesterday: number | undefined;
   const since = activitySince(previous?.activityReadAt, now);
-  const granted = new Set<ActivityPermission>(activityPermissions.filter((permission) => grantsRead(installation, permission)));
+  const reads = Object.values(activityReads);
+  const granted = new Set(reads.map((read) => read.permission).filter((permission) => grantsRead(installation, permission)));
   // One partial error per permission, however many repositories it was missing on.
-  const partialErrors = new Map<ActivityPermission, PermissionMissingError>();
-  for (const read of Object.values(activityReads)) {
+  const partialErrors = new Map<string, PermissionMissingError>();
+  for (const read of reads) {
     if (!granted.has(read.permission)) partialErrors.set(read.permission, activityPermissionError(read));
   }
 

@@ -27,8 +27,9 @@ import {
  * repository (so the 100, 500, and 1,000 milestones are crossed now and then), forks trickle in
  * (about 65 a day across the three), and a daily stars event lands at UTC midnight for the day
  * before, and every sync reports the day before's new stars. Pull requests are merged (about 8 a
- * day), issues opened (about 4), and releases published (about 1), the events GitHub's webhooks
- * push (#62), and the two quieter repositories send one "Repository starred" event per star. The
+ * day) and issues opened (about 4), the events GitHub's webhooks push (#62), releases are published
+ * (about 1, which the real adapter polls from the events feed), and the two quieter repositories
+ * send one "Repository starred" event per star. The
  * trending `api` repository's 240 stars a day reach only its counts, daily total, and milestones:
  * one event per star there would outpace a small product's timeline (#264). Actions minutes and
  * spend accrue hour by hour, at under a third of the pace on weekends (#166). Keys and milestones

@@ -11,8 +11,7 @@
     "metadata": "read",
     "organization_administration": "read",
     "pull_requests": "read",
-    "issues": "read",
-    "contents": "read"
+    "issues": "read"
   },
   "suspended_at": null
 }
