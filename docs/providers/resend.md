@@ -210,10 +210,9 @@ Received per connection through the shared webhook route (see [Webhooks set up p
 
 On disconnect, StackDash calls `DELETE /webhooks/:id` before revoking the grant. A `404` means the user already deleted it in Resend and counts as removed. Any other failure gives the user the removal steps and a reference.
 
-Two limits:
+Resend sends to a "publicly accessible HTTPS URL", so automatic setup from a local instance needs a tunnel.
 
-- Resend sends to a "publicly accessible HTTPS URL", so automatic setup from a local instance needs a tunnel.
-- An access token lasts 15 minutes, and automatic setup and the deletion on disconnect use the stored credential as it is. Until StackDash refreshes the credential before these calls, either can fail with `401` between syncs: setup then fails and setup by hand is still offered, and disconnect gives the removal steps.
+An access token lasts 15 minutes, so automatic setup and the deletion on disconnect refresh the stored credential first when it is about to expire, under the same per-connection lock a sync takes (see [Jobs](../operations/jobs.md#how-a-tick-works)). If that refresh fails, setup fails and setup by hand is still offered, and disconnect gives the removal steps.
 
 ### Setup by hand
 

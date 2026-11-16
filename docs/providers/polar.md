@@ -195,10 +195,9 @@ Offered next to setup by hand. Polar has no read-only scope that can create a we
 
 On disconnect, StackDash calls `DELETE /v1/webhooks/endpoints/{id}` (answers `204`) before revoking the grant. A `404` means the user already deleted it in Polar and counts as removed. Any other failure gives the user the removal steps and a reference.
 
-Two limits:
+Polar sends to a public URL and treats a redirect as a failure, so automatic setup from a local instance needs a tunnel, and the URL must be the final one (no `www` redirect).
 
-- Polar sends to a public URL and treats a redirect as a failure, so automatic setup from a local instance needs a tunnel, and the URL must be the final one (no `www` redirect).
-- An access token lasts 10 days. Automatic setup and the deletion on disconnect use the connection's stored credential, which hourly syncs keep refreshed. Until StackDash refreshes it right before these calls, a connection whose syncs stopped for days can fail them with `401`: setup then fails and setup by hand is still offered, and disconnect gives the removal steps.
+Automatic setup and the deletion on disconnect refresh the stored credential first when it is about to expire, under the same per-connection lock a sync takes (see [Jobs](../operations/jobs.md#how-a-tick-works)), so a connection whose syncs stopped for days still sets up and deletes its webhook. If that refresh fails, setup fails and setup by hand is still offered, and disconnect gives the removal steps.
 
 ### Setup by hand
 
