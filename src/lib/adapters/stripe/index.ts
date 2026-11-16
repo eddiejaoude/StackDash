@@ -20,9 +20,13 @@ import {
   type ProviderAdapter,
   type SyncInput,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookVerification,
 } from "@/lib/adapters/types";
 import { formatMoney } from "@/lib/format";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { hmacHex, isFresh, safeEqual } from "@/lib/webhooks/signature";
 import {
   BalanceTransactionSchema,
   ChargeObjectSchema,
@@ -30,6 +34,8 @@ import {
   EventSchema,
   SubscriptionObjectSchema,
   TokenResponseSchema,
+  WebhookEventIdSchema,
+  WebhookEventSchema,
   stripeListSchema,
   type BalanceTransaction,
   type StripeEvent,
@@ -40,6 +46,11 @@ import {
 /**
  * Stripe adapter (adapter pattern over the Stripe REST API). Facts, endpoints, and privacy rules
  * come from docs/providers/stripe.md; "Unverified #n" refers to that page's Unverified list.
+ *
+ * Webhooks (#423): one endpoint on the app owner's account, in live mode, with "Listen to events on
+ * Connected accounts", receives every install's events with `account` set to the installing
+ * account. Stripe signs the timestamp and the raw body, and the event id (the delivery id) is inside
+ * the body, so a captured delivery can be neither replayed later nor sent again under a new id.
  */
 
 const AUTHORIZE_URL = "https://marketplace.stripe.com/oauth/v2/authorize";
@@ -61,6 +72,21 @@ const MAX_PAGES = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 // `GET /v1/events` only goes back 30 days.
 const EVENTS_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+// Webhook (#423), per https://docs.stripe.com/webhooks#verify-manually: `Stripe-Signature` is
+// `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`, with one `v1` per active secret
+// while a secret is being rolled, and a fake `v0` on sandbox events that must be ignored. Stripe's
+// libraries default to a 5 minute tolerance.
+export const STRIPE_SIGNATURE_HEADER = "stripe-signature";
+export const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
+const SIGNATURE_SCHEME = "v1";
+// The events Stripe sends when an account uninstalls the app (docs.stripe.com/stripe-apps/events).
+// `app.install.deleted` is the older name, on endpoints pinned to an API version before 2026-09-30.
+const UNINSTALL_EVENTS: Readonly<Record<string, true>> = {
+  "apps.install.deleted": true,
+  "app.install.deleted": true,
+  "account.application.deauthorized": true,
+};
 
 const permissions: readonly Permission[] = [
   {
@@ -123,6 +149,14 @@ export const timelineEvents = [
     emoji: "🚪",
   },
 ] as const;
+
+// What the webhook endpoint listens to: the events the sync polls, so a pushed event and a polled
+// one are the same Stripe event, and the two uninstall events.
+const WEBHOOK_SUBSCRIPTIONS = [
+  ...timelineEvents.map((event) => event.stripeType),
+  "apps.install.deleted",
+  "account.application.deauthorized",
+];
 
 // No `category` (#173): `customer.created` and `customer.subscription.created` are billing records,
 // made at checkout or by an invoice whether or not someone signed up to the product, and a free
@@ -635,6 +669,129 @@ async function settle<T>(
   }
 }
 
+/* Webhook -------------------------------------------------------------------------------------- */
+
+/**
+ * The hex `v1` signature Stripe sends for a delivery: HMAC-SHA256 of `<t>.<raw body>`, keyed with the
+ * endpoint's signing secret. Signed as bytes, never decoded first: decoding would map invalid UTF-8
+ * onto U+FFFD and let two different bodies share one signature.
+ */
+function webhookSignature(secret: Secret, timestamp: string, rawBody: Uint8Array): string {
+  return hmacHex("sha256", secret, Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]));
+}
+
+/**
+ * The `Stripe-Signature` header Stripe would send for `rawBody` at `timestampSeconds`. For tests and
+ * the e2e suite, which play Stripe.
+ */
+export function signStripeWebhook({ secret, rawBody, timestampSeconds }: { secret: string; rawBody: string; timestampSeconds: number }): string {
+  const timestamp = String(timestampSeconds);
+  return `t=${timestamp},${SIGNATURE_SCHEME}=${webhookSignature(new Secret(secret), timestamp, new TextEncoder().encode(rawBody))}`;
+}
+
+type SignatureHeader = Readonly<{ timestamp: string | undefined; signatures: readonly string[] }>;
+
+/**
+ * Splits the header on `,` and each element on its first `=`. Keeps `t` and every `v1`, and drops
+ * every other scheme (`v0`), so a downgrade to a weaker scheme is never checked. A second `t` makes
+ * the timestamp ambiguous, so the header has none.
+ */
+function parseSignatureHeader(value: string): SignatureHeader {
+  let timestamp: string | undefined;
+  let timestamps = 0;
+  const signatures: string[] = [];
+  for (const element of value.split(",")) {
+    const separator = element.indexOf("=");
+    if (separator === -1) continue;
+    const prefix = element.slice(0, separator).trim();
+    const entry = element.slice(separator + 1).trim();
+    if (prefix === "t") {
+      timestamps += 1;
+      timestamp = entry;
+    } else if (prefix === SIGNATURE_SCHEME && entry.length > 0) {
+      signatures.push(entry);
+    }
+  }
+  return { timestamp: timestamps === 1 ? timestamp : undefined, signatures };
+}
+
+/** The verified body's event id, or undefined when the body is not an event with a usable id. */
+function readEventId(rawBody: Uint8Array): string | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+  const parsed = WebhookEventIdSchema.safeParse(raw);
+  return parsed.success ? parsed.data.id : undefined;
+}
+
+/**
+ * The header, then every `v1` against the expected signature in constant time, then the tolerance,
+ * in the order of Stripe's manual verification steps. The body is read for its event id only once
+ * the signature has matched.
+ */
+function verifyStripeWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const header = headers.get(STRIPE_SIGNATURE_HEADER);
+  if (header === null || header.trim() === "") return { ok: false, reason: "missing_signature" };
+  const { timestamp, signatures } = parseSignatureHeader(header);
+  if (signatures.length === 0) return { ok: false, reason: "missing_signature" };
+  if (timestamp === undefined || !/^\d{1,12}$/.test(timestamp)) return { ok: false, reason: "malformed" };
+  const expected = webhookSignature(secret, timestamp, rawBody);
+  // Every entry is compared, so the time taken does not say which one matched.
+  let matched = false;
+  for (const signature of signatures) matched = safeEqual(signature, expected) || matched;
+  if (!matched) return { ok: false, reason: "bad_signature" };
+  if (!isFresh(Number(timestamp), now, STRIPE_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  const deliveryId = readEventId(rawBody);
+  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
+  return { ok: true, deliveryId };
+}
+
+/**
+ * Maps a verified delivery with `toActivityEvent`, the sync's own mapping and allowlists, so a pushed
+ * event and the same event polled later share a dedupe key (the Stripe event id) and the timeline
+ * stores it once. Nothing from `data.object` outlives this function but the allowlisted fields.
+ */
+function parseStripeWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "ignored", reason: "body is not JSON" };
+  }
+  const parsed = WebhookEventSchema.safeParse(raw);
+  if (!parsed.success) return { kind: "ignored", reason: "not a Stripe event" };
+  const event = parsed.data;
+  if (event.account === undefined) return { kind: "ignored", reason: "an event on the app owner's own account, not an install's" };
+  // Decided on #423: the endpoint is a live mode one, and Stripe also sends it the test mode events
+  // of an account that installed the app in both modes. The account id is the same in both, and
+  // nothing downstream knows a connection's mode, so a test mode uninstall would revoke the live
+  // connection. Test mode connections stay polled until #481.
+  if (!event.livemode) return { kind: "ignored", reason: "test mode event; test mode connections are polled" };
+  if (UNINSTALL_EVENTS[event.type] === true) {
+    return { kind: "uninstalled", externalAccountId: event.account, occurredAt: new Date(event.created * 1000) };
+  }
+  let activity: ActivityEvent | undefined;
+  try {
+    activity = toActivityEvent(event, event.account);
+  } catch (error) {
+    // An object the allowlist rejects. A 4xx would have Stripe retry the same body for three days
+    // and then disable the endpoint, so it is acknowledged and dropped; polling reads the event too
+    // and fails its sync with the same error. Logged by type only: the object holds personal data.
+    if (!(error instanceof InvalidResponseError)) throw error;
+    ctx.logger.warn("stripe.webhook.object_rejected", { eventType: event.type });
+    return { kind: "ignored", reason: "event object does not match the allowlist" };
+  }
+  if (activity === undefined) return { kind: "ignored", reason: "event type is not on the timeline" };
+  return { kind: "events", externalAccountId: event.account, events: [activity] };
+}
+
+/* Adapter -------------------------------------------------------------------------------------- */
+
 export const stripeAdapter: ProviderAdapter = {
   id: "stripe",
   displayName: PROVIDER_NAMES.stripe,
@@ -671,6 +828,14 @@ export const stripeAdapter: ProviderAdapter = {
     optionalExtraKeys: [TEST_SECRET_KEY],
   },
   pollIntervalSeconds: 3600,
+  // App-level: one live mode endpoint on the app owner's account receives every install's events.
+  // One secret, deliberately (#423): see `parseStripeWebhook` for why test mode stays polled.
+  webhooks: {
+    registration: { kind: "app", secretEnv: "STRIPE_WEBHOOK_SECRET" },
+    subscriptions: WEBHOOK_SUBSCRIPTIONS,
+    verify: verifyStripeWebhook,
+    parse: parseStripeWebhook,
+  },
 
   buildAuthorizeUrl({ client, state, redirectUri }) {
     const url = new URL(AUTHORIZE_URL);

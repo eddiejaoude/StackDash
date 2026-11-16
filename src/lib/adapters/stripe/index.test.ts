@@ -6,9 +6,10 @@ import {
   RateLimitedError,
 } from "@/lib/adapters/errors";
 import { validateAdapterEvents } from "@/lib/adapters/events";
+import { checkAdapterDeclaration, checkWebhookOutcome } from "@/lib/adapters/harness";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
-import { stripeAdapter, toActivityEvent } from "./index";
+import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type WebhookDescriptor, type WebhookRequest } from "@/lib/adapters/types";
+import { signStripeWebhook, STRIPE_SIGNATURE_HEADER, STRIPE_WEBHOOK_TOLERANCE_SECONDS, stripeAdapter, toActivityEvent } from "./index";
 // Fixtures are from documentation, not recorded: shaped after the sample responses and object
 // fields on docs/providers/stripe.md, trimmed, with synthetic ids, amounts, and personal data.
 import balanceTransactionsFixture from "./fixtures/balance-transactions.json";
@@ -19,6 +20,12 @@ import eventsFixture from "./fixtures/events.json";
 import refreshFixture from "./fixtures/token-refresh.json";
 // From documentation, not recorded: the documented token response for a code exchange (live mode).
 import tokenFixture from "./fixtures/token.json";
+// From documentation, not recorded: webhook deliveries shaped after Stripe's Event object and the
+// install event samples on docs.stripe.com/stripe-apps/events, with `account` set as a Connect
+// endpoint receives it. The charge is the polled `evt_fixture_charge_succeeded` above, delivered.
+import webhookApplicationDeauthorizedFixture from "./fixtures/webhook-application-deauthorized.json";
+import webhookChargeSucceededFixture from "./fixtures/webhook-charge-succeeded.json";
+import webhookInstallDeletedFixture from "./fixtures/webhook-install-deleted.json";
 
 const now = new Date("2026-11-10T12:00:00Z");
 const nowSeconds = 1794312000;
@@ -630,5 +637,156 @@ describe("stripeAdapter declarations", () => {
       "stripe.customer.subscription.created",
       "stripe.customer.subscription.deleted",
     ]);
+  });
+});
+
+describe("stripeAdapter webhooks (#423)", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+  const WEBHOOK_SECRET = ["whsec", "fixture", "endpoint"].join("_");
+  const CHARGE_BODY = JSON.stringify(webhookChargeSucceededFixture);
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = stripeAdapter;
+    if (webhooks === undefined) throw new Error("the Stripe adapter declares no webhook");
+    return webhooks;
+  }
+
+  function request(rawBody: string, signature: string | null): WebhookRequest {
+    const headers = new Headers({ "Content-Type": "application/json; charset=utf-8" });
+    if (signature !== null) headers.set(STRIPE_SIGNATURE_HEADER, signature);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  // A delivery as Stripe sends it: signed now with the endpoint's secret.
+  function delivery(rawBody: string, timestampSeconds = nowSeconds): WebhookRequest {
+    return request(rawBody, signStripeWebhook({ secret: WEBHOOK_SECRET, rawBody, timestampSeconds }));
+  }
+
+  function verify(webhookRequest: WebhookRequest) {
+    return descriptor().verify(webhookRequest, new Secret(WEBHOOK_SECRET), now);
+  }
+
+  function parsed(rawBody: string) {
+    const webhookRequest = delivery(rawBody);
+    expect(verify(webhookRequest).ok).toBe(true);
+    return descriptor().parse(webhookRequest, context(fakeFetch({}).fetch).ctx);
+  }
+
+  // The `v1` value of a signed header, to rebuild the header in other shapes.
+  function v1(rawBody: string, timestampSeconds = nowSeconds, secret = WEBHOOK_SECRET): string {
+    const value = signStripeWebhook({ secret, rawBody, timestampSeconds }).split(",v1=")[1];
+    if (value === undefined) throw new Error("signStripeWebhook returned no v1 entry");
+    return value;
+  }
+
+  it("declares an app-level endpoint with one secret, the polled events, and both uninstall events", () => {
+    expect(checkAdapterDeclaration(stripeAdapter)).toEqual([]);
+    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: "STRIPE_WEBHOOK_SECRET" });
+    expect(descriptor().subscriptions).toEqual([
+      "charge.succeeded",
+      "charge.failed",
+      "charge.refunded",
+      "customer.created",
+      "customer.subscription.created",
+      "customer.subscription.deleted",
+      "apps.install.deleted",
+      "account.application.deauthorized",
+    ]);
+  });
+
+  it("verifies a signed delivery with the event id as delivery id, and maps it to the event polling stores", async () => {
+    const webhookRequest = delivery(CHARGE_BODY);
+    expect(verify(webhookRequest)).toEqual({ ok: true, deliveryId: "evt_fixture_charge_succeeded" });
+    const outcome = descriptor().parse(webhookRequest, context(fakeFetch({}).fetch).ctx);
+    expect(checkWebhookOutcome(stripeAdapter, outcome)).toEqual([]);
+
+    // The same Stripe event read by polling: one dedupe key, so the timeline stores it once.
+    const { ctx } = context(fakeFetch(syncRoutes).fetch);
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+    const polled = result.events.find((event) => event.dedupeKey === "evt_fixture_charge_succeeded");
+    expect(polled).toBeDefined();
+    expect(outcome).toEqual({ kind: "events", externalAccountId: accountId, events: [polled] });
+  });
+
+  it("keeps no personal data from the delivered object (privacy)", () => {
+    const emitted = JSON.stringify(parsed(CHARGE_BODY));
+    for (const personal of ["jane.doe@example.com", "Jane Doe", "1 Main Street", "Springfield", "+15555550123", "4242", "visa", "VIP"]) {
+      expect(emitted).not.toContain(personal);
+    }
+    for (const field of ["email", "name", "phone", "address", "billing_details", "payment_method_details", "metadata", "description"]) {
+      expect(emitted).not.toContain(`"${field}"`);
+    }
+  });
+
+  it.each([
+    ["apps.install.deleted", webhookInstallDeletedFixture],
+    ["account.application.deauthorized", webhookApplicationDeauthorizedFixture],
+    // The name Stripe uses on endpoints pinned to an API version before 2026-09-30.
+    ["app.install.deleted (older API versions)", { ...webhookInstallDeletedFixture, type: "app.install.deleted" }],
+  ])("reports %s as an uninstall of the account, at the event's time", (_case, fixture) => {
+    const outcome = parsed(JSON.stringify(fixture));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: accountId, occurredAt: new Date(1794308400 * 1000) });
+    expect(checkWebhookOutcome(stripeAdapter, outcome)).toEqual([]);
+  });
+
+  it("accepts any of several v1 signatures, as while a secret is rolled, and ignores v0", () => {
+    const other = v1(CHARGE_BODY, nowSeconds, "whsec_fixture_previous");
+    const header = `t=${nowSeconds},v1=${other},v1=${v1(CHARGE_BODY)},v0=${other}`;
+    expect(verify(request(CHARGE_BODY, header))).toEqual({ ok: true, deliveryId: "evt_fixture_charge_succeeded" });
+  });
+
+  it("accepts a timestamp exactly at the tolerance, either side (boundary)", () => {
+    expect(verify(delivery(CHARGE_BODY, nowSeconds - STRIPE_WEBHOOK_TOLERANCE_SECONDS)).ok).toBe(true);
+    expect(verify(delivery(CHARGE_BODY, nowSeconds + STRIPE_WEBHOOK_TOLERANCE_SECONDS)).ok).toBe(true);
+  });
+
+  const signedNow = () => v1(CHARGE_BODY);
+  it.each<[string, () => string | null, string]>([
+    ["no Stripe-Signature header", () => null, "missing_signature"],
+    ["an empty header", () => " ", "missing_signature"],
+    ["no v1 entry", () => `t=${nowSeconds}`, "missing_signature"],
+    // A downgrade: only the scheme Stripe says to ignore, carrying a valid MAC.
+    ["only a v0 entry", () => `t=${nowSeconds},v0=${signedNow()}`, "missing_signature"],
+    ["no timestamp", () => `v1=${signedNow()}`, "malformed"],
+    ["a timestamp that is not a number", () => `t=soon,v1=${signedNow()}`, "malformed"],
+    ["two timestamps", () => `t=${nowSeconds},t=${nowSeconds},v1=${signedNow()}`, "malformed"],
+    ["a signature made with another secret", () => `t=${nowSeconds},v1=${v1(CHARGE_BODY, nowSeconds, "whsec_fixture_other")}`, "bad_signature"],
+    ["a tampered body", () => `t=${nowSeconds},v1=${v1(CHARGE_BODY.replace("acct_fixture123", "acct_fixture999"))}`, "bad_signature"],
+    // A captured signature under a fresh timestamp: the timestamp is signed.
+    ["a signature replayed under a new timestamp", () => `t=${nowSeconds},v1=${v1(CHARGE_BODY, nowSeconds - 3600)}`, "bad_signature"],
+    ["a timestamp one second past the tolerance", () => `t=${nowSeconds - 301},v1=${v1(CHARGE_BODY, nowSeconds - 301)}`, "stale"],
+    ["a timestamp one second past the tolerance in the future", () => `t=${nowSeconds + 301},v1=${v1(CHARGE_BODY, nowSeconds + 301)}`, "stale"],
+  ])("rejects a delivery with %s (boundary)", (_case, header, reason) => {
+    expect(verify(request(CHARGE_BODY, header()))).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ["a body that is not JSON", "type=charge.succeeded"],
+    ["an event without an id", JSON.stringify({ ...webhookChargeSucceededFixture, id: undefined })],
+    ["an event id longer than a delivery id may be", JSON.stringify({ ...webhookChargeSucceededFixture, id: `evt_${"a".repeat(200)}` })],
+  ])("rejects a correctly signed delivery with %s as malformed (boundary)", (_case, body) => {
+    expect(verify(delivery(body))).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it.each([
+    ["a test mode event (decided on #423: test mode connections are polled)", { ...webhookChargeSucceededFixture, livemode: false }],
+    ["a test mode uninstall, which must never revoke a live connection", { ...webhookInstallDeletedFixture, livemode: false }],
+    ["an event on the app owner's own account (no account)", { ...webhookChargeSucceededFixture, account: undefined }],
+    ["an event type the timeline does not show", { ...webhookChargeSucceededFixture, type: "payout.paid" }],
+    ["an event with no livemode", { ...webhookChargeSucceededFixture, livemode: undefined }],
+  ])("ignores %s (boundary)", (_case, fixture) => {
+    expect(parsed(JSON.stringify(fixture))).toMatchObject({ kind: "ignored" });
+  });
+
+  it("acknowledges and drops an object the allowlist rejects, logging the event type only", () => {
+    const body = JSON.stringify({
+      ...webhookChargeSucceededFixture,
+      data: { object: { ...webhookChargeSucceededFixture.data.object, amount: -1 } },
+    });
+    const webhookRequest = delivery(body);
+    const { ctx, logger } = context(fakeFetch({}).fetch);
+    expect(descriptor().parse(webhookRequest, ctx)).toMatchObject({ kind: "ignored" });
+    expect(logger.warn).toHaveBeenCalledWith("stripe.webhook.object_rejected", { eventType: "charge.succeeded" });
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain("Jane Doe");
   });
 });
