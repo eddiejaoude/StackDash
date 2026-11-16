@@ -157,9 +157,16 @@ export async function runTick(deps: SyncDeps, options: TickOptions = {}): Promis
   };
 
   const release = async (job: ClaimedJob) => {
-    // Never started, so it goes back without spending an attempt.
-    await deps.store.releaseJob(job.id);
-    result.released += 1;
+    try {
+      // Never started, so it goes back without spending an attempt.
+      await deps.store.releaseJob(job.id);
+      result.released += 1;
+    } catch (error) {
+      // The lease expires and the job is claimed again, at the cost of the attempt the claim took.
+      // The caller goes on releasing the rest.
+      deps.logError("job.release_failed", error, { jobId: job.id, kind: job.kind });
+      result.failed += 1;
+    }
   };
   const delivered = new Map<string, ConnectionKey>();
   const run = async (job: ClaimedJob) => {

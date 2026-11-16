@@ -47,9 +47,13 @@ function distinctConnections(targets: readonly WebhookTarget[]): WebhookTarget[]
  * per delivery: an evaluation reads all retained events and readings of the pending rules' types
  * (src/lib/achievements/store.ts), and a burst for one account would otherwise repeat the same
  * reads for every delivery. None starts once `hasTime` (the tick's webhook share) is spent. Never
- * fails a job: earning is idempotent, and the connection's next sync evaluates whatever was
- * deferred or failed here. Alerts are not evaluated: every alert rule is a threshold on snapshots,
- * which a delivery never writes.
+ * fails a job: earning is idempotent, and the connection's next successful sync evaluates whatever
+ * was deferred or failed here (`runSyncJob` evaluates only after a sync succeeds). For an `active`
+ * connection that is usually its next scheduled sync. A delivery also reaches `failed` and
+ * `needs_attention` connections, and for those it comes later: a `failed` one is retried hourly
+ * until a sync succeeds, and a `needs_attention` one is not synced until the user reconnects it.
+ * Alerts are not evaluated: every alert rule is a threshold on snapshots, which a delivery never
+ * writes.
  */
 export async function evaluateDeliveredConnections(
   delivered: ReadonlyMap<string, ConnectionKey>,
