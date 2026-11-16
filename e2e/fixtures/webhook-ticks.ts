@@ -1,6 +1,7 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
-import { expect } from "./auth";
+import type { Database } from "../../src/lib/supabase/database.types";
+
 import { adminClient, cronSecret, type TestWorkspace } from "./db";
 
 /*
@@ -20,12 +21,37 @@ export async function storedCopies(workspace: TestWorkspace, dedupeKey: string):
   return count;
 }
 
+/** Runs one instance-wide job tick, as the scheduler does. */
+async function tick(page: Page): Promise<void> {
+  const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
+  expect(response.status()).toBe(200);
+}
+
 /** Ticks until the delivery's event is stored once; other workspaces' jobs may share a tick. */
 export async function tickUntilStored(page: Page, workspace: TestWorkspace, dedupeKey: string): Promise<void> {
-  const authorization = `Bearer ${cronSecret()}`;
   await expect(async () => {
-    const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-    expect(response.status()).toBe(200);
+    await tick(page);
     expect(await storedCopies(workspace, dedupeKey)).toBe(1);
+  }).toPass({ timeout: 90_000 });
+}
+
+/**
+ * Ticks until the workspace's one connection of `provider` has `status`, for an uninstall delivery
+ * (`needs_attention`). Post the uninstall while no sync of the connection is running or due: after
+ * its first sync has finished and before the next one is due, SIMULATED_POLL_INTERVAL_SECONDS
+ * later for a simulated connection. A tick runs a due sync beside the uninstall's job, and a sync
+ * that finishes after that job sets the connection back to `active` (#487).
+ */
+export async function tickUntilConnectionStatus(
+  page: Page,
+  workspace: TestWorkspace,
+  provider: Database["public"]["Enums"]["provider_id"],
+  status: Database["public"]["Enums"]["connection_status"],
+): Promise<void> {
+  await expect(async () => {
+    await tick(page);
+    const { data, error } = await adminClient().from("connections").select("status").eq("workspace_id", workspace.id).eq("provider", provider);
+    if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
+    expect(data.map((row) => row.status)).toEqual([status]);
   }).toPass({ timeout: 90_000 });
 }

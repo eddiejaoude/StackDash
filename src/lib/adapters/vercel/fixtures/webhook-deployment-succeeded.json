@@ -1,0 +1,28 @@
+{
+  "id": "evt_exampleSucceeded0001",
+  "type": "deployment.succeeded",
+  "createdAt": 1793444701000,
+  "region": "iad1",
+  "payload": {
+    "team": { "id": "team_LLHUOMOoDlqOp8wPE4kFo9pE" },
+    "user": { "id": "2tUzTmv4ljvFVHifEf9TGdpH" },
+    "alias": ["docs.example.com"],
+    "deployment": {
+      "id": "dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa",
+      "meta": {
+        "githubCommitMessage": "example commit",
+        "githubCommitAuthorLogin": "example-dev"
+      },
+      "url": "docs-9jaeg38me.vercel.app",
+      "name": "docs"
+    },
+    "links": {
+      "deployment": "https://vercel.com/acme/docs/J1hXN00qjUeoYfpEEf7dnDtpSiVq",
+      "project": "https://vercel.com/acme/docs"
+    },
+    "target": "production",
+    "project": { "id": "prj_exampleDocs" },
+    "plan": "pro",
+    "regions": ["iad1"]
+  }
+}

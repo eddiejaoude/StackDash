@@ -163,6 +163,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `STRIPE_APP_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Stripe App](oauth-apps.md#stripe-app) |
 | `STRIPE_APP_SECRET_KEY` | Secret | Yes | Optional | Same (`sk_live_...` of the app's account) |
 | `STRIPE_APP_TEST_SECRET_KEY` | Secret | Only to accept test mode installs | Optional | Same (`sk_test_...`) |
+| `STRIPE_WEBHOOK_SECRET` | Secret | Only to receive Stripe webhooks for live mode installs | Optional | Same (`whsec_...` of the live mode webhook endpoint) |
 | `SUPABASE_OAUTH_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Supabase OAuth app](oauth-apps.md#supabase-oauth-app) |
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RESEND_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Resend OAuth client](oauth-apps.md#resend-oauth-client) |
@@ -184,7 +185,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `FAKE_PROVIDER_CLIENT_ID`, `FAKE_PROVIDER_CLIENT_SECRET` | Test only | Unset | Unset | Fake provider used by tests |
 | `STACKDASH_FAKE_WEBHOOK_SECRET` | Test only | **Must be unset** | **Unset** | Signs the fake provider's webhook deliveries in local development and end-to-end runs; `playwright.config.ts` sets a synthetic value. Unused while `STACKDASH_ENABLE_FAKE_PROVIDER` is unset |
 | `STACKDASH_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
-| `STACKDASH_SIMULATED_WEBHOOK_SECRET` | Local only | **Must be unset** | **Unset** | Signs every simulated provider's webhook deliveries in local development and end-to-end runs, in place of each provider's own webhook secret; `playwright.config.ts` sets a synthetic value. Unused while `STACKDASH_SIMULATE_PROVIDERS` is unset |
+| `STACKDASH_SIMULATED_WEBHOOK_SECRET` | Local only | **Must be unset** | **Unset** | Signs the webhook deliveries of every simulated provider whose live adapter receives them on its app registration, in local development and end-to-end runs, in place of that provider's own webhook secret; `playwright.config.ts` sets a synthetic value. Unused while `STACKDASH_SIMULATE_PROVIDERS` is unset |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID`, `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Local CLI only | Not in Vercel | Not in Vercel | Hosted: entered in the Supabase dashboard (step 3) |
 
 "Server only" values are not secret on their own (a client ID appears in authorize URLs anyway), but they are still set without a `NEXT_PUBLIC_` prefix because only the server uses them. Mark every "Secret" row as **Sensitive** in Vercel so its value cannot be read back from the dashboard. A provider whose variables are missing is shown as not configured; the rest of the app still works.

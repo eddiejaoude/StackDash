@@ -298,11 +298,16 @@ If nothing new appears:
   need attention and reconnect them; a simulated connection that needs attention is not synced.
   The Example provider from step 8 is not simulated.
 
-A simulated provider whose real adapter receives webhooks receives them too, at
-`POST /api/webhooks/<provider>`, through the real adapter's signature check and mapping. Its
-deliveries are signed with `STACKDASH_SIMULATED_WEBHOOK_SECRET` from `.env.local` instead of the
-provider's own webhook secret, so simulation never needs one. Unset, the URL answers `503`. Nothing
-sends deliveries on its own: post one signed the way the provider signs, as the
+A simulated provider whose real adapter receives webhooks receives them too, through the real
+adapter's signature check and mapping. Where the provider has one URL for every account
+(`POST /api/webhooks/<provider>`), its deliveries are signed with
+`STACKDASH_SIMULATED_WEBHOOK_SECRET` from `.env.local` instead of the provider's own webhook
+secret, so simulation never needs one; unset, the URL answers `503`. A provider with one URL per
+connection keeps that connection's stored secret. The webhook job does not yet tell simulated
+connections from real ones: a delivery to the shared URL reaches every connection that includes
+its account, so its events land on a real connection too, and an uninstall asks a real connection
+to reconnect. A delivery to a per-connection URL reaches that connection only. Nothing sends
+deliveries on its own: post one signed the way the provider signs, as the
 `e2e/webhooks-<provider>.spec.ts` specs do.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
