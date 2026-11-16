@@ -20,7 +20,7 @@ import {
   type WebhookDescriptor,
   type WebhookRequest,
 } from "@/lib/adapters/types";
-import { STANDARD_WEBHOOK_HEADERS, STANDARD_WEBHOOK_TOLERANCE_SECONDS } from "@/lib/webhooks/standard-webhooks";
+import { STANDARD_WEBHOOK_HEADERS } from "@/lib/webhooks/standard-webhooks";
 import { orderEvent, polarAdapter, polarWebhookSignature, refundEvent } from "./index";
 // Fixtures are from documentation, not recorded: shaped after the response schemas and examples in
 // Polar's API reference, version 2026-10, checked 2026-11-05, trimmed, with synthetic ids, amounts,
@@ -794,9 +794,12 @@ describe("polarAdapter webhooks (#429)", () => {
     if (registration.kind !== "connection") return;
     expect(registration.setup.secretSource).toBe("provider");
     expect(registration.setup.manualSteps.join(" ")).toContain(subscriptions.join(", "));
-    expect(registration.setup.manualSteps.join(" ")).toMatch(/secret/);
+    expect(registration.setup.manualSteps.join(" ")).toMatch(/choose Generate rather than typing your own/);
+    expect(registration.setup.manualSteps[0]).toMatch(/^In Polar, pick one organization this connection tracks\./);
     expect(automatic().extraPermissions.map((permission) => [permission.scope, permission.access])).toEqual([["webhooks:write", "full"]]);
     expect(automatic().extraPermissions[0]?.fullAccessReason).toMatch(/^Polar has no read-only access that can create a webhook\./);
+    // A Polar endpoint belongs to one organization: automatic setup is refused before any consent otherwise.
+    expect(automatic().accounts).toBe("one");
     expect(subscriptions).toEqual([
       "order.paid",
       "subscription.created",
@@ -808,16 +811,11 @@ describe("polarAdapter webhooks (#429)", () => {
     ]);
   });
 
+  // The scheme itself (headers, freshness, replay, every entry compared) is tested in
+  // src/lib/webhooks/standard-webhooks.test.ts. These are Polar's: the two keys one secret stands for.
   describe("verify", () => {
-    it("verifies the Standard Webhooks specification's own example", () => {
-      // The example in the Standard Webhooks spec's "Signature scheme" section, built from parts for the secret scan.
-      const secret = new Secret(["whsec", "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"].join("_"));
-      const id = ["msg", "p5jXN8AQM9LWM0D4loKWxJek"].join("_");
-      const body = '{"test": 2432232314}';
-      const signature = "v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=";
-      expect(polarWebhookSignature(secret, id, "1614265330", new TextEncoder().encode(body))).toBe(signature);
-      const request = delivery(body, { id, timestamp: "1614265330", signature });
-      expect(descriptor().verify(request, secret, new Date(1614265330 * 1000))).toEqual({ ok: true, deliveryId: id });
+    it("verifies a delivery for a secret made since 2026-09-08, keyed by the base64 after whsec_, from Polar's headers", () => {
+      expect(descriptor().verify(delivery(ORDER_BODY), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
     });
 
     it("verifies a delivery for a secret made before 2026-09-08, keyed by the UTF-8 bytes of the whole secret", () => {
@@ -826,29 +824,9 @@ describe("polarAdapter webhooks (#429)", () => {
       expect(descriptor().verify(delivery(ORDER_BODY, { signature: original }), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
     });
 
-    it("accepts one matching entry among several while a secret rotates", () => {
-      const old = polarWebhookSignature(new Secret(["whsec", Buffer.from("an-older-synthetic-signing-key32").toString("base64")].join("_")), DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(ORDER_BODY));
-      const current = polarWebhookSignature(SIGNING_SECRET, DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(ORDER_BODY));
-      expect(descriptor().verify(delivery(ORDER_BODY, { signature: `${old} ${current}` }), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
-    });
-
-    it.each<[string, Delivery, string]>([
-      ["unsigned", { signature: null }, "missing_signature"],
-      ["without a timestamp", { timestamp: null }, "missing_signature"],
-      ["signed with another secret", { secret: new Secret(["whsec", Buffer.from("another-synthetic-signing-key-32").toString("base64")].join("_")) }, "bad_signature"],
-      ["with a changed body", { signedBody: ORDER_BODY.replace("5880", "1") }, "bad_signature"],
-      ["replayed under a new delivery id", { id: "msg_synthetic0000000000000002", signedId: DELIVERY_ID }, "bad_signature"],
-      ["without a delivery id", { id: null, signedId: DELIVERY_ID }, "malformed"],
-      ["with a timestamp that is not whole seconds", { timestamp: "1762776000.5" }, "malformed"],
-      ["one second past the tolerance (boundary)", { timestamp: String(Number(NOW_SECONDS) - STANDARD_WEBHOOK_TOLERANCE_SECONDS - 1) }, "stale"],
-      ["one second past the tolerance in the future (boundary)", { timestamp: String(Number(NOW_SECONDS) + STANDARD_WEBHOOK_TOLERANCE_SECONDS + 1) }, "stale"],
-    ])("rejects a delivery %s", (_name, options, reason) => {
-      expect(descriptor().verify(delivery(ORDER_BODY, options), SIGNING_SECRET, now)).toEqual({ ok: false, reason });
-    });
-
-    it("accepts a delivery exactly at the tolerance (boundary)", () => {
-      const timestamp = String(Number(NOW_SECONDS) - STANDARD_WEBHOOK_TOLERANCE_SECONDS);
-      expect(descriptor().verify(delivery(ORDER_BODY, { timestamp }), SIGNING_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    it("rejects a delivery signed under another secret's keys", () => {
+      const other = new Secret(["whsec", Buffer.from("another-synthetic-signing-key-32").toString("base64")].join("_"));
+      expect(descriptor().verify(delivery(ORDER_BODY, { secret: other }), SIGNING_SECRET, now)).toEqual({ ok: false, reason: "bad_signature" });
     });
 
     it("verifies nothing with a secret too short to be one Polar made (boundary: under 16 bytes either way)", () => {
@@ -905,6 +883,20 @@ describe("polarAdapter webhooks (#429)", () => {
       expect(parsed(body)).toEqual({ kind: "ignored", reason });
     });
 
+    it.each<[string, string, "events" | "ignored"]>([
+      ["exactly at the sync's 30 day floor (boundary)", thirtyDaysAgo, "events"],
+      ["one millisecond before the floor (boundary)", "2026-10-11T11:59:59.999Z", "ignored"],
+    ])("keeps or drops an event dated %s, as the sync does", (_name, createdAt, kind) => {
+      expect(parsed(withData(webhookOrderPaid, "order.paid", { created_at: createdAt })).kind).toBe(kind);
+    });
+
+    it("drops a recovered payment's subscription.active naming a start months ago, which the sync would never store", () => {
+      expect(parsed(withData(webhookSubscriptionActive, "subscription.active", { started_at: "2026-03-01T00:00:00.000Z" }))).toEqual({
+        kind: "ignored",
+        reason: "older than the sync's window",
+      });
+    });
+
     it("ignores a subscribed event in a shape it cannot read, and logs its type only", () => {
       const { ctx, logger } = parseCtx();
       const body = withData(webhookOrderPaid, "order.paid", { customer: { email: "jane.doe@example.com" } });
@@ -953,6 +945,21 @@ describe("polarAdapter webhooks (#429)", () => {
       const { fetch, calls } = fakeFetch({});
       await expect(automatic().create({ credential: writeCredential, url: URL_FOR_CONNECTION, externalAccountIds }, context(fetch).ctx)).rejects.toThrow(RangeError);
       expect(calls).toHaveLength(0);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ["no secret (boundary: missing)", { secret: undefined }],
+      ["a secret too short to verify anything (boundary: under 16 bytes)", { secret: "whsec_c2hvcnQ" }],
+    ])("deletes the endpoint again and fails when Polar answers with %s", async (_name, change) => {
+      const created = { ...webhookEndpointCreated, ...change };
+      const { fetch, calls } = fakeFetch({
+        "/v1/webhooks/endpoints": () => Response.json(created, { status: 201 }),
+        "/v1/webhooks/endpoints/e0d0e0d0-0000-4000-8000-000000000001": () => new Response(null, { status: 204 }),
+      });
+      await expect(
+        automatic().create({ credential: writeCredential, url: URL_FOR_CONNECTION, externalAccountIds: [orgId] }, context(fetch).ctx),
+      ).rejects.toThrow(InvalidResponseError);
+      expect(calls.map((call) => call.init?.method)).toEqual(["POST", "DELETE"]);
     });
 
     it.each<[string, number, new (...args: never[]) => Error]>([

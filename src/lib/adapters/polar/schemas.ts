@@ -121,9 +121,11 @@ export type Customer = z.infer<typeof CustomerSchema>;
 
 /**
  * `POST /v1/webhooks/endpoints` (#429): the new endpoint's id and the signing secret Polar
- * generated for it (the 2026-10 request takes no secret). Nothing else is kept.
+ * generated for it (the 2026-10 request takes no secret). Nothing else is kept. The secret is read
+ * as unknown so a response without a usable one still names the endpoint, which is then deleted
+ * rather than left behind.
  */
-export const WebhookEndpointSchema = z.object({ id: PolarIdSchema, secret: z.string().min(1) });
+export const WebhookEndpointSchema = z.object({ id: PolarIdSchema, secret: z.unknown().optional() });
 
 // Every webhook delivery's envelope: `{ type, timestamp, api_version, data }` (2026-10 webhook
 // payload schemas). Only the type is read before choosing the shape below.
