@@ -19,6 +19,9 @@ export async function expectTopRowFits(
     header.getByRole("link", { name: accountName, exact: true }),
     header.getByRole("button", { name: "Sign out", exact: true }),
   ];
+  // The live indicator streams in behind its own Suspense boundary (HeaderLiveIndicator in the
+  // workspace layout), after the rest of the row, and boundingBox() does not wait for it (#500).
+  for (const control of controls) await expect(control).toBeVisible();
   const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
   for (const [index, box] of boxes.entries()) {
     if (box === null) throw new Error(`Top-row control ${index} is not rendered.`);
