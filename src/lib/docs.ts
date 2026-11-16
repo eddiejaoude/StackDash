@@ -216,10 +216,21 @@ function groupRank(group: string): number {
   return index === -1 ? GROUPS.length : index;
 }
 
-/** Reading order inside a group: the group's readingOrder first, every other page after it, by title. */
-function readingRank(doc: DocPage): number {
-  const order = GROUPS.find((known) => known.id === doc.group)?.readingOrder ?? [];
-  const index = order.indexOf(doc.slug.at(-1) ?? "");
+/**
+ * The position of the doc at this slug in its group's reading order: its index in readingOrder, or
+ * readingOrder's length for a page the order does not list, so it follows the listed ones (and then
+ * sorts by title). A group with no order ranks every page 0.
+ *
+ * readingOrder names files that sit directly in the group: a top-level guide, or a file directly in
+ * the group's folder. A file in a subfolder (`operations/notes/deploy.md`) is a different page that
+ * only shares a file name, so it is never matched and ranks as unlisted.
+ */
+export function readingRank(slug: readonly string[]): number {
+  const group = docGroup(slug);
+  const order = GROUPS.find((known) => known.id === group)?.readingOrder ?? [];
+  const depth = group === GUIDES_GROUP || group === DEVELOPERS_GROUP ? 1 : 2;
+  const fileName = slug.length === depth ? slug.at(-1) : undefined;
+  const index = fileName === undefined ? -1 : order.indexOf(fileName);
   return index === -1 ? order.length : index;
 }
 
@@ -235,7 +246,7 @@ export const listDocs = cache((): readonly DocPage[] => {
       (a, b) =>
         groupRank(a.group) - groupRank(b.group) ||
         a.group.localeCompare(b.group) ||
-        readingRank(a) - readingRank(b) ||
+        readingRank(a.slug) - readingRank(b.slug) ||
         a.title.localeCompare(b.title),
     );
 });

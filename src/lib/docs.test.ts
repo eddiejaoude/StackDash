@@ -10,6 +10,7 @@ import {
   isDocSlug,
   listDocs,
   parseVerification,
+  readingRank,
   resolveDocLink,
   type DocLink,
   type DocVerification,
@@ -276,5 +277,23 @@ describe("docGroup", () => {
     if (vercel === null) throw new Error("docs/providers/vercel.md is missing");
     const pages = ["developers", "release-notes"].map((group) => ({ ...vercel, group }));
     expect(groupDocs(pages).map((group) => group.label)).toEqual(["Developers", "Release notes"]);
+  });
+});
+
+describe("readingRank", () => {
+  // Guides list five pages and operations four, so an unlisted page ranks 5 and 4 respectively.
+  it.each<[string, string[], number]>([
+    ["the first listed guide", ["getting-started"], 0],
+    ["the last listed guide", ["roadmap"], 4],
+    ["the first listed operations page", ["operations", "self-hosting"], 0],
+    ["the last listed operations page", ["operations", "jobs"], 3],
+    ["an unlisted page in an ordered group, after the listed ones", ["operations", "backups"], 4],
+    ["a file in a subfolder that shares a listed name, as unlisted", ["operations", "notes", "deploy"], 4],
+    ["a page in a guides folder that shares a guide's name, as unlisted", ["guides", "getting-started"], 5],
+    ["a page in a group with no order", ["providers", "vercel"], 0],
+    ["a top-level page that is not a guide", ["adapters"], 0],
+    ["a page in an unknown folder", ["release-notes", "v1"], 0],
+  ])("ranks %s", (_case, slug, expected) => {
+    expect(readingRank(slug)).toBe(expected);
   });
 });
