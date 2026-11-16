@@ -94,8 +94,10 @@ ownerTest.describe("Polar webhook setup", () => {
       await expect(page).toHaveURL(CONNECTION_URL);
       expect(await grantedScopes(connection)).toEqual([SIMULATED_SCOPE]);
       for (const step of [
-        "In Polar, open the organization this connection tracks, then Settings, then Webhooks, and choose Add Endpoint.",
+        "In Polar, pick one organization this connection tracks. A connection takes one webhook, so add it to that organization only: an endpoint in a second organization has its own secret, and StackDash refuses its deliveries.",
+        "Open that organization's Settings, then Webhooks, and choose Add Endpoint.",
         "Paste the address below as the URL and leave the format on Raw.",
+        "For the secret, choose Generate rather than typing your own.",
         "Select the order.paid, subscription.created, subscription.active, subscription.canceled, subscription.revoked, refund.created, refund.updated events, and create the endpoint.",
         "Copy the endpoint's secret and paste it into the field below.",
       ]) {
@@ -226,5 +228,27 @@ ownerTest.describe("Polar webhook setup", () => {
     } finally {
       await polar.dispose();
     }
+  });
+
+  ownerTest("automatic setup refused for a connection that does not include exactly one organization says why and what to do", async ({ page }) => {
+    if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
+    await connectSimulated(page, workspace.slug, "Polar");
+    const connection = await connectionId(page);
+    // Where the start route sends a refused automatic setup (`?webhook=<refusal>`), before any
+    // consent. The refusal itself is unit tested (src/lib/connections/webhook-setup.test.ts):
+    // Polar's simulated twin cannot reach it, because each simulated grant names a new
+    // organization (#529).
+    await page.goto(`${page.url()}?webhook=one_account_needed`);
+    const banner = page.getByRole("alert").filter({ hasText: "Webhook not set up" });
+    await expect(banner).toContainText(
+      "Polar adds a webhook to one account at a time, so automatic setup needs this connection to include exactly one account. Under Accounts on this page, include only the account you want events from, then choose automatic setup again. Or set up the webhook by hand in that account.",
+    );
+    await expect(banner).toBeFocused();
+    // Nothing was asked for or created, and both choices are still offered.
+    expect(await grantedScopes(connection)).toEqual([SIMULATED_SCOPE]);
+    expect(await endpointCount(connection)).toBe(0);
+    await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toBeVisible();
+    await expectAccessiblePanel(page);
+    await evidence(banner, "polar-automatic-refused-one-organization");
   });
 });
