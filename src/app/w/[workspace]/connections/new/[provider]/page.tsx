@@ -69,10 +69,11 @@ async function ConnectProviderContent({
     chosen: webhookChosen,
   });
   const permissions = [...adapter.permissions, ...extraPermissions];
-  // The grant holds the write access already (an automatic setup that failed after its consent),
-  // so the advice to stay read-only by setting up by hand would be false.
+  // The grant holds some of the write access already (an automatic setup that failed after its
+  // consent), so the advice to stay read-only by setting up by hand would be false. The same rule
+  // as the connection page's `heldWriteAccess`: any one held scope counts.
   const writeAccessHeld =
-    reconnect !== null && extraPermissions.length > 0 && extraPermissions.every((permission) => reconnect.granted_scopes.includes(permission.scope));
+    reconnect !== null && extraPermissions.some((permission) => reconnect.granted_scopes.includes(permission.scope));
 
   const canConnect = canPerform(role, "manage_connections");
   const configured = loadOAuthClient(adapter) !== null;
