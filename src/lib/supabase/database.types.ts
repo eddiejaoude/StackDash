@@ -273,6 +273,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"credential_refresh_locks": {
+                  Row: {
+                    "connection_id": string,"lock_id": string,"locked_until": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "connection_id": string,"lock_id": string,"locked_until": string,"workspace_id": string
+                  }
+                  Update: {
+                    "connection_id"?: string,"lock_id"?: string,"locked_until"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "credential_refresh_locks_connection_fkey"
+      columns: ["workspace_id","connection_id"]
+isOneToOne: false
+      referencedRelation: "connections"
+      referencedColumns: ["workspace_id","id"]
+    }
+                  ]
                 },"external_accounts": {
                   Row: {
                     "connection_id": string,"created_at": string,"display_name": string,"external_id": string,"id": string,"included": boolean,"kind": string,"project_id": string | null,"sync_cursor": string | null,"updated_at": string,"workspace_id": string
@@ -797,6 +817,9 @@ isOneToOne: false
           Functions: {
             "achievement_event_dedupe_key":
 { Args: { "p_achievement_id": string,"p_project_id": string }; Returns: string
+                           },
+"acquire_credential_refresh_lock":
+{ Args: { "p_connection_id": string,"p_lease_seconds": number,"p_workspace_id": string }; Returns: string
                            },
 "activity_event_counts":
 { Args: { "p_account_ids"?: (string)[],"p_bucket": string,"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {

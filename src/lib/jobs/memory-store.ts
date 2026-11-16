@@ -62,6 +62,8 @@ export class MemoryJobStore implements JobStore {
   /** connection id -> connection_credentials.updated_at (ISO). saveCredential stamps it; tests may set it. */
   credentialUpdatedAt = new Map<string, string>();
   savedCredentials: OAuthCredential[] = [];
+  /** connection id -> credential_refresh_locks row, as acquire_credential_refresh_lock keeps it (#496). */
+  refreshLocks = new Map<string, { lockId: string; lockedUntil: Date }>();
   /** Workspaces with anomaly detection turned off; every other workspace has it on (#169). */
   anomalyDisabled = new Set<string>();
   anomalyMutes: Array<AnomalyMute & { workspace_id: string }> = [];
@@ -345,6 +347,19 @@ export class MemoryJobStore implements JobStore {
     this.credentials.set(connectionId, credential);
     this.credentialUpdatedAt.set(connectionId, this.#nowIso());
     this.savedCredentials.push(credential);
+  }
+
+  async acquireCredentialRefreshLock({ connectionId }: ConnectionKey, leaseSeconds: number): Promise<string | null> {
+    const now = this.now();
+    const held = this.refreshLocks.get(connectionId);
+    if (held !== undefined && held.lockedUntil >= now) return null;
+    const lockId = crypto.randomUUID();
+    this.refreshLocks.set(connectionId, { lockId, lockedUntil: new Date(now.getTime() + leaseSeconds * 1000) });
+    return lockId;
+  }
+
+  async releaseCredentialRefreshLock({ connectionId }: ConnectionKey, lockId: string): Promise<void> {
+    if (this.refreshLocks.get(connectionId)?.lockId === lockId) this.refreshLocks.delete(connectionId);
   }
 
   async latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>> {
