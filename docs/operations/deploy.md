@@ -6,6 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
+- [Self-host StackDash](self-hosting.md): what you need, the order of these steps, alert email, and how to upgrade.
 - [OAuth apps](oauth-apps.md): register the sign-in OAuth app and one app per provider.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
