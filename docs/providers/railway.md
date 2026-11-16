@@ -46,7 +46,7 @@ Form encoded, client authenticated with HTTP Basic (`client_id:client_secret`). 
 
 Body: `grant_type=refresh_token`, `refresh_token`, with the same Basic client authentication. The response carries a `refresh_token` that "may initially contain the same value, but will eventually return a new token". Always store the one from the latest response: **using an old, rotated refresh token fails and the user has to authorize again**. Each user authorization keeps at most 100 refresh tokens; the oldest are revoked automatically past that.
 
-The sync runner refreshes before expiry, saves the rotated credential before anything else runs, and never runs two syncs of one connection at once (`src/lib/jobs/sync-connection.ts`). `invalid_grant` on refresh is reported as auth revoked, so the connection asks for a reconnect instead of retrying.
+StackDash refreshes through `refreshIfExpiring` in `src/lib/connections/credential-refresh.ts`: a token within 5 minutes of expiry is refreshed, the rotated credential is saved before anything uses it, and every refresh of one connection (a sync, automatic webhook setup, removal on disconnect) runs under the connection's refresh lock, so two refreshes never spend the same refresh token. `invalid_grant` on refresh is reported as auth revoked, so the connection asks for a reconnect instead of retrying.
 
 ### Disconnect
 

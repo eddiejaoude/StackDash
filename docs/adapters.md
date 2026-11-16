@@ -68,7 +68,7 @@ An adapter is one object implementing `ProviderAdapter` (`src/lib/adapters/types
 | `webhooks` | The provider's push path: where deliveries arrive, the events subscribed to, and how a delivery is verified and mapped (see [Webhooks](#webhooks)). Omit when the provider cannot push signed events |
 | `buildAuthorizeUrl` | The URL the user is sent to. Always sends the scopes explicitly, the `state`, and the PKCE challenge |
 | `exchangeCode` | Swaps the callback's code for a credential. Callback parameters are untrusted: verify them |
-| `refreshTokens` | Returns a new credential. Omit when the provider's tokens never expire. The sync runner saves the result before anything else runs |
+| `refreshTokens` | Returns a new credential. Omit when the provider's tokens never expire. StackDash calls it through `refreshIfExpiring` (`src/lib/connections/credential-refresh.ts`) and saves the result before anything uses it; every refresh of one connection (a sync, automatic webhook setup, removal on disconnect) runs under the connection's refresh lock, so it is never called twice at once for one connection |
 | `revoke` | Ends the grant at the provider. Omit when the provider has no revocation endpoint |
 | `listAccounts` | The accounts, organizations, teams, or projects the grant can read. Each becomes an external account the user can include |
 | `installationIdOf` | The provider installation a credential belongs to, read from the credential alone (no network), or null. StackDash stores it on the connection when a grant completes, and on the next sync of a connection made before it existed, so an uninstall naming only the installation finds the connection (see [Webhooks](#webhooks), Uninstalls). Omit when the provider's uninstalls name an account |
