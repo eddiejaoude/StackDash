@@ -77,9 +77,10 @@ export const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 const InstallationRefSchema = z.object({ uuid: z.string().regex(INSTALLATION_ID_PATTERN) });
 
 /**
- * An `issue` webhook body (Sentry-Hook-Resource `issue`): the issue as the issue search returns it,
- * plus the project it belongs to, which is the external account, and its category, because Sentry
- * also sends feedback issues, which the issue search never returns. `title`, `culprit`,
+ * An `issue` webhook body (Sentry-Hook-Resource `issue`): the issue fields the timeline events are
+ * built from, the project it belongs to, which is the external account, and its category, because
+ * Sentry also sends feedback issues, which the issue search never returns. `status` and `lastSeen`
+ * are left out: the action says what happened, and no event reads either. `title`, `culprit`,
  * `metadata`, `assignedTo`, and the top-level `actor` are never declared, so they are dropped here:
  * they can carry personal data from the user's app or name a person.
  */
@@ -87,7 +88,10 @@ export const IssueWebhookSchema = z.object({
   action: z.string().min(1),
   installation: InstallationRefSchema,
   data: z.object({
-    issue: IssueSchema.extend({ project: z.object({ id: IdSchema }), issueCategory: z.string().nullish() }),
+    issue: IssueSchema.omit({ status: true, lastSeen: true }).extend({
+      project: z.object({ id: IdSchema }),
+      issueCategory: z.string().nullish(),
+    }),
   }),
 });
 

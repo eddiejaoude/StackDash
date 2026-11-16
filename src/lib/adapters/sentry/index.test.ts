@@ -727,6 +727,15 @@ describe("sentryAdapter.webhooks", () => {
     expect(polled).toHaveLength(1);
   });
 
+  it("maps a delivery whose status and lastSeen are missing or null, since no event reads them (boundary)", () => {
+    const { status: _status, ...withoutStatus } = webhookIssueResolved.data.issue;
+    const body = JSON.stringify({ ...webhookIssueResolved, data: { issue: { ...withoutStatus, lastSeen: null } } });
+    expect(parsed(body)).toMatchObject({
+      kind: "events",
+      events: [{ typeId: "sentry.issue.resolved", dedupeKey: "sentry.issue.resolved:80:2026-11-05" }],
+    });
+  });
+
   it("dates a resolution by the delivery and keys it as a sync on the same UTC day does", async () => {
     const sentSeconds = NOW_SECONDS - 120;
     const outcome = parsed(JSON.stringify(webhookIssueResolved), { timestamp: String(sentSeconds) });
