@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 
 import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import {
@@ -10,7 +11,12 @@ import {
   type ProviderAdapter,
   type ProviderId,
 } from "@/lib/adapters/types";
-import { loadCredential } from "@/lib/data/credentials";
+import {
+  acquireCredentialRefreshLock,
+  loadCredential,
+  releaseCredentialRefreshLock,
+  saveCredential,
+} from "@/lib/data/credentials";
 import {
   countWorkspaceWebhookEndpoints,
   deleteWebhookEndpoint,
@@ -24,6 +30,7 @@ import { log, logError } from "@/lib/log/logger";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+import { refreshIfExpiring, type CredentialRefreshDeps } from "./credential-refresh";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
 
 /*
@@ -41,6 +48,20 @@ import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
 const SECRET_BYTES = 32;
 // A grant reaching more accounts than this is unusual; the same bound as connect.ts.
 const MAX_ACCOUNTS = 500;
+
+// The provider calls below use the stored credential refreshed first when it is about to expire,
+// under the same per-connection refresh lock a sync takes, so the two never spend one refresh token.
+const refreshDeps: CredentialRefreshDeps = {
+  store: {
+    loadCredential,
+    saveCredential: (key, credential) => saveCredential({ ...key, credential }),
+    acquireCredentialRefreshLock,
+    releaseCredentialRefreshLock,
+  },
+  now: () => new Date(),
+  sleep: (ms) => sleep(ms),
+  logError,
+};
 
 /** The adapter's per-connection webhook setup, or null when its webhooks (if any) are app-level. */
 export function connectionWebhookSetup(adapter: ProviderAdapter): ConnectionWebhookSetup | null {
@@ -159,8 +180,9 @@ export async function setupRefusal(workspaceId: string, connectionId: string): P
 }
 
 /**
- * Creates the webhook at the provider with the connection's stored credential, then the endpoint.
- * Refused without a call to the provider when the grant lacks a scope automatic setup needs.
+ * Creates the webhook at the provider with the connection's stored credential, refreshed and saved
+ * first when it is about to expire, then the endpoint. Refused without a call to the provider when
+ * the grant lacks a scope automatic setup needs; a failed refresh is thrown before `create`.
  */
 export async function setUpWebhookAutomatically({
   workspaceId,
@@ -173,17 +195,18 @@ export async function setUpWebhookAutomatically({
   const refused = await setupRefusal(workspaceId, connectionId);
   if (refused !== null) return refused;
 
-  const [credential, accountIds] = await Promise.all([
+  const [stored, accountIds] = await Promise.all([
     loadCredential({ workspaceId, connectionId }),
     includedAccountIds(workspaceId, connectionId),
   ]);
-  if (credential === null) throw new Error("The connection has no stored credential to set up a webhook with.");
-  if (setup.automatic.extraPermissions.some((permission) => !credential.scopes.includes(permission.scope))) {
+  if (stored === null) throw new Error("The connection has no stored credential to set up a webhook with.");
+  if (setup.automatic.extraPermissions.some((permission) => !stored.scopes.includes(permission.scope))) {
     return { kind: "write_access_missing" };
   }
   const client = loadOAuthClient(adapter);
   if (client === null) return { kind: "not_configured" };
   const ctx = createOAuthContext(client);
+  const credential = await refreshIfExpiring(adapter, stored, { workspaceId, connectionId }, ctx, refreshDeps);
 
   const endpointId = randomUUID();
   const input = { credential, url: webhookUrl(origin, adapter.id, endpointId), externalAccountIds: accountIds };
@@ -238,9 +261,10 @@ export type WebhookRemoval =
 
 /**
  * Deletes the endpoint, so a delivery still sent to it is refused like one to an unknown URL, and
- * then deletes an automatic webhook at the provider with the credential StackDash still holds. Run
- * it before revoking that credential. A provider failure is returned, not thrown: the disconnect
- * goes on and the user is told how to remove the webhook by hand.
+ * then deletes an automatic webhook at the provider with the credential StackDash still holds,
+ * refreshed and saved first when it is about to expire. Run it before revoking that credential. A
+ * failed refresh or provider call is returned, not thrown: the disconnect goes on and the user is
+ * told how to remove the webhook by hand.
  */
 export async function removeConnectionWebhook({
   workspaceId,
@@ -258,7 +282,9 @@ export async function removeConnectionWebhook({
     const client = loadOAuthClient(adapter);
     if (credential === null) throw new Error("The connection has no stored credential to delete its webhook with.");
     if (client === null) throw new Error(`${provider} is no longer set up on this instance.`);
-    await automatic.remove({ credential, webhookId: removed.providerWebhookId }, createOAuthContext(client));
+    const ctx = createOAuthContext(client);
+    const current = await refreshIfExpiring(adapter, credential, { workspaceId, connectionId }, ctx, refreshDeps);
+    await automatic.remove({ credential: current, webhookId: removed.providerWebhookId }, ctx);
     return { kind: "removed" };
   } catch (error) {
     return { kind: "failed", referenceId: logError("webhook_setup.remove_failed", error, { provider, workspaceId, connectionId }) };

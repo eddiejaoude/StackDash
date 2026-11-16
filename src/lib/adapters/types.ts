@@ -146,9 +146,11 @@ export type FullAccessPermission = Extract<Permission, { access: "full" }>;
 
 /** What automatic setup hands the provider to create the connection's webhook. */
 export type CreateWebhookInput = Readonly<{
-  // The connection's stored credential as it is: it is not refreshed first, so it can be expired
-  // between syncs (#496). An adapter must not refresh it here, because it cannot save a rotated
-  // refresh token; a refused call fails setup, and on disconnect the user gets the steps by hand.
+  // The connection's stored credential, refreshed and saved first when it is within 5 minutes of
+  // expiry, under the refresh lock a sync takes (#496), so it is unexpired whenever the adapter
+  // can refresh it. An adapter must not refresh it here, because it cannot save a rotated refresh
+  // token. `remove` gets the same. A failed refresh fails setup before `create`, and on disconnect
+  // the user gets the steps by hand.
   credential: OAuthCredential;
   // The connection's own URL, `/api/webhooks/<provider>/<endpointId>` on this instance's origin.
   url: string;
