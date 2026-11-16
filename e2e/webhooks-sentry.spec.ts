@@ -9,7 +9,7 @@ import { connectSimulated } from "./fixtures/connections";
 import { adminClient, CONNECTION_URL, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { tickUntilStored } from "./fixtures/webhook-ticks";
+import { tickUntilConnectionStatus, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Sentry webhooks (#421), end to end against simulated Sentry, which runs the real adapter's
@@ -174,10 +174,7 @@ ownerTest.describe("Sentry webhooks", () => {
       expect(accepted.status()).toBe(202);
       expect(await accepted.json()).toEqual({ status: "accepted" });
 
-      await expect(async () => {
-        await tick();
-        expect((await readConnection()).status).toBe("needs_attention");
-      }).toPass({ timeout: 90_000 });
+      await tickUntilConnectionStatus(page, workspace, "sentry", "needs_attention");
 
       await page.goto(connectionPage);
       await expect(page.getByRole("region", { name: "Status" }).getByText("Status: Needs attention")).toBeVisible();
