@@ -19,7 +19,6 @@ import {
   instantInSlot,
   laneParts,
   lanesAt,
-  SLOT_MS,
   simulatedEndpoint,
   unit,
   utcDayStart,
@@ -97,7 +96,6 @@ function issue(accountId: string, slot: number, lane: number, ...parts: readonly
 
 function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  const windowKey = new Date(slot * SLOT_MS).toISOString();
 
   // About 1.4 new issues an hour (360 slots), times the volume.
   const created = countAtVolume([0.004], volume, accountId, "created", slot);
@@ -107,12 +105,12 @@ function eventsInSlot(accountId: string, slot: number, volume: number): Activity
   for (const lane of lanesAt(0.0015, volume, accountId, "regressed", slot)) {
     const regressed = issue(accountId, slot, lane, ...laneParts(lane, "regressed"));
     const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "regressed-at"));
-    events.push(issueStatusEvent("regressed", regressed, accountId, detectedAt, windowKey));
+    events.push(issueStatusEvent("regressed", regressed, accountId, detectedAt));
   }
   for (const lane of lanesAt(0.003, volume, accountId, "resolved", slot)) {
     const resolved = issue(accountId, slot, lane, ...laneParts(lane, "resolved"));
     const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "resolved-at"));
-    events.push(issueStatusEvent("resolved", resolved, accountId, detectedAt, windowKey));
+    events.push(issueStatusEvent("resolved", resolved, accountId, detectedAt));
   }
 
   const offset = between(0, RELEASE_EVERY_SLOTS - 1, accountId, "release-offset");

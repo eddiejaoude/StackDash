@@ -1,0 +1,71 @@
+{
+  "action": "created",
+  "installation": {
+    "uuid": "7a485448-a9e2-4c85-8a3c-4f44175783c9"
+  },
+  "data": {
+    "issue": {
+      "url": "https://sentry.io/api/0/organizations/the-interstellar-jurisdiction/issues/101/",
+      "web_url": "https://the-interstellar-jurisdiction.sentry.io/issues/101/",
+      "project_url": "https://the-interstellar-jurisdiction.sentry.io/issues/?project=3",
+      "id": "101",
+      "shareId": null,
+      "shortId": "PRIME-MOVER-2F",
+      "title": "ZeroDivisionError: division by zero for user jane@example.com",
+      "culprit": "raven.scripts.runner in main",
+      "permalink": "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/101/",
+      "logger": "edge-function",
+      "level": "fatal",
+      "status": "unresolved",
+      "statusDetails": {},
+      "substatus": "new",
+      "isPublic": false,
+      "platform": "python",
+      "project": {
+        "id": "3",
+        "name": "Prime Mover",
+        "slug": "prime-mover",
+        "platform": "python"
+      },
+      "type": "default",
+      "metadata": {
+        "title": "ZeroDivisionError: division by zero for user jane@example.com",
+        "sdk": {
+          "name": "edge-function",
+          "name_normalized": "other"
+        },
+        "severity": 1,
+        "severity_reason": "log_level_fatal",
+        "initial_priority": 75
+      },
+      "numComments": 0,
+      "assignedTo": {
+        "type": "user",
+        "id": "1",
+        "name": "John Doe",
+        "email": "john.doe@example.com"
+      },
+      "isBookmarked": false,
+      "isSubscribed": false,
+      "subscriptionDetails": null,
+      "hasSeen": false,
+      "annotations": [],
+      "issueType": "error",
+      "issueCategory": "error",
+      "priority": "high",
+      "priorityLockedAt": null,
+      "seerFixabilityScore": null,
+      "seerAutofixLastTriggered": null,
+      "isUnhandled": false,
+      "count": "3",
+      "userCount": 3,
+      "firstSeen": "2026-11-05T11:40:00.679000+00:00",
+      "lastSeen": "2026-11-05T11:40:00.738000+00:00"
+    }
+  },
+  "actor": {
+    "type": "user",
+    "id": 1,
+    "name": "Meredith Heller"
+  }
+}
