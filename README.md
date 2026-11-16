@@ -1,6 +1,6 @@
 # StackDash
 
-Project is in `main` branch and will be promoted to default soon. Sign up to get notified.
+The project is on the `main` branch, which is the repository's default branch. Sign up to get notified.
 
 <img width="1280" height="880" alt="a525c634-0497-4b3a-9b2c-8150b60ef4ae" src="https://github.com/user-attachments/assets/5f991fd5-98d1-44ba-a0d8-721ac5c197f5" />
 
