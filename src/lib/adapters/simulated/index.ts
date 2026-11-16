@@ -193,6 +193,12 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
       return grant.scopes.includes(SIMULATED_SCOPE) ? [] : [SIMULATED_SCOPE];
     },
 
+    // A live adapter whose uninstalls name an installation (Sentry, #480): the simulated grant's
+    // installation is its seed, so a signed `installation.deleted` naming it finds the connection.
+    ...(real.installationIdOf === undefined
+      ? {}
+      : { installationIdOf: (credential: OAuthCredential) => (isSimulatedCredential(credential) ? (credential.metadata?.seed ?? null) : null) }),
+
     async sync({ credential, externalAccountId, cursor }: SyncInput, ctx): Promise<SyncResult> {
       const accounts = profile.accounts(seedOf(credential, provider));
       if (!accounts.some((account) => account.externalId === externalAccountId)) {

@@ -701,7 +701,7 @@ describe("sentryAdapter.webhooks", () => {
 
   it("is registered on the integration and signed with the client secret", () => {
     expect(descriptor().registration).toEqual({ kind: "app", secretEnv: sentryAdapter.oauth.clientSecretEnv });
-    expect(descriptor().subscriptions).toEqual(["issue.created", "issue.resolved", "issue.unresolved"]);
+    expect(descriptor().subscriptions).toEqual(["issue.created", "issue.resolved", "issue.unresolved", "installation.deleted"]);
   });
 
   it("maps the documented issue.created delivery to the event the sync stores for the same issue", async () => {
@@ -763,6 +763,28 @@ describe("sentryAdapter.webhooks", () => {
     const request = delivery(JSON.stringify(webhookIssueRegressed), { timestamp: String(at.getTime() / 1000) });
     expect(descriptor().verify(request, WEBHOOK_SECRET, at).ok).toBe(true);
     expect(descriptor().parse(request, harness().ctx)).toMatchObject({ kind: "events", events: [{ dedupeKey, occurredAt: at }] });
+  });
+
+  it("reports installation.deleted as an uninstall of the installation the credential was granted for, dated when sent", () => {
+    const sentSeconds = NOW_SECONDS - 120;
+    const outcome = parsed(JSON.stringify(webhookInstallationDeleted), { resource: "installation", timestamp: String(sentSeconds) });
+    expect(outcome).toEqual({ kind: "uninstalled", by: "installation", installationId: INSTALLATION_ID, occurredAt: new Date(sentSeconds * 1000) });
+    expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
+    // The same id the connection records for its credential, so the uninstall finds it.
+    expect(sentryAdapter.installationIdOf?.(credential)).toBe(INSTALLATION_ID);
+    // Never the grant code or who uninstalled.
+    const output = JSON.stringify(outcome);
+    for (const text of ["doc-sample-grant-code", "Meredith Heller"]) expect(output).not.toContain(text);
+  });
+
+  it.each<[string, OAuthCredential["metadata"]]>([
+    ["no metadata", undefined],
+    ["no installation id", { organizationSlug: ORG_SLUG }],
+    ["an empty installation id", { installationId: "", organizationSlug: ORG_SLUG }],
+    ["an installation id that could change a path", { installationId: "../7a485448", organizationSlug: ORG_SLUG }],
+  ])("names no installation for a credential with %s (boundary)", (_case, metadata) => {
+    const { metadata: _dropped, ...rest } = credential;
+    expect(sentryAdapter.installationIdOf?.(metadata === undefined ? rest : { ...rest, metadata })).toBeNull();
   });
 
   it("never carries the issue title, culprit, assignee, or actor into the outcome", () => {

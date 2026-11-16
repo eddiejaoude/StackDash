@@ -707,8 +707,10 @@ function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now
  * Maps a verified delivery with the sync's own builders, so a pushed issue event and the same
  * event polled later share a dedupe key. `issue.created` is dated when Sentry first saw the issue,
  * a resolution and a regression (`unresolved` with substatus `regressed`) when Sentry sent the
- * delivery. `assigned`, `archived`, any other `unresolved`, and every other resource are ignored.
- * The reasons are fixed text: nothing from the body reaches them.
+ * delivery. `installation.deleted` names only the installation (#480): every connection granted
+ * for it needs a reconnect, unless granted again after Sentry sent the delivery. `assigned`,
+ * `archived`, any other `unresolved`, `installation.created`, and every other resource are
+ * ignored. The reasons are fixed text: nothing from the body reaches them.
  */
 function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
   const resource = headers.get(SENTRY_WEBHOOK_HEADERS.resource)?.trim();
@@ -720,10 +722,16 @@ function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
     if (!(error instanceof SyntaxError)) throw error;
     return { kind: "ignored", reason: "body is not JSON" };
   }
+  // `verify` has already required this header to be a fresh whole number.
+  const sentSeconds = hookTimestampSeconds(headers);
+  if (sentSeconds === undefined) return { kind: "ignored", reason: "delivery has no timestamp" };
+  const sentAt = new Date(sentSeconds * 1000);
+
   if (resource === "installation") {
     const installation = InstallationWebhookSchema.safeParse(raw);
     if (!installation.success) return { kind: "ignored", reason: "not an installation delivery StackDash reads" };
-    return { kind: "ignored", reason: "installation action StackDash does not act on" };
+    if (installation.data.action !== "deleted") return { kind: "ignored", reason: "installation action StackDash does not act on" };
+    return { kind: "uninstalled", by: "installation", installationId: installation.data.installation.uuid, occurredAt: sentAt };
   }
 
   const parsed = IssueWebhookSchema.safeParse(raw);
@@ -734,14 +742,7 @@ function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
   if (action === "created") return { kind: "events", externalAccountId, events: [issueCreatedEvent(issue, externalAccountId)] };
   const change = action === "resolved" ? "resolved" : action === "unresolved" && issue.substatus === "regressed" ? "regressed" : undefined;
   if (change === undefined) return { kind: "ignored", reason: "issue action is not on the timeline" };
-  // `verify` has already required this header to be a fresh whole number.
-  const sentSeconds = hookTimestampSeconds(headers);
-  if (sentSeconds === undefined) return { kind: "ignored", reason: "delivery has no timestamp" };
-  return {
-    kind: "events",
-    externalAccountId,
-    events: [issueStatusEvent(change, issue, externalAccountId, new Date(sentSeconds * 1000))],
-  };
+  return { kind: "events", externalAccountId, events: [issueStatusEvent(change, issue, externalAccountId, sentAt)] };
 }
 
 export const sentryAdapter: ProviderAdapter = {
@@ -801,7 +802,7 @@ export const sentryAdapter: ProviderAdapter = {
   // One webhook URL on the integration's registration, signed with the client secret.
   webhooks: {
     registration: { kind: "app", secretEnv: "SENTRY_CLIENT_SECRET" },
-    subscriptions: ["issue.created", "issue.resolved", "issue.unresolved"],
+    subscriptions: ["issue.created", "issue.resolved", "issue.unresolved", "installation.deleted"],
     verify: verifyWebhook,
     parse: parseWebhook,
   },
@@ -884,6 +885,13 @@ export const sentryAdapter: ProviderAdapter = {
       const name = project.name?.trim();
       return { externalId: project.id, displayName: name !== undefined && name.length > 0 ? name : project.slug, kind: "project" };
     });
+  },
+
+  // The installation `exchangeCode` stored, which `installation.deleted` names (#480). Null for a
+  // credential whose metadata lost it or holds a value the callback check would have refused.
+  installationIdOf(credential) {
+    const installationId = credential.metadata?.[metadataKeys.installationId];
+    return installationId !== undefined && INSTALLATION_ID_PATTERN.test(installationId) ? installationId : null;
   },
 
   detectMissingPermissions(grant) {

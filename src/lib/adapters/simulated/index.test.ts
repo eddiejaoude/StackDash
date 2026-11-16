@@ -306,6 +306,23 @@ describe("simulated connect", () => {
   it("names the simulated scope as missing when the grant lacks it", () => {
     expect(simulatedAdapters.github.detectMissingPermissions({ scopes: [] })).toEqual([SIMULATED_SCOPE]);
   });
+
+  it("names a simulated grant's seed as its installation when the live adapter matches uninstalls by installation (#480)", async () => {
+    const credential = await simulatedAdapters.sentry.exchangeCode(
+      { code: `${SIMULATED_CODE_PREFIX}code`, redirectUri: "http://localhost:3000/cb", callbackParams: {} },
+      makeCtx(SPAN_START),
+    );
+    expect(credential.metadata?.seed).toMatch(/^[0-9a-f]{8}$/);
+    expect(simulatedAdapters.sentry.installationIdOf?.(credential)).toBe(credential.metadata?.seed);
+    // A credential the simulator did not mint names no installation (boundary).
+    const { metadata: _simulated, ...unmarked } = credential;
+    expect(simulatedAdapters.sentry.installationIdOf?.({ ...unmarked, metadata: { seed: "0a1b2c3d" } })).toBeNull();
+  });
+
+  it("declares no installation when the live adapter's uninstalls name an account (boundary)", () => {
+    expect(vercelAdapter.installationIdOf).toBeUndefined();
+    expect(simulatedAdapters.vercel.installationIdOf).toBeUndefined();
+  });
 });
 
 describe("simulated markers", () => {
