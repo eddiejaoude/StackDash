@@ -133,10 +133,12 @@ export async function runWebhookJob(
     for (const target of targets) {
       // An uninstall older than the connection's last grant (a reconnect) is stale: revoking a live
       // reconnect over a late or redelivered uninstall would undo what the user just did. A token
-      // refresh is not a grant and does not move `grantedAt` (#476), so a removal followed by a
-      // refresh is still applied. A grant at the same instant is not after it. A null `grantedAt`
-      // is a live connection with neither a recorded grant nor a credential: nothing is known to be
-      // newer than the removal, so it is applied.
+      // refresh is not a grant and does not move a recorded grant (#476), so a removal followed by
+      // a refresh is still applied. A live connection with no recorded grant carries its
+      // credential's last save instead (see `WebhookTarget`), so there a refresh still counts, as
+      // before #476, until the contract step (#502). A grant at the same instant is not after it. A
+      // null `grantedAt` is a live connection with neither a recorded grant nor a credential:
+      // nothing is known to be newer than the removal, so it is applied.
       if (target.grantedAt !== null && Date.parse(target.grantedAt) > outcome.occurredAt.getTime()) {
         deps.log.info("webhook.uninstall_stale", { jobId: job.id, provider, connectionId: target.connectionId });
         continue;

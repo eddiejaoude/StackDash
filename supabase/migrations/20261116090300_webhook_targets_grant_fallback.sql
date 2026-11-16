@@ -5,7 +5,9 @@
 -- granted_at existed. 20261116090200_webhook_uninstall_installation.sql replaced that function with
 -- the four-parameter version and returned c.granted_at alone, so an unstamped live connection had a
 -- null grant time and every uninstall revoked it, even a late one older than its last grant. A
--- follow-up migration, not an edit of 20261116090200, because that one is already applied.
+-- follow-up migration, not an edit of 20261116090200, because the shared local development
+-- database already applied that one, and an edit would never run there. No deployed environment
+-- has 20261116090200, so on any other database this follows it directly.
 --
 -- Same parameters, result, rules, and grants as 20261116090200; only granted_at changes, on the
 -- account and the installation match alike: coalesce(c.granted_at, cc.updated_at), so it is null
