@@ -58,8 +58,6 @@ export class MemoryJobStore implements JobStore {
   rateLimitCounters: MemoryRateLimitCounter[] = [];
   metricViews: MemoryMetricView[] = [];
   credentials = new Map<string, OAuthCredential>();
-  /** connection id -> connection_credentials.updated_at (ISO). saveCredential stamps it; tests may set it. */
-  credentialUpdatedAt = new Map<string, string>();
   savedCredentials: OAuthCredential[] = [];
   /** Workspaces with anomaly detection turned off; every other workspace has it on (#169). */
   anomalyDisabled = new Set<string>();
@@ -83,6 +81,7 @@ export class MemoryJobStore implements JobStore {
       display_name: "Example connection",
       authorized_account_label: null,
       external_installation_id: null,
+      granted_at: null,
       granted_scopes: [],
       missing_scopes: [],
       poll_interval_seconds: 3600,
@@ -319,7 +318,6 @@ export class MemoryJobStore implements JobStore {
 
   async saveCredential({ connectionId }: ConnectionKey, credential: OAuthCredential): Promise<void> {
     this.credentials.set(connectionId, credential);
-    this.credentialUpdatedAt.set(connectionId, this.#nowIso());
     this.savedCredentials.push(credential);
   }
 
@@ -567,25 +565,23 @@ export class MemoryJobStore implements JobStore {
     const endpoint = endpointId === null ? null : this.webhookEndpoints.find((row) => row.id === endpointId);
     if (endpoint === undefined) return [];
     return this.accounts
-      .filter((account) => {
-        if (account.external_id !== externalAccountId || !account.included) return false;
+      .flatMap((account) => {
+        if (account.external_id !== externalAccountId || !account.included) return [];
         if (endpoint !== null && (endpoint.workspace_id !== account.workspace_id || endpoint.connection_id !== account.connection_id)) {
-          return false;
+          return [];
         }
         const connection = this.#connection({ workspaceId: account.workspace_id, connectionId: account.connection_id });
-        return (
-          connection !== undefined &&
-          connection.provider === provider &&
-          (connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention")
-        );
+        if (connection === undefined || connection.provider !== provider) return [];
+        const live = connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention";
+        return live ? [{ account, connection }] : [];
       })
-      .sort((a, b) => a.id.localeCompare(b.id))
+      .sort((a, b) => a.account.id.localeCompare(b.account.id))
       .slice(0, WEBHOOK_TARGET_LIMIT)
-      .map((account) => ({
+      .map(({ account, connection }) => ({
         workspaceId: account.workspace_id,
         connectionId: account.connection_id,
         accountId: account.id,
-        credentialUpdatedAt: this.credentialUpdatedAt.get(account.connection_id) ?? null,
+        grantedAt: connection.granted_at,
       }));
   }
 

@@ -113,12 +113,12 @@ export async function runWebhookJob(
     }
   } else {
     for (const target of distinctConnections(targets)) {
-      // An uninstall older than the last time the connection's credential was saved is left to
-      // the next sync. A save is a reconnect or a token refresh, and the two cannot be told apart
-      // here: revoking a live reconnect over a late or redelivered uninstall costs more than
-      // leaving a real one to the next sync, which fails and asks for a reconnect as it did before
-      // webhooks. A credential saved at the same instant is not after it.
-      if (target.credentialUpdatedAt !== null && Date.parse(target.credentialUpdatedAt) > outcome.occurredAt.getTime()) {
+      // An uninstall older than the connection's last grant (a reconnect) is stale: revoking a live
+      // reconnect over a late or redelivered uninstall would undo what the user just did. A token
+      // refresh is not a grant and does not move `grantedAt` (#476), so a removal followed by a
+      // refresh is still applied. A grant at the same instant is not after it. With no grant time
+      // there is nothing newer than the removal, so it is applied.
+      if (target.grantedAt !== null && Date.parse(target.grantedAt) > outcome.occurredAt.getTime()) {
         deps.log.info("webhook.uninstall_stale", { jobId: job.id, provider, connectionId: target.connectionId });
         continue;
       }

@@ -242,25 +242,39 @@ describe("runWebhookJob", () => {
   });
 
   it.each([
-    ["with no stored credential time", null],
-    ["whose credential was saved one millisecond before the uninstall (boundary)", new Date(UNINSTALLED_AT.getTime() - 1).toISOString()],
-    ["whose credential was saved at the instant of the uninstall (boundary)", UNINSTALLED_AT.toISOString()],
-  ])("revokes a connection %s", async (_case, credentialUpdatedAt) => {
+    ["with no grant time", null],
+    ["granted one millisecond before the uninstall (boundary)", new Date(UNINSTALLED_AT.getTime() - 1).toISOString()],
+    ["granted at the instant of the uninstall (boundary)", UNINSTALLED_AT.toISOString()],
+  ])("revokes a connection %s", async (_case, grantedAt) => {
     const harness = setup();
-    const connection = harness.connect(WORKSPACE_A);
-    if (credentialUpdatedAt !== null) harness.store.credentialUpdatedAt.set(connection.id, credentialUpdatedAt);
+    const connection = harness.connect(WORKSPACE_A, { granted_at: grantedAt });
     const job = await harness.deliver(uninstall);
 
     expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
   });
 
-  it("leaves a connection whose credential was saved one millisecond after the uninstall (a reconnect or a refresh) to its next sync (boundary: late delivery)", async () => {
+  it("revokes a connection whose token was refreshed after the removal (boundary: refresh after removal, #476)", async () => {
     const harness = setup();
-    const reconnected = harness.connect(WORKSPACE_A);
-    const removed = harness.connect(WORKSPACE_B);
-    harness.store.credentialUpdatedAt.set(reconnected.id, new Date(UNINSTALLED_AT.getTime() + 1).toISOString());
-    harness.store.credentialUpdatedAt.set(removed.id, new Date(UNINSTALLED_AT.getTime() - 60_000).toISOString());
+    // Granted before the removal, with a token that expires now, so the sync below refreshes it.
+    const connection = harness.connect(WORKSPACE_A, { granted_at: new Date(UNINSTALLED_AT.getTime() - 3_600_000).toISOString() });
+    harness.store.credentials.set(connection.id, { ...credential, expiresAt: new Date(START) });
+    connection.next_sync_at = null;
+    await runTick(harness.deps);
+    expect(harness.store.savedCredentials).toHaveLength(1);
+    expect(connection).toMatchObject({ status: "active" });
+
+    const job = await harness.deliver(uninstall);
+
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+    expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+    expect(harness.infos.map((line) => line.event)).not.toContain("webhook.uninstall_stale");
+  });
+
+  it("leaves a connection granted again one millisecond after the uninstall to its next sync (boundary: reconnect after removal)", async () => {
+    const harness = setup();
+    const reconnected = harness.connect(WORKSPACE_A, { granted_at: new Date(UNINSTALLED_AT.getTime() + 1).toISOString() });
+    const removed = harness.connect(WORKSPACE_B, { granted_at: new Date(UNINSTALLED_AT.getTime() - 60_000).toISOString() });
     const job = await harness.deliver(uninstall);
 
     expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });

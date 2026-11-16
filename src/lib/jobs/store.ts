@@ -96,11 +96,11 @@ export type WebhookDeliveryRecord = Readonly<{
 
 /**
  * An included external account of a live connection that a delivery's account maps to.
- * `credentialUpdatedAt` is when the connection's credential was last saved (ISO), or null when it
- * has none. A reconnect saves it and so does a token refresh, so an uninstall older than the last
- * save is left to the next sync instead of being applied.
+ * `grantedAt` is when the connection was last granted, by a connect or a reconnect (ISO), or null
+ * when its grant never completed. A token refresh does not move it (#476), so an uninstall older
+ * than a reconnect is left to the next sync while one older than only a refresh is applied.
  */
-export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string; credentialUpdatedAt: string | null }>;
+export type WebhookTarget = Readonly<{ workspaceId: string; connectionId: string; accountId: string; grantedAt: string | null }>;
 
 export type RecordWebhookDeliveryInput = Readonly<{
   provider: ProviderId;
@@ -659,7 +659,7 @@ export function createSupabaseJobStore(): JobStore {
         workspaceId: row.workspace_id,
         connectionId: row.connection_id,
         accountId: row.account_id,
-        credentialUpdatedAt: row.credential_updated_at,
+        grantedAt: row.granted_at,
       }));
     },
 
