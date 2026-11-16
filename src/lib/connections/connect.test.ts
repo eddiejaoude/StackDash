@@ -151,6 +151,8 @@ describe("completeConnection installation id (#480)", () => {
   it.each([
     ["an adapter that does not declare installationIdOf (boundary: omitted)", fakeAdapter],
     ["a credential that names no installation (boundary: null)", installed],
+    ["an adapter that returns an empty id (boundary: blank)", { ...fakeAdapter, installationIdOf: () => "" }],
+    ["an adapter that returns whitespace (boundary: blank)", { ...fakeAdapter, installationIdOf: () => "  " }],
   ])("writes null for %s", async (_case, adapter: ProviderAdapter) => {
     const writes = recordingClient();
 

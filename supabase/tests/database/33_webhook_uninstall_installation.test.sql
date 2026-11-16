@@ -4,13 +4,15 @@
 -- a per-connection URL; exactly one of p_external_id and p_installation_id is required, and a call
 -- naming only the parameters code before #480 sends still works; an index serves the lookup;
 -- record_webhook_delivery accepts an uninstall naming an account (with or without `by`) or an
--- installation and refuses one naming neither.
+-- installation and refuses one naming neither; members read external_installation_id and nobody
+-- writes it through the Data API; granted_at falls back to the credential's last save on the
+-- installation match too.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(22);
+select plan(25);
 
 -- Fixtures: workspaces A and B. Installation inst-1 on fake connections: A active (with an
 -- included account), A failed, B needs_attention (no accounts), A pending, A revoked; inst-1 on
@@ -53,6 +55,11 @@ values
   ('c3300005-0000-4000-8000-000000000001', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000001',
    'fake', 'deadbeef', '\x00'::bytea, '\x01'::bytea, '\x02'::bytea);
 
+-- A's failed connection has no recorded grant but a credential; B's needs_attention one has neither.
+insert into public.connection_credentials (connection_id, workspace_id, key_id, iv, ciphertext, auth_tag, updated_at)
+values ('c3300003-0000-4000-8000-000000000002', 'c3300002-0000-4000-8000-000000000001', 'deadbeef',
+        '\x00'::bytea, '\x01'::bytea, '\x02'::bytea, '2026-11-12T10:00:00Z');
+
 -- ---------------------------------------------------------------------------
 -- The index and the grants
 -- ---------------------------------------------------------------------------
@@ -60,6 +67,11 @@ select ok(
   (select pg_catalog.pg_get_indexdef(i.indexrelid) like '%(provider, external_installation_id)%WHERE (external_installation_id IS NOT NULL)%'
    from pg_catalog.pg_index i where i.indexrelid = 'public.connections_provider_installation_idx'::regclass),
   'connections_provider_installation_idx: a partial index on (provider, external_installation_id) for the installation lookup');
+select ok(
+  has_column_privilege('authenticated', 'public.connections', 'external_installation_id', 'select')
+  and not has_column_privilege('authenticated', 'public.connections', 'external_installation_id', 'update')
+  and not has_column_privilege('authenticated', 'public.connections', 'external_installation_id', 'insert'),
+  'connections.external_installation_id: members read it; the Data API cannot write it, so no member decides which connections an uninstall marks');
 select is_empty(
   $$ select r.role from unnest(array['anon', 'authenticated']) as r(role)
      where has_function_privilege(r.role, 'public.list_webhook_targets(public.provider_id, text, uuid, text)', 'execute') $$,
@@ -112,6 +124,16 @@ select results_eq(
   $$ select connection_id from public.list_webhook_targets('fake', p_endpoint_id => 'c3300005-0000-4000-8000-000000000001', p_installation_id => 'inst-1') $$,
   $$ values ('c3300003-0000-4000-8000-000000000001'::uuid) $$,
   'installation: a per-connection delivery reaches only the endpoint''s own connection');
+select is(
+  (select granted_at from public.list_webhook_targets('fake', p_installation_id => 'inst-1')
+   where connection_id = 'c3300003-0000-4000-8000-000000000002'),
+  '2026-11-12T10:00:00Z'::timestamptz,
+  'installation: a live connection with no recorded grant falls back to its credential''s last save (boundary: unstamped)');
+select is(
+  (select granted_at from public.list_webhook_targets('fake', p_installation_id => 'inst-1')
+   where connection_id = 'c3300003-0000-4000-8000-000000000003'),
+  null::timestamptz,
+  'installation: a live connection with neither a recorded grant nor a credential has no grant time (boundary: no credential)');
 
 -- ---------------------------------------------------------------------------
 -- list_webhook_targets by account, as before

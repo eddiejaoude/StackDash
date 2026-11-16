@@ -7,6 +7,11 @@
 --   (completeConnection asks the adapter, `installationIdOf`) and fills it on the next sync of a
 --   connection made before this change: it lives in the sealed credential metadata, which SQL cannot
 --   read, so there is no backfill here.
+--   Members now read the installation id with the rest of their connection row (connections_select,
+--   table-wide select, and every Realtime payload of the row): an identifier, not a credential, so
+--   it is no more sensitive than the account ids members already see. Nobody writes it through the
+--   Data API: authenticated keeps update (display_name, last_sync_requested_at) and nothing else,
+--   which matters here because the column decides which connections an app-level uninstall marks.
 -- - connections_provider_installation_idx serves the new lookup.
 -- - record_webhook_delivery checks that an `uninstalled` outcome names an account
 --   (`externalAccountId`, with `by` absent or `account`) or an installation (`by` = `installation`

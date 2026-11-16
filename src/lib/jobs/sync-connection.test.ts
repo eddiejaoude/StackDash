@@ -603,6 +603,8 @@ describe("sync job: installation id of a connection made before #480", () => {
 
   it.each([
     ["an adapter whose credential names no installation (boundary: null)", { ...fakeAdapter, installationIdOf: () => null }],
+    ["an adapter that returns an empty id (boundary: blank)", { ...fakeAdapter, installationIdOf: () => "" }],
+    ["an adapter that returns whitespace (boundary: blank)", { ...fakeAdapter, installationIdOf: () => " \t" }],
     ["an adapter that does not declare installationIdOf (boundary: omitted)", fakeAdapter],
   ])("leaves it null for %s", async (_case, adapter: ProviderAdapter) => {
     const harness = setup({ adapter });

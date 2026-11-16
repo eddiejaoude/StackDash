@@ -9,10 +9,20 @@
 -- null.
 --
 -- Batched and re-runnable: backfill_connection_granted_at fills at most p_limit connections that
--- still have none, oldest id first, and returns how many it filled, so the loop below stops at zero
--- and running it again changes nothing. A connection the app granted meanwhile already has its exact
--- value and is never overwritten. Each batch locks only the rows it updates. Filling a row also
--- moves its updated_at (connections_set_updated_at), which no reader relies on.
+-- still have none, in id order (random UUIDs, so not by age), and returns how many it filled, so
+-- the loop below stops at zero and running it again changes nothing. A connection the app granted
+-- meanwhile already has its exact value and is never overwritten: the update repeats the
+-- `granted_at is null` test, so a row whose grant commits after the batch was read is rechecked
+-- against its new version and skipped (read committed rechecks the update's own conditions, not
+-- the batch's).
+--
+-- The limit bounds what one call locks only when each call commits on its own. The loop below runs
+-- in this migration's single transaction, so it holds every filled row's lock until the migration
+-- commits: a sync or a connect writing a connection row waits for it. That is acceptable for this
+-- table, which holds a few connections per workspace. Filling a row also moves its updated_at
+-- (connections_set_updated_at), which no reader relies on, and, because connections is in the
+-- supabase_realtime publication (20261104090000_realtime_publication.sql), sends each filled row to
+-- open workspace tabs, which refresh once (src/components/app/live-refresh.tsx).
 
 create function public.backfill_connection_granted_at(p_limit int)
   returns int
@@ -43,7 +53,8 @@ begin
     c.created_at
   )
   from batch
-  where c.id = batch.id;
+  where c.id = batch.id
+    and c.granted_at is null;
 
   get diagnostics v_filled = row_count;
   return v_filled;

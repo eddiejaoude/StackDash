@@ -6,13 +6,24 @@
 --
 -- - connections.granted_at: written by the app when a grant completes, on connect and on reconnect
 --   (completeConnection in src/lib/connections/connect.ts), and never by a token refresh. Null for
---   a connection whose grant never completed (pending). Existing connections are backfilled in the
---   next migration, 20261116090100_connection_granted_at_backfill.sql.
--- - list_webhook_targets returns granted_at, and the webhook job compares against it.
+--   a pending connection (its grant has not completed), and for a live connection whose grant
+--   completed without the stamp: one made by the previous deployment between this migration and
+--   the promote of the code that writes it, or a row inserted as live directly (seed, fixtures).
+--   Existing connections are backfilled in the next migration,
+--   20261116090100_connection_granted_at_backfill.sql.
+-- - list_webhook_targets returns granted_at, and the webhook job compares against it. Where the
+--   column is null it returns the credential's last save instead, which is what the job compared
+--   against before this migration: an unstamped live connection keeps that behavior, and one with
+--   no credential either has no grant time and is revoked by an uninstall.
 --
 -- Expand step of expand then contract: list_webhook_targets keeps returning credential_updated_at,
--- in the same position, so code deployed before this migration keeps reading it. A later migration
--- drops that column once no deployed code reads it.
+-- in the same position, so code deployed before this migration keeps reading it. The contract
+-- migration, once no deployed code reads that column, runs backfill_connection_granted_at again
+-- (it fills connections the previous deployment made after the first backfill), then drops the
+-- column and the credential fallback above. A reconnect made by the previous deployment between
+-- the backfill and the promote keeps its backfilled time from before it and cannot be repaired
+-- afterwards: nothing recorded tells that save from a token refresh. A late uninstall from between
+-- its old grant and that reconnect then revokes it, and the user reconnects once more.
 --
 -- Members read granted_at with the rest of their connection row (connections_select, table-wide
 -- select); nobody writes it through the Data API: authenticated keeps update (display_name,
@@ -22,9 +33,11 @@ alter table public.connections add column granted_at timestamptz;
 
 -- ── list_webhook_targets ────────────────────────────────────────────────────────
 -- As in 20261115090200_webhook_delivery_review.sql, plus granted_at, the time the target's
--- connection was last granted (null when its grant never completed): an uninstall that happened
--- before it is stale. credential_updated_at stays for code deployed before this migration; nothing
--- in this branch reads it. Dropped and created again because its result gains a column.
+-- connection was last granted, or its credential's last save where the connection has no grant
+-- time, or null without either: an uninstall that happened before it is stale. A target is never
+-- pending, so a null here is a live connection with no recorded grant and no credential.
+-- credential_updated_at stays for code deployed before this migration; nothing in this branch
+-- reads it. Dropped and created again because its result gains a column.
 
 drop function public.list_webhook_targets(public.provider_id, text, uuid);
 
@@ -44,7 +57,7 @@ create function public.list_webhook_targets(
   stable
   set search_path = ''
 as $$
-  select a.workspace_id, a.connection_id, a.id, cc.updated_at, c.granted_at
+  select a.workspace_id, a.connection_id, a.id, cc.updated_at, coalesce(c.granted_at, cc.updated_at)
   from public.external_accounts a
   join public.connections c on c.workspace_id = a.workspace_id and c.id = a.connection_id
   left join public.connection_credentials cc on cc.workspace_id = c.workspace_id and cc.connection_id = c.id
