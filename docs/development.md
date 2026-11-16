@@ -297,6 +297,9 @@ If nothing new appears:
 - It says "No active simulated connection": connect providers from step 2, or open the ones that
   need attention and reconnect them; a simulated connection that needs attention is not synced.
   The Example provider from step 8 is not simulated.
+- A simulated GitHub connection made before GitHub received webhooks fails every sync with an
+  invalid response: its account id changed to a number, like a real GitHub account id. Disconnect
+  it and connect GitHub again.
 
 A simulated provider whose real adapter receives webhooks receives them too, through the real
 adapter's signature check and mapping. Where the provider has one URL for every account

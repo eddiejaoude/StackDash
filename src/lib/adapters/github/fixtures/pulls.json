@@ -1,0 +1,29 @@
+[
+  {
+    "number": 42,
+    "state": "closed",
+    "title": "Synthetic pull request title",
+    "user": { "login": "contributor-a", "id": 8100001, "type": "User" },
+    "merged_at": "2026-10-31T10:00:00Z",
+    "updated_at": "2026-10-31T10:00:05Z",
+    "html_url": "https://github.com/example-org/example-repo/pull/42"
+  },
+  {
+    "number": 41,
+    "state": "closed",
+    "title": "Closed without merging",
+    "user": { "login": "contributor-b", "id": 8100002, "type": "User" },
+    "merged_at": null,
+    "updated_at": "2026-10-31T09:00:00Z",
+    "html_url": "https://github.com/example-org/example-repo/pull/41"
+  },
+  {
+    "number": 40,
+    "state": "closed",
+    "title": "Merged weeks ago, commented on yesterday",
+    "user": { "login": "contributor-a", "id": 8100001, "type": "User" },
+    "merged_at": "2026-10-01T10:00:00Z",
+    "updated_at": "2026-10-30T09:00:00Z",
+    "html_url": "https://github.com/example-org/example-repo/pull/40"
+  }
+]

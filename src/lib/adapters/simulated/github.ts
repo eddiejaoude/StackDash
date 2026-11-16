@@ -1,7 +1,8 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import { githubAdapter } from "@/lib/adapters/github";
+import { issueOpenedEvent, pullRequestMergedEvent, releasePublishedEvent } from "@/lib/adapters/github/activity";
 import { billingMetricNames } from "@/lib/adapters/github/billing";
-import { eventTypeIds, starMetricNames, starMilestones } from "@/lib/adapters/github/repositories";
+import { eventTypeIds, newStarEvent, starMetricNames, starMilestones } from "@/lib/adapters/github/repositories";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 
 import {
@@ -25,10 +26,18 @@ import {
  * Simulated GitHub organization with three repositories: stars grow at a steady rate per
  * repository (so the 100, 500, and 1,000 milestones are crossed now and then), forks trickle in
  * (about 65 a day across the three), and a daily stars event lands at UTC midnight for the day
- * before, and every sync reports the day before's new stars. Actions minutes and spend accrue
- * hour by hour, at under a third of the pace on weekends (#166). Keys and milestones come from
- * the real adapter's modules. Fork counts are at the default event volume; a higher volume (#383)
- * multiplies them and leaves stars alone.
+ * before, and every sync reports the day before's new stars. Pull requests are merged (about 8 a
+ * day) and issues opened (about 4), the events GitHub's webhooks push (#62), releases are published
+ * (about 1, which the real adapter polls from the events feed), and the two quieter repositories
+ * send one "Repository starred" event per star. The
+ * trending `api` repository's 240 stars a day reach only its counts, daily total, and milestones:
+ * one event per star there would outpace a small product's timeline (#264). Actions minutes and
+ * spend accrue hour by hour, at under a third of the pace on weekends (#166). Keys and milestones
+ * come from the real adapter's modules. Fork and activity counts are at the default event volume;
+ * a higher volume (#383) multiplies them and leaves stars alone.
+ *
+ * The account id is numeric, like a real GitHub account id, because a webhook names its account by
+ * the repository owner's numeric id: a signed delivery for a simulated connection (#479) carries it.
  */
 
 const ORGANIZATION = "example-org";
@@ -42,22 +51,34 @@ const STAR_ANCHOR_MS = Date.UTC(2026, 0, 1);
 // Net price per Actions minute, in tenths of a cent (Linux runners, $0.008 a minute).
 const PRICE_TENTHS_OF_CENT_PER_MINUTE = 8;
 
-type SimulatedRepo = Readonly<{ id: number; full_name: string; baseStars: number; starsPerDay: number; forkChance: number }>;
+type SimulatedRepo = Readonly<{
+  id: number;
+  full_name: string;
+  baseStars: number;
+  starsPerDay: number;
+  forkChance: number;
+  starEvents: boolean;
+  mergeChance: number;
+  issueChance: number;
+  releaseChance: number;
+}>;
 
-// Fork chances are per 10 second slot: about 50, 12, and 3 forks a day.
+// Chances are per 10 second slot. Forks: about 50, 12, and 3 a day. Merges: about 4, 2.6, and 0.9.
+// Issues: about 2.6, 1.3, and 0.4. Releases: about 0.5, 0.3, and 0.1.
 const REPO_SHAPES = [
-  { name: "api", baseStars: 60, starsPerDay: 240, forkChance: 0.0058 },
-  { name: "web", baseStars: 420, starsPerDay: 24, forkChance: 0.0014 },
-  { name: "cli", baseStars: 75, starsPerDay: 6, forkChance: 0.00035 },
+  { name: "api", baseStars: 60, starsPerDay: 240, forkChance: 0.0058, starEvents: false, mergeChance: 0.0005, issueChance: 0.0003, releaseChance: 0.00006 },
+  { name: "web", baseStars: 420, starsPerDay: 24, forkChance: 0.0014, starEvents: true, mergeChance: 0.0003, issueChance: 0.00015, releaseChance: 0.00003 },
+  { name: "cli", baseStars: 75, starsPerDay: 6, forkChance: 0.00035, starEvents: true, mergeChance: 0.0001, issueChance: 0.00005, releaseChance: 0.00001 },
 ] as const;
+// Pull request and issue numbers count slots from here, so each is unique and stable for a repository.
+const NUMBER_ANCHOR_SLOT = STAR_ANCHOR_MS / SLOT_MS;
+const SLOTS_PER_DAY = DAY_MS / SLOT_MS;
 
 function repositories(accountId: string): SimulatedRepo[] {
   return REPO_SHAPES.map((shape, index) => ({
+    ...shape,
     id: between(100_000_000, 999_999_999, accountId, "repo", index),
     full_name: `${ORGANIZATION}/${shape.name}`,
-    baseStars: shape.baseStars,
-    starsPerDay: shape.starsPerDay,
-    forkChance: shape.forkChance,
   }));
 }
 
@@ -159,6 +180,46 @@ function eventsInSlot(accountId: string, slot: number, volume: number): Activity
       });
     }
 
+    // The real adapter's builders, so titles, severities, and dedupe keys cannot drift from what a
+    // delivery to a simulated connection (the real `parse`) stores. An empty link is dropped.
+    const ref = { id: repo.id, full_name: repo.full_name, html_url: "" };
+
+    // One per star, dated like the real `star` delivery's `starred_at` (whole seconds).
+    if (repo.starEvents) {
+      for (let star = 0; star < after - before; star += 1) {
+        events.push(newStarEvent(ref, instantInSlot(slot, accountId, repo.id, "star", star), accountId));
+      }
+    }
+
+    // Later lanes number past every slot's lane 0 number, so a higher volume never repeats a key.
+    const numberOf = (lane: number) => slot - NUMBER_ANCHOR_SLOT + lane * 10_000_000;
+    for (const lane of lanesAt(repo.mergeChance, volume, accountId, repo.id, "merge", slot)) {
+      const mergedAt = instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "merge-at")).toISOString();
+      const event = pullRequestMergedEvent(ref, { number: numberOf(lane), merged_at: mergedAt, html_url: "" }, accountId);
+      if (event !== undefined) events.push(event);
+    }
+    for (const lane of lanesAt(repo.issueChance, volume, accountId, repo.id, "issue", slot)) {
+      const createdAt = instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "issue-at")).toISOString();
+      events.push(issueOpenedEvent(ref, { number: numberOf(lane), created_at: createdAt, html_url: "" }, accountId));
+    }
+    for (const lane of lanesAt(repo.releaseChance, volume, accountId, repo.id, "release", slot)) {
+      const sinceAnchor = slot - NUMBER_ANCHOR_SLOT;
+      // Release ids like fork ids: nine digits on lane 0, and past them, one per slot and lane, above it.
+      const id =
+        lane === 0
+          ? between(100_000_000, 999_999_999, accountId, repo.id, "release-id", slot)
+          : 1_000_000_000 + slot * MAX_EVENT_VOLUME + lane;
+      const release = {
+        id,
+        tag_name: `v1.${Math.floor(sinceAnchor / SLOTS_PER_DAY)}.${(sinceAnchor % SLOTS_PER_DAY) * MAX_EVENT_VOLUME + lane}`,
+        draft: false,
+        published_at: instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "release-at")).toISOString(),
+        html_url: "",
+      };
+      const event = releasePublishedEvent(ref, release, accountId);
+      if (event !== undefined) events.push(event);
+    }
+
     for (const lane of lanesAt(repo.forkChance, volume, accountId, repo.id, "fork", slot)) {
       // Later lanes number their forks past the first lane's nine digit ids, one number per slot and
       // lane, so a higher volume never repeats a fork's dedupe key.
@@ -181,7 +242,7 @@ function eventsInSlot(accountId: string, slot: number, volume: number): Activity
 
 export const githubProfile: SimulatedProfile = {
   real: githubAdapter,
-  accounts: (seed) => [{ externalId: `sim${seed}`, displayName: ORGANIZATION, kind: "organization" }],
+  accounts: (seed) => [{ externalId: String(parseInt(seed, 16)), displayName: ORGANIZATION, kind: "organization" }],
   metrics,
   eventsInSlot,
 };

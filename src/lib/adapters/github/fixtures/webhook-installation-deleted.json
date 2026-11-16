@@ -1,0 +1,34 @@
+{
+  "action": "deleted",
+  "installation": {
+    "id": 12345678,
+    "account": {
+      "login": "example-org",
+      "id": 9000001,
+      "type": "Organization"
+    },
+    "repository_selection": "selected",
+    "target_type": "Organization",
+    "permissions": {
+      "metadata": "read"
+    },
+    "created_at": 1761900000,
+    "updated_at": 1761900001,
+    "suspended_at": null,
+    "suspended_by": null
+  },
+  "repositories": [
+    {
+      "id": 5000001,
+      "name": "example-repo",
+      "full_name": "example-org/example-repo",
+      "private": true
+    }
+  ],
+  "requester": null,
+  "sender": {
+    "login": "org-owner-a",
+    "id": 8500001,
+    "type": "User"
+  }
+}

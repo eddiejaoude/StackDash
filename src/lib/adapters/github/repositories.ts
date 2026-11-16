@@ -1,28 +1,53 @@
 import { z } from "zod";
+import type { PermissionMissingError } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import type { OAuthContext, Secret } from "../types";
-import { getJson } from "./api";
+import {
+  activityEventTypes,
+  activityPermissionError,
+  activityReads,
+  collectActivity,
+  httpsUrl,
+  type ActivityList,
+  type ActivityRepository,
+} from "./activity";
+import { getJson, getRepositoryJson, grantsRead } from "./api";
 import {
   ForksSchema,
   InstallationRepositoriesSchema,
   StargazersCountSchema,
   type Fork,
+  type Installation,
   type Repository,
 } from "./schemas";
 
 /**
- * Stars and forks of the installation's repositories, per docs/providers/github.md
+ * Stars, forks, and activity of the installation's repositories, per docs/providers/github.md
  * ("Which repositories", "Star count", "Forks", "Timeline events").
  *
- * Bounded: one page of 100 repositories per sync and one page of forks per repository. State
- * between polls (daily star baseline, highest milestone fired, newest fork seen) lives in the
+ * Bounded: one page of 100 repositories per sync, one page of forks per repository, and one page
+ * each of pull requests and issues and up to three of the events feed (./activity.ts), read within
+ * ACTIVITY_BUDGET_MS. State between polls (daily star baseline, highest milestone fired, newest
+ * fork seen, when each activity list was last read, when activity was last attempted) lives in the
  * cursor, so a re-poll with the same cursor and responses yields the same dedupe keys.
  */
 
 export const MAX_REPOSITORIES = 100;
 const FORKS_PAGE_SIZE = 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Activity on the first sync, after a long gap, or for a list whose permission was just granted, is
+// read back a week at most: the backfill window docs/adapters.md asks for. Later syncs read back to
+// that list's previous read less one poll interval, so an item GitHub listed late is still caught;
+// the dedupe key absorbs the overlap.
+const ACTIVITY_BACKFILL_MS = 7 * DAY_MS;
+// No repository's activity read starts after this much of the activity reads has passed. A job may
+// start up to 50 seconds into a tick (`TICK_BUDGET_MS`) and keeps its claim for 120 seconds
+// (`TICK_LEASE_SECONDS`, src/lib/jobs/runner.ts), so a sync has about 70 seconds; the activity reads
+// get under a third of it, leaving the star, fork, and billing reads and one request's 15 second
+// timeout the rest. The repositories left over are read first on the next sync, from their own last
+// read, so a busy installation catches up over several syncs.
+const ACTIVITY_BUDGET_MS = 20_000;
 /** How often GitHub is polled: the adapter's `pollIntervalSeconds`. */
 export const POLL_INTERVAL_SECONDS = 3600;
 // A repository's baseline is its count at the first sync of a day, and the first sync of the next
@@ -39,6 +64,7 @@ const DAY_CLOSE_MAX_DELAY_MS = 2 * POLL_INTERVAL_SECONDS * 1000;
 export const eventTypeIds = {
   starsDaily: "github.stars.daily",
   starsMilestone: "github.stars.milestone",
+  starsNew: "github.stars.new",
   forksNew: "github.forks.new",
 } as const;
 
@@ -70,13 +96,32 @@ export const eventTypes: readonly EventType[] = [
     emoji: "🌟",
   },
   {
+    // Webhook only (#62): GitHub sends `star` with the time and the stargazer, and the stargazer
+    // list that could backfill it is restricted and personal (docs/providers/github.md).
+    id: eventTypeIds.starsNew,
+    label: "Repository starred",
+    description: "Someone starred a repository, sent by GitHub as it happens. Who starred it is not collected.",
+    shownByDefault: true,
+    emoji: "⭐",
+  },
+  {
     id: eventTypeIds.forksNew,
     label: "New fork",
     description: "Someone forked a repository. Who forked it is not collected.",
     shownByDefault: true,
     emoji: "🍴",
   },
+  ...activityEventTypes,
 ];
+
+// When each activity list of a repository was last read, absent for a list never read (its
+// permission not granted yet, or the read refused).
+const ActivityReadTimesSchema = z.object({
+  pullRequests: z.iso.datetime({ offset: true }).optional(),
+  issues: z.iso.datetime({ offset: true }).optional(),
+  releases: z.iso.datetime({ offset: true }).optional(),
+});
+type ActivityReadTimes = z.infer<typeof ActivityReadTimesSchema>;
 
 const RepoStateSchema = z.object({
   // UTC day of the baseline and the star count at the first poll of that day.
@@ -87,6 +132,12 @@ const RepoStateSchema = z.object({
   // Creation time of the newest fork seen, and the fork ids created at exactly that time.
   forksSeenAt: z.iso.datetime({ offset: true }).nullable(),
   forkIdsAtSeenAt: z.array(z.int().positive()),
+  // Absent before #62 and for a repository whose activity was never read.
+  activity: ActivityReadTimesSchema.optional(),
+  // When this repository's activity reads last ran, whether or not every list was read, so a list
+  // that is never read (a permission not accepted, a list refused) cannot pin the repository to the
+  // front or the back of the budget's order. Absent until its first attempt.
+  activityAttemptedAt: z.iso.datetime({ offset: true }).optional(),
 });
 type RepoState = z.infer<typeof RepoStateSchema>;
 
@@ -113,8 +164,35 @@ function highestMilestone(count: number): number {
 export type RepositoriesResult = {
   metrics: AdapterMetric[];
   events: ActivityEvent[];
-  repos: Cursor["repos"];
+  cursor: Cursor;
+  // An activity list the installation has not been granted, or that GitHub refused.
+  partialErrors: PermissionMissingError[];
 };
+
+/**
+ * One star, from a `star` delivery (./webhooks.ts). Dated and deduplicated by `starred_at`, so a
+ * redelivery stores it once; the stargazer is never read.
+ */
+export function newStarEvent(repo: ActivityRepository, starredAt: Date, externalAccountId: string): ActivityEvent {
+  return {
+    typeId: eventTypeIds.starsNew,
+    occurredAt: starredAt,
+    severity: "info",
+    title: `New star on ${repo.full_name}`,
+    externalAccountId,
+    dedupeKey: `${eventTypeIds.starsNew}:${repo.id}:${starredAt.toISOString()}`,
+    ...httpsUrl(repo.html_url),
+  };
+}
+
+/** Where a list's activity read starts: see ACTIVITY_BACKFILL_MS. */
+export function activitySince(previousReadAt: string | undefined, now: Date): Date {
+  const backfill = now.getTime() - ACTIVITY_BACKFILL_MS;
+  if (previousReadAt === undefined) return new Date(backfill);
+  const overlapped = Date.parse(previousReadAt) - POLL_INTERVAL_SECONDS * 1000;
+  // A read time from the future means the clock moved back: read the last poll interval again.
+  return new Date(Math.max(backfill, Math.min(overlapped, now.getTime() - POLL_INTERVAL_SECONDS * 1000)));
+}
 
 type RepoContext = Readonly<{
   repo: Repository;
@@ -234,6 +312,7 @@ function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): 
 export async function collectRepositories(
   ctx: OAuthContext,
   installationToken: Secret,
+  installation: Installation,
   externalAccountId: string,
   previous: Cursor | undefined,
 ): Promise<RepositoriesResult> {
@@ -256,11 +335,18 @@ export async function collectRepositories(
   // Yesterday's new stars across the repositories whose baseline from yesterday this sync closed
   // soon after midnight; undefined when none did (nothing to report, so no reading is written).
   let starsGainedYesterday: number | undefined;
+  const reads = Object.values(activityReads);
+  const granted = new Set(reads.map((read) => read.permission).filter((permission) => grantsRead(installation, permission)));
+  // One partial error per permission, however many repositories it was missing on.
+  const partialErrors = new Map<string, PermissionMissingError>();
+  for (const read of reads) {
+    if (!granted.has(read.permission)) partialErrors.set(read.permission, activityPermissionError(read));
+  }
+  const repositories = page.repositories.slice(0, MAX_REPOSITORIES);
 
-  for (const repo of page.repositories.slice(0, MAX_REPOSITORIES)) {
-    const repoPath = `/repos/${encodeURIComponent(repo.owner.login)}/${encodeURIComponent(repo.name)}`;
-    const { count } = await getJson(ctx, `${repoPath}/stargazers/count`, installationToken, StargazersCountSchema);
-    const forks = await getJson(ctx, `${repoPath}/forks`, installationToken, ForksSchema, {
+  for (const repo of repositories) {
+    const { count } = await getRepositoryJson(ctx, repo, "/stargazers/count", installationToken, StargazersCountSchema);
+    const forks = await getRepositoryJson(ctx, repo, "/forks", installationToken, ForksSchema, {
       sort: "newest",
       per_page: String(FORKS_PAGE_SIZE),
     });
@@ -291,6 +377,51 @@ export async function collectRepositories(
     });
   }
 
+  // Activity, the repositories attempted longest ago first (never attempted first), until the
+  // budget is spent. A repository not reached keeps its times, so the next sync reads it first and
+  // from where it left off.
+  const readTimes = (repo: Repository): ActivityReadTimes => previous?.repos[String(repo.id)]?.activity ?? {};
+  const attemptedAt = (repo: Repository) => {
+    const at = previous?.repos[String(repo.id)]?.activityAttemptedAt;
+    return at === undefined ? 0 : Date.parse(at);
+  };
+  const activityStartedAt = ctx.now().getTime();
+  let deferred = 0;
+  for (const repo of [...repositories].sort((a, b) => attemptedAt(a) - attemptedAt(b))) {
+    const id = String(repo.id);
+    const state = repos[id];
+    if (state === undefined) continue;
+    const times = readTimes(repo);
+    if (ctx.now().getTime() - activityStartedAt >= ACTIVITY_BUDGET_MS) {
+      deferred += 1;
+      const attempted = previous?.repos[id]?.activityAttemptedAt;
+      repos[id] = {
+        ...state,
+        activity: times,
+        ...(attempted === undefined ? {} : { activityAttemptedAt: attempted }),
+      };
+      continue;
+    }
+    const since: Record<ActivityList, Date> = {
+      pullRequests: activitySince(times.pullRequests, now),
+      issues: activitySince(times.issues, now),
+      releases: activitySince(times.releases, now),
+    };
+    // The feed counts as cut short only if it did not reach back to its own previous read.
+    const feedReadBefore = times.releases === undefined ? since.releases : new Date(times.releases);
+    const activity = await collectActivity(ctx, installationToken, repo, since, feedReadBefore, granted, externalAccountId);
+    events.push(...activity.events);
+    for (const [permission, error] of activity.refused) if (!partialErrors.has(permission)) partialErrors.set(permission, error);
+    const readAt: ActivityReadTimes = { ...times };
+    for (const list of activity.read) readAt[list] = now.toISOString();
+    repos[id] = {
+      ...state,
+      activity: readAt,
+      activityAttemptedAt: now.toISOString(),
+    };
+  }
+  if (deferred > 0) ctx.logger.warn("github.sync.activity_deferred", { deferred, read: repositories.length - deferred });
+
   metrics.push({
     kind: "usage",
     ...starMetricNames.total,
@@ -319,5 +450,10 @@ export async function collectRepositories(
     });
   }
 
-  return { metrics, events, repos };
+  return {
+    metrics,
+    events,
+    cursor: { v: 1, repos },
+    partialErrors: [...partialErrors.values()],
+  };
 }
