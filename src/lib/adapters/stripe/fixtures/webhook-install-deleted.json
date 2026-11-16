@@ -1,0 +1,18 @@
+{
+  "id": "evt_fixture_install_deleted",
+  "object": "event",
+  "account": "acct_fixture123",
+  "api_version": "2026-10-28.endive",
+  "created": 1794308400,
+  "data": {
+    "object": {
+      "id": "appinst_fixture123",
+      "object": "apps.install",
+      "deleted": true
+    }
+  },
+  "livemode": true,
+  "pending_webhooks": 1,
+  "request": { "id": null, "idempotency_key": null },
+  "type": "apps.install.deleted"
+}
