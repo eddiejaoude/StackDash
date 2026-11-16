@@ -2,7 +2,7 @@
 
 Provider id: `github`. Verification: documentation only. Docs checked 2026-11-16.
 
-StackDash reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus stars, star history, and forks, and puts pull requests merged, issues opened, releases published, and new stars on the timeline. It installs as a GitHub App with six read-only permissions, and receives GitHub's webhooks so that activity, an uninstall, a suspension, or a revoked authorization reaches StackDash within a minute.
+StackDash reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus stars, star history, and forks, and puts pull requests merged, issues opened, releases published, and new stars on the timeline. It installs as a GitHub App with five read-only permissions, and receives GitHub's webhooks so that pull requests, issues, stars, an uninstall, a suspension, or a revoked authorization reach StackDash within a minute. Releases arrive by the hourly sync.
 
 ## Go or no-go
 
@@ -10,7 +10,7 @@ StackDash reads your GitHub billing usage by product, including Actions minutes,
 
 The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. The landing page's Copilot row names AI Credits for the same reason.
 
-**Go for timeline activity, with three more read-only permissions.** Pull requests read, Issues read, and Contents read let GitHub send the `pull_request`, `issues`, and `release` webhooks and let the hourly sync read the same lists as the backfill. Contents read is the narrowest permission GitHub accepts for release events and the release list, and it also reads code: see [Permission risks](#permission-risks). All three are optional for an installation made before they were added: it keeps syncing billing, stars, and forks, and the connection lists the permissions it lacks until the owner accepts them on GitHub.
+**Go for timeline activity, with two more read-only permissions.** Pull requests read and Issues read let GitHub send the `pull_request` and `issues` webhooks and let the hourly sync read the same lists as the backfill. Releases come from each repository's events feed, which needs only the Metadata read the app already has. The `release` webhook and the release list need Contents read, which also reads every covered repository's code, and an installer cannot leave out one permission ("Choosing permissions for a GitHub App": they "see and grant the repository and organization permissions that the app requested"). So StackDash does not ask for it, and releases reach the timeline within about an hour, or up to about 7 hours when GitHub's feed lags. Both new permissions are optional for an installation made before they were added: it keeps syncing billing, stars, forks, and releases, and the connection lists the permissions it lacks until the owner accepts them on GitHub.
 
 ## Connection
 
@@ -60,7 +60,7 @@ A user access token only has permissions both the app and the user hold. For per
 ### Installation access tokens (every sync)
 
 1. Build the JWT in memory from `GITHUB_APP_PRIVATE_KEY`.
-2. `POST /app/installations/{installation_id}/access_tokens` with `Authorization: Bearer <JWT>`. Narrow the token with the body: `{"permissions": {"metadata": "read", "organization_administration": "read"}}`, plus `pull_requests`, `issues`, and `contents` at `read` for each the installation holds (a token "cannot be granted permissions that the app was not granted", so an installation that has not accepted them yet asks for fewer). Optional `repositories` or `repository_ids` (up to 500) narrow it further.
+2. `POST /app/installations/{installation_id}/access_tokens` with `Authorization: Bearer <JWT>`. Narrow the token with the body: `{"permissions": {"metadata": "read", "organization_administration": "read"}}`, plus `pull_requests` and `issues` at `read` for each the installation holds (a token "cannot be granted permissions that the app was not granted", so an installation that has not accepted them yet asks for fewer). Optional `repositories` or `repository_ids` (up to 500) narrow it further.
 3. Use the token until `expires_at` minus a margin, then mint a new one. Do not persist installation tokens; mint per sync run. Expired tokens return `401`.
 
 ### User token refresh (personal accounts only)
@@ -79,16 +79,15 @@ All read-only. Nothing in this list can write.
 
 | Permission (GitHub UI group) | Level | Why | Token types |
 |---|---|---|---|
-| Repository: Metadata | Read | Repo details, star count, star history, forks, list of installed repositories. Mandatory for every GitHub App | Installation, user |
+| Repository: Metadata | Read | Repo details, star count, star history, forks, list of installed repositories, the `star` webhook, and published releases from the repository events feed (`GET /repos/{owner}/{repo}/events`). Mandatory for every GitHub App | Installation, user |
 | Organization: Administration | Read | Organization billing usage, usage summary, AI credit usage, premium request usage, budgets | Installation, user |
 | Account: Plan | Read | Personal account billing usage, usage summary, AI credit usage, premium request usage | User only |
 | Repository: Pull requests | Read | The `pull_request` webhook and `GET /repos/{owner}/{repo}/pulls`, for merged pull requests on the timeline. Optional | Installation |
 | Repository: Issues | Read | The `issues` webhook and `GET /repos/{owner}/{repo}/issues`, for opened issues on the timeline. Optional | Installation |
-| Repository: Contents | Read | The `release` webhook and `GET /repos/{owner}/{repo}/releases`, for published releases on the timeline. GitHub offers no narrower permission for either. Optional | Installation |
 
 The `star` webhook needs only Metadata read. `installation` and `github_app_authorization` deliveries reach every GitHub App without a permission.
 
-Not requested: Organization plan, Actions. `GET /installation/repositories` needs no permission beyond the installation token. Contents read would also allow the `fork` webhook, but forks stay polled: the hourly read already gives each fork's id and time.
+Not requested: Contents, Organization plan, Actions. `GET /installation/repositories` needs no permission beyond the installation token. Contents read would allow the `release` and `fork` webhooks and the release list, but it also reads every covered repository's code, so releases come from the events feed (Metadata read) and forks stay polled.
 
 "Optional" means an installation without it still connects and syncs. Each sync checks the installation's permissions and reports the missing ones as partial errors, which the connection page lists as missing permissions until the account owner approves the app's new permissions on GitHub (GitHub asks the owners of every installation to review an app's added permissions); the next sync then clears them.
 
@@ -171,13 +170,15 @@ Pull requests read. `state=closed&sort=updated&direction=desc&per_page=100`: a m
 
 Issues read. `state=all&sort=created&direction=desc&since=<read start>&per_page=100`. `since` filters by last update, which opening an issue sets. The list holds pull requests too, marked by a `pull_request` key; StackDash skips them, because a pull request is counted when it is merged. It keeps `number`, `created_at`, and `html_url`; the title, body, labels, and author are never parsed, since anyone can open an issue on a public repository.
 
-### Published releases: `GET /repos/{owner}/{repo}/releases`
+### Published releases: `GET /repos/{owner}/{repo}/events`
 
-Contents read. `per_page=30` (GitHub's default; release notes and asset lists make pages heavy). StackDash keeps `id`, `tag_name`, `draft`, `published_at`, and `html_url`. A draft has no `published_at` and is skipped until it is published.
+Metadata read. The repository events feed, newest first, every event type, `per_page=100`. GitHub keeps at most 300 events from the last 30 days in it. StackDash reads `ReleaseEvent` entries (action `published`) and keeps the release's `id`, `tag_name`, `draft`, `published_at`, and `html_url`, the release object "GitHub event types" documents in its payload. It never reads `actor` (the person who published) or any other event's payload. A release event whose payload lacks those fields fails the page's schema, and so the sync, rather than losing releases silently. `GET /repos/{owner}/{repo}/releases` is not used: it needs Contents read.
+
+GitHub's events documentation says the feed "is not built to serve real-time use cases. Depending on the time of day, event latency can be anywhere from 30s to 6h." The feed is therefore read back 6 hours further than the other lists. It is read a page at a time until a page is short or reaches back past that window, at most 3 pages (all 300 events).
 
 ### Activity read window
 
-The three lists are the backfill for the webhooks: they catch a delivery that was missed. Each sync reads one page of each per repository, from the previous sync's start less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync or after a long gap. The read start is kept in the cursor as `activityReadAt`. A full page whose last item is still inside the window is logged as `github.sync.activity_truncated`, by path template only. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
+The pull request and issue lists are the backfill for the webhooks: they catch a delivery that was missed. The events feed is the only source of releases. Each sync reads one page of each list per repository, from the previous sync's start less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync or after a long gap. The events feed reads 6 hours further back, as above. The read start is kept in the cursor as `activityReadAt`. A full page whose last item is still inside the window (or a third full page of the feed) is logged as `github.sync.activity_truncated`, by path template only. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
 
 ### New stars per day: `github.stars.gained.daily`
 
@@ -199,7 +200,7 @@ A usage metric StackDash derives from the `/stargazers/count` snapshots, declare
 
 ### Timeline events
 
-Pull requests, issues, releases, and single stars arrive by webhook within a minute; the polled rows are the backfill and the only source of the rest. A delivered event and the same event polled later share a dedupe key, so the timeline stores it once.
+Pull requests, issues, and single stars arrive by webhook within a minute; the polled rows are the backfill and the only source of the rest, releases included. A delivered event and the same event polled later share a dedupe key, so the timeline stores it once.
 
 | Event | Source | Rule |
 |---|---|---|
@@ -209,7 +210,7 @@ Pull requests, issues, releases, and single stars arrive by webhook within a min
 | New fork | `/forks` (newest first) | One event per new fork id, at its `created_at`. Summarize per day if there are many |
 | Pull request merged | `pull_request` webhook (`closed` with `merged: true`), then `/pulls` | One event per merge, at `merged_at`, keyed `github.pull_request.merged:<repository id>:<number>`. Only the number and the repository |
 | Issue opened | `issues` webhook (`opened`), then `/issues` | One event per issue, at `created_at`, keyed `github.issue.opened:<repository id>:<number>`. Only the number and the repository |
-| Release published | `release` webhook (`published`), then `/releases` | One event per published release, at `published_at`, keyed `github.release.published:<repository id>:<release id>`, titled with its tag. Drafts wait until they are published |
+| Release published | `/events` (`ReleaseEvent`, `published`), polled only | One event per published release, at `published_at`, keyed `github.release.published:<repository id>:<release id>`, titled with its tag. Within about an hour, or up to about 7 hours when the feed lags |
 | Spend started | `/usage/summary` | First non-zero `netAmount` for a product in a month: included usage has run out |
 | Daily spend | `/usage` | Net spend per product per UTC day |
 | Budget threshold | `/budgets` plus `/usage/summary` | Month-to-date net spend crosses 75, 90, or 100 percent of a budget (GitHub's own alert levels) |
@@ -248,7 +249,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 | Star count, fork count, new fork ids and times | Verified |
 | Star history per week | Verified counts; days are approximate because boundaries are not UTC |
 | Daily new stars from count snapshots | Verified net change at poll time; gross stars per day unavailable |
-| Pull requests merged, issues opened, releases published, single stars | Verified: GitHub's own event, by webhook or from its list |
+| Pull requests merged, issues opened, releases published, single stars | Verified: GitHub's own event, by webhook or from its list or events feed |
 | Month-end spend projection | Estimated (StackDash extrapolation) |
 | Included allowance remaining (for example "$12 of Actions compute left") | Estimated: `discountAmount` is returned, the plan allowance is not; it would come from GitHub's pricing docs |
 | Invoices, payment history, plan name | Unavailable through these permissions |
@@ -264,7 +265,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Secondary limits: at most 100 concurrent requests, 900 points per minute for REST (`GET` costs 1), 90 seconds of CPU per minute, and 2,000 OAuth token requests per hour per app. Some endpoints cost more, undisclosed.
 - Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions; use them for pacing, not exact counting.
 - Exceeded: `403` or `429`. If `retry-after` is present, wait that many seconds. If `x-ratelimit-remaining` is `0`, wait until `x-ratelimit-reset`. Otherwise wait at least one minute, then back off exponentially and give up after a fixed number of tries. Continuing while limited can get the app banned.
-- Budget: per repository per sync about 6 requests (star count, forks page 1, and one page each of pull requests, issues, and releases) plus about 4 billing calls per account. 100 repositories hourly is about 600 requests per hour, well under the limit. Run requests serially per installation. Webhook deliveries cost no requests.
+- Budget: per repository per sync about 5 requests (star count, forks page 1, one page each of pull requests and issues, and usually one page of the events feed, at most 3) plus about 4 billing calls per account. 100 repositories hourly is about 500 requests per hour, well under the limit. Run requests serially per installation. Webhook deliveries cost no requests.
 
 ## Webhooks
 
@@ -280,7 +281,6 @@ StackDash receives the GitHub App's webhooks at `POST <SITE_URL>/api/webhooks/gi
 |---|---|---|
 | `pull_request` | `closed` with `merged: true` | Pull request merged. Other actions are ignored |
 | `issues` | `opened` | Issue opened. Other actions are ignored |
-| `release` | `published` | Release published, unless it is a draft. Other actions are ignored |
 | `star` | `created` | Repository starred, at `starred_at`. `deleted` is ignored: the daily net counts an unstar |
 | `installation` | `deleted`, `suspend` | The account's connections need a reconnect at once (an uninstall for `installation.account.id`). `unsuspend`, `created`, and `new_permissions_accepted` are ignored: the reconnect a suspension asked for, or the next sync, picks them up |
 | `github_app_authorization` | `revoked` | The revoking user's personal account connection needs a reconnect (see below) |
@@ -302,8 +302,7 @@ No billing webhooks exist in the docs checked. Spend stays polled.
 Disclose these on the connect screen before redirecting:
 
 - **Organization Administration read** is broader than billing. It also reads organization Actions settings and permissions, hosted runner details, code security configurations, security managers, secret scanning custom patterns, interaction limits, the organization's app installations, and Copilot seat assignments (`/orgs/{org}/copilot/billing/seats`, which lists members). StackDash calls only the billing endpoints, but the token can read the rest.
-- **Repository Metadata read** on private repositories also exposes the collaborator list and permissions, contributors, commit comments, repository events, and languages. StackDash reads only repository details, stars, and forks.
-- **Repository Contents read** reads the code, commits, branches, and tags of every repository the installation covers, private ones included. GitHub offers no narrower permission for release events or the release list. StackDash reads only releases, and only their id, tag, time, and link.
+- **Repository Metadata read** on private repositories also exposes the collaborator list and permissions, contributors, commit comments, and languages, and on every covered repository the events feed: who pushed, opened, commented, or released what. StackDash reads only repository details, stars, forks, and the feed's `ReleaseEvent` entries, and of those only the release's id, tag, time, and link.
 - **Repository Pull requests read** reads pull request titles, descriptions, comments, and reviews. StackDash keeps only the number, merge time, and link.
 - **Repository Issues read** reads issue titles, bodies, comments, and labels. StackDash keeps only the number, opening time, and link.
 - **Account Plan read** (personal accounts) reads that user's billing usage and plan. It is held through a refresh token valid for 6 months, the longest-lived secret in this adapter. Encrypt it at rest.
@@ -324,6 +323,7 @@ Disclose these on the connect screen before redirecting:
 - The stargazer list is restricted; StackDash never knows who starred.
 - Single star events come only by webhook. A missed `star` delivery shows in the daily net and the star counts, not as its own event.
 - Activity is read one page per list per repository per sync. A repository with more than 100 merges or new issues within one poll, and a missed webhook among them, can miss some; the truncation is logged.
+- Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags. A repository with more than 300 events since the read window began (the feed's cap) can miss a release; the truncation is logged.
 - One installation per account. A user with a personal account and two organizations installs three times and gets three connections.
 - Enterprise accounts are out of scope.
 
@@ -337,8 +337,8 @@ Each deployment registers its own GitHub App, because the private key, client se
 4. **Callback URL**: `<SITE_URL>/api/connections/github/callback`.
 5. Leave **Expire user authorization tokens** checked. Leave **Request user authorization (OAuth) during installation** unchecked (it disables the setup URL). Leave **Enable Device Flow** unchecked.
 6. **Setup URL**: `<SITE_URL>/api/connections/github/callback`. Check **Redirect on update**, so adding or removing repositories returns to StackDash.
-7. **Webhook**: check **Active**. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value (for example `openssl rand -hex 32`), the same value as `GITHUB_APP_WEBHOOK_SECRET`. GitHub Apps send JSON. SSL verification stays enabled. A local instance that GitHub cannot reach leaves the webhook inactive: polling still brings every event within an hour.
-8. **Permissions**: Repository, Metadata: Read-only (preselected). Repository, Contents: Read-only. Repository, Issues: Read-only. Repository, Pull requests: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Leave everything else at No access. **Subscribe to events**: **Issues**, **Pull request**, **Release**, and **Star** (`installation` and `github_app_authorization` need no box).
+7. **Webhook**: check **Active**. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value (for example `openssl rand -hex 32`), the same value as `GITHUB_APP_WEBHOOK_SECRET`. GitHub Apps send JSON. SSL verification stays enabled. A local instance that GitHub cannot reach leaves the webhook inactive: polling still brings every event, pull requests and issues within an hour.
+8. **Permissions**: Repository, Metadata: Read-only (preselected). Repository, Issues: Read-only. Repository, Pull requests: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Leave everything else at No access, Contents included. **Subscribe to events**: **Issues**, **Pull request**, and **Star** (`installation` and `github_app_authorization` need no box; **Release** needs Contents read, so it stays unchecked).
 9. **Where can this GitHub App be installed?**: **Any account** for a shared deployment, **Only on this account** for a single-user self-host.
 10. **Create GitHub App**. On the settings page note the **App ID** and **Client ID**, click **Generate a new client secret**, and under **Private keys** click **Generate a private key** (downloads a PEM file).
 11. Set the environment variables:
@@ -352,7 +352,7 @@ Each deployment registers its own GitHub App, because the private key, client se
 | `GITHUB_APP_CLIENT_SECRET` | Client secret. Shown once |
 | `GITHUB_APP_WEBHOOK_SECRET` | The webhook secret from step 7. Leave it unset while the webhook is inactive |
 
-An app registered before StackDash received webhooks keeps working: in its settings set step 7, add the three repository permissions and the four events from step 8, and save. GitHub then asks the owner of every installation to accept the new permissions; until they do, their connections list the missing ones and keep syncing billing, stars, and forks.
+An app registered before StackDash received webhooks keeps working: in its settings set step 7, add the two repository permissions and the three events from step 8, and save. GitHub then asks the owner of every installation to accept the new permissions; until they do, their connections list the missing ones and keep syncing billing, stars, forks, and releases. An app that already requested Contents read for releases can remove it: StackDash no longer uses it.
 
 Check the key with GitHub's fingerprint command and compare to the settings page: `openssl rsa -in key.pem -pubout -outform DER | openssl sha256 -binary | openssl base64`.
 
@@ -584,18 +584,27 @@ The user-level documented example uses `"unitType": "ai-credits"` and `"product"
 ]
 ```
 
-`GET /repos/{owner}/{repo}/releases` (from documentation, not recorded; trimmed):
+`GET /repos/{owner}/{repo}/events` (from documentation, not recorded; trimmed; "GitHub event types" documents the common properties and that a `ReleaseEvent` payload holds the release object):
 
 ```json
 [
   {
-    "id": 1,
-    "tag_name": "v1.0.0",
-    "name": "v1.0.0",
-    "draft": false,
-    "prerelease": false,
-    "published_at": "2013-02-27T19:35:32Z",
-    "html_url": "https://github.com/octocat/Hello-World/releases/v1.0.0"
+    "id": "22249084964",
+    "type": "ReleaseEvent",
+    "actor": { "id": 1, "login": "octocat" },
+    "repo": { "id": 1296269, "name": "octocat/Hello-World" },
+    "payload": {
+      "action": "published",
+      "release": {
+        "id": 1,
+        "tag_name": "v1.0.0",
+        "draft": false,
+        "published_at": "2013-02-27T19:35:32Z",
+        "html_url": "https://github.com/octocat/Hello-World/releases/v1.0.0"
+      }
+    },
+    "public": true,
+    "created_at": "2013-02-27T19:35:33Z"
   }
 ]
 ```
@@ -645,6 +654,9 @@ Confirm with a test organization and a test personal account before the adapter 
 - What `GET /repos/{owner}/{repo}/issues` answers for a repository with issues turned off (the list documents `404` and `422`, not `410`). StackDash treats `404` and `410` the same: no issues for that repository.
 - That every `installation` delivery carries `installation.account` (an enterprise installation may name no user or organization), and that `suspended_at` is set on `suspend`.
 - Whether someone other than a personal account's owner can authorize against its installation (`GET /user/installations` lists installations the user has "explicit permission" to). If so, their revoked authorization does not match the connection by `sender.id` (see [Webhooks](#webhooks)).
+- That a `ReleaseEvent` in a real repository's events feed carries the release's `id` and `published_at` as documented. GitHub trimmed some event payloads in 2025 (pull request and push events) and its changelog does not name release events; a missing field fails the sync by schema rather than dropping releases silently.
+- How long the events feed lags today. The REST page still says 30 seconds to 6 hours; GitHub's 2025 changelog says events would appear "almost immediately". StackDash reads back the documented 6 hours either way.
+- That an installation token with Metadata read lists a private repository's events.
 
 ## Sources
 
@@ -680,12 +692,15 @@ Checked 2026-10-31, except the webhook and activity pages, rechecked or first re
 - [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
 - [API versions](https://docs.github.com/en/rest/about-the-rest-api/api-versions)
 - [Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries) (2026-11-16)
-- [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads) (2026-11-16): `pull_request`, `issues`, and `release` need Pull requests, Issues, and Contents read; `star` needs Metadata read; `installation` and `github_app_authorization` reach every app
+- [Webhook events and payloads](https://docs.github.com/en/webhooks/webhook-events-and-payloads) (2026-11-16): `pull_request` and `issues` need Pull requests and Issues read, `release` needs Contents read (not subscribed); `star` needs Metadata read; `installation` and `github_app_authorization` reach every app
 - [Best practices for using webhooks](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks) (2026-11-16): answer within 10 seconds, check the event and action, `X-GitHub-Delivery` against replays and kept on redelivery
 - [Handling failed webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries) (2026-11-16): GitHub does not redeliver on its own
-- [Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps) (2026-11-16): list pull requests, list repository issues, and list releases
+- [Permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps) (2026-11-16): list pull requests (Pull requests), list repository issues (Issues), list repository events (Metadata), list releases (Contents, not used)
+- [Choosing permissions for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app) (2026-11-16): an installer grants the permissions the app requested, all of them; an existing installation keeps its old permissions until the owner approves new ones
 - [REST API: pull requests](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests) (2026-11-16)
 - [REST API: issues](https://docs.github.com/en/rest/issues/issues#list-repository-issues) (2026-11-16)
-- [REST API: releases](https://docs.github.com/en/rest/releases/releases#list-releases) (2026-11-16)
+- [REST API: events](https://docs.github.com/en/rest/activity/events#list-repository-events) (2026-11-16): the feed's 300 events and 30 days, and its latency
+- [GitHub event types](https://docs.github.com/en/rest/using-the-rest-api/github-event-types) (2026-11-16): common properties and the `ReleaseEvent` payload
+- [Changelog: upcoming changes to GitHub Events API payloads (2025-08-08)](https://github.blog/changelog/2025-08-08-upcoming-changes-to-github-events-api-payloads/) (2026-11-16): which payloads were trimmed
 - [REST API: create an installation access token](https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app) (2026-11-16): a token cannot be granted permissions the app was not granted
 - [octokit/webhooks payload examples](https://github.com/octokit/webhooks/tree/main/payload-examples/api.github.com) (2026-11-16): the example bodies the documentation is generated from, the source of the webhook fixtures
