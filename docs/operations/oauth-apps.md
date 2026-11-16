@@ -164,9 +164,9 @@ Settings that must match the code:
 - **Redirect URL**: `<SITE_URL>/api/connections/sentry/callback`. Sentry sends `code`, `installationId`, `orgSlug`, and the `state` from the install URL here.
 - **Verify Installation**: unchecked. Checking it would need a write request to Sentry after every install.
 - **Permissions**: Organization Read, Issue & Event Read, Project Read (`org:read`, `event:read`, `project:read`). Everything else No Access. Team, Member, and Release permissions are not needed: releases are read with Project Read.
-- **Webhook URL**, **Alert Rule Action**, and every webhook subscription: empty or off until StackDash receives Sentry webhooks (see [Webhooks](../providers/sentry.md#webhooks)).
+- **Webhook URL**: `<SITE_URL>/api/webhooks/sentry`. Under **Webhooks**, subscribe to **Issue** (new issues, resolutions, and regressions reach the timeline; assignments and archiving are acknowledged and ignored). Installation webhooks need no subscription: Sentry sends them to every public integration, and `installation.deleted` marks the connection as needing a reconnect. Leave **Alert Rule Action** off and every other subscription (Error, Comment) unchecked. See [Sentry, Webhooks](../providers/sentry.md#webhooks).
 
-Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
+Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT and verifies webhook deliveries), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
 
 Until Sentry publishes it, a public integration can only be installed by the organization that created it. Hosted StackDash needs Sentry's publication review before other organizations can connect; a self-hosted install registers its own integration in its own organization and needs no review.
 

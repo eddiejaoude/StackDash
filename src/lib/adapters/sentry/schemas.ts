@@ -70,6 +70,46 @@ export const IssuesPageSchema = z.array(IssueSchema);
 
 export type Issue = z.infer<typeof IssueSchema>;
 
+// An installation id is a UUID in Sentry's paths and payloads; the exact format is not documented,
+// so only characters that cannot change a path pass.
+export const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+
+const InstallationRefSchema = z.object({ uuid: z.string().regex(INSTALLATION_ID_PATTERN) });
+
+/**
+ * An `issue` webhook body (Sentry-Hook-Resource `issue`): the issue fields the timeline events are
+ * built from, the project it belongs to, which is the external account, and its category, because
+ * Sentry also sends feedback issues, which the issue search never returns. `status` and `lastSeen`
+ * are left out: the action says what happened, and no event reads either. `title`, `culprit`,
+ * `metadata`, `assignedTo`, and the top-level `actor` are never declared, so they are dropped here:
+ * they can carry personal data from the user's app or name a person.
+ */
+export const IssueWebhookSchema = z.object({
+  action: z.string().min(1),
+  installation: InstallationRefSchema,
+  data: z.object({
+    issue: IssueSchema.omit({ status: true, lastSeen: true }).extend({
+      project: z.object({ id: IdSchema }),
+      issueCategory: z.string().nullish(),
+    }),
+  }),
+});
+
+/**
+ * An `installation` webhook body. Only the action and the installation's uuid are read: the
+ * `installation.created` body also carries a grant `code`, which is never declared, so never kept.
+ * The resource header that picks this schema is not signed, and every Sentry body has a top-level
+ * `installation.uuid`, so the body must also carry the installation itself under `data`, naming
+ * the same uuid: the signed body, not the header, says this is an installation delivery.
+ */
+export const InstallationWebhookSchema = z
+  .object({
+    action: z.string().min(1),
+    installation: InstallationRefSchema,
+    data: z.object({ installation: InstallationRefSchema }),
+  })
+  .refine((body) => body.data.installation.uuid === body.installation.uuid, { message: "the installation uuids differ" });
+
 const ReleaseSchema = z.object({
   id: IdSchema,
   version: z.string().min(1),

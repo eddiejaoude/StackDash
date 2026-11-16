@@ -14,9 +14,16 @@ import {
   type ProviderAdapter,
   type SyncInput,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookVerification,
 } from "../types";
+import { hmacHex, isFresh, readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 import {
+  INSTALLATION_ID_PATTERN,
+  InstallationWebhookSchema,
   IssuesPageSchema,
+  IssueWebhookSchema,
   ProjectsPageSchema,
   ReleasesPageSchema,
   SHORT_ID_PATTERN,
@@ -38,6 +45,15 @@ import {
  * One external account is one Sentry project. Sync reads only GET endpoints: error counts by
  * outcome from `stats_v2`, issues from the organization issue search (new, regressed, and
  * resolved), and releases. Issue titles, messages, and event data are never read or stored.
+ *
+ * Webhooks (#421): the integration's one webhook URL receives `issue` and `installation`
+ * deliveries, signed with `Sentry-Hook-Signature`, the hex HMAC SHA-256 of the raw body keyed with
+ * the client secret. Sentry signs the body only: neither `Request-ID` (the delivery id) nor
+ * `Sentry-Hook-Timestamp` is covered. So the id deduplicates honest repeats only, and the
+ * timestamp's window bounds only a delivery delayed in transit: a captured delivery replayed under
+ * a fresh id and timestamp passes `verify`. What bounds such a replay is each event's dedupe key,
+ * shared with the sync (a replayed new issue, or a resolution or regression on the same UTC day, stores nothing new),
+ * and for an uninstall the installation id, which a reconnect replaces.
  */
 
 const API_ORIGIN = "https://sentry.io";
@@ -49,11 +65,21 @@ type SentryScope = (typeof SENTRY_SCOPES)[number];
 
 const SLUG_EXTRA_KEY = "integrationSlug";
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-// Callback values, untrusted until Sentry accepts them. The installation id is a UUID in Sentry's
-// paths; the exact format is not documented, so only characters that cannot change the path pass.
-const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+// Callback values, untrusted until Sentry accepts them (INSTALLATION_ID_PATTERN, ./schemas.ts, for
+// the installation id).
 const ORG_SLUG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const PROJECT_ID_PATTERN = /^\d+$/;
+
+// Webhook headers Sentry sends with every delivery (docs/providers/sentry.md, Webhooks).
+export const SENTRY_WEBHOOK_HEADERS = {
+  delivery: "request-id",
+  resource: "sentry-hook-resource",
+  timestamp: "sentry-hook-timestamp",
+  signature: "sentry-hook-signature",
+} as const;
+// Sentry documents no tolerance; it stamps the time as it sends, in whole seconds. Five minutes, as
+// the other providers' documented windows, absorbs clock skew without keeping old deliveries.
+export const SENTRY_WEBHOOK_TOLERANCE_SECONDS = 300;
 
 // Credential metadata keys written by `exchangeCode` and read by every later call.
 export const metadataKeys = {
@@ -382,18 +408,25 @@ export function issueCreatedEvent(issue: IssueSnapshot, externalAccountId: strin
 }
 
 /**
- * An issue seen regressed or resolved by this sync. Sentry's issue list does not say when the
- * status changed, so the event is dated when the sync saw it, and the key names the sync window so
- * an issue that regresses again later gets a new event.
+ * An issue that regressed or was resolved. A delivery dates it when Sentry sent it; a sync, which
+ * cannot tell when the status changed, dates it when it saw the change.
+ *
+ * The dedupe key is the issue and the UTC day of the change, the one value a delivery and the next
+ * sync both know, so the timeline stores the change once (#421). Nothing on the issue stands still
+ * across a change: each new event moves `lastSeen`, and an issue resolved for a release or a commit
+ * keeps receiving events from older releases while it stays resolved. So: one regression and one
+ * resolution per issue per UTC day, and a change delivered in the last poll interval before
+ * midnight UTC can show twice when the sync sees it after midnight (docs/providers/sentry.md,
+ * Limitations).
  */
 export function issueStatusEvent(
   change: "regressed" | "resolved",
   issue: IssueSnapshot,
   externalAccountId: string,
-  detectedAt: Date,
-  windowKey: string,
+  occurredAt: Date,
 ): ActivityEvent {
   const regressed = change === "regressed";
+  const utcDay = occurredAt.toISOString().slice(0, 10);
   const severity: EventSeverity = regressed
     ? issue.level === "fatal" || issue.level === "error"
       ? "critical"
@@ -401,12 +434,12 @@ export function issueStatusEvent(
     : "success";
   return {
     typeId: regressed ? "sentry.issue.regressed" : "sentry.issue.resolved",
-    occurredAt: detectedAt,
+    occurredAt,
     severity,
     title: `Issue ${issue.shortId} ${change}`,
     ...(regressed ? levelBody(issue.level) : {}),
     externalAccountId,
-    dedupeKey: `sentry.issue.${change}:${issue.id}:${windowKey}`,
+    dedupeKey: `sentry.issue.${change}:${issue.id}:${utcDay}`,
     ...issueLink(issue),
   };
 }
@@ -522,11 +555,10 @@ async function collectIssues(
   // A first sync has no earlier state, so it records a baseline instead of reporting every issue
   // that is regressed right now as if it had just regressed.
   if (previous !== undefined) {
-    const windowKey = previous.since.toISOString();
     const activeIds = new Set(active.map((issue) => issue.id));
     for (const issue of active) {
       if (issue.substatus === "regressed" && tracked.get(issue.id)?.regressed !== true) {
-        events.push(issueStatusEvent("regressed", issue, scope.externalAccountId, scope.retrievedAt, windowKey));
+        events.push(issueStatusEvent("regressed", issue, scope.externalAccountId, scope.retrievedAt));
       }
     }
     const quiet = [...tracked.entries()].filter(([id]) => !activeIds.has(id));
@@ -535,7 +567,7 @@ async function collectIssues(
       const resolved = await searchIssues(scope, `is:resolved issue:[${shortIds}]`);
       for (const issue of resolved) {
         if (issue.status !== "resolved" || !tracked.has(issue.id)) continue;
-        events.push(issueStatusEvent("resolved", issue, scope.externalAccountId, scope.retrievedAt, windowKey));
+        events.push(issueStatusEvent("resolved", issue, scope.externalAccountId, scope.retrievedAt));
         tracked.delete(issue.id);
       }
     }
@@ -635,6 +667,82 @@ async function withInstallationGoneAsRevoked<T>(request: () => Promise<T>): Prom
   }
 }
 
+/**
+ * The `Sentry-Hook-Signature` Sentry sends for a delivery: the lowercase hex HMAC SHA-256 of the
+ * raw body, keyed with the client secret. Exported for the tests and the e2e spec, which sign
+ * deliveries as Sentry does.
+ */
+export function sentryWebhookSignature(secret: Secret, rawBody: Uint8Array | string): string {
+  // Signed as bytes, never decoded and re-encoded: Sentry signs the exact bytes it sends.
+  return hmacHex("sha256", secret, rawBody);
+}
+
+/** `Sentry-Hook-Timestamp`, whole seconds since the epoch, or undefined when it is not one. */
+function hookTimestampSeconds(headers: Headers): number | undefined {
+  const text = headers.get(SENTRY_WEBHOOK_HEADERS.timestamp)?.trim();
+  return text !== undefined && /^\d{1,12}$/.test(text) ? Number(text) : undefined;
+}
+
+/**
+ * Headers, then freshness, then the delivery id, then the signature in constant time. None of the
+ * headers is signed (see the header comment for what bounds a replay).
+ */
+function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const signature = headers.get(SENTRY_WEBHOOK_HEADERS.signature);
+  if (!signature || headers.get(SENTRY_WEBHOOK_HEADERS.timestamp) === null) return { ok: false, reason: "missing_signature" };
+  const timestampSeconds = hookTimestampSeconds(headers);
+  if (timestampSeconds === undefined) return { ok: false, reason: "malformed" };
+  if (!isFresh(timestampSeconds, now, SENTRY_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  const deliveryId = readDeliveryId(headers, SENTRY_WEBHOOK_HEADERS.delivery);
+  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
+  if (!safeEqual(signature, sentryWebhookSignature(secret, rawBody))) return { ok: false, reason: "bad_signature" };
+  return { ok: true, deliveryId };
+}
+
+/**
+ * Maps a verified delivery with the sync's own builders, so a pushed issue event and the same
+ * event polled later share a dedupe key. `issue.created` is dated when Sentry first saw the issue,
+ * a resolution and a regression (`unresolved` with substatus `regressed`) when Sentry sent the
+ * delivery. `installation.deleted` names only the installation (#480): every connection granted
+ * for it needs a reconnect, unless granted again after Sentry sent the delivery. `assigned`,
+ * `archived`, any other `unresolved`, feedback issues (which the issue search never returns, so
+ * polling never reports them either), `installation.created`, and every other resource are
+ * ignored. The reasons are fixed text: nothing from the body reaches them.
+ */
+function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
+  const resource = headers.get(SENTRY_WEBHOOK_HEADERS.resource)?.trim();
+  if (resource !== "issue" && resource !== "installation") return { kind: "ignored", reason: "resource StackDash does not read" };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "ignored", reason: "body is not JSON" };
+  }
+  // `verify` has already required this header to be a fresh whole number.
+  const sentSeconds = hookTimestampSeconds(headers);
+  if (sentSeconds === undefined) return { kind: "ignored", reason: "delivery has no timestamp" };
+  const sentAt = new Date(sentSeconds * 1000);
+
+  if (resource === "installation") {
+    const installation = InstallationWebhookSchema.safeParse(raw);
+    if (!installation.success) return { kind: "ignored", reason: "not an installation delivery StackDash reads" };
+    if (installation.data.action !== "deleted") return { kind: "ignored", reason: "installation action StackDash does not act on" };
+    return { kind: "uninstalled", by: "installation", installationId: installation.data.installation.uuid, occurredAt: sentAt };
+  }
+
+  const parsed = IssueWebhookSchema.safeParse(raw);
+  if (!parsed.success) return { kind: "ignored", reason: "not an issue delivery StackDash reads" };
+  const { action, data } = parsed.data;
+  const { issue } = data;
+  const externalAccountId = issue.project.id;
+  if (issue.issueCategory === "feedback") return { kind: "ignored", reason: "feedback issues are not on the timeline" };
+  if (action === "created") return { kind: "events", externalAccountId, events: [issueCreatedEvent(issue, externalAccountId)] };
+  const change = action === "resolved" ? "resolved" : action === "unresolved" && issue.substatus === "regressed" ? "regressed" : undefined;
+  if (change === undefined) return { kind: "ignored", reason: "issue action is not on the timeline" };
+  return { kind: "events", externalAccountId, events: [issueStatusEvent(change, issue, externalAccountId, sentAt)] };
+}
+
 export const sentryAdapter: ProviderAdapter = {
   id: "sentry",
   displayName: PROVIDER_NAMES.sentry,
@@ -686,8 +794,16 @@ export const sentryAdapter: ProviderAdapter = {
     clientSecretEnv: "SENTRY_CLIENT_SECRET",
     extraEnv: { [SLUG_EXTRA_KEY]: "SENTRY_INTEGRATION_SLUG" },
   },
-  // Hourly: Sentry warns that polling quickly meets its rate limits (docs/providers/sentry.md).
+  // Hourly: Sentry warns that polling quickly meets its rate limits (docs/providers/sentry.md). With
+  // webhooks it is the backfill, and still the only source of error volume and releases.
   pollIntervalSeconds: 3600,
+  // One webhook URL on the integration's registration, signed with the client secret.
+  webhooks: {
+    registration: { kind: "app", secretEnv: "SENTRY_CLIENT_SECRET" },
+    subscriptions: ["issue.created", "issue.resolved", "issue.unresolved", "installation.deleted"],
+    verify: verifyWebhook,
+    parse: parseWebhook,
+  },
 
   buildAuthorizeUrl({ client, state }) {
     const slug = client.extra[SLUG_EXTRA_KEY]?.reveal().trim();
@@ -767,6 +883,13 @@ export const sentryAdapter: ProviderAdapter = {
       const name = project.name?.trim();
       return { externalId: project.id, displayName: name !== undefined && name.length > 0 ? name : project.slug, kind: "project" };
     });
+  },
+
+  // The installation `exchangeCode` stored, which `installation.deleted` names (#480). Null for a
+  // credential whose metadata lost it or holds a value the callback check would have refused.
+  installationIdOf(credential) {
+    const installationId = credential.metadata?.[metadataKeys.installationId];
+    return installationId !== undefined && INSTALLATION_ID_PATTERN.test(installationId) ? installationId : null;
   },
 
   detectMissingPermissions(grant) {

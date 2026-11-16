@@ -1,0 +1,64 @@
+{
+  "action": "resolved",
+  "installation": {
+    "uuid": "7a485448-a9e2-4c85-8a3c-4f44175783c9"
+  },
+  "data": {
+    "issue": {
+      "url": "https://sentry.io/api/0/organizations/the-interstellar-jurisdiction/issues/80/",
+      "web_url": "https://the-interstellar-jurisdiction.sentry.io/issues/80/",
+      "project_url": "https://the-interstellar-jurisdiction.sentry.io/issues/?project=3",
+      "id": "80",
+      "shareId": null,
+      "shortId": "PRIME-MOVER-19",
+      "title": "ValueError: invalid card for user jane@example.com",
+      "culprit": "raven.scripts.runner in main",
+      "permalink": "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/80/",
+      "logger": null,
+      "level": "error",
+      "status": "resolved",
+      "statusDetails": {
+        "inNextRelease": true
+      },
+      "substatus": null,
+      "isPublic": false,
+      "platform": "python",
+      "project": {
+        "id": "3",
+        "name": "Prime Mover",
+        "slug": "prime-mover",
+        "platform": "python"
+      },
+      "type": "default",
+      "metadata": {
+        "title": "ValueError: invalid card for user jane@example.com"
+      },
+      "numComments": 0,
+      "assignedTo": {
+        "type": "user",
+        "id": "1",
+        "name": "John Doe",
+        "email": "john.doe@example.com"
+      },
+      "isBookmarked": false,
+      "isSubscribed": false,
+      "subscriptionDetails": null,
+      "hasSeen": true,
+      "annotations": [],
+      "issueType": "error",
+      "issueCategory": "error",
+      "priority": "medium",
+      "priorityLockedAt": null,
+      "isUnhandled": false,
+      "count": "150",
+      "userCount": 12,
+      "firstSeen": "2026-09-20T08:00:00.000000+00:00",
+      "lastSeen": "2026-11-04T22:00:00.412000+00:00"
+    }
+  },
+  "actor": {
+    "type": "user",
+    "id": 1,
+    "name": "Meredith Heller"
+  }
+}

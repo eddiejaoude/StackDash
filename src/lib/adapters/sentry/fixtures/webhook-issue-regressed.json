@@ -1,0 +1,57 @@
+{
+  "action": "unresolved",
+  "installation": {
+    "uuid": "7a485448-a9e2-4c85-8a3c-4f44175783c9"
+  },
+  "data": {
+    "issue": {
+      "url": "https://sentry.io/api/0/organizations/the-interstellar-jurisdiction/issues/90/",
+      "web_url": "https://the-interstellar-jurisdiction.sentry.io/issues/90/",
+      "project_url": "https://the-interstellar-jurisdiction.sentry.io/issues/?project=3",
+      "id": "90",
+      "shareId": null,
+      "shortId": "PRIME-MOVER-1A",
+      "title": "KeyError: 'cart' for user jane@example.com",
+      "culprit": "raven.scripts.runner in main",
+      "permalink": "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/90/",
+      "logger": null,
+      "level": "error",
+      "status": "unresolved",
+      "statusDetails": {},
+      "substatus": "regressed",
+      "isPublic": false,
+      "platform": "python",
+      "project": {
+        "id": "3",
+        "name": "Prime Mover",
+        "slug": "prime-mover",
+        "platform": "python"
+      },
+      "type": "default",
+      "metadata": {
+        "title": "KeyError: 'cart' for user jane@example.com"
+      },
+      "numComments": 0,
+      "assignedTo": null,
+      "isBookmarked": false,
+      "isSubscribed": false,
+      "subscriptionDetails": null,
+      "hasSeen": false,
+      "annotations": [],
+      "issueType": "error",
+      "issueCategory": "error",
+      "priority": "high",
+      "priorityLockedAt": null,
+      "isUnhandled": true,
+      "count": "151",
+      "userCount": 13,
+      "firstSeen": "2026-10-01T08:00:00.000000+00:00",
+      "lastSeen": "2026-11-05T11:20:00.051000+00:00"
+    }
+  },
+  "actor": {
+    "type": "application",
+    "id": "sentry",
+    "name": "Sentry"
+  }
+}
