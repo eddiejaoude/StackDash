@@ -80,10 +80,10 @@ select is(
   (select granted_at from public.list_webhook_targets('fake', 'unstamped-acct')),
   '2026-11-10T12:00:00Z'::timestamptz,
   'targets: a live connection with no recorded grant falls back to its credential''s last save, as before granted_at (boundary: unstamped)');
-select is(
-  (select granted_at from public.list_webhook_targets('fake', 'bare-acct')),
-  null::timestamptz,
-  'targets: a live connection with neither a recorded grant nor a credential has no grant time (boundary: no credential)');
+select results_eq(
+  $$ select granted_at from public.list_webhook_targets('fake', 'bare-acct') $$,
+  $$ values (null::timestamptz) $$,
+  'targets: a live connection with neither a recorded grant nor a credential is a target with no grant time (boundary: no credential)');
 
 -- ---------------------------------------------------------------------------
 -- The backfill
