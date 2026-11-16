@@ -27,9 +27,9 @@ import {
  * `verify` and `parse`; automatic setup creates and deletes the webhook in the app's process.
  *
  * - By hand: the steps, the address, a delivery refused until Resend's signing secret is pasted,
- *   then a signed `domain.updated` accepted and stored once, its retry acknowledged as a duplicate,
- *   unsigned, wrongly signed, stale, and replayed deliveries refused, the last delivery's time, and
- *   disconnect with the removal steps. The mapping itself is unit tested (resend/index.test.ts).
+ *   then a signed `domain.updated` accepted and stored once with the domain event the live `parse`
+ *   mapped, its retry acknowledged as a duplicate, unsigned, wrongly signed, stale, and replayed
+ *   deliveries refused, the last delivery's time, and disconnect with the removal steps.
  * - Automatic: no new access asked for, the webhook created at once, and disconnect deleting it.
  *
  * Deliveries are posted from a context with no session, as Resend sends them. No job tick runs, so
@@ -94,10 +94,11 @@ function domainVerified(domainId: string): string {
   });
 }
 
-async function storedDeliveryIds(endpointId: string): Promise<string[]> {
-  const { data, error } = await adminClient().from("webhook_deliveries").select("delivery_id").eq("endpoint_id", endpointId);
+/** The deliveries stored for an endpoint, as the route recorded them (no tick runs in this project). */
+async function storedDeliveries(endpointId: string) {
+  const { data, error } = await adminClient().from("webhook_deliveries").select("delivery_id, status, outcome").eq("endpoint_id", endpointId);
   if (error) throw new Error(`Reading the deliveries failed (code ${error.code}).`);
-  return data.map((row) => row.delivery_id);
+  return data;
 }
 
 async function endpointOf(connection: string) {
@@ -184,9 +185,20 @@ ownerTest.describe("Resend webhook setup", () => {
         expect(await response.json(), refusal).toEqual({ error: "unauthorized" });
       }
 
-      // Stored once: a 202 also means the live parse returned events the route accepted.
+      // Stored once, still `received` with the live parse's events: an ignored delivery would be
+      // stored `processed` with no outcome, and no tick runs in this project to process it.
       const endpointId = new URL(url).pathname.split("/").at(-1) ?? "";
-      expect(await storedDeliveryIds(endpointId)).toEqual([deliveryId]);
+      const stored = await storedDeliveries(endpointId);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({
+        delivery_id: deliveryId,
+        status: "received",
+        outcome: {
+          kind: "events",
+          externalAccountId: "team",
+          events: [{ typeId: "resend.domain.verified", dedupeKey: `resend.domain:${domainId}:verified` }],
+        },
+      });
 
       await tabTo(page, panel(page).getByRole("button", { name: "Check for deliveries" }));
       await page.keyboard.press("Enter");
