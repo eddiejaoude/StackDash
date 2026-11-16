@@ -37,8 +37,10 @@ export async function tickUntilStored(page: Page, workspace: TestWorkspace, dedu
 
 /**
  * Ticks until the workspace's one connection of `provider` has `status`, for an uninstall delivery
- * (`needs_attention`). Post the uninstall only after the connection's first sync has finished: a
- * sync that finishes after the uninstall's job sets the connection back to `active` (#487).
+ * (`needs_attention`). Post the uninstall while no sync of the connection is running or due: after
+ * its first sync has finished and before the next one is due, SIMULATED_POLL_INTERVAL_SECONDS
+ * later for a simulated connection. A tick runs a due sync beside the uninstall's job, and a sync
+ * that finishes after that job sets the connection back to `active` (#487).
  */
 export async function tickUntilConnectionStatus(
   page: Page,
