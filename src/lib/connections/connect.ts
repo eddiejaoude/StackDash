@@ -1,7 +1,13 @@
 import "server-only";
 
 import { isSimulatedCredential } from "@/lib/adapters/simulated/marker";
-import type { ExternalAccount, OAuthContext, OAuthCredential, ProviderAdapter } from "@/lib/adapters/types";
+import {
+  credentialInstallationId,
+  type ExternalAccount,
+  type OAuthContext,
+  type OAuthCredential,
+  type ProviderAdapter,
+} from "@/lib/adapters/types";
 import { deleteCredential, saveCredential } from "@/lib/data/credentials";
 import { enqueueSync } from "@/lib/jobs/queue";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -86,6 +92,9 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
     // Only a completed grant moves this, on connect and on reconnect; a token refresh saves the
     // credential without it. A webhook uninstall older than it is stale (#476).
     granted_at: now,
+    // The installation this grant belongs to, for an uninstall that names only the installation
+    // (#480). A reconnect may land on another installation, so it is written every time.
+    external_installation_id: credentialInstallationId(adapter, credential),
     poll_interval_seconds: adapter.pollIntervalSeconds,
     next_sync_at: now,
     consecutive_failures: 0,

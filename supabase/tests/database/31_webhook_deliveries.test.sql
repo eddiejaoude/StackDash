@@ -95,7 +95,7 @@ select is_empty(
     from unnest(array['anon', 'authenticated']) as r(role)
     cross join unnest(array[
       'public.record_webhook_delivery(public.provider_id, text, jsonb, uuid)',
-      'public.list_webhook_targets(public.provider_id, text, uuid)',
+      'public.list_webhook_targets(public.provider_id, text, uuid, text)',
       'public.purge_webhook_deliveries(timestamptz, integer)',
       'public.claim_webhook_jobs(integer, integer)',
       'public.claim_sync_jobs(integer, integer)'
@@ -105,7 +105,7 @@ select is_empty(
   'webhook functions: anon and authenticated cannot execute any of them, or claim_sync_jobs');
 select ok(
   has_function_privilege('service_role', 'public.record_webhook_delivery(public.provider_id, text, jsonb, uuid)', 'execute')
-  and has_function_privilege('service_role', 'public.list_webhook_targets(public.provider_id, text, uuid)', 'execute')
+  and has_function_privilege('service_role', 'public.list_webhook_targets(public.provider_id, text, uuid, text)', 'execute')
   and has_function_privilege('service_role', 'public.purge_webhook_deliveries(timestamptz, integer)', 'execute')
   and has_function_privilege('service_role', 'public.claim_webhook_jobs(integer, integer)', 'execute')
   and has_function_privilege('service_role', 'public.claim_sync_jobs(integer, integer)', 'execute'),

@@ -367,17 +367,27 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
 /**
  * One parsed webhook delivery against what the delivery job stores (#28): its events pass the same
  * gate as a sync's, every event belongs to the account the delivery names, because that account
- * picks which connections receive it, and an uninstall carries a real time, which the job compares
- * with the connection's credential.
+ * picks which connections receive it, and an uninstall names an account or an installation and
+ * carries a real time, which the job compares with the connection's grant. Only an adapter that
+ * declares `installationIdOf` may name an installation (#480): without it no connection records
+ * one, so the uninstall could never find its connections.
  */
 export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: WebhookOutcome): string[] {
   if (outcome.kind === "ignored") return blank(outcome.reason) ? ["an ignored delivery has no reason"] : [];
   const problems: string[] = [];
-  if (blank(outcome.externalAccountId)) problems.push(`the ${outcome.kind} outcome has no externalAccountId`);
   if (outcome.kind === "uninstalled") {
+    if (outcome.by === "installation") {
+      if (blank(outcome.installationId)) problems.push("the uninstalled outcome has no installationId");
+      if (adapter.installationIdOf === undefined) {
+        problems.push("the uninstalled outcome names an installation, but the adapter does not declare installationIdOf");
+      }
+    } else if (blank(outcome.externalAccountId)) {
+      problems.push("the uninstalled outcome has no externalAccountId");
+    }
     if (Number.isNaN(outcome.occurredAt.getTime())) problems.push("the uninstalled outcome has an invalid occurredAt");
     return problems;
   }
+  if (blank(outcome.externalAccountId)) problems.push(`the ${outcome.kind} outcome has no externalAccountId`);
   problems.push(...batchProblems("events", validateAdapterEvents(adapter.eventTypes, outcome.events)));
   outcome.events.forEach((event, index) => {
     if (event.externalAccountId !== outcome.externalAccountId) {

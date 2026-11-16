@@ -9,7 +9,7 @@ import {
   signFakeWebhook,
 } from "@/lib/adapters/fake";
 import { postHogAdapter } from "@/lib/adapters/posthog";
-import { Secret, type AdapterContext, type ProviderAdapter, type WebhookDescriptor } from "@/lib/adapters/types";
+import { Secret, type AdapterContext, type ProviderAdapter, type WebhookDescriptor, type WebhookOutcome } from "@/lib/adapters/types";
 import { MemoryJobStore } from "@/lib/jobs/memory-store";
 import type { RecordWebhookDeliveryInput } from "@/lib/jobs/store";
 import type { LogFields, Logger } from "@/lib/log/logger";
@@ -417,6 +417,47 @@ describe("receiveWebhook", () => {
       expect(lines).toHaveLength(1);
       expect(lines[0]?.fields?.issues).toEqual(issues);
     });
+
+    it("accepts an uninstall naming an installation from an adapter that records installations (#480)", async () => {
+      const outcome = { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: NOW } as const;
+      const { deps, webhookJobs, store } = setup({
+        getAdapter: () => ({ ...withWebhooks({ parse: () => outcome }), installationIdOf: () => "fake-installation-1" }),
+      });
+      const response = await receive(deps, delivery(EVENT_BODY));
+      expect(response.status).toBe(202);
+      expect(webhookJobs()).toHaveLength(1);
+      expect(store.webhookDeliveries.map((row) => row.outcome)).toEqual([outcome]);
+    });
+
+    it.each([
+      {
+        name: "an installation from an adapter that does not declare installationIdOf",
+        outcome: { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: NOW },
+        issues: ["by"],
+      },
+      {
+        name: "a blank installation id",
+        outcome: { kind: "uninstalled", by: "installation", installationId: " ", occurredAt: NOW },
+        issues: ["installationId", "by"],
+      },
+      { name: "a blank account id", outcome: { kind: "uninstalled", externalAccountId: "", occurredAt: NOW }, issues: ["externalAccountId"] },
+      {
+        name: "a time that is not one",
+        outcome: { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date(Number.NaN) },
+        issues: ["occurredAt"],
+      },
+    ] satisfies { name: string; outcome: WebhookOutcome; issues: string[] }[])(
+      "answers 422 and logs issue names only for an uninstall with $name (boundary)",
+      async ({ outcome, issues }) => {
+        const { deps, webhookJobs, lines } = setup({ getAdapter: () => withWebhooks({ parse: () => outcome }) });
+        const response = await receive(deps, delivery(EVENT_BODY));
+        expect(response.status).toBe(422);
+        expect(await response.json()).toEqual({ error: "invalid_uninstall", referenceId: "REF-TEST0000" });
+        expect(webhookJobs()).toHaveLength(0);
+        expect(lines.map((line) => line.event)).toEqual(["webhook.invalid_uninstall"]);
+        expect(lines[0]?.fields?.issues).toEqual(issues);
+      },
+    );
 
     it("records a verified delivery the provider does not map as ignored and processed, with 202 and no job", async () => {
       const { deps, webhookJobs, store } = setup();
