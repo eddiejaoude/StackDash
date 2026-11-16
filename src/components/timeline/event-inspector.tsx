@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createContext, use, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { PublishAchievementButton } from "@/components/achievements/achievement-controls";
 import { AchievementEarnedLabel } from "@/components/achievements/achievement-earned-label";
+import { holdLiveRefresh } from "@/components/app/live-refresh";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { GuardedButton } from "@/components/guarded-button";
 import { AchievementShareDialog } from "@/components/public-metrics/achievement-share-dialog";
@@ -71,6 +72,8 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
   children: ReactNode;
 }) {
   const searchParams = useSearchParams();
+  // The router's own method, stable across renders, unlike the object around it.
+  const { replace } = useRouter();
   const selectedId = parseTimelineEventId(searchParams.get("event") ?? undefined);
   const open = selectedId !== null;
   const selected = events.find((event) => event.id === selectedId)
@@ -87,6 +90,8 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
   const opener = useRef<HTMLAnchorElement | null>(null);
   // True while the open inspector is the history entry `select` pushed, so closing goes back to it.
   const pushed = useRef(false);
+  // Releases the hold on live refreshes this panel placed, while one is in place.
+  const releaseLiveRefresh = useRef<(() => void) | null>(null);
 
   const syncDialog = useEffectEvent(() => {
     if (open && !dialog.ref.current?.open) {
@@ -95,7 +100,12 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
     }
     if (!open && dialog.ref.current?.open) dialog.close();
   });
-  useEffect(() => { syncDialog(); }, [open]);
+  // On the selection too, not only `open`: while a shared link's close waits for the router, the
+  // URL still names the event, so another row clicked then replaces the selection without `open`
+  // ever turning false, and this opens the panel on it once it has rendered. The same row clicked
+  // then changes neither, so `select` opens that one itself. Only a closed dialog opens, so Older
+  // and Newer change nothing here (#477).
+  useEffect(() => { syncDialog(); }, [open, selectedId]);
 
   // With cacheComponents, Next hides a route it leaves instead of unmounting it, and an open modal
   // under `display: none` keeps the visible page inert. Close it on hide; the URL reopens it. The
@@ -118,14 +128,42 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
     return () => { root.style.overflow = previous; };
   }, [open]);
 
+  // While the panel is open, the URL names an event through the History API, and Next's router
+  // still holds the page it rendered without it. A live refresh then fetches the URL but seeds the
+  // router with the search it rendered, and Next caches the page empty under that search: closing
+  // goes Back to it, the page suspends for good, and no event opens again until a reload (#477).
+  // So live updates wait while the panel is open and refresh once after the close has rendered.
+  useEffect(() => {
+    if (!open) return;
+    // Opened from the URL (a shared link, Forward); `select` holds before it writes the URL.
+    releaseLiveRefresh.current ??= holdLiveRefresh();
+    return () => {
+      releaseLiveRefresh.current?.();
+      releaseLiveRefresh.current = null;
+    };
+  }, [open]);
+  // A selection whose open never rendered, as when the route unmounts first, must not keep holding.
+  useEffect(() => () => {
+    releaseLiveRefresh.current?.();
+    releaseLiveRefresh.current = null;
+  }, []);
+
   function select(id: string, from: HTMLAnchorElement | null) {
     opener.current = from;
+    // Before the URL changes, so no refresh starts between this write and the render that opens.
+    releaseLiveRefresh.current ??= holdLiveRefresh();
     // A second activation (a double-click, a held Enter) can land before the dialog opens, and
     // closing goes back one entry, so never stack a second selection entry. Read the URL rather
     // than `pushed`: a click between Escape and its popstate would leave `pushed` set on an entry
     // `select` did not push, and the next close would go back out of the timeline.
     if (new URL(window.location.href).searchParams.has("event")) {
       replaceEntry(eventHref(baseHref, id));
+      // The event whose close is still on its way: no render follows a write of the same URL, so
+      // the effect above cannot reopen it.
+      if (id === selectedId && dialog.ref.current?.open === false) {
+        dialog.open(from);
+        opener.current = null;
+      }
       return;
     }
     pushed.current = true;
@@ -147,8 +185,13 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
       window.history.back();
       return;
     }
+    // Opened by a document load (a shared link, a reload), so the router rendered this entry with
+    // the event in its search. replaceState would keep that search under a URL without it: an
+    // event opened from here copies it, and once a live refresh has run, Back or Forward to that
+    // event restores a page Next cached empty, so Older and Newer stop moving the panel (#477).
+    // The router renders the entry again instead, at the cost of one server render.
     url.searchParams.delete("event");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
   }
 
   function moveTo(event: InspectorEvent | undefined) {

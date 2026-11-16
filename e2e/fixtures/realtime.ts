@@ -196,3 +196,23 @@ export function watchLiveRefresh(page: Page, workspaceId: string): LiveRefreshWa
     },
   };
 }
+
+// What a test reads from a postgres_changes payload: the table, the event type, and the row's
+// workspace, plus its title for an activity event.
+export const LiveChangeSchema = z
+  .object({
+    data: z.object({
+      table: z.string(),
+      type: z.string(),
+      record: z.object({ workspace_id: z.string(), title: z.string().optional() }),
+    }),
+  })
+  .transform(({ data }) => data);
+
+/** Whether the channel has delivered the activity event with this title. */
+export function deliveredEvent(live: LiveChannel, title: string): boolean {
+  return z
+    .array(LiveChangeSchema)
+    .parse(live.changes())
+    .some(({ table, record }) => table === "activity_events" && record.title === title);
+}

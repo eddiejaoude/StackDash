@@ -7,7 +7,7 @@ import { useEffect, useRef, useTransition } from "react";
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
 import { changedConnectionId } from "@/lib/realtime/arrivals";
-import { createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
+import { createRefreshHolds, createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -31,6 +31,19 @@ type LiveChange = Readonly<{ commit_timestamp: string; table: string; new: unkno
 // workspace and coming straight back) would attach to the departing channel and never join, so
 // every mount gets a topic of its own.
 let mountCount = 0;
+
+// One LiveRefresh runs per page, so the page's holds live beside it.
+const holds = createRefreshHolds();
+
+/**
+ * Makes live refreshes wait until the returned function runs; the changes that arrive meanwhile
+ * refresh once then. For a page whose URL says something the router has not rendered: a refresh
+ * then fetches the URL but keeps the router's rendered search, and Next.js caches that page empty
+ * under it, so going Back to it suspends the page for good (#477).
+ */
+export function holdLiveRefresh(): () => void {
+  return holds.hold();
+}
 
 /**
  * Refreshes the current workspace page when a sync writes rows for this workspace (#129), so the
@@ -82,11 +95,12 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
         changedConnections = new Set();
         startRefresh(() => refresh());
       },
-      isHidden: () => document.visibilityState === "hidden",
+      isPaused: () => document.visibilityState === "hidden" || holds.held(),
     });
     schedulerRef.current = scheduler;
-    const onVisibilityChange = () => scheduler.visibilityChanged();
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    const onPauseChange = () => scheduler.pauseChanged();
+    document.addEventListener("visibilitychange", onPauseChange);
+    const stopHearingReleases = holds.onReleased(onPauseChange);
     const onChange = ({ commit_timestamp: committedAt, table, new: row }: LiveChange) => {
       if (lastCommitAt === null || Date.parse(committedAt) > Date.parse(lastCommitAt)) lastCommitAt = committedAt;
       const connectionId = changedConnectionId(table, row);
@@ -135,7 +149,8 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     return () => {
       active = false;
       scheduler.dispose();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("visibilitychange", onPauseChange);
+      stopHearingReleases();
       if (channel !== undefined) void supabase.removeChannel(channel);
       arrivals?.setStatus("connecting");
     };

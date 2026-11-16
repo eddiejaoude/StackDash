@@ -5,7 +5,8 @@
  * connection's status. Refreshing per row would re-render the page dozens of times, so changes are
  * coalesced with a trailing debounce, and a maximum wait stops a continuous stream from putting
  * the refresh off forever. A hidden tab does not refresh at all; it refreshes once when it becomes
- * visible again, so a background tab never re-renders for nobody.
+ * visible again, so a background tab never re-renders for nobody. A page can hold refreshes the
+ * same way (`createRefreshHolds`): changes wait until the last hold is released, then refresh once.
  *
  * The maximum wait bounds latency, not load: every refresh renders the whole workspace route on
  * the server again, and nothing in the router stops a second one starting before the first has
@@ -31,18 +32,21 @@ export const REFRESH_MAX_IN_FLIGHT_MS = 15_000;
 export type RefreshSchedulerOptions = {
   /** Starts a refresh. The caller reports its end with `settled()`. */
   refresh: () => void;
-  /** Whether the page is hidden right now (`document.visibilityState === "hidden"`). */
-  isHidden: () => boolean;
+  /**
+   * Whether refreshes must wait right now: the tab is hidden (`document.visibilityState`), or the
+   * page holds them (`RefreshHolds.held`).
+   */
+  isPaused: () => boolean;
 };
 
 export type RefreshScheduler = {
   /** A change arrived. */
   notify: () => void;
   /**
-   * Call on every `visibilitychange`; requests one refresh if changes arrived while hidden, queued
-   * behind a running one.
+   * Call whenever `isPaused` may have changed: on every `visibilitychange`, and when the last hold
+   * is released. Requests one refresh if changes arrived while paused, queued behind a running one.
    */
-  visibilityChanged: () => void;
+  pauseChanged: () => void;
   /**
    * No refresh this scheduler started is still running: call it when every one has landed, the
    * way `useTransition`'s `isPending` turns false only once all of them have. It starts the refresh
@@ -56,7 +60,7 @@ export type RefreshScheduler = {
   dispose: () => void;
 };
 
-export function createRefreshScheduler({ refresh, isHidden }: RefreshSchedulerOptions): RefreshScheduler {
+export function createRefreshScheduler({ refresh, isPaused }: RefreshSchedulerOptions): RefreshScheduler {
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   // Started by the first change of a burst and left running while later changes reset the debounce.
   let maxWaitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -76,8 +80,8 @@ export function createRefreshScheduler({ refresh, isHidden }: RefreshSchedulerOp
   }
 
   function request(): void {
-    // The tab can be hidden between a change and its refresh.
-    if (isHidden()) {
+    // The tab can be hidden, or the page can hold refreshes, between a change and its refresh.
+    if (isPaused()) {
       deferred = true;
       return;
     }
@@ -107,7 +111,7 @@ export function createRefreshScheduler({ refresh, isHidden }: RefreshSchedulerOp
   return {
     notify() {
       if (disposed) return;
-      if (isHidden()) {
+      if (isPaused()) {
         clearTimers();
         deferred = true;
         return;
@@ -116,8 +120,8 @@ export function createRefreshScheduler({ refresh, isHidden }: RefreshSchedulerOp
       debounceTimer = setTimeout(flush, REFRESH_DEBOUNCE_MS);
       maxWaitTimer ??= setTimeout(flush, REFRESH_MAX_WAIT_MS);
     },
-    visibilityChanged() {
-      if (disposed || !deferred || isHidden()) return;
+    pauseChanged() {
+      if (disposed || !deferred || isPaused()) return;
       deferred = false;
       request();
     },
@@ -131,6 +135,42 @@ export function createRefreshScheduler({ refresh, isHidden }: RefreshSchedulerOp
       queued = false;
       clearTimers();
       clearTimeout(inFlightTimer);
+    },
+  };
+}
+
+export type RefreshHolds = Readonly<{
+  /** Holds refreshes until the returned function runs. Running it again does nothing. */
+  hold: () => () => void;
+  /** Whether any hold is in place. */
+  held: () => boolean;
+  /** Runs `listener` each time the last hold is released; returns the unsubscribe function. */
+  onReleased: (listener: () => void) => () => void;
+}>;
+
+/**
+ * Holds that make live refreshes wait, for a page whose URL can say something the router has not
+ * rendered (the timeline's event details, #477). Each hold is released once, so a release that
+ * runs twice cannot end another component's hold.
+ */
+export function createRefreshHolds(): RefreshHolds {
+  const holds = new Set<symbol>();
+  const listeners = new Set<() => void>();
+  return {
+    hold() {
+      const hold = Symbol("refresh hold");
+      holds.add(hold);
+      return () => {
+        if (!holds.delete(hold) || holds.size > 0) return;
+        for (const listener of listeners) listener();
+      };
+    },
+    held: () => holds.size > 0,
+    onReleased(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
   };
 }
