@@ -4,14 +4,15 @@ import { z } from "zod";
 import { evaluateAchievements } from "@/lib/achievements/evaluate";
 import { toSnapshotRow } from "@/lib/jobs/ingest";
 import { achievementRuleMetricKey } from "../achievements";
-import { AuthRevokedError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "../errors";
+import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError, RateLimitedError } from "../errors";
 import { validateAdapterEvents } from "../events";
-import { checkSyncResult } from "../harness";
+import { checkAdapterDeclaration, checkSyncResult, checkWebhookOutcome } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult } from "../types";
+import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult, type WebhookDescriptor, type WebhookRequest } from "../types";
 import { monthsToSync } from "./billing";
 import { buildUserAuthorizeUrl, githubAdapter, readCallback, type GitHubCallback } from "./index";
-import { starMetricNames, starMilestones, type Cursor } from "./repositories";
+import { activitySince, starMetricNames, starMilestones, type Cursor } from "./repositories";
+import { githubWebhookSignature } from "./webhooks";
 
 // Every fixture below is from documentation (docs/providers/github.md, "Sample responses"), not
 // recorded: trimmed, with synthetic ids, logins, tokens, and amounts.
@@ -22,10 +23,23 @@ import forks from "./fixtures/forks.json";
 import installation from "./fixtures/installation.json";
 import installationRepositories from "./fixtures/installation-repositories.json";
 import installationToken from "./fixtures/installation-token.json";
+import issues from "./fixtures/issues.json";
 import premiumRequestUsage from "./fixtures/premium-request-usage.json";
+import pulls from "./fixtures/pulls.json";
+import releases from "./fixtures/releases.json";
 import stargazersCount from "./fixtures/stargazers-count.json";
 import userInstallations from "./fixtures/user-installations.json";
 import userToken from "./fixtures/user-token.json";
+// Webhook bodies: GitHub's documented example payloads (docs.github.com, "Webhook events and
+// payloads", and the octokit/webhooks examples it is generated from), trimmed, with the
+// repository, accounts, and people replaced by the synthetic ones above.
+import appAuthorizationRevoked from "./fixtures/webhook-github-app-authorization-revoked.json";
+import installationDeleted from "./fixtures/webhook-installation-deleted.json";
+import installationSuspend from "./fixtures/webhook-installation-suspend.json";
+import issueOpenedDelivery from "./fixtures/webhook-issues-opened.json";
+import pullRequestClosedDelivery from "./fixtures/webhook-pull-request-closed.json";
+import releasePublishedDelivery from "./fixtures/webhook-release-published.json";
+import starCreatedDelivery from "./fixtures/webhook-star-created.json";
 
 const NOW = new Date("2026-10-31T12:00:00Z");
 const APP_ID = "424242";
@@ -58,6 +72,11 @@ function orgRoutes(): Routes {
     [`GET ${api("/installation/repositories")}`]: json(installationRepositories),
     [`GET ${api(`${repoPath}/stargazers/count`)}`]: json(stargazersCount),
     [`GET ${api(`${repoPath}/forks`)}`]: json(forks),
+    // Activity lists are empty by default, so the star, fork, and billing cases see only their own
+    // events; "sync: timeline activity" below reads the recorded lists.
+    [`GET ${api(`${repoPath}/pulls`)}`]: json([]),
+    [`GET ${api(`${repoPath}/issues`)}`]: json([]),
+    [`GET ${api(`${repoPath}/releases`)}`]: json([]),
     [`GET ${api(`${orgBilling}/usage/summary`)}`]: json(billingSummary),
     [`GET ${api(`${orgBilling}/usage`)}`]: json(billingUsage),
     [`GET ${api(`${orgBilling}/ai_credit/usage`)}`]: json(aiCreditUsage),
@@ -155,13 +174,36 @@ describe("githubAdapter descriptor", () => {
     expect(githubAdapter.eventTypes.map((eventType) => eventType.id)).toEqual([
       "github.stars.daily",
       "github.stars.milestone",
+      "github.stars.new",
       "github.forks.new",
+      "github.pull_request.merged",
+      "github.issue.opened",
+      "github.release.published",
     ]);
     expect(githubAdapter.oauth.extraEnv).toEqual({
       appSlug: "GITHUB_APP_SLUG",
       appId: "GITHUB_APP_ID",
       privateKey: "GITHUB_APP_PRIVATE_KEY",
     });
+  });
+
+  it("discloses every read permission before connecting, with what each activity permission also allows", () => {
+    // GitHub Apps have no OAuth scopes: the connect screen lists the app's permissions instead.
+    expect(githubAdapter.oauth.scopes).toEqual([]);
+    expect(githubAdapter.permissions.map((permission) => [permission.scope, permission.access])).toEqual([
+      ["metadata:read", "read"],
+      ["organization_administration:read", "read"],
+      ["plan:read", "read"],
+      ["pull_requests:read", "read"],
+      ["issues:read", "read"],
+      ["contents:read", "read"],
+    ]);
+    const descriptionOf = (scope: string) => githubAdapter.permissions.find((permission) => permission.scope === scope)?.description ?? "";
+    expect(descriptionOf("contents:read")).toMatch(/can also read the code/);
+    expect(descriptionOf("pull_requests:read")).toMatch(/keeps only the number/);
+    expect(descriptionOf("issues:read")).toMatch(/keeps only the number/);
+    // The activity permissions are optional: a grant without them is not missing anything at connect.
+    expect(githubAdapter.detectMissingPermissions({ scopes: ["metadata:read", "organization_administration:read"] })).toEqual([]);
   });
 });
 
@@ -489,7 +531,7 @@ describe("sync", () => {
     expect(Object.fromEntries(summaryCall?.url.searchParams ?? [])).toEqual({ year: "2026", month: "10" });
     const [mint] = callsTo("POST", api(`/app/installations/${INSTALLATION_ID}/access_tokens`));
     expect(JSON.parse(mint?.body ?? "{}")).toEqual({
-      permissions: { metadata: "read", organization_administration: "read" },
+      permissions: { metadata: "read", organization_administration: "read", pull_requests: "read", issues: "read", contents: "read" },
     });
     // Premium requests are only the fallback when AI credits have no rows.
     expect(callsTo("GET", api(`${orgBilling}/premium_request/usage`))).toHaveLength(0);
@@ -693,7 +735,7 @@ describe("sync", () => {
     expect(result.metrics.map((item) => item.metricKey)).toEqual(["github.stars.total"]);
     expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 0 });
     expect(result.events).toEqual([]);
-    expect(JSON.parse(result.cursor ?? "{}")).toEqual({ v: 1, repos: {} });
+    expect(JSON.parse(result.cursor ?? "{}")).toEqual({ v: 1, repos: {}, activityReadAt: NOW.toISOString() });
   });
 
   it("reads at most 100 repositories per sync and logs the truncation (boundary: pagination cap)", async () => {
@@ -748,6 +790,167 @@ describe("sync", () => {
   });
 });
 
+describe("sync: timeline activity", () => {
+  const recorded = {
+    [`GET ${api(`${repoPath}/pulls`)}`]: json(pulls),
+    [`GET ${api(`${repoPath}/issues`)}`]: json(issues),
+    [`GET ${api(`${repoPath}/releases`)}`]: json(releases),
+  };
+  const activityKeys = (events: SyncResult["events"]) =>
+    events.filter((event) => !event.typeId.startsWith("github.stars.") && !event.typeId.startsWith("github.forks.")).map((event) => event.dedupeKey);
+
+  it("backfills a week of merges, opened issues, and published releases on the first sync (happy path)", async () => {
+    const { ctx, callsTo } = harness(recorded);
+    const result = await githubAdapter.sync(syncInput(), ctx);
+
+    expect(checkSyncResult(githubAdapter, ACCOUNT_ID, result)).toEqual([]);
+    expect(result.partialErrors).toBeUndefined();
+    // Pull request 41 was closed unmerged, 40 merged before the week, issue 42 is pull request 42,
+    // issue 39 was opened before the week, and v1.3.0 is a draft.
+    expect(activityKeys(result.events)).toEqual([
+      "github.pull_request.merged:5000001:42",
+      "github.issue.opened:5000001:43",
+      "github.release.published:5000001:6000002",
+    ]);
+    expect(result.events.filter((event) => event.typeId.startsWith("github.pull_") || event.typeId.startsWith("github.issue") || event.typeId.startsWith("github.release"))).toEqual([
+      {
+        typeId: "github.pull_request.merged",
+        occurredAt: new Date("2026-10-31T10:00:00Z"),
+        severity: "success",
+        title: "Pull request #42 merged in example-org/example-repo",
+        externalAccountId: ACCOUNT_ID,
+        dedupeKey: "github.pull_request.merged:5000001:42",
+        url: "https://github.com/example-org/example-repo/pull/42",
+      },
+      {
+        typeId: "github.issue.opened",
+        occurredAt: new Date("2026-10-31T11:00:00Z"),
+        severity: "info",
+        title: "Issue #43 opened in example-org/example-repo",
+        externalAccountId: ACCOUNT_ID,
+        dedupeKey: "github.issue.opened:5000001:43",
+        url: "https://github.com/example-org/example-repo/issues/43",
+      },
+      {
+        typeId: "github.release.published",
+        occurredAt: new Date("2026-10-31T08:00:00Z"),
+        severity: "success",
+        title: "Release v1.2.0 published in example-org/example-repo",
+        externalAccountId: ACCOUNT_ID,
+        dedupeKey: "github.release.published:5000001:6000002",
+        url: "https://github.com/example-org/example-repo/releases/tag/v1.2.0",
+      },
+    ]);
+    // Titles, notes, and people are never read.
+    for (const text of ["Synthetic", "contributor-a", "reporter-a", "maintainer-a"]) expect(JSON.stringify(result.events)).not.toContain(text);
+
+    const query = (path: string) => Object.fromEntries(callsTo("GET", api(`${repoPath}${path}`))[0]?.url.searchParams ?? []);
+    expect(query("/pulls")).toEqual({ state: "closed", sort: "updated", direction: "desc", per_page: "100" });
+    expect(query("/issues")).toEqual({ state: "all", sort: "created", direction: "desc", since: "2026-10-24T12:00:00.000Z", per_page: "100" });
+    expect(query("/releases")).toEqual({ per_page: "30" });
+    expect((JSON.parse(result.cursor ?? "{}") as Cursor).activityReadAt).toBe(NOW.toISOString());
+  });
+
+  it("reads back to the previous sync less one poll interval, so the overlap is the same keys (boundary: chained syncs)", async () => {
+    const first = await githubAdapter.sync(syncInput(), harness(recorded).ctx);
+    // Half an hour later: the read starts at 11:00 less an hour, so only issue 43 (11:00) is in it.
+    const later = new Date("2026-10-31T12:30:00Z");
+    const previous = { ...(JSON.parse(first.cursor ?? "{}") as Cursor), activityReadAt: "2026-10-31T11:00:00.000Z" };
+    const next = await githubAdapter.sync(syncInput(JSON.stringify(previous)), harness(recorded, { now: later }).ctx);
+    expect(activityKeys(next.events)).toEqual(["github.issue.opened:5000001:43"]);
+    expect(activityKeys(first.events)).toContain("github.issue.opened:5000001:43");
+  });
+
+  it.each([
+    { name: "first sync", previous: undefined, since: "2026-10-24T12:00:00.000Z" },
+    { name: "previous sync an hour ago", previous: "2026-10-31T11:00:00.000Z", since: "2026-10-31T10:00:00.000Z" },
+    { name: "previous sync more than a week ago", previous: "2026-10-01T00:00:00.000Z", since: "2026-10-24T12:00:00.000Z" },
+    { name: "previous sync in the future (clock moved back)", previous: "2026-11-02T00:00:00.000Z", since: "2026-10-31T11:00:00.000Z" },
+  ])("starts the activity read at the right time (boundary: $name)", ({ previous, since }) => {
+    expect(activitySince(previous, NOW).toISOString()).toBe(since);
+  });
+
+  it("reports each activity permission an older installation lacks once, and still syncs stars and billing (boundary: permissions not accepted)", async () => {
+    const repositories = [0, 1].map((index) => ({ ...installationRepositories.repositories[0], id: 5000001 + index }));
+    const { ctx, calls, callsTo } = harness({
+      ...recorded,
+      [`GET ${api(`/app/installations/${INSTALLATION_ID}`)}`]: json({ ...installation, permissions: { metadata: "read", organization_administration: "read" } }),
+      [`GET ${api("/installation/repositories")}`]: json({ total_count: 2, repositories }),
+    });
+    const result = await githubAdapter.sync(syncInput(), ctx);
+
+    expect(result.partialErrors?.map((error) => error.missingScopes)).toEqual([["pull_requests:read"], ["issues:read"], ["contents:read"]]);
+    expect(calls.some((call) => /\/(pulls|issues|releases)$/.test(call.url.pathname))).toBe(false);
+    expect(activityKeys(result.events)).toEqual([]);
+    expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 190 });
+    expect(metric(result.metrics, "github.spend.actions")).toBeDefined();
+    // The token asks only for what the installation holds: GitHub cannot grant more.
+    const [mint] = callsTo("POST", api(`/app/installations/${INSTALLATION_ID}/access_tokens`));
+    expect(JSON.parse(mint?.body ?? "{}")).toEqual({ permissions: { metadata: "read", organization_administration: "read" } });
+  });
+
+  it("reports a refused list as a partial error naming its permission and keeps the others (boundary: 403)", async () => {
+    const { ctx } = harness({ ...recorded, [`GET ${api(`${repoPath}/issues`)}`]: json({ message: "Resource not accessible by integration" }, { status: 403 }) });
+    const result = await githubAdapter.sync(syncInput(), ctx);
+    expect(result.partialErrors).toHaveLength(1);
+    const [refused] = result.partialErrors ?? [];
+    expect(refused).toBeInstanceOf(PermissionMissingError);
+    expect(refused?.missingScopes).toEqual(["issues:read"]);
+    expect(refused?.endpoint).toBe("/repos/{owner}/{repo}/issues");
+    expect(activityKeys(result.events)).toEqual(["github.pull_request.merged:5000001:42", "github.release.published:5000001:6000002"]);
+  });
+
+  it.each([404, 410])("skips a list that is gone or turned off for a repository without failing the sync (boundary: %d)", async (status) => {
+    const { ctx, warnings } = harness({ ...recorded, [`GET ${api(`${repoPath}/issues`)}`]: json({ message: "Gone" }, { status }) });
+    const result = await githubAdapter.sync(syncInput(), ctx);
+    expect(result.partialErrors).toBeUndefined();
+    expect(activityKeys(result.events)).toEqual(["github.pull_request.merged:5000001:42", "github.release.published:5000001:6000002"]);
+    expect(warnings).toContain("github.sync.activity_unavailable");
+  });
+
+  it("fails on an outage naming the path template, never the repository, which can be private (boundary: 5xx)", async () => {
+    const { ctx } = harness({ ...recorded, [`GET ${api(`${repoPath}/pulls`)}`]: json({ message: "boom" }, { status: 502 }) });
+    const error = await githubAdapter.sync(syncInput(), ctx).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderUnavailableError);
+    const failure = error instanceof ProviderUnavailableError ? error : undefined;
+    expect(failure?.endpoint).toBe("https://api.github.com/repos/{owner}/{repo}/pulls");
+    expect(failure?.message).toBe("https://api.github.com/repos/{owner}/{repo}/pulls is unavailable (502)");
+    expect(failure?.status).toBe(502);
+  });
+
+  it("names the template when a star count read fails too (boundary: private repository in an error)", async () => {
+    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ message: "Not Found" }, { status: 404 }) });
+    const error = await githubAdapter.sync(syncInput(), ctx).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(InvalidResponseError);
+    expect(JSON.stringify({ message: error instanceof Error ? error.message : "", endpoint: error instanceof InvalidResponseError ? error.endpoint : "" })).not.toContain("example-repo");
+  });
+
+  it("logs a full page of merges that still reaches into the read window (boundary: page cap)", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({
+      ...pulls[0],
+      number: 1000 + index,
+      merged_at: "2026-10-31T11:00:00Z",
+      updated_at: "2026-10-31T11:00:00Z",
+    }));
+    const { ctx, warnings } = harness({ ...recorded, [`GET ${api(`${repoPath}/pulls`)}`]: json(full) });
+    const result = await githubAdapter.sync(syncInput(), ctx);
+    expect(result.events.filter((event) => event.typeId === "github.pull_request.merged")).toHaveLength(100);
+    expect(warnings).toContain("github.sync.activity_truncated");
+
+    const { ctx: shortCtx, warnings: shortWarnings } = harness({ ...recorded, [`GET ${api(`${repoPath}/pulls`)}`]: json(full.slice(0, 99)) });
+    await githubAdapter.sync(syncInput(), shortCtx);
+    expect(shortWarnings).not.toContain("github.sync.activity_truncated");
+  });
+
+  it("keeps an event and drops a link that is not https (boundary: non-https html_url)", async () => {
+    const { ctx } = harness({ ...recorded, [`GET ${api(`${repoPath}/pulls`)}`]: json([{ ...pulls[0], html_url: "http://github.example/pull/42" }]) });
+    const result = await githubAdapter.sync(syncInput(), ctx);
+    const merged = result.events.find((event) => event.typeId === "github.pull_request.merged");
+    expect(merged?.dedupeKey).toBe("github.pull_request.merged:5000001:42");
+    expect(merged?.url).toBeUndefined();
+  });
+});
+
 describe("sync: new stars over one UTC day", () => {
   const GAINED = starMetricNames.gainedDaily.metricKey;
   const YESTERDAY = "2026-10-30";
@@ -773,6 +976,7 @@ describe("sync: new stars over one UTC day", () => {
     for (const repo of repos) {
       routes[`GET ${api(`/repos/example-org/${repo.name}/stargazers/count`)}`] = json({ count: repo.count });
       routes[`GET ${api(`/repos/example-org/${repo.name}/forks`)}`] = json([]);
+      for (const list of ["pulls", "issues", "releases"]) routes[`GET ${api(`/repos/example-org/${repo.name}/${list}`)}`] = json([]);
     }
     const cursor: Cursor = { v: 1, repos: previous };
     const result = await githubAdapter.sync(syncInput(JSON.stringify(cursor)), harness(routes, { now }).ctx);
@@ -892,5 +1096,175 @@ describe("sync: new stars over one UTC day", () => {
 
   it("reports nothing on a later sync the same day, so the first sync's total stands (boundary: hourly polls)", async () => {
     expect(await gained([{ id: 5000001, name: "api", count: 120 }], { "5000001": baseline("2026-10-31", 90) })).toEqual([]);
+  });
+});
+
+describe("webhooks", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+  const WEBHOOK_SECRET = new Secret(["github", "webhook", "value"].join("-"));
+  const DELIVERY_ID = "72d3162e-cc78-11e3-81ab-4c9367dc0958";
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = githubAdapter;
+    if (webhooks === undefined) throw new Error("the GitHub adapter declares no webhook");
+    return webhooks;
+  }
+
+  type Delivery = Partial<{ secret: Secret; signedBody: string; signature: string | null; deliveryId: string | null }>;
+
+  // A delivery as GitHub sends it; each option bends one part of it for a boundary test.
+  function delivery(event: string | null, body: unknown, options: Delivery = {}): WebhookRequest {
+    const rawBody = typeof body === "string" ? body : JSON.stringify(body);
+    const headers = new Headers({ "content-type": "application/json" });
+    if (event !== null) headers.set("x-github-event", event);
+    const deliveryId = options.deliveryId === undefined ? DELIVERY_ID : options.deliveryId;
+    if (deliveryId !== null) headers.set("x-github-delivery", deliveryId);
+    const signature = options.signature === undefined ? githubWebhookSignature(options.secret ?? WEBHOOK_SECRET, options.signedBody ?? rawBody) : options.signature;
+    if (signature !== null) headers.set("x-hub-signature-256", signature);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  /** Verifies, then parses, as the route does. */
+  function received(event: string | null, body: unknown, now: Date = NOW) {
+    const request = delivery(event, body);
+    expect(descriptor().verify(request, WEBHOOK_SECRET, now)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    const { ctx, warnings } = harness({}, { now });
+    const outcome = descriptor().parse(request, ctx);
+    // Parsing is synchronous and network free, and logs nothing: a body never reaches a log.
+    expect(warnings).toEqual([]);
+    return outcome;
+  }
+
+  it("is an app registration whose secret is GITHUB_APP_WEBHOOK_SECRET, subscribed to the timeline and app events", () => {
+    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: "GITHUB_APP_WEBHOOK_SECRET" });
+    expect(descriptor().subscriptions).toEqual(["pull_request", "issues", "release", "star", "installation", "github_app_authorization"]);
+    expect(checkAdapterDeclaration(githubAdapter)).toEqual([]);
+  });
+
+  it("signs like GitHub's documented test vector", () => {
+    // docs.github.com, "Validating webhook deliveries", "Testing the webhook payload validation".
+    expect(githubWebhookSignature(new Secret("It's a Secret to Everybody"), "Hello, World!")).toBe(
+      "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17",
+    );
+  });
+
+  it("verifies the raw bytes before anything parses them, whatever they hold", () => {
+    expect(descriptor().verify(delivery("ping", "not json at all"), WEBHOOK_SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+  });
+
+  it.each<[string, Delivery, string]>([
+    ["no signature", { signature: null }, "missing_signature"],
+    ["an empty signature", { signature: "" }, "missing_signature"],
+    ["a signature made with another secret", { secret: new Secret("another-webhook-value") }, "bad_signature"],
+    ["a tampered body", { signedBody: JSON.stringify(pullRequestClosedDelivery).replace("9000001", "9000003") }, "bad_signature"],
+    ["the legacy SHA-1 header format", { signature: "sha1=7d38cdd689735b008b3c702edd92eea23791c5f6" }, "bad_signature"],
+    ["the hex digest without its sha256= prefix", { signature: githubWebhookSignature(new Secret(["github", "webhook", "value"].join("-")), JSON.stringify(pullRequestClosedDelivery)).slice("sha256=".length) }, "bad_signature"],
+    ["no delivery id", { deliveryId: null }, "malformed"],
+    ["a blank delivery id", { deliveryId: "   " }, "malformed"],
+    ["a delivery id over 200 characters", { deliveryId: "d".repeat(201) }, "malformed"],
+  ])("rejects a delivery with %s (boundary)", (_case, options, reason) => {
+    expect(descriptor().verify(delivery("pull_request", pullRequestClosedDelivery, options), WEBHOOK_SECRET, NOW)).toEqual({ ok: false, reason });
+  });
+
+  it("maps a merge, an opened issue, and a published release to the events the sync stores for them", async () => {
+    const { ctx } = harness({
+      [`GET ${api(`${repoPath}/pulls`)}`]: json(pulls),
+      [`GET ${api(`${repoPath}/issues`)}`]: json(issues),
+      [`GET ${api(`${repoPath}/releases`)}`]: json(releases),
+    });
+    const polled = (await githubAdapter.sync(syncInput(), ctx)).events;
+
+    for (const [event, body, dedupeKey] of [
+      ["pull_request", pullRequestClosedDelivery, "github.pull_request.merged:5000001:42"],
+      ["issues", issueOpenedDelivery, "github.issue.opened:5000001:43"],
+      ["release", releasePublishedDelivery, "github.release.published:5000001:6000002"],
+    ] as const) {
+      const outcome = received(event, body);
+      expect(checkWebhookOutcome(githubAdapter, outcome), event).toEqual([]);
+      // One dedupe key and one event whichever path brings it, so the timeline stores it once.
+      const same = polled.find((candidate) => candidate.dedupeKey === dedupeKey);
+      expect(same, event).toBeDefined();
+      expect(outcome, event).toEqual({ kind: "events", externalAccountId: ACCOUNT_ID, events: [same] });
+      // The repository owner is the installation account, so the delivery lands where the sync does.
+      // Titles, notes, and people (the sender, the author) never reach the event.
+      for (const text of ["Synthetic", "contributor-a", "reporter-a", "maintainer-a"]) expect(JSON.stringify(outcome), event).not.toContain(text);
+    }
+  });
+
+  it("puts a new star on the timeline at once, without the stargazer", () => {
+    const outcome = received("star", starCreatedDelivery);
+    expect(checkWebhookOutcome(githubAdapter, outcome)).toEqual([]);
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: ACCOUNT_ID,
+      events: [
+        {
+          typeId: "github.stars.new",
+          occurredAt: new Date("2026-10-31T11:30:00Z"),
+          severity: "info",
+          title: "New star on example-org/example-repo",
+          externalAccountId: ACCOUNT_ID,
+          dedupeKey: "github.stars.new:5000001:2026-10-31T11:30:00.000Z",
+          url: "https://github.com/example-org/example-repo",
+        },
+      ],
+    });
+    expect(JSON.stringify(outcome)).not.toContain("stargazer-a");
+    // A redelivery, or a replay under a new delivery id, is the same star.
+    expect(received("star", starCreatedDelivery)).toEqual(outcome);
+  });
+
+  it("marks the account's connections as needing a reconnect when the app is uninstalled, at the time it arrives", () => {
+    const outcome = received("installation", installationDeleted);
+    // GitHub gives no removal time (the installation's own `updated_at` predates it).
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: ACCOUNT_ID, occurredAt: NOW });
+    expect(checkWebhookOutcome(githubAdapter, outcome)).toEqual([]);
+  });
+
+  it("marks them when the installation is suspended, at the signed suspension time", () => {
+    const outcome = received("installation", installationSuspend);
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: ACCOUNT_ID, occurredAt: new Date("2026-10-31T11:45:00Z") });
+  });
+
+  it("falls back to the arrival time for a suspension without its time (boundary: suspended_at null)", () => {
+    const body = { ...installationSuspend, installation: { ...installationSuspend.installation, suspended_at: null } };
+    expect(received("installation", body)).toEqual({ kind: "uninstalled", externalAccountId: ACCOUNT_ID, occurredAt: NOW });
+  });
+
+  it("marks the revoking user's own account when they revoke the app's authorization (personal account connection)", () => {
+    // Only a personal account connection holds a user token, and its account id is the user's.
+    const outcome = received("github_app_authorization", appAuthorizationRevoked);
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: "9000002", occurredAt: NOW });
+    expect(checkWebhookOutcome(githubAdapter, outcome)).toEqual([]);
+    // Never the organization: its connection syncs with installation tokens a revoked authorization does not touch.
+    expect(outcome.kind === "uninstalled" ? outcome.externalAccountId : undefined).not.toBe(ACCOUNT_ID);
+  });
+
+  it.each<[string, string | null, unknown]>([
+    ["a pull request closed without merging", "pull_request", { ...pullRequestClosedDelivery, pull_request: { ...pullRequestClosedDelivery.pull_request, merged: false, merged_at: null } }],
+    ["a pull request opened", "pull_request", { ...pullRequestClosedDelivery, action: "opened" }],
+    ["an issue edited", "issues", { ...issueOpenedDelivery, action: "edited" }],
+    ["a release created as a draft", "release", { ...releasePublishedDelivery, action: "created" }],
+    ["a release published as a draft", "release", { ...releasePublishedDelivery, release: { ...releasePublishedDelivery.release, draft: true } }],
+    ["an unstar, which the daily net counts", "star", { ...starCreatedDelivery, action: "deleted", starred_at: null }],
+    ["a star without its time", "star", { ...starCreatedDelivery, starred_at: null }],
+    ["an installation unsuspended", "installation", { ...installationSuspend, action: "unsuspend" }],
+    ["an installation created", "installation", { ...installationDeleted, action: "created" }],
+    ["new permissions accepted", "installation", { ...installationDeleted, action: "new_permissions_accepted" }],
+    ["an event StackDash does not subscribe to", "push", pullRequestClosedDelivery],
+    ["GitHub's ping", "ping", { zen: "Keep it logically awesome.", hook_id: 1 }],
+    ["no event name", null, pullRequestClosedDelivery],
+    // The event header is not signed: a signed issue body sent as a pull request matches no schema.
+    ["a signed body under another event's name", "pull_request", issueOpenedDelivery],
+    ["a revoked authorization with no sender", "github_app_authorization", { action: "revoked" }],
+    ["a body that is not JSON (a form-encoded registration)", "pull_request", "payload=%7B%7D"],
+  ])("ignores %s (boundary)", (_case, event, body) => {
+    expect(received(event, body)).toMatchObject({ kind: "ignored" });
+  });
+
+  it("keeps the event and drops a link that is not https (boundary: non-https html_url)", () => {
+    const body = { ...issueOpenedDelivery, issue: { ...issueOpenedDelivery.issue, html_url: "http://github.example/issues/43" } };
+    const outcome = received("issues", body);
+    expect(outcome.kind === "events" ? outcome.events[0]?.url : "not events").toBeUndefined();
   });
 });

@@ -32,6 +32,7 @@ import {
   type Installation,
   type TokenSuccess,
 } from "./schemas";
+import { githubWebhooks } from "./webhooks";
 
 /**
  * GitHub adapter (adapter pattern over a GitHub App), per docs/providers/github.md.
@@ -45,6 +46,11 @@ import {
  *
  * Sync mints a short-lived installation token from the app JWT every run. Personal accounts keep
  * the user token as well, because personal billing endpoints only accept user tokens.
+ *
+ * Webhooks (./webhooks.ts) put merged pull requests, opened issues, published releases, and new
+ * stars on the timeline within a minute, and report an uninstall, a suspension, or a revoked user
+ * authorization at once; the hourly sync stays the backfill (./activity.ts) and the only source of
+ * billing, star counts, and forks.
  */
 
 const OAUTH_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
@@ -60,6 +66,9 @@ const appPermissions = {
   metadata: "metadata:read",
   organizationAdministration: "organization_administration:read",
   plan: "plan:read",
+  pullRequests: "pull_requests:read",
+  issues: "issues:read",
+  contents: "contents:read",
 } as const;
 
 /** What a request to the shared callback route carries, for the route to pick the next step. */
@@ -314,6 +323,24 @@ export const githubAdapter: ProviderAdapter = {
       access: "read",
       description: "Account plan (personal accounts): your own billing usage. Held through a refresh token that lasts 6 months.",
     },
+    {
+      scope: appPermissions.pullRequests,
+      access: "read",
+      description:
+        "Pull requests: when one is merged, for the timeline. It can also read pull request titles, descriptions, comments, and reviews; StackDash keeps only the number.",
+    },
+    {
+      scope: appPermissions.issues,
+      access: "read",
+      description:
+        "Issues: when one is opened, for the timeline. It can also read issue titles, comments, and labels; StackDash keeps only the number.",
+    },
+    {
+      scope: appPermissions.contents,
+      access: "read",
+      description:
+        "Contents: when a release is published, for the timeline. GitHub sends release events only with this permission. It can also read the code, commits, and branches of the repositories you choose; StackDash reads only releases.",
+    },
   ],
   dataCollected: [
     "Spend per product and SKU this month (Actions, larger runners, storage, Copilot)",
@@ -321,6 +348,7 @@ export const githubAdapter: ProviderAdapter = {
     "Daily spend per product",
     "Star counts per repository, net new stars per day, and star milestones",
     "New forks per repository (counts only, never who forked)",
+    "Pull requests merged, issues opened, releases published, and new stars on the repositories you choose (numbers, tags, and links only, never titles or who did it)",
   ],
   eventTypes,
   achievements,
@@ -339,6 +367,7 @@ export const githubAdapter: ProviderAdapter = {
     },
   },
   pollIntervalSeconds: POLL_INTERVAL_SECONDS,
+  webhooks: githubWebhooks,
 
   /** Leg 1: the app install URL. The setup URL is fixed in the app registration, not sent here. */
   buildAuthorizeUrl({ client, state }) {
@@ -434,7 +463,10 @@ export const githubAdapter: ProviderAdapter = {
 
   /**
    * Metadata read is always needed; billing needs Organization Administration read on an
-   * organization or Account Plan read on a personal account, so either one satisfies it.
+   * organization or Account Plan read on a personal account, so either one satisfies it. The
+   * timeline's pull request, issue, and contents permissions are optional: an installation made
+   * before they were requested keeps syncing, and each sync reports the ones it lacks as partial
+   * errors (`collectRepositories`), which clear once the owner accepts them on GitHub.
    */
   detectMissingPermissions(grant: OAuthGrant): string[] {
     const granted = new Set(grant.scopes.map((scope) => scope.replace(/:write$/, ":read")));
@@ -450,11 +482,12 @@ export const githubAdapter: ProviderAdapter = {
     const installationId = installationIdOf(input.credential);
     // Read every run: the login can be renamed, and a suspended install fails here as revoked.
     const installation = await getInstallation(ctx, installationId);
-    const installationToken = await mintInstallationToken(ctx, installationId, installation.account.type);
+    const installationToken = await mintInstallationToken(ctx, installation);
 
     const repositories = await collectRepositories(
       ctx,
       installationToken,
+      installation,
       input.externalAccountId,
       parseCursor(input.cursor, ctx),
     );
@@ -468,12 +501,12 @@ export const githubAdapter: ProviderAdapter = {
 
     const metrics: AdapterMetric[] = [...billing.metrics, ...repositories.metrics];
     const events: ActivityEvent[] = repositories.events;
-    const cursor: Cursor = { v: 1, repos: repositories.repos };
+    const partialErrors = [...billing.partialErrors, ...repositories.partialErrors];
     return {
       metrics,
       events,
-      cursor: JSON.stringify(cursor),
-      ...(billing.partialErrors.length === 0 ? {} : { partialErrors: billing.partialErrors }),
+      cursor: JSON.stringify(repositories.cursor),
+      ...(partialErrors.length === 0 ? {} : { partialErrors }),
     };
   },
 };

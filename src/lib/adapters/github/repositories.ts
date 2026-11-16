@@ -1,28 +1,36 @@
 import { z } from "zod";
+import type { PermissionMissingError } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import type { OAuthContext, Secret } from "../types";
-import { getJson } from "./api";
+import { activityEventTypes, activityPermissionError, activityReads, collectActivity, httpsUrl, type ActivityRepository } from "./activity";
+import { activityPermissions, getJson, getRepositoryJson, grantsRead, type ActivityPermission } from "./api";
 import {
   ForksSchema,
   InstallationRepositoriesSchema,
   StargazersCountSchema,
   type Fork,
+  type Installation,
   type Repository,
 } from "./schemas";
 
 /**
- * Stars and forks of the installation's repositories, per docs/providers/github.md
+ * Stars, forks, and activity of the installation's repositories, per docs/providers/github.md
  * ("Which repositories", "Star count", "Forks", "Timeline events").
  *
- * Bounded: one page of 100 repositories per sync and one page of forks per repository. State
- * between polls (daily star baseline, highest milestone fired, newest fork seen) lives in the
- * cursor, so a re-poll with the same cursor and responses yields the same dedupe keys.
+ * Bounded: one page of 100 repositories per sync, one page of forks per repository, and one page
+ * of each activity list (./activity.ts). State between polls (daily star baseline, highest
+ * milestone fired, newest fork seen, when activity was last read) lives in the cursor, so a
+ * re-poll with the same cursor and responses yields the same dedupe keys.
  */
 
 export const MAX_REPOSITORIES = 100;
 const FORKS_PAGE_SIZE = 100;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Activity on the first sync, or after a long gap, is read back a week at most: the backfill
+// window docs/adapters.md asks for. Later syncs read back to the previous sync less one poll
+// interval, so an item GitHub listed late is still caught; the dedupe key absorbs the overlap.
+const ACTIVITY_BACKFILL_MS = 7 * DAY_MS;
 /** How often GitHub is polled: the adapter's `pollIntervalSeconds`. */
 export const POLL_INTERVAL_SECONDS = 3600;
 // A repository's baseline is its count at the first sync of a day, and the first sync of the next
@@ -39,6 +47,7 @@ const DAY_CLOSE_MAX_DELAY_MS = 2 * POLL_INTERVAL_SECONDS * 1000;
 export const eventTypeIds = {
   starsDaily: "github.stars.daily",
   starsMilestone: "github.stars.milestone",
+  starsNew: "github.stars.new",
   forksNew: "github.forks.new",
 } as const;
 
@@ -70,12 +79,22 @@ export const eventTypes: readonly EventType[] = [
     emoji: "🌟",
   },
   {
+    // Webhook only (#62): GitHub sends `star` with the time and the stargazer, and the stargazer
+    // list that could backfill it is restricted and personal (docs/providers/github.md).
+    id: eventTypeIds.starsNew,
+    label: "Repository starred",
+    description: "Someone starred a repository, sent by GitHub as it happens. Who starred it is not collected.",
+    shownByDefault: true,
+    emoji: "⭐",
+  },
+  {
     id: eventTypeIds.forksNew,
     label: "New fork",
     description: "Someone forked a repository. Who forked it is not collected.",
     shownByDefault: true,
     emoji: "🍴",
   },
+  ...activityEventTypes,
 ];
 
 const RepoStateSchema = z.object({
@@ -93,6 +112,8 @@ type RepoState = z.infer<typeof RepoStateSchema>;
 export const CursorSchema = z.object({
   v: z.literal(1),
   repos: z.record(z.string(), RepoStateSchema),
+  // When the previous sync read activity (./activity.ts). Absent before #62 and on a first sync.
+  activityReadAt: z.iso.datetime({ offset: true }).optional(),
 });
 export type Cursor = z.infer<typeof CursorSchema>;
 
@@ -113,8 +134,35 @@ function highestMilestone(count: number): number {
 export type RepositoriesResult = {
   metrics: AdapterMetric[];
   events: ActivityEvent[];
-  repos: Cursor["repos"];
+  cursor: Cursor;
+  // An activity list the installation has not been granted, or that GitHub refused.
+  partialErrors: PermissionMissingError[];
 };
+
+/**
+ * One star, from a `star` delivery (./webhooks.ts). Dated and deduplicated by `starred_at`, so a
+ * redelivery stores it once; the stargazer is never read.
+ */
+export function newStarEvent(repo: ActivityRepository, starredAt: Date, externalAccountId: string): ActivityEvent {
+  return {
+    typeId: eventTypeIds.starsNew,
+    occurredAt: starredAt,
+    severity: "info",
+    title: `New star on ${repo.full_name}`,
+    externalAccountId,
+    dedupeKey: `${eventTypeIds.starsNew}:${repo.id}:${starredAt.toISOString()}`,
+    ...httpsUrl(repo.html_url),
+  };
+}
+
+/** Where this sync's activity reads start: see ACTIVITY_BACKFILL_MS. */
+export function activitySince(previousReadAt: string | undefined, now: Date): Date {
+  const backfill = now.getTime() - ACTIVITY_BACKFILL_MS;
+  if (previousReadAt === undefined) return new Date(backfill);
+  const overlapped = Date.parse(previousReadAt) - POLL_INTERVAL_SECONDS * 1000;
+  // A read time from the future means the clock moved back: read the last poll interval again.
+  return new Date(Math.max(backfill, Math.min(overlapped, now.getTime() - POLL_INTERVAL_SECONDS * 1000)));
+}
 
 type RepoContext = Readonly<{
   repo: Repository;
@@ -234,6 +282,7 @@ function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): 
 export async function collectRepositories(
   ctx: OAuthContext,
   installationToken: Secret,
+  installation: Installation,
   externalAccountId: string,
   previous: Cursor | undefined,
 ): Promise<RepositoriesResult> {
@@ -256,11 +305,17 @@ export async function collectRepositories(
   // Yesterday's new stars across the repositories whose baseline from yesterday this sync closed
   // soon after midnight; undefined when none did (nothing to report, so no reading is written).
   let starsGainedYesterday: number | undefined;
+  const since = activitySince(previous?.activityReadAt, now);
+  const granted = new Set<ActivityPermission>(activityPermissions.filter((permission) => grantsRead(installation, permission)));
+  // One partial error per permission, however many repositories it was missing on.
+  const partialErrors = new Map<ActivityPermission, PermissionMissingError>();
+  for (const read of Object.values(activityReads)) {
+    if (!granted.has(read.permission)) partialErrors.set(read.permission, activityPermissionError(read));
+  }
 
   for (const repo of page.repositories.slice(0, MAX_REPOSITORIES)) {
-    const repoPath = `/repos/${encodeURIComponent(repo.owner.login)}/${encodeURIComponent(repo.name)}`;
-    const { count } = await getJson(ctx, `${repoPath}/stargazers/count`, installationToken, StargazersCountSchema);
-    const forks = await getJson(ctx, `${repoPath}/forks`, installationToken, ForksSchema, {
+    const { count } = await getRepositoryJson(ctx, repo, "/stargazers/count", installationToken, StargazersCountSchema);
+    const forks = await getRepositoryJson(ctx, repo, "/forks", installationToken, ForksSchema, {
       sort: "newest",
       per_page: String(FORKS_PAGE_SIZE),
     });
@@ -274,7 +329,9 @@ export async function collectRepositories(
     };
     const stars = starEvents(repoContext);
     const forked = forkEvents(repoContext);
-    events.push(...stars.events, ...forked.events);
+    const activity = await collectActivity(ctx, installationToken, repo, since, granted, externalAccountId);
+    events.push(...stars.events, ...forked.events, ...activity.events);
+    for (const [permission, error] of activity.refused) if (!partialErrors.has(permission)) partialErrors.set(permission, error);
     repos[String(repo.id)] = { ...stars.state, ...forked.state };
     totalStars += count;
     if (stars.yesterdayGain !== undefined) starsGainedYesterday = (starsGainedYesterday ?? 0) + stars.yesterdayGain;
@@ -319,5 +376,10 @@ export async function collectRepositories(
     });
   }
 
-  return { metrics, events, repos };
+  return {
+    metrics,
+    events,
+    cursor: { v: 1, repos, activityReadAt: now.toISOString() },
+    partialErrors: [...partialErrors.values()],
+  };
 }

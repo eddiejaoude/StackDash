@@ -9,7 +9,10 @@
   "target_type": "Organization",
   "permissions": {
     "metadata": "read",
-    "organization_administration": "read"
+    "organization_administration": "read",
+    "pull_requests": "read",
+    "issues": "read",
+    "contents": "read"
   },
   "suspended_at": null
 }

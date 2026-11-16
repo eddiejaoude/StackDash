@@ -1,0 +1,8 @@
+{
+  "action": "revoked",
+  "sender": {
+    "login": "example-user",
+    "id": 9000002,
+    "type": "User"
+  }
+}
