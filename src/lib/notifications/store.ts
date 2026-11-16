@@ -4,6 +4,7 @@ import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { loadSnapshots } from "@/lib/alerts/run";
 import { severityFor } from "@/lib/alerts/evaluate";
 import { snapshotWindowStart } from "@/lib/dashboard/aggregate";
+import { markerTypeIds } from "@/lib/dashboard/markers";
 import {
   listDeliveryDestinations,
   loadDestinationSecret,
@@ -43,10 +44,13 @@ const DAILY_COUNTS_LIMIT = 1000;
 // Timeline highlights in the digest, by event type: what each provider calls a deployment, a
 // signup, a star, and a payment (src/lib/adapters/*/events). PostgREST `like` patterns, where `*`
 // is the wildcard: https://docs.postgrest.org/en/stable/references/api/tables_views.html#operators
+// Star events are the dashboard's star markers, by exact id: the daily net and the milestone. A
+// `github.stars.new` event is one star, so counting it beside the daily event would count the same
+// stars twice and say "star events" about stars (#62).
 const HIGHLIGHT_PATTERNS = {
   deploys: ["*.deploy.succeeded", "*.deployment.succeeded"],
   signups: ["*.signup"],
-  stars: ["github.stars.*"],
+  stars: markerTypeIds(["stars"]),
   payments: ["stripe.charge.succeeded", "polar.order.paid"],
 } as const;
 

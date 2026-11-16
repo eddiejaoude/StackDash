@@ -92,3 +92,33 @@ describe("createSupabaseNotificationStore listDeliveries", () => {
     });
   });
 });
+
+describe("createSupabaseNotificationStore countHighlights", () => {
+  const START = "2026-11-09T00:00:00.000Z";
+  const END = "2026-11-16T00:00:00.000Z";
+
+  function event(index: number, typeId: string, occurredAt = "2026-11-10T12:00:00.000Z", workspaceId = WORKSPACE_ID): Row {
+    return { id: uuid(21820, index), workspace_id: workspaceId, type_id: typeId, occurred_at: occurredAt };
+  }
+
+  it("counts the star events the dashboard marks, the daily net and the milestone, and never a single star (boundary: github.stars.new)", async () => {
+    const fake = fakeSupabase({
+      activity_events: [
+        event(1, "github.stars.daily"),
+        event(2, "github.stars.milestone"),
+        // 200 single stars over the same week: the daily event already counts them.
+        ...Array.from({ length: 200 }, (_, index) => event(100 + index, "github.stars.new")),
+        event(3, "github.forks.new"),
+        event(4, "github.stars.daily", "2026-11-16T00:00:00.000Z"),
+        event(5, "github.stars.daily", "2026-11-10T12:00:00.000Z", OTHER_WORKSPACE_ID),
+      ],
+      usage_snapshots: [],
+    });
+    client.db = fake.db;
+
+    const highlights = await createSupabaseNotificationStore().countHighlights(WORKSPACE_ID, START, END);
+
+    // The week's end is exclusive, and another workspace's event is not counted.
+    expect(highlights.stars).toBe(2);
+  });
+});
