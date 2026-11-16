@@ -936,9 +936,12 @@ function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext, connecti
   const envelope = HookEnvelopeSchema.safeParse(raw);
   if (!envelope.success) return { kind: "ignored", reason: "not a GitLab project delivery" };
   const { object_kind: kind, project } = envelope.data;
-  const source = toSource(project);
   const externalAccountId = accountOf(project, connection);
-  if (externalAccountId === undefined) return { kind: "ignored", reason: "project is outside the connection's namespaces", source };
+  // No source either: a project outside the connection's namespaces (one the user only maintains, or
+  // a namespace renamed since connecting) can never put an event on the timeline, so the panel must
+  // not list it as delivering.
+  if (externalAccountId === undefined) return { kind: "ignored", reason: "project is outside the connection's namespaces" };
+  const source = toSource(project);
   const result = hookEvent(raw, kind, project, externalAccountId, ctx);
   return "event" in result
     ? { kind: "events", externalAccountId, events: [result.event], source }

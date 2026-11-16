@@ -2,13 +2,15 @@
 -- webhook_sources_enforce_limit, while a source it already has can still be updated at the limit;
 -- record_webhook_source keeps the newest arrival and the latest name; sources go with their
 -- endpoint; a per-source automatic endpoint names no provider webhook of its own, while every other
--- automatic endpoint still must; only the service role reaches the table and the function.
+-- automatic endpoint still must; save_created_webhook_source never overwrites a recorded webhook;
+-- delete_webhook_endpoint returns the webhooks to delete and removes the endpoint in one call; only
+-- the service role reaches the table and the functions.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(16);
+select plan(23);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
@@ -110,12 +112,61 @@ select is(
   'its sources go with it'
 );
 
+-- Endpoint 2 (connection 2) holds source 7, known from a delivery and without a webhook.
+select is(
+  public.save_created_webhook_source('c3500004-0000-4000-8000-000000000002', '7', 'other/project', 'hook-a'),
+  true,
+  'a source known only from its deliveries takes the webhook created on it'
+);
+select is(
+  public.save_created_webhook_source('c3500004-0000-4000-8000-000000000002', '7', 'other/project', 'hook-b'),
+  false,
+  'a second webhook for a source that holds one is not recorded (boundary: racing setups)'
+);
+select is(
+  (select provider_webhook_id from public.webhook_sources where endpoint_id = 'c3500004-0000-4000-8000-000000000002' and source_id = '7'),
+  'hook-a',
+  'the webhook recorded first is kept, so disconnect still deletes it'
+);
+select is(
+  public.save_created_webhook_source('c3500004-0000-4000-8000-000000000002', '8', 'another/project', 'hook-c'),
+  true,
+  'a new source records its webhook'
+);
+select is(
+  public.delete_webhook_endpoint('c3500002-0000-4000-8000-000000000001', 'c3500003-0000-4000-8000-000000000002'),
+  jsonb_build_object(
+    'setup_mode', 'manual',
+    'provider_webhook_id', null,
+    'sources', jsonb_build_array(
+      jsonb_build_object('source_id', '8', 'source_name', 'another/project', 'provider_webhook_id', 'hook-c'),
+      jsonb_build_object('source_id', '7', 'source_name', 'other/project', 'provider_webhook_id', 'hook-a')
+    )
+  ),
+  'deleting an endpoint returns its setup and every webhook to delete, by name'
+);
+select is(
+  (select count(*)::int from public.webhook_sources where endpoint_id = 'c3500004-0000-4000-8000-000000000002')
+    + (select count(*)::int from public.webhook_endpoints where id = 'c3500004-0000-4000-8000-000000000002'),
+  0,
+  'the endpoint and its sources are gone in the same call'
+);
+select is(
+  public.delete_webhook_endpoint('c3500002-0000-4000-8000-000000000001', 'c3500003-0000-4000-8000-000000000002'),
+  null,
+  'a connection without an endpoint returns null (boundary: none)'
+);
+
 select ok(
   not has_table_privilege('authenticated', 'public.webhook_sources', 'select')
     and not has_table_privilege('anon', 'public.webhook_sources', 'select')
     and not has_function_privilege('authenticated', 'public.record_webhook_source(uuid, text, text, timestamptz)', 'execute')
-    and not has_function_privilege('anon', 'public.record_webhook_source(uuid, text, text, timestamptz)', 'execute'),
-  'neither anon nor authenticated can read sources or record one'
+    and not has_function_privilege('anon', 'public.record_webhook_source(uuid, text, text, timestamptz)', 'execute')
+    and not has_function_privilege('authenticated', 'public.save_created_webhook_source(uuid, text, text, text)', 'execute')
+    and not has_function_privilege('anon', 'public.save_created_webhook_source(uuid, text, text, text)', 'execute')
+    and not has_function_privilege('authenticated', 'public.delete_webhook_endpoint(uuid, uuid)', 'execute')
+    and not has_function_privilege('anon', 'public.delete_webhook_endpoint(uuid, uuid)', 'execute'),
+  'neither anon nor authenticated can read sources or call the functions'
 );
 
 select * from finish();

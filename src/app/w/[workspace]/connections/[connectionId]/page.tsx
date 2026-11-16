@@ -151,6 +151,7 @@ async function ConnectionContent({
                             id: source.sourceId,
                             name: source.name,
                             addedByStackDash: source.providerWebhookId !== null,
+                            missingWebhook: webhook.setupMode === "automatic" && source.providerWebhookId === null,
                             lastDelivery: source.lastDeliveryAt === null ? null : deliveryTime(source.lastDeliveryAt),
                           })),
                         },

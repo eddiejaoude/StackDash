@@ -730,9 +730,9 @@ describe("webhooks", () => {
       ["a project in a namespace the connection does not include", { ...webhookPipeline, project: { ...webhookPipeline.project, path_with_namespace: "other/app" } }, connection],
       ["a delivery with no connection to match (boundary: app-level URL)", webhookPipeline, null],
       ["a connection that includes no account (boundary: empty)", webhookPipeline, { accounts: [] }],
-    ] as const)("ignores %s, still naming its source", (_name, body, accounts) => {
+    ] as const)("ignores %s, without naming a source the panel would list as delivering", (_name, body, accounts) => {
       const { outcome } = parse(body, accounts);
-      expect(outcome).toMatchObject({ kind: "ignored", reason: "project is outside the connection's namespaces", source: { id: "9" } });
+      expect(outcome).toEqual({ kind: "ignored", reason: "project is outside the connection's namespaces" });
     });
 
     it.each([

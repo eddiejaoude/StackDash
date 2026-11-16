@@ -116,7 +116,17 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  */
 function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId, profile: SimulatedProfile): WebhookDescriptor {
   if (real.registration.kind === "app") return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
-  return { ...real, registration: { kind: "connection", setup: simulatedConnectionSetup(provider, real.registration.setup, profile.webhookSources) } };
+  const { webhookSources } = profile;
+  // Only the accounts of the grant the credential holds: a simulated reconnect mints a new seed, and
+  // `sync` refuses the account of the grant it replaced, so that account has no projects either.
+  const sources =
+    webhookSources === undefined
+      ? undefined
+      : (credential: OAuthCredential, accountIds: readonly string[]) => {
+          const granted = new Set(profile.accounts(seedOf(credential, provider)).map((account) => account.externalId));
+          return accountIds.filter((accountId) => granted.has(accountId)).flatMap((accountId) => webhookSources(accountId));
+        };
+  return { ...real, registration: { kind: "connection", setup: simulatedConnectionSetup(provider, real.registration.setup, sources) } };
 }
 
 /**

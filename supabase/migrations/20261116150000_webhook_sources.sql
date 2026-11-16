@@ -3,10 +3,12 @@
 -- resource, all pointing at the connection's one endpoint. Expand only: the new column defaults,
 -- and the new table is read and written only by code that knows it.
 --
--- 1. webhook_sources: the resources ("sources") of an endpoint. A row is either a webhook StackDash
---    created there by automatic setup (provider_webhook_id, deleted at the provider on disconnect)
---    or a resource a delivery came from (last_delivery_at, for the setup panel's list of which
---    projects have sent one), or both. Service role only, like webhook_endpoints.
+-- 1. webhook_sources: the resources ("sources") of an endpoint. A row is a webhook StackDash
+--    created there by automatic setup (provider_webhook_id, deleted at the provider on disconnect),
+--    a source automatic setup could not give one yet (no provider_webhook_id, tried again after the
+--    next sync), or a resource a delivery came from (last_delivery_at, for the setup panel's list
+--    of which projects have sent one), or several of these. Service role only, like
+--    webhook_endpoints.
 -- 2. webhook_sources_enforce_limit: at most 100 sources per endpoint, so a stream of deliveries
 --    naming new resources cannot grow the table without bound. Automatic setup creates at most
 --    WEBHOOK_SOURCES_PER_ENDPOINT (src/lib/connections/webhook-setup.ts), the same number.
@@ -14,6 +16,12 @@
 --    in provider_webhook_id; its webhook ids are in webhook_sources instead. The check that an
 --    automatic endpoint names its provider webhook now applies to the others only.
 -- 4. record_webhook_source: a delivery's source and when it arrived, newest time kept.
+-- 5. save_created_webhook_source: records the webhook automatic setup created on a source only
+--    where none is recorded, so two setups racing for one source never overwrite the id of a
+--    webhook that would then be left at the provider with nothing to delete it.
+-- 6. delete_webhook_endpoint: reads an endpoint's setup and its sources' webhooks and deletes the
+--    endpoint (its sources by cascade) in one transaction, so a failure cannot lose the record of
+--    webhooks still at the provider.
 
 -- ── webhook_sources (service role only) ────────────────────────────────────────
 
@@ -114,3 +122,92 @@ $$;
 
 revoke execute on function public.record_webhook_source(uuid, text, text, timestamptz) from public, anon, authenticated;
 grant execute on function public.record_webhook_source(uuid, text, text, timestamptz) to service_role;
+
+-- ── save_created_webhook_source ─────────────────────────────────────────────────
+-- Returns true when the webhook was recorded, false when the source already holds one: a second
+-- setup created a duplicate at the provider, which the caller deletes again. A known source without
+-- a webhook (from a delivery, or a failed earlier attempt) takes it. Raises program_limit_exceeded
+-- for a new source past the endpoint's limit (webhook_sources_enforce_limit).
+
+create function public.save_created_webhook_source(
+  p_endpoint_id uuid,
+  p_source_id text,
+  p_source_name text,
+  p_provider_webhook_id text
+)
+  returns boolean
+  language plpgsql
+  volatile
+  security definer
+  set search_path = ''
+as $$
+declare
+  v_written boolean;
+begin
+  if p_endpoint_id is null or p_provider_webhook_id is null then
+    raise exception 'p_endpoint_id and p_provider_webhook_id are required' using errcode = 'invalid_parameter_value';
+  end if;
+
+  insert into public.webhook_sources (endpoint_id, source_id, source_name, provider_webhook_id)
+  values (p_endpoint_id, p_source_id, p_source_name, p_provider_webhook_id)
+  on conflict (endpoint_id, source_id) do update
+    set provider_webhook_id = excluded.provider_webhook_id,
+        source_name = excluded.source_name
+    where public.webhook_sources.provider_webhook_id is null
+  returning true into v_written;
+  return coalesce(v_written, false);
+end;
+$$;
+
+revoke execute on function public.save_created_webhook_source(uuid, text, text, text) from public, anon, authenticated;
+grant execute on function public.save_created_webhook_source(uuid, text, text, text) to service_role;
+
+-- ── delete_webhook_endpoint ─────────────────────────────────────────────────────
+-- Deletes the connection's endpoint and returns what it was, or null when there was none:
+-- { setup_mode, provider_webhook_id, sources: [{ source_id, source_name, provider_webhook_id }] },
+-- the sources being those holding a webhook StackDash created. The endpoint row is locked first,
+-- so a source insert racing the delete (webhook_sources_enforce_limit locks the same row) either
+-- lands before the read or fails on the foreign key once the endpoint is gone.
+
+create function public.delete_webhook_endpoint(p_workspace_id uuid, p_connection_id uuid)
+  returns jsonb
+  language plpgsql
+  volatile
+  security definer
+  set search_path = ''
+as $$
+declare
+  v_endpoint public.webhook_endpoints%rowtype;
+  v_sources jsonb;
+begin
+  select * into v_endpoint
+  from public.webhook_endpoints e
+  where e.workspace_id = p_workspace_id and e.connection_id = p_connection_id
+  for update;
+  if not found then
+    return null;
+  end if;
+
+  select coalesce(
+           jsonb_agg(
+             jsonb_build_object('source_id', s.source_id, 'source_name', s.source_name, 'provider_webhook_id', s.provider_webhook_id)
+             order by s.source_name, s.source_id
+           ),
+           '[]'::jsonb
+         )
+    into v_sources
+  from public.webhook_sources s
+  where s.endpoint_id = v_endpoint.id and s.provider_webhook_id is not null;
+
+  delete from public.webhook_endpoints e where e.id = v_endpoint.id;
+
+  return jsonb_build_object(
+    'setup_mode', v_endpoint.setup_mode,
+    'provider_webhook_id', v_endpoint.provider_webhook_id,
+    'sources', v_sources
+  );
+end;
+$$;
+
+revoke execute on function public.delete_webhook_endpoint(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.delete_webhook_endpoint(uuid, uuid) to service_role;

@@ -15,24 +15,27 @@ import {
   type RemoveWebhookInput,
   type WebhookSource,
 } from "@/lib/adapters/types";
+import { listIncludedAccounts } from "@/lib/data/connections";
 import { loadCredential } from "@/lib/data/credentials";
 import {
   countWorkspaceWebhookEndpoints,
   deleteWebhookEndpoint,
   getConnectionWebhook,
+  getWebhookEndpointSetup,
   insertWebhookEndpoint,
   listWebhookSources,
   loadWebhookEndpoint,
+  noteSourceWithoutWebhook,
   replaceWebhookEndpointSecret,
   saveCreatedWebhookSource,
   WEBHOOK_SOURCES_PER_ENDPOINT,
   WebhookEndpointExistsError,
   WebhookEndpointLimitError,
+  type SourceWebhook,
 } from "@/lib/data/webhook-endpoints";
 import { log, logError, type LogFields } from "@/lib/log/logger";
 import { messageOrigin } from "@/lib/notifications/links";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
 
@@ -49,14 +52,14 @@ import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
  * endpoint row is stored first, then each source's webhook is created and recorded in
  * `webhook_sources` as soon as it exists, so a webhook is never created without a row that deletes
  * it on disconnect. Sources the connection reads later get theirs after a sync
- * (`addMissingSourceWebhooks`).
+ * (`addMissingSourceWebhooks`). Each use of the provider credential is one function
+ * (`createSourceWebhooks`, `removeSourceWebhooks`, and the single webhook calls), so routing the
+ * credential through a refresh first (#496) changes the callers only.
  */
 
 // 32 random bytes, as the providers that take a secret from the caller accept (GitLab allows any
 // string up to 255 characters).
 const SECRET_BYTES = 32;
-// A grant reaching more accounts than this is unusual; the same bound as connect.ts.
-const MAX_ACCOUNTS = 500;
 // Webhook calls to the provider at once, for a per-source setup or removal. GitLab limits webhook
 // creation per project, not per user, but a hundred calls at once would still be a burst.
 const SOURCE_CALL_CONCURRENCY = 5;
@@ -150,16 +153,7 @@ export async function setUpWebhookByHand({ workspaceId, connectionId, adapter, s
 }
 
 async function includedAccountIds(workspaceId: string, connectionId: string): Promise<string[]> {
-  const { data, error } = await createAdminClient()
-    .from("external_accounts")
-    .select("external_id")
-    .eq("workspace_id", workspaceId)
-    .eq("connection_id", connectionId)
-    .eq("included", true)
-    .order("external_id", { ascending: true })
-    .limit(MAX_ACCOUNTS);
-  if (error) throw new Error(`External accounts lookup failed (code ${error.code}).`);
-  return data.map((row) => row.external_id);
+  return (await listIncludedAccounts(workspaceId, connectionId)).map((account) => account.externalId);
 }
 
 /**
@@ -197,35 +191,82 @@ type SourceWebhooksInput = Readonly<{
   fields: LogFields;
 }>;
 
+/** Deletes a webhook just created that nothing records, logging rather than throwing a failure. */
+async function deleteUnrecordedWebhook(
+  { automatic, credential, ctx, fields }: SourceWebhooksInput,
+  webhookId: string,
+  sourceId: string,
+): Promise<void> {
+  try {
+    await automatic.remove({ credential, webhookId, sourceId }, ctx);
+  } catch (removeError) {
+    logError("webhook_setup.cleanup_failed", removeError, { ...fields, sourceId });
+  }
+}
+
 /**
- * Creates each source's webhook and records it at once. A webhook that cannot be recorded (the
+ * Creates one source's webhook and records it at once. A webhook that cannot be recorded (the
  * endpoint reached its limit, or the database failed) is deleted at the provider again, because
- * nothing would delete it on disconnect. A source that fails is logged and skipped: the next
- * sync tries it again. Returns how many were created, and the first failure.
+ * nothing would delete it on disconnect. So is one for a source that already holds StackDash's
+ * webhook when it is recorded (a second setup of the connection raced this one): the source is
+ * covered, and only one webhook stays.
  */
-async function createSourceWebhooks(
-  sources: readonly WebhookSource[],
-  { endpointId, automatic, credential, url, secret, ctx, fields }: SourceWebhooksInput,
-): Promise<Readonly<{ created: number; failure: unknown }>> {
+async function createSourceWebhook(source: WebhookSource, input: SourceWebhooksInput): Promise<void> {
+  const { endpointId, automatic, credential, url, secret, ctx } = input;
+  const { webhookId } = await automatic.create({ credential, url, secret, sourceId: source.id }, ctx);
+  let recorded: boolean;
+  try {
+    recorded = await saveCreatedWebhookSource({ endpointId, source, providerWebhookId: webhookId });
+  } catch (saveError) {
+    await deleteUnrecordedWebhook(input, webhookId, source.id);
+    throw saveError;
+  }
+  if (!recorded) {
+    log.info("webhook_setup.source_already_covered", { ...input.fields, sourceId: source.id });
+    await deleteUnrecordedWebhook(input, webhookId, source.id);
+  }
+}
+
+/**
+ * Gives each source its webhook. A source that fails is logged and listed without a webhook, so
+ * the panel shows it as missing and the next sync tries it again. Returns how many sources now hold
+ * a webhook, and the first failure.
+ */
+async function createSourceWebhooks(sources: readonly WebhookSource[], input: SourceWebhooksInput): Promise<Readonly<{ created: number; failure: unknown }>> {
+  const { endpointId, fields } = input;
   const failures = await settleInBatches(sources, async (source) => {
     try {
-      const { webhookId } = await automatic.create({ credential, url, secret, sourceId: source.id }, ctx);
-      try {
-        await saveCreatedWebhookSource({ endpointId, source, providerWebhookId: webhookId });
-      } catch (saveError) {
-        try {
-          await automatic.remove({ credential, webhookId, sourceId: source.id }, ctx);
-        } catch (removeError) {
-          logError("webhook_setup.cleanup_failed", removeError, { ...fields, sourceId: source.id });
-        }
-        throw saveError;
-      }
+      await createSourceWebhook(source, input);
     } catch (error) {
       logError("webhook_setup.source_failed", error, { ...fields, sourceId: source.id });
+      try {
+        await noteSourceWithoutWebhook({ endpointId, source });
+      } catch (noteError) {
+        logError("webhook_setup.source_note_failed", noteError, { ...fields, sourceId: source.id });
+      }
       throw error;
     }
   });
   return { created: sources.length - failures.length, failure: failures[0] };
+}
+
+/** Deletes each source's webhook at the provider. Returns the ones still there, and the first failure. */
+async function removeSourceWebhooks(
+  automatic: PerSourceWebhookSetup,
+  credential: OAuthCredential,
+  hooks: readonly SourceWebhook[],
+  ctx: OAuthContext,
+): Promise<Readonly<{ left: SourceWebhook[]; failure: unknown }>> {
+  const left: SourceWebhook[] = [];
+  const failures = await settleInBatches(hooks, async (hook) => {
+    try {
+      await automatic.remove({ credential, webhookId: hook.providerWebhookId, sourceId: hook.sourceId }, ctx);
+    } catch (error) {
+      left.push(hook);
+      throw error;
+    }
+  });
+  return { left, failure: failures[0] };
 }
 
 type PerSourceTarget = Readonly<{
@@ -340,22 +381,26 @@ export async function setUpWebhookAutomatically({
 /**
  * After a successful sync (#428): gives each source the connection now reads a webhook, for a
  * connection whose webhooks were set up automatically per source, so a project added later gets
- * one on the next sync. A source with StackDash's webhook recorded is left alone, including one
- * the user deleted at the provider since. The URL is built on the instance's public origin, as
- * other work done from a job is (NEXT_PUBLIC_SITE_URL). Returns how many webhooks it created;
- * throws when every one it tried failed.
+ * one on the next sync, and a project whose webhook failed before is tried again. A source with
+ * StackDash's webhook recorded is left alone, including one the user deleted at the provider since.
+ * The URL is built on the instance's public origin, as other work done from a job is
+ * (NEXT_PUBLIC_SITE_URL). Returns how many webhooks it created; throws when every one it tried
+ * failed. Returns at once, with no query, for a provider without per-source webhooks.
  */
-export async function addMissingSourceWebhooks(workspaceId: string, connectionId: string): Promise<number> {
-  const webhook = await getConnectionWebhook(workspaceId, connectionId);
-  if (webhook === null || webhook.setupMode !== "automatic" || !webhook.perSource) return 0;
-  // Null when the secret cannot be read, which loadWebhookEndpoint logs: no webhook could verify.
-  const endpoint = await loadWebhookEndpoint(webhook.id);
-  if (endpoint === null) return 0;
-  const adapter = getAdapter(endpoint.provider);
+export async function addMissingSourceWebhooks(workspaceId: string, connectionId: string, provider: ProviderId): Promise<number> {
+  const adapter = getAdapter(provider);
   const automatic = connectionWebhookSetup(adapter)?.automatic;
   if (automatic?.per !== "source") return 0;
-  const fields = { provider: adapter.id, workspaceId, connectionId };
+  const setup = await getWebhookEndpointSetup(workspaceId, connectionId);
+  if (setup === null || setup.setupMode !== "automatic" || !setup.perSource) return 0;
+  // Null when the secret cannot be read, which loadWebhookEndpoint logs: no webhook could verify.
+  const endpoint = await loadWebhookEndpoint(setup.id);
+  if (endpoint === null) return 0;
+  const fields = { provider, workspaceId, connectionId };
 
+  // The stored credential as it is. Safe here only because this runs right after a sync, which has
+  // just refreshed and saved it; once #496 lands this goes through its refresh like the other
+  // provider calls.
   const [credential, accountIds, stored] = await Promise.all([
     loadCredential({ workspaceId, connectionId }),
     includedAccountIds(workspaceId, connectionId),
@@ -382,10 +427,10 @@ export async function addMissingSourceWebhooks(workspaceId: string, connectionId
   });
   if (missing.length === 0) return 0;
 
-  const url = webhookUrl(messageOrigin(), endpoint.provider, endpoint.id);
+  const url = webhookUrl(messageOrigin(), provider, endpoint.id);
   const { created, failure } = await createSourceWebhooks(missing, { endpointId: endpoint.id, automatic, credential, url, secret: endpoint.secret, ctx, fields });
   log.info("webhook_setup.sources_added", { ...fields, missing: missing.length, created });
-  if (created === 0) throw new Error(`No new ${adapter.id} webhook could be created.`, { cause: failure });
+  if (created === 0) throw new Error(`No new ${provider} webhook could be created.`, { cause: failure });
   return created;
 }
 
@@ -404,13 +449,15 @@ export type WebhookRemoval =
   | Readonly<{ kind: "removed" }>
   // Set up by hand: only the user can remove it in the provider.
   | Readonly<{ kind: "manual" }>
-  | Readonly<{ kind: "failed"; referenceId: string }>;
+  // `left`: the sources whose webhook StackDash created and could not delete (per-source setups).
+  | Readonly<{ kind: "failed"; referenceId: string; left: readonly string[] }>;
 
 /**
  * Deletes the endpoint, so a delivery still sent to it is refused like one to an unknown URL, and
  * then deletes the automatic webhook (or every per-source one) at the provider with the credential
  * StackDash still holds. Run it before revoking that credential. A provider failure is returned,
- * not thrown: the disconnect goes on and the user is told how to remove the webhook by hand.
+ * not thrown: the disconnect goes on and the user is told how to remove the webhook by hand, and
+ * for per-source webhooks, where they still are.
  */
 export async function removeConnectionWebhook({
   workspaceId,
@@ -422,6 +469,7 @@ export async function removeConnectionWebhook({
   if (removed.setupMode === "manual") return { kind: "manual" };
   // A per-source setup that never found a source created nothing to delete.
   if (removed.providerWebhookId === null && removed.sourceWebhooks.length === 0) return { kind: "none" };
+  let left = removed.sourceWebhooks;
   try {
     const adapter = getAdapter(provider);
     const automatic = connectionWebhookSetup(adapter)?.automatic;
@@ -432,18 +480,22 @@ export async function removeConnectionWebhook({
     if (client === null) throw new Error(`${provider} is no longer set up on this instance.`);
     const ctx = createOAuthContext(client);
     if (automatic.per === "source") {
-      const { sourceWebhooks } = removed;
-      const failures = await settleInBatches(sourceWebhooks, (hook) =>
-        automatic.remove({ credential, webhookId: hook.providerWebhookId, sourceId: hook.sourceId }, ctx),
-      );
-      if (failures.length > 0) throw new AggregateError(failures, `${failures.length} of ${sourceWebhooks.length} webhooks could not be deleted.`);
+      const result = await removeSourceWebhooks(automatic, credential, removed.sourceWebhooks, ctx);
+      left = result.left;
+      if (left.length > 0) {
+        throw new Error(`${left.length} of ${removed.sourceWebhooks.length} webhooks could not be deleted.`, { cause: result.failure });
+      }
     } else {
       if (removed.providerWebhookId === null) throw new Error(`${provider}'s endpoint names no webhook to delete.`);
       await automatic.remove({ credential, webhookId: removed.providerWebhookId }, ctx);
     }
     return { kind: "removed" };
   } catch (error) {
-    return { kind: "failed", referenceId: logError("webhook_setup.remove_failed", error, { provider, workspaceId, connectionId }) };
+    return {
+      kind: "failed",
+      referenceId: logError("webhook_setup.remove_failed", error, { provider, workspaceId, connectionId }),
+      left: left.map((hook) => hook.name),
+    };
   }
 }
 
@@ -469,6 +521,9 @@ function perSource(provider: ProviderId): boolean {
   }
 }
 
+// The sources a failed disconnect names before it says how many more there are.
+const LEFT_NAMED = 3;
+
 /** One or two sentences for the disconnect message, or null when there was no webhook. */
 export function webhookRemovalMessage(provider: ProviderId, removal: WebhookRemoval): string | null {
   const name = PROVIDER_NAMES[provider];
@@ -480,7 +535,12 @@ export function webhookRemovalMessage(provider: ProviderId, removal: WebhookRemo
       return `StackDash deleted ${its} in ${name}.`;
     case "manual":
       return `Remove the webhook you added in ${name}: ${webhookRemovalSteps(provider)}`;
-    case "failed":
-      return `StackDash could not delete ${its} in ${name} (reference ${removal.referenceId}). ${webhookRemovalSteps(provider)}`;
+    case "failed": {
+      const named = removal.left.slice(0, LEFT_NAMED).join(", ");
+      const more = removal.left.length - LEFT_NAMED;
+      const where =
+        removal.left.length === 0 ? "" : ` They are still in ${named}${more > 0 ? ` and ${more} more` : ""}.`;
+      return `StackDash could not delete ${its} in ${name} (reference ${removal.referenceId}).${where} ${webhookRemovalSteps(provider)}`;
+    }
   }
 }

@@ -974,6 +974,9 @@ isOneToOne: false
 "current_user_workspace_ids":
 { Args: { "p_min_role": Database["public"]['Enums']["workspace_role"] }; Returns: string[]
                            },
+"delete_webhook_endpoint":
+{ Args: { "p_connection_id": string,"p_workspace_id": string }; Returns: Json
+                           },
 "disable_project_page":
 { Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
@@ -1108,6 +1111,9 @@ isOneToOne: false
                            },
 "require_workspace_handle_admin":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"save_created_webhook_source":
+{ Args: { "p_endpoint_id": string,"p_provider_webhook_id": string,"p_source_id": string,"p_source_name": string }; Returns: boolean
                            },
 "save_project_page":
 { Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string

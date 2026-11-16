@@ -258,7 +258,7 @@ ownerTest.describe("webhook setup panel", () => {
       ).toBeVisible();
       await expect(
         page.getByText(
-          "StackDash added a webhook to each GitLab project it reads. New events reach the timeline within a minute of GitLab sending them.",
+          "StackDash added a webhook to the GitLab projects it reads. Any it could not reach are listed below and tried again after the next sync. New events reach the timeline within a minute of GitLab sending them.",
         ),
       ).toBeVisible();
       await expect(
@@ -266,17 +266,15 @@ ownerTest.describe("webhook setup panel", () => {
           "Set up automatically. StackDash added a webhook to each GitLab project it reads, adds one to each project it starts reading on a later sync, and deletes them when you disconnect.",
         ),
       ).toBeVisible();
-      // One webhook per project of the simulated group, none of which has sent a delivery yet. The
-      // simulator mints a new seed for each grant, so the consent's reconnect adds a second
-      // `example-group` account beside the first, each with its own three projects.
+      // One webhook per project of the simulated group, each listed once, none of which has sent a
+      // delivery yet. The consent's reconnect mints a new grant, and only its account's projects
+      // get a webhook.
       const projects = panel(page).getByRole("list", { name: "Projects" }).getByRole("listitem");
-      await expect(projects.first()).toBeVisible();
-      const listed = await projects.count();
-      expect(listed % 3).toBe(0);
+      await expect(projects).toHaveCount(3);
       for (const name of ["api", "docs", "web"]) {
-        const rows = projects.filter({ hasText: `${SIMULATED_GITLAB_GROUP}/${name}` });
-        await expect(rows).toHaveCount(listed / 3);
-        for (const row of await rows.all()) await expect(row).toContainText("Webhook added by StackDash. No delivery yet.");
+        const row = projects.filter({ hasText: `${SIMULATED_GITLAB_GROUP}/${name}` });
+        await expect(row).toHaveCount(1);
+        await expect(row).toContainText("Webhook added by StackDash. No delivery yet.");
       }
       const held = panel(page).getByRole("heading", {
         name: "Write access StackDash holds in GitLab",
@@ -290,7 +288,7 @@ ownerTest.describe("webhook setup panel", () => {
         SIMULATED_WEBHOOK_WRITE_SCOPE,
       ]);
       expect(await endpointCount(connection)).toBe(1);
-      expect(await sourceWebhookCount(connection)).toBe(listed);
+      expect(await sourceWebhookCount(connection)).toBe(3);
       await expectAccessiblePanel(page);
       await evidence(panel(page), "panel-automatic-write-access-held");
 

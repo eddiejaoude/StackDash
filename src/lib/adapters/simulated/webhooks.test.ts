@@ -5,6 +5,7 @@ import { checkAdapterDeclaration } from "@/lib/adapters/harness";
 import { Secret, type OAuthContext, type WebhookDescriptor } from "@/lib/adapters/types";
 
 import { simulatedAdapters } from "./index";
+import { SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
 import {
   SIMULATED_DELIVERY_HEADER,
   SIMULATED_SIGNATURE_HEADER,
@@ -87,7 +88,8 @@ describe("simulated connection webhooks (#426)", () => {
     const twin = simulatedAdapters.gitlab.webhooks;
     const setup = setupOf(twin);
     const live = setupOf(gitlabAdapter.webhooks);
-    const credential = { accessToken: new Secret("simulated-at"), scopes: [], tokenType: "bearer" };
+    // A grant minted with seed 12345678, whose one account is the group 305419896 (0x12345678).
+    const credential = { accessToken: new Secret("simulated-at"), scopes: [SIMULATED_SCOPE], tokenType: "bearer", metadata: simulatedCredentialMetadata("12345678") };
 
     it("keeps the live steps, secret source, verify, and parse, so a delivery runs through the real code", () => {
       expect(setup.manualSteps).toEqual(live.manualSteps);
@@ -100,13 +102,15 @@ describe("simulated connection webhooks (#426)", () => {
       expect(twin?.verify(request, SECRET, NOW)).toEqual({ ok: true, deliveryId: "delivery-1" });
     });
 
-    it("lists the profile's projects of each account and mints a webhook per project without calling GitLab", async () => {
+    it("lists the profile's projects of the grant's account and mints a webhook per project without calling GitLab", async () => {
       const automatic = setup.automatic;
       if (automatic?.per !== "source") throw new Error("expected one webhook per project");
       const accountId = "305419896";
       const sources = await automatic.listSources({ credential, externalAccountIds: [accountId] }, oauthCtx);
       expect(sources.map((source) => source.name)).toEqual(["example-group/web", "example-group/api", "example-group/docs"]);
       expect(await automatic.listSources({ credential, externalAccountIds: [] }, oauthCtx)).toEqual([]);
+      // The account of an earlier grant, which a reconnect replaced, has no projects (boundary).
+      expect(await automatic.listSources({ credential, externalAccountIds: [accountId, "1"] }, oauthCtx)).toEqual(sources);
       const [first, second] = await Promise.all(
         sources.slice(0, 2).map((source) => automatic.create({ credential, url: "http://localhost/hook", secret: SECRET, sourceId: source.id }, oauthCtx)),
       );

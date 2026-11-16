@@ -131,7 +131,7 @@ describe("webhook setup copy", () => {
       "Set up automatically. StackDash added a webhook to each GitLab project it reads, adds one to each project it starts reading on a later sync, and deletes them when you disconnect.",
     );
     expect(webhookSetupResultCopy("automatic", "GitLab", gitlab).body).toBe(
-      "StackDash added a webhook to each GitLab project it reads. New events reach the timeline within a minute of GitLab sending them.",
+      "StackDash added a webhook to the GitLab projects it reads. Any it could not reach are listed below and tried again after the next sync. New events reach the timeline within a minute of GitLab sending them.",
     );
     expect(switchToManualCopy("GitLab", gitlab)).toBe(
       "To set up the webhook by hand instead, disconnect GitLab, reconnect it, and choose setup by hand. Disconnecting deletes the webhooks and ends StackDash's write access; it cannot be given up while the webhooks stay.",

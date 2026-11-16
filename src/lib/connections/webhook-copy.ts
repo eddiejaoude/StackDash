@@ -127,7 +127,11 @@ export function webhookSetupResultCopy(
   switch (result) {
     case "automatic": {
       const noun = perSourceNoun(setup);
-      const added = noun === null ? `StackDash added a webhook in ${provider}.` : `StackDash added a webhook to each ${provider} ${noun.one} it reads.`;
+      // Per source, some may fail: the panel lists them as having no webhook yet, so this says so.
+      const added =
+        noun === null
+          ? `StackDash added a webhook in ${provider}.`
+          : `StackDash added a webhook to the ${provider} ${noun.many} it reads. Any it could not reach are listed below and tried again after the next sync.`;
       return {
         tone: "success",
         title: "Webhook set up",

@@ -31,7 +31,8 @@ type DeliveryTime = Readonly<{ iso: string; text: string }>;
 export type WebhookPanelSources = Readonly<{
   heading: string;
   empty: string;
-  items: readonly Readonly<{ id: string; name: string; addedByStackDash: boolean; lastDelivery: DeliveryTime | null }>[];
+  // `missingWebhook`: automatic setup could not add this one's webhook yet; the next sync tries again.
+  items: readonly Readonly<{ id: string; name: string; addedByStackDash: boolean; missingWebhook: boolean; lastDelivery: DeliveryTime | null }>[];
 }>;
 
 export type WebhookPanelEndpoint = Readonly<{
@@ -478,6 +479,7 @@ export function WebhookSourceList({ sources }: { sources: WebhookPanelSources })
               <span className="font-mono text-xs break-all">{item.name}</span>
               <span className="leading-6 text-muted">
                 {item.addedByStackDash ? "Webhook added by StackDash. " : null}
+                {item.missingWebhook ? "No webhook yet: StackDash tries again after the next sync. " : null}
                 {item.lastDelivery === null ? (
                   "No delivery yet."
                 ) : (

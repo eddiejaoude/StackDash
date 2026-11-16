@@ -5,6 +5,7 @@ import {
   type ConnectionWebhookSetup,
   type FullAccessPermission,
   type LiveProviderId,
+  type OAuthCredential,
   type WebhookDescriptor,
   type WebhookSource,
 } from "@/lib/adapters/types";
@@ -59,12 +60,12 @@ const removeNothing = async () => {};
 /**
  * A twin's copy of the live adapter's per-connection setup: automatic setup mints ids in this
  * process, asks for the simulated write scope where the live one asks for write access, and for a
- * per-source setup lists the profile's `webhookSources` of each included account.
+ * per-source setup lists the sources `sources` gives for the credential and the included accounts.
  */
 export function simulatedConnectionSetup(
   provider: LiveProviderId,
   live: ConnectionWebhookSetup,
-  sources: ((accountId: string) => readonly WebhookSource[]) | undefined,
+  sources: ((credential: OAuthCredential, accountIds: readonly string[]) => readonly WebhookSource[]) | undefined,
 ): ConnectionWebhookSetup {
   const extraPermissions = (live.automatic?.extraPermissions.length ?? 0) > 0 ? [simulatedWritePermission(provider)] : [];
   if (live.secretSource === "provider") {
@@ -81,7 +82,7 @@ export function simulatedConnectionSetup(
     automatic: {
       per: "source",
       extraPermissions,
-      listSources: async ({ externalAccountIds }) => externalAccountIds.flatMap((accountId) => sources?.(accountId) ?? []),
+      listSources: async ({ credential, externalAccountIds }) => [...(sources?.(credential, externalAccountIds) ?? [])],
       create: async () => ({ webhookId: newWebhookId() }),
       remove: removeNothing,
     },

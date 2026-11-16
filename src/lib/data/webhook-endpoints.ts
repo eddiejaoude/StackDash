@@ -284,21 +284,38 @@ export async function listWebhookSources(endpointId: string): Promise<StoredWebh
 
 /**
  * Records the webhook automatic setup created on a source, keeping any delivery already seen from
- * it. Throws WebhookSourceLimitError for a new source past the endpoint's limit.
+ * it. False when the source already holds a webhook: another setup of the same connection got there
+ * first, so the caller deletes the one it just created (save_created_webhook_source). Throws
+ * WebhookSourceLimitError for a new source past the endpoint's limit.
  */
 export async function saveCreatedWebhookSource({
   endpointId,
   source,
   providerWebhookId,
-}: Readonly<{ endpointId: string; source: WebhookSource; providerWebhookId: string }>): Promise<void> {
+}: Readonly<{ endpointId: string; source: WebhookSource; providerWebhookId: string }>): Promise<boolean> {
+  const { data, error } = await createAdminClient().rpc("save_created_webhook_source", {
+    p_endpoint_id: endpointId,
+    p_source_id: source.id,
+    p_source_name: source.name,
+    p_provider_webhook_id: providerWebhookId,
+  });
+  if (error?.code === PROGRAM_LIMIT_EXCEEDED) throw new WebhookSourceLimitError("The webhook endpoint has as many sources as it may.");
+  if (error) throw new Error(`save_created_webhook_source failed (code ${error.code}).`);
+  return data;
+}
+
+/**
+ * Lists a source automatic setup could not give a webhook, so the panel shows it without one and
+ * the next sync tries it again. Keeps a row that exists. False when the source is new and the
+ * endpoint is at its limit.
+ */
+export async function noteSourceWithoutWebhook({ endpointId, source }: Readonly<{ endpointId: string; source: WebhookSource }>): Promise<boolean> {
   const { error } = await createAdminClient()
     .from("webhook_sources")
-    .upsert(
-      { endpoint_id: endpointId, source_id: source.id, source_name: source.name, provider_webhook_id: providerWebhookId },
-      { onConflict: "endpoint_id,source_id" },
-    );
-  if (error?.code === PROGRAM_LIMIT_EXCEEDED) throw new WebhookSourceLimitError("The webhook endpoint has as many sources as it may.");
-  if (error) throw new Error(`webhook_sources upsert failed (code ${error.code}).`);
+    .upsert({ endpoint_id: endpointId, source_id: source.id, source_name: source.name }, { onConflict: "endpoint_id,source_id", ignoreDuplicates: true });
+  if (error?.code === PROGRAM_LIMIT_EXCEEDED) return false;
+  if (error) throw new Error(`webhook_sources insert failed (code ${error.code}).`);
+  return true;
 }
 
 /**
@@ -321,52 +338,62 @@ export async function recordWebhookSource({
   return true;
 }
 
+/** A webhook StackDash created on a source, as disconnect deletes it. */
+export type SourceWebhook = Readonly<{ sourceId: string; name: string; providerWebhookId: string }>;
+
 export type RemovedWebhookEndpoint = Readonly<{
   setupMode: WebhookSetupMode;
   providerWebhookId: string | null;
   // The webhooks StackDash created per source, to delete at the provider.
-  sourceWebhooks: readonly Readonly<{ sourceId: string; providerWebhookId: string }>[];
+  sourceWebhooks: readonly SourceWebhook[];
 }>;
+
+const RemovedEndpointSchema = z
+  .strictObject({
+    setup_mode: z.enum(["manual", "automatic"]),
+    provider_webhook_id: z.string().min(1).nullable(),
+    sources: z.array(z.strictObject({ source_id: z.string().min(1), source_name: z.string().min(1), provider_webhook_id: z.string().min(1) })),
+  })
+  .nullable();
 
 /**
  * Deletes the connection's endpoint, so its URL answers like an unknown one and any delivery still
- * sent to it is dropped. Returns what was deleted, or null when there was none. The sources go
- * first, returning the webhooks StackDash created on them, because deleting the endpoint would
- * take them by cascade without saying which.
+ * sent to it is dropped. Returns what was deleted, with the webhooks StackDash created on each
+ * source, or null when there was none. One transaction (delete_webhook_endpoint): the sources go
+ * with the endpoint by cascade only once their webhooks have been read, so a failure loses nothing.
  */
 export async function deleteWebhookEndpoint(workspaceId: string, connectionId: string): Promise<RemovedWebhookEndpoint | null> {
-  const supabase = createAdminClient();
-  const { data: endpoint, error: lookupError } = await supabase
-    .from("webhook_endpoints")
-    .select("id")
-    .eq("workspace_id", workspaceId)
-    .eq("connection_id", connectionId)
-    .maybeSingle();
-  if (lookupError) throw failure("select", lookupError);
-  if (endpoint === null) return null;
-
-  const { data: sources, error: sourcesError } = await supabase
-    .from("webhook_sources")
-    .delete()
-    .eq("endpoint_id", endpoint.id)
-    .not("provider_webhook_id", "is", null)
-    .select("source_id, provider_webhook_id");
-  if (sourcesError) throw new Error(`webhook_sources delete failed (code ${sourcesError.code}).`);
-
-  const { data, error } = await supabase
-    .from("webhook_endpoints")
-    .delete()
-    .eq("workspace_id", workspaceId)
-    .eq("connection_id", connectionId)
-    .select("setup_mode, provider_webhook_id")
-    .maybeSingle();
+  const { data, error } = await createAdminClient().rpc("delete_webhook_endpoint", {
+    p_workspace_id: workspaceId,
+    p_connection_id: connectionId,
+  });
   if (error) throw failure("delete", error);
-  if (data === null) return null;
+  const parsed = RemovedEndpointSchema.safeParse(data);
+  // The shape only: issues would echo the row.
+  if (!parsed.success) throw new Error("delete_webhook_endpoint returned an unexpected shape.");
+  if (parsed.data === null) return null;
   return {
-    setupMode: data.setup_mode,
-    providerWebhookId: data.provider_webhook_id,
-    sourceWebhooks: sources.flatMap((row) =>
-      row.provider_webhook_id === null ? [] : [{ sourceId: row.source_id, providerWebhookId: row.provider_webhook_id }],
-    ),
+    setupMode: parsed.data.setup_mode,
+    providerWebhookId: parsed.data.provider_webhook_id,
+    sourceWebhooks: parsed.data.sources.map((source) => ({
+      sourceId: source.source_id,
+      name: source.source_name,
+      providerWebhookId: source.provider_webhook_id,
+    })),
   };
+}
+
+/** The connection's endpoint as automatic setup per source needs it, or null when it has none. */
+export async function getWebhookEndpointSetup(
+  workspaceId: string,
+  connectionId: string,
+): Promise<Readonly<{ id: string; setupMode: WebhookSetupMode; perSource: boolean }> | null> {
+  const { data, error } = await createAdminClient()
+    .from("webhook_endpoints")
+    .select("id, setup_mode, per_source")
+    .eq("workspace_id", workspaceId)
+    .eq("connection_id", connectionId)
+    .maybeSingle();
+  if (error) throw failure("select", error);
+  return data === null ? null : { id: data.id, setupMode: data.setup_mode, perSource: data.per_source };
 }

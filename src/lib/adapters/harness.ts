@@ -303,6 +303,12 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
       extraScopes.add(permission.scope);
     }
     if (extraScopes.size > 0) problems.push(...extraScopeRequestProblems(adapter, [...extraScopes]));
+    // One webhook per source is listed on the panel by its noun (#428): without one, the copy
+    // speaks of a single webhook and the page lists no sources.
+    const { sourceNoun } = registration.setup;
+    if (automatic?.per === "source" && (sourceNoun === undefined || blank(sourceNoun.one) || blank(sourceNoun.many))) {
+      problems.push("webhooks.registration.setup.sourceNoun must name the sources of a per-source automatic setup");
+    }
   }
 
   return problems;

@@ -17,6 +17,7 @@ import {
   type WebhookSource,
 } from "@/lib/adapters/types";
 import { derivedKey } from "@/lib/crypto/credentials";
+import { listIncludedAccounts } from "@/lib/data/connections";
 import { loadWebhookEndpoint, recordWebhookSource, type WebhookEndpoint } from "@/lib/data/webhook-endpoints";
 import { readBoundedRequestBody } from "@/lib/http/bounded-body";
 import { WEBHOOK_TICK_CLAIM_LIMIT } from "@/lib/jobs/runner";
@@ -62,7 +63,10 @@ export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
  * endpoint at this limit queues no more a minute than a tick takes, so on its own it cannot grow
  * the backlog every workspace's deliveries share while ticks apply their full claim. A busy
  * account's real burst (a monorepo deploying every project at once sends a few dozen) fits under
- * it, and anything over is answered 429, which the provider retries.
+ * it, and anything over is answered 429. What the provider does then is its own: Svix-based
+ * providers retry, while GitLab does not retry a refused delivery, counts it toward disabling the
+ * project's webhook (docs/providers/gitlab.md, "Webhooks"), and leaves the gap to polling. Every
+ * webhook of a per-source endpoint (one per GitLab project) shares this one limit.
  */
 export const WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE = WEBHOOK_TICK_CLAIM_LIMIT;
 
@@ -283,21 +287,9 @@ async function countEndpointDelivery(endpointId: string): Promise<number> {
   return data;
 }
 
-// The same bound as connect.ts: a grant reaching more accounts than this is unusual.
-const MAX_CONNECTION_ACCOUNTS = 500;
-
 /** Production `loadEndpointConnection`: the included external accounts of the endpoint's connection. */
 async function loadEndpointConnection(endpoint: WebhookEndpoint): Promise<WebhookConnection> {
-  const { data, error } = await createAdminClient()
-    .from("external_accounts")
-    .select("external_id, display_name")
-    .eq("workspace_id", endpoint.workspaceId)
-    .eq("connection_id", endpoint.connectionId)
-    .eq("included", true)
-    .order("external_id", { ascending: true })
-    .limit(MAX_CONNECTION_ACCOUNTS);
-  if (error) throw new Error(`External accounts lookup failed (code ${error.code}).`);
-  return { accounts: data.map((row) => ({ externalId: row.external_id, displayName: row.display_name })) };
+  return { accounts: await listIncludedAccounts(endpoint.workspaceId, endpoint.connectionId) };
 }
 
 /** Production wiring for both webhook routes: the adapter registry, Postgres, and the real clock. */

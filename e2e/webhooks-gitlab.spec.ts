@@ -2,7 +2,7 @@ import { randomInt, randomUUID } from "node:crypto";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
 import { pipelineDeliveryBody, pipelineIid, postGitLabDelivery, SIMULATED_GITLAB_GROUP } from "./fixtures/gitlab-webhook";
 import { anonymous } from "./fixtures/share";
 import { storedCopies, tickUntilStored } from "./fixtures/webhook-ticks";
@@ -13,7 +13,7 @@ import { storedCopies, tickUntilStored } from "./fixtures/webhook-ticks";
  * delivery carrying the panel's secret in `X-Gitlab-Token` is accepted, a repeat of its delivery id
  * is a duplicate, a missing or wrong token is refused, and the next job tick puts the pipeline on
  * the timeline. A second delivery of the same pipeline under a new id (as a poll of it would be)
- * stores nothing new, because it carries the same dedupe key.
+ * is processed and stores nothing new, because it carries the same dedupe key.
  *
  * The project path and pipeline id are new to this run, so only the delivery can have put the
  * event there: the simulated sync makes up its own pipelines. Deliveries are posted from a context
@@ -56,13 +56,26 @@ ownerTest.describe("GitLab webhooks", () => {
         expect(await refused.json()).toEqual({ error: "unauthorized" });
       }
 
-      // Stored under the key a poll of the same pipeline uses.
-      const dedupeKey = `gitlab.pipeline:${projectId}:${pipelineId}:success`;
+      // Stored under the key a poll of the same pipeline uses, with the provider prefix every stored
+      // event carries (adapterEventDedupeKey, src/lib/jobs/ingest.ts).
+      const dedupeKey = `gitlab:gitlab.pipeline:${projectId}:${pipelineId}:success`;
       await tickUntilStored(page, workspace, dedupeKey);
 
-      // The same pipeline again under a new delivery id, as a poll would see it: still one event.
-      expect((await postGitLabDelivery(gitlab, url, secret, body)).status()).toBe(202);
-      await tickUntilStored(page, workspace, dedupeKey);
+      // The same pipeline again under a new delivery id, as a poll would see it. Once its job has run
+      // (the delivery is processed), there is still one event.
+      const secondId = randomUUID();
+      expect((await postGitLabDelivery(gitlab, url, secret, body, secondId)).status()).toBe(202);
+      await expect(async () => {
+        const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
+        expect(response.status()).toBe(200);
+        const { data, error } = await adminClient()
+          .from("webhook_deliveries")
+          .select("status")
+          .eq("provider", "gitlab")
+          .eq("delivery_id", secondId);
+        if (error) throw new Error(`Reading the delivery failed (code ${error.code}).`);
+        expect(data.map((row) => row.status)).toEqual(["processed"]);
+      }).toPass({ timeout: 90_000 });
       expect(await storedCopies(workspace, dedupeKey)).toBe(1);
 
       // Searched by its project path: the simulated sync's own pipelines are in the same window, and

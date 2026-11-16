@@ -8,6 +8,7 @@ import {
   type OAuthCredential,
   type ProviderAdapter,
 } from "@/lib/adapters/types";
+import { CONNECTION_ACCOUNTS_MAX } from "@/lib/data/connections";
 import { deleteCredential, saveCredential } from "@/lib/data/credentials";
 import { enqueueSync } from "@/lib/jobs/queue";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -27,8 +28,8 @@ import { reconnectMismatch, type ReconnectMismatchCode } from "./oauth-state";
 
 type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
 
-// A grant reaching more than this is unusual; the rest are picked up by a later reconnect.
-const MAX_ACCOUNTS = 500;
+// A grant reaching more than CONNECTION_ACCOUNTS_MAX is unusual; the rest are picked up by a later
+// reconnect.
 const MAX_LABEL_NAMES = 2;
 
 export class ReconnectTargetMissingError extends Error {
@@ -79,7 +80,7 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
 
   const missingScopes = adapter.detectMissingPermissions({ scopes: credential.scopes });
   const status = missingScopes.length > 0 ? "needs_attention" : "active";
-  const accounts = (await adapter.listAccounts(credential, ctx)).slice(0, MAX_ACCOUNTS);
+  const accounts = (await adapter.listAccounts(credential, ctx)).slice(0, CONNECTION_ACCOUNTS_MAX);
   const label = authorizedAccountLabel(accounts);
   const now = ctx.now().toISOString();
 
