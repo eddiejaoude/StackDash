@@ -4,6 +4,8 @@ const audience = "solo developers running side projects and small products";
 export const site = {
   name: "StackDash",
   domain: "stackda.sh",
+  /** The origin Vercel serves as primary: the apex, `https://stackda.sh`, 308s here. Canonical and preview addresses use it. */
+  url: "https://www.stackda.sh",
   /** The brand line: the footer row of the link preview (`SiteCard`), as on `main`. */
   tagline: "The big picture of your developer stack",
   /** The promise: the hero heading and the link preview's heading. */

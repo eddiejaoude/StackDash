@@ -5,15 +5,18 @@ import { site } from "@/lib/site";
 /*
  * The placeholder's link preview (#530), ported from `main`'s src/lib/site-metadata.ts (#338).
  * `main` reads the origin from NEXT_PUBLIC_SITE_URL because self-hosters serve from their own; the
- * placeholder only ever serves stackda.sh, so the origin is fixed and nothing needs configuring.
+ * placeholder only ever serves `site.url`, so the origin is fixed and nothing needs configuring.
  */
 
 /** The page's title: the document title and the preview title. */
-export const PLACEHOLDER_TITLE = `${site.name}: coming soon`;
+const PLACEHOLDER_TITLE = `${site.name}: coming soon`;
 
-/** The 1200 by 630 preview image, src/app/opengraph-image.tsx, served at this path. */
+/**
+ * The 1200 by 630 preview image, src/app/opengraph-image.tsx. The file convention writes the
+ * `og:image` and `twitter:image` tags itself, with a cache hash, and replaces any `images` named in
+ * the metadata below, so none are named there.
+ */
 export const SITE_IMAGE = {
-  url: "/opengraph-image",
   width: 1200,
   height: 630,
   alt: `${site.name}, coming soon: ${site.headline}`,
@@ -21,7 +24,7 @@ export const SITE_IMAGE = {
 
 /** The root layout's metadata: title, description, canonical address, and the Open Graph and Twitter cards. */
 export const siteMetadata: Metadata = {
-  metadataBase: new URL(`https://${site.domain}`),
+  metadataBase: new URL(site.url),
   title: PLACEHOLDER_TITLE,
   description: site.description,
   alternates: { canonical: "/" },
@@ -31,12 +34,10 @@ export const siteMetadata: Metadata = {
     title: PLACEHOLDER_TITLE,
     description: site.description,
     url: "/",
-    images: [SITE_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
     title: PLACEHOLDER_TITLE,
     description: site.description,
-    images: [SITE_IMAGE],
   },
 };
