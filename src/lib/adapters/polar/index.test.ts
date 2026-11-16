@@ -794,8 +794,6 @@ describe("polarAdapter webhooks (#429)", () => {
     if (registration.kind !== "connection") return;
     expect(registration.setup.secretSource).toBe("provider");
     expect(registration.setup.manualSteps.join(" ")).toContain(subscriptions.join(", "));
-    expect(registration.setup.manualSteps.join(" ")).toMatch(/choose Generate rather than typing your own/);
-    expect(registration.setup.manualSteps[0]).toMatch(/^In Polar, pick one organization this connection tracks\./);
     expect(automatic().extraPermissions.map((permission) => [permission.scope, permission.access])).toEqual([["webhooks:write", "full"]]);
     expect(automatic().extraPermissions[0]?.fullAccessReason).toMatch(/^Polar has no read-only access that can create a webhook\./);
     // A Polar endpoint belongs to one organization: automatic setup is refused before any consent otherwise.

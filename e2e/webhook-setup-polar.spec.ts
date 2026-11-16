@@ -230,23 +230,25 @@ ownerTest.describe("Polar webhook setup", () => {
     }
   });
 
-  ownerTest("automatic setup refused for a connection that does not include exactly one organization says why and what to do", async ({ page }) => {
+  ownerTest("the one account needed result says why and what to do", async ({ page }) => {
     if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
     await connectSimulated(page, workspace.slug, "Polar");
-    const connection = await connectionId(page);
-    // Where the start route sends a refused automatic setup (`?webhook=<refusal>`), before any
-    // consent. The refusal itself is unit tested (src/lib/connections/webhook-setup.test.ts):
-    // Polar's simulated twin cannot reach it, because each simulated grant names a new
-    // organization (#529).
-    await page.goto(`${page.url()}?webhook=one_account_needed`);
+    await connectionId(page);
+    // The page's wording and focus for the `one_account_needed` result, the code the start route
+    // sends a refused automatic setup back with. Nothing is refused here: the refusal before the
+    // consent (panel action and start route) has no end to end test until #529, because each
+    // simulated grant names a new organization, so Polar's twin cannot carry the limit. Until then
+    // `setupRefusal` is unit tested (src/lib/connections/webhook-setup.test.ts) and its `automatic`
+    // parameter is required, so a caller cannot drop it.
+    const url = new URL(page.url());
+    url.search = "";
+    url.searchParams.set("webhook", "one_account_needed");
+    await page.goto(url.toString());
     const banner = page.getByRole("alert").filter({ hasText: "Webhook not set up" });
     await expect(banner).toContainText(
       "Polar adds a webhook to one account at a time, so automatic setup needs this connection to include exactly one account. Under Accounts on this page, include only the account you want events from, then choose automatic setup again. Or set up the webhook by hand in that account.",
     );
     await expect(banner).toBeFocused();
-    // Nothing was asked for or created, and both choices are still offered.
-    expect(await grantedScopes(connection)).toEqual([SIMULATED_SCOPE]);
-    expect(await endpointCount(connection)).toBe(0);
     await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toBeVisible();
     await expectAccessiblePanel(page);
     await evidence(banner, "polar-automatic-refused-one-organization");
