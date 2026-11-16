@@ -4,7 +4,9 @@ const audience = "solo developers running side projects and small products";
 export const site = {
   name: "StackDash",
   domain: "stackda.sh",
-  /** The promise: the hero heading. */
+  /** The brand line: the footer row of the link preview (`SiteCard`), as on `main`. */
+  tagline: "The big picture of your developer stack",
+  /** The promise: the hero heading and the link preview's heading. */
   headline: "One timeline and one alert for your whole developer stack",
   audience,
   description: `StackDash is an open-source dashboard for ${audience}, coming soon: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish.`,
