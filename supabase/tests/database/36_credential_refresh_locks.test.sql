@@ -1,12 +1,14 @@
 -- Credential refresh lock (#496): one holder per connection at a time, a lease that runs out frees
 -- the lock for the next caller, a connection outside the workspace is refused, the lock goes with
--- its connection, and only the service role reaches the table and the function.
+-- its connection, and only the service role reaches the table and the function. The release runs as
+-- the service role, filtered as releaseCredentialRefreshLock (src/lib/data/credentials.ts) filters
+-- it, so a holder whose lease ran out cannot free the next holder's lock.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(10);
+select plan(15);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
@@ -80,6 +82,52 @@ select is(
   0,
   'the lock goes with its connection'
 );
+
+-- The server's role from here: the release is a PostgREST delete by connection, workspace, and id.
+grant select on taken to service_role;
+set local role service_role;
+
+delete from public.credential_refresh_locks
+where connection_id = 'c3600003-0000-4000-8000-000000000001'
+  and workspace_id = 'c3600002-0000-4000-8000-000000000001'
+  and lock_id = (select lock_id from taken where holder = 'first');
+select is(
+  (select lock_id from public.credential_refresh_locks where connection_id = 'c3600003-0000-4000-8000-000000000001'),
+  (select lock_id from taken where holder = 'second'),
+  'a holder whose lease ran out cannot free the next holder''s lock (boundary: stale release)'
+);
+
+delete from public.credential_refresh_locks
+where connection_id = 'c3600003-0000-4000-8000-000000000001'
+  and workspace_id = 'c3600002-0000-4000-8000-000000000001'
+  and lock_id = (select lock_id from taken where holder = 'second');
+select is(
+  (select count(*)::int from public.credential_refresh_locks where connection_id = 'c3600003-0000-4000-8000-000000000001'),
+  0,
+  'the holder frees its own lock'
+);
+
+select isnt(
+  public.acquire_credential_refresh_lock('c3600002-0000-4000-8000-000000000001', 'c3600003-0000-4000-8000-000000000001', 60),
+  null,
+  'the service role takes the freed lock again'
+);
+reset role;
+
+set local role anon;
+select throws_ok(
+  $$ select public.acquire_credential_refresh_lock('c3600002-0000-4000-8000-000000000001', 'c3600003-0000-4000-8000-000000000001', 60) $$,
+  '42501',
+  null,
+  'a signed-out visitor cannot take a lock'
+);
+select throws_ok(
+  $$ select * from public.credential_refresh_locks $$,
+  '42501',
+  null,
+  'a signed-out visitor cannot read the locks'
+);
+reset role;
 
 set local role authenticated;
 select throws_ok(
