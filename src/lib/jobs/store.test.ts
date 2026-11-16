@@ -372,7 +372,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
   });
 
   it("maps every target of an app-level delivery, with when its connection was granted, without restricting it to a connection", async () => {
-    // A connection whose grant never completed has no grant time.
+    // A live connection with neither a recorded grant nor a credential has no grant time.
     const rows = [...targets(1), { ...targets(2)[1], granted_at: null }];
     const { store, requests } = storeWith({ list_webhook_targets: () => rows });
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);

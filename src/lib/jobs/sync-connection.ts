@@ -9,12 +9,13 @@ import { validateAdapterEvents } from "@/lib/adapters/events";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
 import { isSimulatedAdapter, SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
 import { isSimulatedCredential } from "@/lib/adapters/simulated/marker";
-import type {
-  OAuthClient,
-  OAuthContext,
-  OAuthCredential,
-  ProviderAdapter,
-  ProviderId,
+import {
+  credentialInstallationId,
+  type OAuthClient,
+  type OAuthContext,
+  type OAuthCredential,
+  type ProviderAdapter,
+  type ProviderId,
 } from "@/lib/adapters/types";
 import type { LogFields, Logger } from "@/lib/log/logger";
 import type { NotificationDeps } from "@/lib/notifications/dispatch";
@@ -152,8 +153,8 @@ async function syncConnection(
   // A connection made before #480 has no installation id, and the id is only in the sealed
   // credential, so SQL could not backfill it: the first sync fills it, before any provider call, so
   // even a sync that then fails leaves it set. Never rewritten here: only a grant changes it.
-  if (connection.external_installation_id === null && adapter.installationIdOf !== undefined) {
-    const installationId = adapter.installationIdOf(credential);
+  if (connection.external_installation_id === null) {
+    const installationId = credentialInstallationId(adapter, credential);
     if (installationId !== null) await deps.store.updateConnection(key, { external_installation_id: installationId });
   }
 
