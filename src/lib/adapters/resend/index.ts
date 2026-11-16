@@ -575,7 +575,12 @@ async function createWebhook({ credential, url }: CreateWebhookInput, ctx: OAuth
   try {
     await removeWebhook({ credential, webhookId: created.id }, ctx);
   } catch (error) {
-    ctx.logger.warn("resend.webhook.cleanup_failed", { provider: "resend", error: error instanceof Error ? error.name : typeof error });
+    // The webhook stays in the user's team: its id (not secret) says which one to delete by hand.
+    ctx.logger.warn("resend.webhook.cleanup_failed", {
+      provider: "resend",
+      webhookId: created.id,
+      error: error instanceof Error ? error.name : typeof error,
+    });
   }
   throw new InvalidResponseError("Resend created a webhook without a usable signing secret", { endpoint: `${endpoint.origin}${endpoint.pathname}` });
 }

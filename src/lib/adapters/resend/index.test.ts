@@ -976,14 +976,20 @@ describe("resendAdapter webhooks", () => {
       expect(calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual(["POST /webhooks", `DELETE /webhooks/${webhookCreated.id}`]);
     });
 
-    it("still fails setup when deleting a webhook without a secret fails too, and logs the error's name only (boundary)", async () => {
-      const { ctx, calls, warnings } = harness({
+    it("still fails setup when deleting a webhook without a secret fails too, and logs which webhook is left (boundary)", async () => {
+      const { ctx, calls } = harness({
         "POST /webhooks": () => json({ id: webhookCreated.id }, 201),
         [`DELETE /webhooks/${webhookCreated.id}`]: () => json({ name: "internal_server_error" }, 500),
       });
-      await expect(automatic().create(input, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      await expect(automatic().create(input, { ...ctx, logger })).rejects.toBeInstanceOf(InvalidResponseError);
       expect(calls).toHaveLength(2);
-      expect(warnings).toEqual(["resend.webhook.cleanup_failed"]);
+      // The webhook id, which is not secret, so an operator can tell the user which webhook to delete.
+      expect(logger.warn).toHaveBeenCalledExactlyOnceWith("resend.webhook.cleanup_failed", {
+        provider: "resend",
+        webhookId: webhookCreated.id,
+        error: "ProviderUnavailableError",
+      });
     });
 
     it("deletes the webhook by its id on disconnect", async () => {
