@@ -1,14 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AuthRevokedError,
   InvalidResponseError,
   PermissionMissingError,
+  ProviderUnavailableError,
   RateLimitedError,
 } from "../errors";
 import { validateAdapterEvents } from "../events";
+import { checkAdapterDeclaration, checkWebhookOutcome } from "../harness";
 import { validateAdapterMetrics } from "../metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
-import { MAX_DOMAIN_PAGES, RESEND_TEAM_EXTERNAL_ID, RESEND_USER_AGENT, resendAdapter } from "./index";
+import {
+  Secret,
+  type AdapterContext,
+  type FetchLike,
+  type OAuthContext,
+  type OAuthCredential,
+  type WebhookDescriptor,
+  type WebhookRequest,
+} from "../types";
+import {
+  MAX_DOMAIN_PAGES,
+  RESEND_TEAM_EXTERNAL_ID,
+  RESEND_USER_AGENT,
+  RESEND_WEBHOOK_HEADERS,
+  RESEND_WEBHOOK_TOLERANCE_SECONDS,
+  resendAdapter,
+  resendWebhookSignature,
+} from "./index";
 import { parseResendTimestamp, RESEND_ISSUER } from "./schemas";
 // Every fixture below is from documentation, not recorded: the sample responses in
 // docs/providers/resend.md, trimmed, with synthetic ids, tokens, and values.
@@ -21,6 +39,17 @@ import tokenRefreshedFixture from "./fixtures/token-refreshed.json";
 import tokenFixture from "./fixtures/token.json";
 // From documentation, not recorded: `GET /usage` sample (Free plan limits).
 import usageFixture from "./fixtures/usage.json";
+// Webhooks (#427), from documentation, not recorded, with synthetic ids and values:
+// - webhook-domain-updated.json: the `domain.updated` page's sample, its domain id and name set to
+//   the first domain of domains.json so a delivery and a poll of one domain can be compared, its
+//   status `verified`, and its DNS records trimmed to two (kept so the tests prove they are dropped).
+import webhookDomainUpdated from "./fixtures/webhook-domain-updated.json";
+// - webhook-email-bounced.json: the `email.bounced` page's sample, with example.com addresses.
+import webhookEmailBounced from "./fixtures/webhook-email-bounced.json";
+// - webhook-created.json / webhook-deleted.json: Create Webhook and Delete Webhook API reference
+//   responses, the signing secret a placeholder.
+import webhookCreated from "./fixtures/webhook-created.json";
+import webhookDeleted from "./fixtures/webhook-deleted.json";
 
 const NOW = new Date("2026-07-28T12:00:00.000Z");
 const CLIENT_ID = "client-123";
@@ -653,5 +682,341 @@ describe("parseResendTimestamp", () => {
     ["prose", "yesterday"],
   ])("rejects %s", (_title, input) => {
     expect(parseResendTimestamp(input)).toBeUndefined();
+  });
+});
+
+describe("resendAdapter webhooks", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential:
+  // `whsec_` and the base64 of 32 synthetic bytes, shaped like a Svix signing secret.
+  const SIGNING_SECRET = new Secret(["whsec", Buffer.from("synthetic-resend-signing-key-32b").toString("base64")].join("_"));
+  const DELIVERY_ID = "msg_synthetic0000000000000001";
+  const NOW_SECONDS = String(NOW.getTime() / 1000);
+  const BODY = JSON.stringify(webhookDomainUpdated);
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = resendAdapter;
+    if (webhooks === undefined) throw new Error("the Resend adapter declares no webhook");
+    return webhooks;
+  }
+
+  function automatic() {
+    const { registration } = descriptor();
+    if (registration.kind !== "connection" || registration.setup.secretSource !== "provider") {
+      throw new Error("expected a per-connection webhook whose secret Resend generates");
+    }
+    const { automatic: setup } = registration.setup;
+    if (setup === undefined) throw new Error("expected automatic setup");
+    return setup;
+  }
+
+  type Delivery = Partial<{
+    id: string | null;
+    timestamp: string | null;
+    signature: string | null;
+    secret: Secret;
+    signedId: string;
+    signedBody: string;
+  }>;
+
+  // A delivery as Resend sends it through Svix. Each option bends one part for a boundary test.
+  function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
+    const id = options.id === undefined ? DELIVERY_ID : options.id;
+    const timestamp = options.timestamp === undefined ? NOW_SECONDS : options.timestamp;
+    const headers = new Headers({ "content-type": "application/json" });
+    if (id !== null) headers.set(RESEND_WEBHOOK_HEADERS.delivery, id);
+    if (timestamp !== null) headers.set(RESEND_WEBHOOK_HEADERS.timestamp, timestamp);
+    const signature =
+      options.signature === undefined
+        ? resendWebhookSignature(
+            options.secret ?? SIGNING_SECRET,
+            options.signedId ?? id ?? "",
+            timestamp ?? "",
+            new TextEncoder().encode(options.signedBody ?? rawBody),
+          )
+        : options.signature;
+    if (signature !== null) headers.set(RESEND_WEBHOOK_HEADERS.signature, signature);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  function parseCtx() {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const ctx: AdapterContext = { fetch: () => Promise.reject(new Error("no network in parse")), now: () => NOW, timeoutMs: 1000, logger };
+    return { ctx, logger };
+  }
+
+  function parsed(rawBody: string) {
+    const request = delivery(rawBody);
+    expect(descriptor().verify(request, SIGNING_SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    return descriptor().parse(request, parseCtx().ctx);
+  }
+
+  function withData(overrides: Record<string, unknown>): string {
+    return JSON.stringify({ ...webhookDomainUpdated, data: { ...webhookDomainUpdated.data, ...overrides } });
+  }
+
+  it("is per connection, with Resend's signing secret, automatic setup needing no new access, and domain.updated only", () => {
+    const { registration, subscriptions } = descriptor();
+    expect(registration.kind).toBe("connection");
+    if (registration.kind !== "connection") return;
+    expect(registration.setup.secretSource).toBe("provider");
+    expect(registration.setup.manualSteps).toHaveLength(3);
+    expect(registration.setup.manualSteps.join(" ")).toMatch(/domain\.updated/);
+    expect(registration.setup.manualSteps.join(" ")).toMatch(/signing secret/);
+    expect(automatic().extraPermissions).toEqual([]);
+    expect(subscriptions).toEqual(["domain.updated"]);
+    expect(checkAdapterDeclaration(resendAdapter)).toEqual([]);
+  });
+
+  it("verifies Svix's own documented example delivery", () => {
+    // The example on Svix's "Verifying payloads manually" page, built from parts for the secret scan.
+    const secret = new Secret(["whsec", "plJ3nmyCDGBKInavdOK15jsl"].join("_"));
+    const body = '{"event_type":"ping","data":{"success":true}}';
+    const signature = "v1,rAvfW3dJ/X/qxhsaXPOyyCGmRKsaKWcsNccKXlIktD0=";
+    expect(resendWebhookSignature(secret, "msg_loFOjxBNrRLzqYUf", "1731705121", new TextEncoder().encode(body))).toBe(signature);
+    const request = delivery(body, { id: "msg_loFOjxBNrRLzqYUf", timestamp: "1731705121", signature });
+    expect(descriptor().verify(request, secret, new Date(1731705121 * 1000))).toEqual({ ok: true, deliveryId: "msg_loFOjxBNrRLzqYUf" });
+  });
+
+  it("maps a verified domain to the event the sync stores for the same domain, so the timeline shows it once", async () => {
+    const outcome = parsed(BODY);
+    expect(checkWebhookOutcome(resendAdapter, outcome)).toEqual([]);
+
+    const cursor = await baselineCursor();
+    const polled = (await resendAdapter.sync({ credential, externalAccountId: RESEND_TEAM_EXTERNAL_ID, cursor }, harness(syncRoutes()).ctx)).events.find(
+      (event) => event.dedupeKey === "resend.domain:00000000-0000-4000-8000-000000000001:verified",
+    );
+    expect(polled).toBeDefined();
+    // One dedupe key, type, title, and severity; dated to when Resend created the event, not when a
+    // sync noticed the change.
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: RESEND_TEAM_EXTERNAL_ID,
+      events: [{ ...polled, occurredAt: new Date("2026-07-28T11:58:00.000Z") }],
+    });
+    const serialized = JSON.stringify(outcome);
+    for (const dropped of ["amazonses", "_domainkey", "us-east-1", "EXAMPLEPUBLICKEY"]) expect(serialized).not.toContain(dropped);
+  });
+
+  it("maps a failed domain to the polled failure's type, title, body, and dedupe key", async () => {
+    const outcome = parsed(withData({ id: "00000000-0000-4000-8000-000000000002", name: "mail.example.net", status: "failed" }));
+    const cursor = await baselineCursor();
+    const polled = (await resendAdapter.sync({ credential, externalAccountId: RESEND_TEAM_EXTERNAL_ID, cursor }, harness(syncRoutes()).ctx)).events.find(
+      (event) => event.typeId === "resend.domain.failed",
+    );
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: RESEND_TEAM_EXTERNAL_ID,
+      events: [{ ...polled, occurredAt: new Date("2026-07-28T11:58:00.000Z") }],
+    });
+  });
+
+  it("reports the current status on every domain.updated, where polling reports only a move into it, with one dedupe key either way", async () => {
+    // Two deliveries for a domain that stayed verified: both map to the same event, so the timeline
+    // stores it once, but a delivery alone cannot tell a status change from any other update.
+    const first = parsed(BODY);
+    const second = parsed(JSON.stringify({ ...webhookDomainUpdated, created_at: "2026-07-28T11:59:00.000Z" }));
+    const keys = [first, second].map((outcome) => (outcome.kind === "events" ? outcome.events.map((event) => event.dedupeKey) : []));
+    const key = "resend.domain:00000000-0000-4000-8000-000000000001:verified";
+    expect(keys).toEqual([[key], [key]]);
+    // A sync whose cursor already holds `verified` for that domain emits nothing for it.
+    const { ctx } = harness(syncRoutes());
+    const cursor = (await resendAdapter.sync({ credential, externalAccountId: RESEND_TEAM_EXTERNAL_ID, cursor: await baselineCursor() }, ctx)).cursor;
+    const again = await resendAdapter.sync({ credential, externalAccountId: RESEND_TEAM_EXTERNAL_ID, ...(cursor === undefined ? {} : { cursor }) }, harness(syncRoutes()).ctx);
+    expect(again.events).toEqual([]);
+  });
+
+  it("shortens a domain name over 150 characters in the title, as the sync does (boundary)", () => {
+    const outcome = parsed(withData({ name: `${"a".repeat(151)}.example.com` }));
+    expect(outcome).toMatchObject({ kind: "events", events: [{ title: `Domain ${"a".repeat(150)}… verified` }] });
+  });
+
+  it.each(["not_started", "pending", "partially_verified", "partially_failed", "temporary_failure", "a status Resend adds later"])(
+    "ignores a domain now %s without a warning, as the sync does (boundary)",
+    (status) => {
+      const { ctx, logger } = parseCtx();
+      const outcome = descriptor().parse(delivery(withData({ status })), ctx);
+      expect(outcome).toEqual({ kind: "ignored", reason: "domain status is not on the timeline" });
+      expect(logger.warn).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["email.bounced, whose recipients and subject StackDash does not read", JSON.stringify(webhookEmailBounced), "event type is not on the timeline"],
+    ["domain.created", JSON.stringify({ ...webhookDomainUpdated, type: "domain.created" }), "event type is not on the timeline"],
+    ["a body that is not JSON", "type=domain.updated", "body is not JSON"],
+    ["a JSON array", "[]", "not a Resend webhook delivery"],
+    ["an empty body", "", "body is not JSON"],
+  ])("ignores %s without a warning (boundary)", (_case, body, reason) => {
+    const { ctx, logger } = parseCtx();
+    const outcome = descriptor().parse(delivery(body), ctx);
+    expect(outcome).toEqual({ kind: "ignored", reason });
+    expect(checkWebhookOutcome(resendAdapter, outcome)).toEqual([]);
+    expect(JSON.stringify(outcome)).not.toContain("recipient@example.com");
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no domain id", withData({ id: undefined })],
+    ["a blank domain name", withData({ name: "" })],
+    ["no status", withData({ status: undefined })],
+    ["a created_at that is not a time", JSON.stringify({ ...webhookDomainUpdated, created_at: "yesterday" })],
+    ["no data", JSON.stringify({ type: "domain.updated", created_at: webhookDomainUpdated.created_at })],
+  ])("ignores a domain.updated with %s and warns with the event type only (boundary)", (_case, body) => {
+    const { ctx, logger } = parseCtx();
+    expect(descriptor().parse(delivery(body), ctx)).toEqual({ kind: "ignored", reason: "not a delivery Resend maps" });
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("resend.webhook.unreadable", { type: "domain.updated" });
+  });
+
+  const TOLERANCE = RESEND_WEBHOOK_TOLERANCE_SECONDS;
+  const seconds = (offset: number) => String(NOW.getTime() / 1000 + offset);
+
+  it.each<[string, string, Delivery, string]>([
+    ["no signature header", BODY, { signature: null }, "missing_signature"],
+    ["an empty signature header", BODY, { signature: "" }, "missing_signature"],
+    ["no timestamp header", BODY, { timestamp: null, signature: "v1,AAAA" }, "missing_signature"],
+    ["a timestamp that is not whole seconds", BODY, { timestamp: "1785240000.5" }, "malformed"],
+    ["a timestamp in milliseconds past twelve digits", BODY, { timestamp: String(NOW.getTime() * 10) }, "malformed"],
+    ["a timestamp one second past the tolerance", BODY, { timestamp: seconds(-TOLERANCE - 1) }, "stale"],
+    ["a timestamp one second past the tolerance in the future", BODY, { timestamp: seconds(TOLERANCE + 1) }, "stale"],
+    ["no svix-id", BODY, { id: null, signedId: DELIVERY_ID }, "malformed"],
+    ["a blank svix-id", BODY, { id: "   ", signedId: DELIVERY_ID }, "malformed"],
+    ["an svix-id of 201 characters", BODY, { id: "m".repeat(201) }, "malformed"],
+    ["a signature made with another secret", BODY, { secret: new Secret(["whsec", Buffer.from("another-synthetic-signing-key-32").toString("base64")].join("_")) }, "bad_signature"],
+    ["a tampered body", BODY.replace("example.com", "evil.example"), { signedBody: BODY }, "bad_signature"],
+    // A captured delivery re-sent under a new id: the id is part of what Svix signs.
+    ["a valid delivery replayed under another svix-id", BODY, { id: "msg_replayed", signedId: DELIVERY_ID }, "bad_signature"],
+    ["a signature without its v1 prefix", BODY, { signature: resendWebhookSignature(SIGNING_SECRET, DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(BODY)).slice(3) }, "bad_signature"],
+    ["a signature under another version", BODY, { signature: resendWebhookSignature(SIGNING_SECRET, DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(BODY)).replace("v1,", "v2,") }, "bad_signature"],
+  ])("rejects a delivery with %s (boundary)", (_case, body, options, reason) => {
+    expect(descriptor().verify(delivery(body, options), SIGNING_SECRET, NOW)).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ["whsec_ alone", "whsec_"],
+    ["a key shorter than 16 bytes", `whsec_${Buffer.from("fifteen-bytes!!").toString("base64")}`],
+    ["whitespace only", "   "],
+  ])("verifies nothing with a stored secret that is %s (boundary)", (_case, stored) => {
+    // Signed with a valid secret: the point is that the stored one can never match anything.
+    expect(descriptor().verify(delivery(BODY), new Secret(stored), NOW)).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("refuses to sign with a secret that is too short (boundary)", () => {
+    expect(() => resendWebhookSignature(new Secret("whsec_"), DELIVERY_ID, NOW_SECONDS, new Uint8Array())).toThrow(RangeError);
+  });
+
+  it.each([
+    ["exactly at the tolerance in the past", seconds(-TOLERANCE)],
+    ["exactly at the tolerance in the future", seconds(TOLERANCE)],
+  ])("accepts a timestamp %s (boundary)", (_case, timestamp) => {
+    expect(descriptor().verify(delivery(BODY, { timestamp }), SIGNING_SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+  });
+
+  it("accepts a delivery signed under two secrets while Resend rotates, when either matches", () => {
+    const valid = resendWebhookSignature(SIGNING_SECRET, DELIVERY_ID, NOW_SECONDS, new TextEncoder().encode(BODY));
+    const old = "v1,bm9ldHUjKzFob2VudXRob2VodWUzMjRvdWVvdW9ldQo=";
+    expect(descriptor().verify(delivery(BODY, { signature: `${old} ${valid}` }), SIGNING_SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+  });
+
+  it("accepts a secret pasted without its whsec_ prefix, as Svix's libraries do", () => {
+    const bare = new Secret(SIGNING_SECRET.reveal().slice("whsec_".length));
+    expect(descriptor().verify(delivery(BODY), bare, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+  });
+
+  it("gives a retry the same delivery id, re-signed with its own timestamp, so the route drops it as a duplicate", () => {
+    const first = descriptor().verify(delivery(BODY), SIGNING_SECRET, NOW);
+    const retryAt = new Date(NOW.getTime() + 5 * 60 * 60 * 1000);
+    const retry = descriptor().verify(delivery(BODY, { timestamp: String(retryAt.getTime() / 1000) }), SIGNING_SECRET, retryAt);
+    expect(first).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    expect(retry).toEqual(first);
+  });
+
+  describe("automatic setup", () => {
+    const URL_FOR_CONNECTION = "https://stackdash.example/api/webhooks/resend/00000000-0000-4000-8000-0000000000aa";
+    const input = { credential, url: URL_FOR_CONNECTION, externalAccountIds: [RESEND_TEAM_EXTERNAL_ID] };
+
+    it("creates the webhook for domain.updated at the connection's URL and keeps Resend's signing secret", async () => {
+      const { ctx, calls } = harness({ "POST /webhooks": () => json(webhookCreated, 201) });
+      const created = await automatic().create(input, ctx);
+      expect(created.webhookId).toBe(webhookCreated.id);
+      expect(created.secret.reveal()).toBe(webhookCreated.signing_secret);
+      expect(calls).toHaveLength(1);
+      const [call] = calls;
+      expect(`${call?.url.origin}${call?.url.pathname}`).toBe("https://api.resend.com/webhooks");
+      expect(call?.headers.get("authorization")).toBe("Bearer synthetic-access-token-1");
+      expect(call?.headers.get("user-agent")).toBe(RESEND_USER_AGENT);
+      expect(call?.headers.get("content-type")).toBe("application/json");
+      expect(JSON.parse(call?.body ?? "null")).toEqual({ endpoint: URL_FOR_CONNECTION, events: ["domain.updated"] });
+    });
+
+    it.each<[string, Response, new (...args: never[]) => Error]>([
+      ["an expired token (401)", json({ name: "invalid_access" }, 401), AuthRevokedError],
+      ["an address Resend refuses (422)", json({ name: "validation_error" }, 422), InvalidResponseError],
+      ["Resend unavailable (503)", json({ name: "internal_server_error" }, 503), ProviderUnavailableError],
+    ])("fails setup on %s (boundary)", async (_case, response, ErrorType) => {
+      const { ctx } = harness({ "POST /webhooks": () => response });
+      await expect(automatic().create(input, ctx)).rejects.toBeInstanceOf(ErrorType);
+    });
+
+    it("needs only the id and the secret from the create response, not the documented `object` (boundary)", async () => {
+      const { ctx } = harness({ "POST /webhooks": () => json({ id: webhookCreated.id, signing_secret: webhookCreated.signing_secret }, 201) });
+      expect((await automatic().create(input, ctx)).webhookId).toBe(webhookCreated.id);
+    });
+
+    it.each<[string, Record<string, unknown>]>([
+      ["no signing secret", { object: "webhook", id: webhookCreated.id }],
+      ["a null signing secret", { object: "webhook", id: webhookCreated.id, signing_secret: null }],
+      ["a blank signing secret", { object: "webhook", id: webhookCreated.id, signing_secret: "  " }],
+      ["a signing secret too short to verify anything", { object: "webhook", id: webhookCreated.id, signing_secret: "whsec_c2hvcnQ=" }],
+    ])("deletes a webhook created with %s, then fails setup (boundary)", async (_case, body) => {
+      const { ctx, calls } = harness({
+        "POST /webhooks": () => json(body, 201),
+        [`DELETE /webhooks/${webhookCreated.id}`]: () => json(webhookDeleted),
+      });
+      await expect(automatic().create(input, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+      expect(calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual(["POST /webhooks", `DELETE /webhooks/${webhookCreated.id}`]);
+    });
+
+    it("still fails setup when deleting a webhook without a secret fails too, and logs which webhook is left (boundary)", async () => {
+      const { ctx, calls } = harness({
+        "POST /webhooks": () => json({ id: webhookCreated.id }, 201),
+        [`DELETE /webhooks/${webhookCreated.id}`]: () => json({ name: "internal_server_error" }, 500),
+      });
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      await expect(automatic().create(input, { ...ctx, logger })).rejects.toBeInstanceOf(InvalidResponseError);
+      expect(calls).toHaveLength(2);
+      // The webhook id, which is not secret, so an operator can tell the user which webhook to delete.
+      expect(logger.warn).toHaveBeenCalledExactlyOnceWith("resend.webhook.cleanup_failed", {
+        provider: "resend",
+        webhookId: webhookCreated.id,
+        error: "ProviderUnavailableError",
+      });
+    });
+
+    it("deletes the webhook by its id on disconnect", async () => {
+      const { ctx, calls } = harness({ [`DELETE /webhooks/${webhookCreated.id}`]: () => json(webhookDeleted) });
+      await automatic().remove({ credential, webhookId: webhookCreated.id }, ctx);
+      expect(calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual([`DELETE /webhooks/${webhookCreated.id}`]);
+      expect(calls[0]?.headers.get("authorization")).toBe("Bearer synthetic-access-token-1");
+    });
+
+    it("treats a webhook already deleted in Resend (404) as removed (boundary)", async () => {
+      const { ctx } = harness({});
+      await expect(automatic().remove({ credential, webhookId: webhookCreated.id }, ctx)).resolves.toBeUndefined();
+    });
+
+    it("keeps a webhook id inside its own path segment (boundary)", async () => {
+      const { ctx, calls } = harness({});
+      await automatic().remove({ credential, webhookId: "../domains" }, ctx);
+      expect(calls[0]?.url.pathname).toBe("/webhooks/..%2Fdomains");
+    });
+
+    it.each<[string, Response, new (...args: never[]) => Error]>([
+      ["an expired token (401)", json({ name: "invalid_access" }, 401), AuthRevokedError],
+      ["Resend unavailable (500)", json({ name: "internal_server_error" }, 500), ProviderUnavailableError],
+      ["a response that does not say it was deleted", json({ object: "webhook", id: webhookCreated.id, deleted: false }), InvalidResponseError],
+    ])("reports %s on disconnect, so the user gets the steps by hand (boundary)", async (_case, response, ErrorType) => {
+      const { ctx } = harness({ [`DELETE /webhooks/${webhookCreated.id}`]: () => response });
+      await expect(automatic().remove({ credential, webhookId: webhookCreated.id }, ctx)).rejects.toBeInstanceOf(ErrorType);
+    });
   });
 });

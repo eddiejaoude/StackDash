@@ -1,5 +1,8 @@
+import { createHmac } from "node:crypto";
+
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { isFresh, readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
@@ -12,21 +15,32 @@ import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
   Secret,
+  type AdapterContext,
+  type CreateWebhookInput,
   type ExternalAccount,
   type FetchLike,
   type OAuthContext,
   type OAuthCredential,
   type ProviderAdapter,
+  type RemoveWebhookInput,
   type SyncInput,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookVerification,
 } from "../types";
 import {
+  CreateWebhookResponseSchema,
+  DeleteWebhookResponseSchema,
   DomainListResponseSchema,
   domainStatuses,
+  DomainStatusSchema,
+  DomainUpdatedDeliverySchema,
   EmailMetricsResponseSchema,
   RESEND_ISSUER,
   TokenResponseSchema,
   UsageResponseSchema,
+  WebhookTypeSchema,
   type Domain,
   type DomainStatus,
   type TokenResponse,
@@ -38,6 +52,14 @@ import {
  * OAuth 2.1 authorization code flow with PKCE (S256) as a pre-registered confidential client
  * (client_secret_basic). Sync reads three GET routes only: `/usage` for quota usage and limits,
  * `/emails/metrics` for delivery counts, and `/domains` for verification status changes.
+ *
+ * Webhooks (#427): one per connection, on the connection's own URL, set up by hand or, when the
+ * user chooses, created with `POST /webhooks` and deleted with `DELETE /webhooks/:id` using the
+ * `full_access` grant the connection already holds. Resend generates the signing secret either
+ * way. Deliveries are signed with Svix over the delivery id, the timestamp, and the raw body, so a
+ * captured delivery replayed under a new id fails the signature, and one replayed under its own id
+ * is a duplicate. `domain.updated` maps to the same events and dedupe keys the sync's domain
+ * polling produces, so a change seen both ways is stored once.
  */
 
 const API_BASE = "https://api.resend.com";
@@ -68,8 +90,11 @@ const DOMAIN_TITLE_NAME_MAX = 150;
 export const RESEND_TEAM_EXTERNAL_ID = "team";
 
 // The adapter's HTTP surface is restricted to these reads (docs/providers/resend.md, Permission risks):
-// `full_access` could do far more, and this type keeps the code promise checkable.
-type ApiPath = "/usage" | "/emails/metrics" | "/domains";
+// `full_access` could do far more, and these types keep the code promise checkable. The only writes
+// are automatic webhook setup's create and delete, made only when the user chooses it.
+type ReadPath = "/usage" | "/emails/metrics" | "/domains";
+type WebhookPath = "/webhooks" | `/webhooks/${string}`;
+type ApiPath = ReadPath | WebhookPath;
 
 // Exported, like `usageMetrics` and `deliveryMetrics` below, for the local simulator (#131).
 export const eventTypes = [
@@ -237,28 +262,24 @@ function toCredential(tokens: TokenResponse, ctx: OAuthContext, fallbackScopes: 
   };
 }
 
+function bearerHeaders(credential: OAuthCredential): Record<string, string> {
+  return {
+    Authorization: `Bearer ${credential.accessToken.reveal()}`,
+    Accept: "application/json",
+    "User-Agent": RESEND_USER_AGENT,
+  };
+}
+
 function apiGet<T>(
   ctx: OAuthContext,
   credential: OAuthCredential,
-  path: ApiPath,
+  path: ReadPath,
   query: Readonly<Record<string, string>>,
   schema: z.ZodType<T>,
 ): Promise<T> {
   const url = new URL(path, API_BASE);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-  return fetchJson(
-    ctx,
-    url,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${credential.accessToken.reveal()}`,
-        Accept: "application/json",
-        "User-Agent": RESEND_USER_AGENT,
-      },
-    },
-    schema,
-  );
+  return fetchJson(ctx, url, { method: "GET", headers: bearerHeaders(credential) }, schema);
 }
 
 function endpointOf(path: ApiPath): string {
@@ -362,6 +383,34 @@ export function deliveryMetrics(
   ];
 }
 
+/**
+ * The timeline event for a domain now in `domain.status`, or undefined when that status is not on
+ * the timeline. Shared by the sync's polling and the `domain.updated` webhook, so one change seen
+ * both ways has one type, title, and dedupe key and is stored once.
+ */
+function domainStatusEvent(
+  domain: Pick<Domain, "id" | "name" | "status">,
+  externalAccountId: string,
+  occurredAt: Date,
+): ActivityEvent | undefined {
+  const typeId = statusEvents[domain.status];
+  if (typeId === undefined) return undefined;
+  const name =
+    domain.name.length > DOMAIN_TITLE_NAME_MAX ? `${domain.name.slice(0, DOMAIN_TITLE_NAME_MAX)}…` : domain.name;
+  const verified = typeId === "resend.domain.verified";
+  return {
+    typeId,
+    occurredAt,
+    severity: verified ? "success" : "critical",
+    title: verified ? `Domain ${name} verified` : `Domain ${name} failed verification`,
+    ...(verified
+      ? {}
+      : { body: "Resend could not find the domain's DNS records within 72 hours. Check its DNS settings in Resend." }),
+    externalAccountId,
+    dedupeKey: `resend.domain:${domain.id}:${domain.status}`,
+  };
+}
+
 function domainEvents(
   domains: readonly Domain[],
   previous: DomainStatuses | undefined,
@@ -374,23 +423,9 @@ function domainEvents(
   const events: ActivityEvent[] = [];
   for (const domain of domains) {
     if (previous.get(domain.id) === domain.status) continue;
-    const typeId = statusEvents[domain.status];
-    if (typeId === undefined) continue;
-    const name =
-      domain.name.length > DOMAIN_TITLE_NAME_MAX ? `${domain.name.slice(0, DOMAIN_TITLE_NAME_MAX)}…` : domain.name;
-    const verified = typeId === "resend.domain.verified";
-    events.push({
-      typeId,
-      // Resend does not say when the status changed, so the event is dated when the sync saw it.
-      occurredAt: detectedAt,
-      severity: verified ? "success" : "critical",
-      title: verified ? `Domain ${name} verified` : `Domain ${name} failed verification`,
-      ...(verified
-        ? {}
-        : { body: "Resend could not find the domain's DNS records within 72 hours. Check its DNS settings in Resend." }),
-      externalAccountId,
-      dedupeKey: `resend.domain:${domain.id}:${domain.status}`,
-    });
+    // Resend does not say when the status changed, so the event is dated when the sync saw it.
+    const event = domainStatusEvent(domain, externalAccountId, detectedAt);
+    if (event !== undefined) events.push(event);
   }
   return events;
 }
@@ -402,6 +437,166 @@ function permissionGap(error: unknown, what: string): PermissionMissingError | u
     ...(error.status === undefined ? {} : { status: error.status }),
     ...(error.endpoint === undefined ? {} : { endpoint: error.endpoint }),
   });
+}
+
+/* Webhook -------------------------------------------------------------------------------------- */
+
+// Svix's headers, as Resend's "Verify webhook requests" guide passes them to its SDK.
+export const RESEND_WEBHOOK_HEADERS = {
+  delivery: "svix-id",
+  timestamp: "svix-timestamp",
+  signature: "svix-signature",
+} as const;
+// Five minutes either side of now: the tolerance of the `standardwebhooks` library Resend's SDK
+// verifies with, and of Svix's own libraries. Svix signs every retry attempt with its own
+// timestamp, so a retry later in Resend's 28 hour schedule is never stale.
+export const RESEND_WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+const SIGNING_SECRET_PREFIX = "whsec_";
+const SIGNATURE_VERSION = "v1,";
+// Svix generates 24 random bytes. A pasted secret that decodes to fewer than 16 is not one Resend
+// made, and a key that short could be guessed, so it verifies nothing.
+const MIN_SIGNING_KEY_BYTES = 16;
+// Whole seconds since the epoch; twelve digits reach far past any real clock.
+const TIMESTAMP_SECONDS = /^\d{1,12}$/;
+
+// `domain.updated` only: it carries the domain verification changes the timeline already shows.
+// Email events (`email.bounced`, `email.complained`, `email.failed`) carry recipients and subjects
+// and have no event type here; bounce and complaint counts come from `/emails/metrics` instead.
+const WEBHOOK_SUBSCRIPTIONS = ["domain.updated"] as const;
+
+/** The HMAC key a Svix signing secret encodes (base64 after `whsec_`), or null when it is too short. */
+function signingKey(secret: Secret): Buffer | null {
+  const value = secret.reveal().trim();
+  const key = Buffer.from(value.startsWith(SIGNING_SECRET_PREFIX) ? value.slice(SIGNING_SECRET_PREFIX.length) : value, "base64");
+  return key.length >= MIN_SIGNING_KEY_BYTES ? key : null;
+}
+
+function svixSignature(key: Buffer, deliveryId: string, timestamp: string, rawBody: Uint8Array): string {
+  // Signed as bytes, never decoded first: decoding would map invalid UTF-8 onto U+FFFD and let two
+  // different bodies share one signature.
+  const signed = Buffer.concat([Buffer.from(`${deliveryId}.${timestamp}.`, "utf8"), rawBody]);
+  return `${SIGNATURE_VERSION}${createHmac("sha256", key).update(signed).digest("base64")}`;
+}
+
+/**
+ * The `svix-signature` value Resend sends for a delivery: `v1,` and the base64 HMAC-SHA256 of
+ * `<svix-id>.<svix-timestamp>.<raw body>` under the secret's decoded key. For tests and e2e runs.
+ */
+export function resendWebhookSignature(secret: Secret, deliveryId: string, timestamp: string, rawBody: Uint8Array): string {
+  const key = signingKey(secret);
+  if (key === null) throw new RangeError("A Resend signing secret decodes to at least 16 bytes");
+  return svixSignature(key, deliveryId, timestamp, rawBody);
+}
+
+/**
+ * Svix verification: headers, then freshness, then the delivery id (the signature covers it, so a
+ * missing one is malformed), then the signature in constant time against each `v1` entry. Svix
+ * sends several space-separated entries while a secret rotates; one match is enough.
+ */
+function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const timestamp = headers.get(RESEND_WEBHOOK_HEADERS.timestamp)?.trim();
+  const signatures = headers.get(RESEND_WEBHOOK_HEADERS.signature)?.trim();
+  if (!timestamp || !signatures) return { ok: false, reason: "missing_signature" };
+  if (!TIMESTAMP_SECONDS.test(timestamp)) return { ok: false, reason: "malformed" };
+  if (!isFresh(Number(timestamp), now, RESEND_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  const deliveryId = readDeliveryId(headers, RESEND_WEBHOOK_HEADERS.delivery);
+  if (deliveryId === undefined) return { ok: false, reason: "malformed" };
+  const key = signingKey(secret);
+  if (key === null) return { ok: false, reason: "bad_signature" };
+  const expected = svixSignature(key, deliveryId, timestamp, rawBody);
+  // Every entry is compared, as Stripe's verify does, so the time taken does not say which matched.
+  let matched = false;
+  for (const candidate of signatures.split(/\s+/)) matched = safeEqual(candidate, expected) || matched;
+  return matched ? { ok: true, deliveryId } : { ok: false, reason: "bad_signature" };
+}
+
+/**
+ * Maps a verified `domain.updated` through the sync's own builder, dated to when Resend created the
+ * event. Reads the domain's id, name, and status only.
+ *
+ * Not the same rule as polling. The sync emits an event only when a domain moves into `verified` or
+ * `failed` since its last snapshot (the cursor), and nothing on the first sync. A delivery carries
+ * no previous status and `parse` has no cursor, so it reports the domain's current status on every
+ * `domain.updated`: if Resend sends one for an update that is not a status change (unverified,
+ * docs/providers/resend.md), an already verified domain gets one "verified" event dated then. The
+ * shared dedupe key stores that at most once per domain and status. Whether to gate deliveries on
+ * the polling cursor instead is a decision on #427.
+ */
+function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return { kind: "ignored", reason: "body is not JSON" };
+  }
+  const typed = WebhookTypeSchema.safeParse(raw);
+  if (!typed.success) return { kind: "ignored", reason: "not a Resend webhook delivery" };
+  if (typed.data.type !== "domain.updated") return { kind: "ignored", reason: "event type is not on the timeline" };
+  const parsed = DomainUpdatedDeliverySchema.safeParse(raw);
+  if (!parsed.success) {
+    // The one subscribed event, in a shape StackDash cannot read: Resend changed the payload, and
+    // every such delivery is acknowledged and dropped, so say so. Names the type only.
+    ctx.logger.warn("resend.webhook.unreadable", { type: typed.data.type });
+    return { kind: "ignored", reason: "not a delivery Resend maps" };
+  }
+  const { data, created_at: createdAt } = parsed.data;
+  const status = DomainStatusSchema.safeParse(data.status);
+  const event = status.success
+    ? domainStatusEvent({ id: data.id, name: data.name, status: status.data }, RESEND_TEAM_EXTERNAL_ID, createdAt)
+    : undefined;
+  if (event === undefined) return { kind: "ignored", reason: "domain status is not on the timeline" };
+  return { kind: "events", externalAccountId: RESEND_TEAM_EXTERNAL_ID, events: [event] };
+}
+
+/**
+ * `POST /webhooks`: the response carries the new webhook's signing secret (API reference, Create
+ * Webhook). Only the fields used are required: Resend has already created the webhook by the time
+ * the response is read, so a response that names it but carries no usable secret deletes it again
+ * (best effort) before failing, rather than leave a webhook nothing stored points at.
+ */
+async function createWebhook({ credential, url }: CreateWebhookInput, ctx: OAuthContext): Promise<Readonly<{ webhookId: string; secret: Secret }>> {
+  const path: WebhookPath = "/webhooks";
+  const endpoint = new URL(path, API_BASE);
+  const created = await fetchJson(
+    ctx,
+    endpoint,
+    {
+      method: "POST",
+      headers: { ...bearerHeaders(credential), "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: url, events: WEBHOOK_SUBSCRIPTIONS }),
+    },
+    CreateWebhookResponseSchema,
+  );
+  const signingSecret = typeof created.signing_secret === "string" ? created.signing_secret.trim() : "";
+  if (signingSecret !== "" && signingKey(new Secret(signingSecret)) !== null) {
+    return { webhookId: created.id, secret: new Secret(signingSecret) };
+  }
+  try {
+    await removeWebhook({ credential, webhookId: created.id }, ctx);
+  } catch (error) {
+    // The webhook stays in the user's team: its id (not secret) says which one to delete by hand.
+    ctx.logger.warn("resend.webhook.cleanup_failed", {
+      provider: "resend",
+      webhookId: created.id,
+      error: error instanceof Error ? error.name : typeof error,
+    });
+  }
+  throw new InvalidResponseError("Resend created a webhook without a usable signing secret", { endpoint: `${endpoint.origin}${endpoint.pathname}` });
+}
+
+/** `DELETE /webhooks/:id`. A webhook already gone (the user deleted it in Resend) is removed. */
+async function removeWebhook({ credential, webhookId }: RemoveWebhookInput, ctx: OAuthContext): Promise<void> {
+  const path: WebhookPath = `/webhooks/${encodeURIComponent(webhookId)}`;
+  try {
+    await fetchJson(ctx, new URL(path, API_BASE), { method: "DELETE", headers: bearerHeaders(credential) }, DeleteWebhookResponseSchema);
+  } catch (error) {
+    if (error instanceof InvalidResponseError && error.status === 404) {
+      ctx.logger.info("resend.webhook.already_removed", { provider: "resend" });
+      return;
+    }
+    throw error;
+  }
 }
 
 export const resendAdapter: ProviderAdapter = {
@@ -424,7 +619,7 @@ export const resendAdapter: ProviderAdapter = {
       access: "full",
       description: "Read your Resend team's email usage, delivery metrics, and domain status.",
       fullAccessReason:
-        "Resend has no read-only access. This permission lets StackDash send and delete email, change or delete domains, and create and delete API keys in this Resend team. StackDash only reads usage, delivery metrics, and domain status, and you can revoke access at any time in your Resend team settings.",
+        "Resend has no read-only access. This permission lets StackDash send and delete email, change or delete domains, and create and delete API keys in this Resend team. StackDash only reads usage, delivery metrics, and domain status, and adds or deletes its own webhook only if you choose automatic webhook setup. You can revoke access at any time in your Resend team settings.",
     },
   ],
   dataCollected: [
@@ -450,6 +645,26 @@ export const resendAdapter: ProviderAdapter = {
   },
   // Hourly: /emails/metrics is cached up to 15 minutes and the team's 10 req/s budget is shared.
   pollIntervalSeconds: 3600,
+  // Per connection (#424, #427): a Resend webhook belongs to one team, and Resend generates its
+  // signing secret. Automatic setup needs no access beyond the `full_access` already granted.
+  webhooks: {
+    registration: {
+      kind: "connection",
+      setup: {
+        secretSource: "provider",
+        manualSteps: [
+          "In Resend, open Webhooks and choose Add Webhook.",
+          "Paste the address below as the endpoint URL, select only the domain.updated event, and add the webhook.",
+          "Open the new webhook, copy its signing secret, and paste it into the field below.",
+        ],
+        removalSteps: ["In Resend, open Webhooks, open the webhook whose endpoint is StackDash's address, and delete it."],
+        automatic: { extraPermissions: [], create: createWebhook, remove: removeWebhook },
+      },
+    },
+    subscriptions: WEBHOOK_SUBSCRIPTIONS,
+    verify: verifyWebhook,
+    parse: parseWebhook,
+  },
 
   buildAuthorizeUrl({ client, state, redirectUri, codeChallenge }) {
     if (codeChallenge === undefined) throw new TypeError("Resend requires a PKCE S256 code challenge");

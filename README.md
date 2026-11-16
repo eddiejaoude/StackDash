@@ -143,12 +143,14 @@ If StackDash looks useful, a star helps other developers find it.
 
 ## Self-hosting
 
-StackDash runs on your own Vercel and Supabase projects.
-[Deploy to Vercel and Supabase](docs/operations/deploy.md) goes from empty accounts to a production
-deployment, [Register the OAuth apps](docs/operations/oauth-apps.md) sets up sign-in and one app per
-provider, and [Jobs](docs/operations/jobs.md) schedules the syncs with `pg_cron`. There is no Docker
-image. Alert email goes through Resend, so it needs a Resend account and a verified sending domain;
-without one, alerts still show in the app and reach Slack, Discord, and webhooks.
+StackDash runs on your own Vercel and Supabase projects. Start with
+[Self-host StackDash](docs/operations/self-hosting.md): what you need, the order to set it up in,
+and how to upgrade. [Deploy to Vercel and Supabase](docs/operations/deploy.md) goes from empty
+accounts to a production deployment, [Register the OAuth apps](docs/operations/oauth-apps.md) sets up
+sign-in and one app per provider, and [Jobs](docs/operations/jobs.md) schedules the syncs with
+`pg_cron`. There is no Docker image. Alert email goes through Resend, so it needs a Resend account
+and a verified sending domain; without one, alerts still show in the app and reach Slack, Discord,
+and webhooks.
 
 ## Project status
 
@@ -164,25 +166,29 @@ without one, alerts still show in the app and reach Slack, Discord, and webhooks
   Until Sentry approves the hosted integration for publication, only the organization that
   registered it can install it; self-hosters register their own
   ([Sentry provider page](docs/providers/sentry.md)).
-- **Planned:** more integrations, starting with ElevenLabs; inviting teammates to a workspace by
-  email (workspaces already have owner, admin, and viewer roles); and hiding the event types you do
-  not care about.
+- **Planned:** the [roadmap](docs/roadmap.md) is the public summary of the project board: what is
+  being built now, what comes next, and what is planned after that.
 
 ## Documentation
 
 - [Getting started](docs/getting-started.md): from sign-in to a published metric.
+- [Connect providers](docs/connect-providers.md): what each provider needs before it connects, and
+  what to do when a connection needs attention.
 - [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
   examples, and the OpenAPI document.
 - [MCP server](docs/mcp.md): connect Claude Code, Claude Desktop, Cursor, or another MCP client to a
   workspace, and the read-only tools it can call.
 - [Providers](docs/providers): one page per provider, with what StackDash reads and what each
   permission allows.
-- Self-hosting and operations: [deploy](docs/operations/deploy.md),
-  [OAuth apps](docs/operations/oauth-apps.md), and [jobs](docs/operations/jobs.md).
+- Self-hosting and operations: [self-hosting and upgrades](docs/operations/self-hosting.md),
+  [deploy](docs/operations/deploy.md), [OAuth apps](docs/operations/oauth-apps.md), and
+  [jobs](docs/operations/jobs.md).
 - Architecture: [concepts](docs/architecture/concepts.md), [database schema](docs/architecture/schema.md),
   and [public metrics](docs/architecture/public-metrics.md).
 - [Write a provider adapter](docs/adapters.md): the adapter contract, the test harness, and review.
 - [Local development](docs/development.md): setup, checks, end-to-end tests, and the project layout.
+- [Roadmap](docs/roadmap.md): what is being built now, next, and later, kept in step with the
+  project board.
 
 ## Built with
 

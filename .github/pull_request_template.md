@@ -44,6 +44,7 @@ After evidence commit:
 - [ ] `npm run build`:
 - [ ] `npm run test:e2e` (or the specs you ran):
 - [ ] UI change: the axe scan (`expectNoAxeViolations`) on the changed screen, and a keyboard-only pass:
+- [ ] Docs: the README, `.env.example`, and `docs/` match the change, and `docs/roadmap.md` and the home page roadmap cards no longer list what this closes:
 
 ## Notes for review
 

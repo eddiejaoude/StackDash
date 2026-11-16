@@ -36,7 +36,7 @@ import {
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
 import { vercelProfile } from "./vercel";
-import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionSetup, simulatedConnectionWebhooks } from "./webhooks";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE, simulatedConnectionSetup } from "./webhooks";
 
 /**
  * Simulated providers for local demos and testing (#131), built by one factory from a profile per
@@ -110,9 +110,9 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  * instead of the provider's own variable: simulation never reads a real provider secret, and one
  * synthetic value signs every simulated provider's deliveries, locally and in e2e. A per-connection
  * registration keeps the secret stored for its connection, and its automatic setup is simulated
- * (`simulatedConnectionSetup`, #428), so the twin never calls the provider. The webhook job does
- * not yet tell simulated connections from real ones (#495): an app-level delivery reaches every
- * connection that includes its account, real ones too.
+ * (`simulatedConnectionSetup`), so the twin never calls the provider. The webhook job does not yet
+ * tell simulated connections from real ones (#495): an app-level delivery reaches every connection
+ * that includes its account, real ones too.
  */
 function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId, profile: SimulatedProfile): WebhookDescriptor {
   if (real.registration.kind === "app") return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
@@ -127,15 +127,6 @@ function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId, pr
           return accountIds.filter((accountId) => granted.has(accountId)).flatMap((accountId) => webhookSources(accountId));
         };
   return { ...real, registration: { kind: "connection", setup: simulatedConnectionSetup(provider, real.registration.setup, sources) } };
-}
-
-/**
- * The twin's push path: the live adapter's wins; a profile declares one only where the live adapter
- * has none yet (simulated/webhooks.ts, #426).
- */
-function twinWebhooks(profile: SimulatedProfile, provider: LiveProviderId): WebhookDescriptor | undefined {
-  if (profile.real.webhooks !== undefined) return simulatedWebhooks(profile.real.webhooks, provider, profile);
-  return profile.webhooks === undefined ? undefined : simulatedConnectionWebhooks(provider, profile.webhooks);
 }
 
 /**
@@ -161,7 +152,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
   const name = PROVIDER_NAMES[provider];
   const endpoint = (path: string) => simulatedEndpoint(provider, path);
   const metrics = incident?.metrics ?? profile.metrics;
-  const webhooks = twinWebhooks(profile, provider);
+  const webhooks = real.webhooks === undefined ? undefined : simulatedWebhooks(real.webhooks, provider, profile);
 
   const adapter: ProviderAdapter = {
     id: provider,
