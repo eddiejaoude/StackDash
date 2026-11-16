@@ -1241,6 +1241,61 @@ async function recordMotion(page: Page, elements: readonly string[]): Promise<()
   }));
 }
 
+/**
+ * An event written the way a sync writes it, now; returns its title. Each gets a type of its own by
+ * default, so two in a row never join one burst and each keeps its own heading.
+ */
+async function insertLiveEvent(
+  workspace: TestWorkspace,
+  source: Pick<EventInsert, "provider" | "type_id"> = { provider: "fake", type_id: `fake.e2e_${randomUUID().slice(0, 8)}` },
+): Promise<string> {
+  const title = `Live event ${randomUUID().slice(0, 8)}`;
+  const { error } = await adminClient().from("activity_events").insert({
+    workspace_id: workspace.id,
+    ...source,
+    severity: "info",
+    title,
+    occurred_at: new Date().toISOString(),
+    dedupe_key: `e2e-timeline-live-${randomUUID()}`,
+  });
+  if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
+  return title;
+}
+
+/**
+ * For the live updates the open details hold (#477). Call before the page opens: the page's timers
+ * then run on Playwright's clock, so the test can end every refresh wait at once.
+ */
+async function watchHeldRefreshes(page: Page, workspace: TestWorkspace, path: string) {
+  await page.clock.install();
+  const live = watchLiveChannel(page, workspace.id);
+  const renders: string[] = [];
+  page.on("request", (request) => {
+    if (isRenderRequest(request, path)) renders.push(request.url());
+  });
+  return {
+    live,
+    /**
+     * With the details open, writes a live event and expects no refresh past the longest wait
+     * before one; returns the event's title. Only renders from here count: a seeded row Realtime
+     * delivers late (#226) may refresh the page before the details open.
+     */
+    async expectHeldWhileOpen(): Promise<string> {
+      renders.length = 0;
+      const title = await insertLiveEvent(workspace);
+      await expect.poll(() => deliveredEvent(live, title), { timeout: LIVE_TIMEOUT_MS }).toBe(true);
+      // A round trip so the page has handled the change, then past the longest wait before a
+      // refresh, and another round trip for any request that sends.
+      await page.evaluate(() => undefined);
+      await page.clock.runFor(REFRESH_MAX_WAIT_MS);
+      await page.evaluate(() => undefined);
+      expect(renders, "a live refresh ran while the details were open").toEqual([]);
+      await expect(page.getByRole("heading", { name: title, exact: true })).toHaveCount(0);
+      return title;
+    },
+  };
+}
+
 ownerTest.describe("timeline event inspector", () => {
   for (const width of [1280, 375]) {
     inspectorEvidenceTest(`opens, shares, navigates, and restores the timeline from the keyboard at ${width}px`, async ({ page, context }) => {
@@ -1699,54 +1754,96 @@ ownerTest.describe("timeline event inspector", () => {
     const workspace = await seedTimeline("Inspector live update");
     try {
       const path = `/w/${workspace.slug}/timeline`;
-      // The page's timers run on Playwright's clock, so the test can end every refresh wait at once.
-      await page.clock.install();
+      const watch = await watchHeldRefreshes(page, workspace, path);
+      await page.goto(path);
+      await expectSubscribed(watch.live);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+
+      const first = await watch.expectHeldWhileOpen();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(path);
+      await expect(page.getByRole("heading", { name: first, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+
+      await page.getByRole("link", { name: "Synthetic event 1", exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await page.getByRole("link", { name: first, exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: first, exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+
+      // Forward reopens them from the URL, which holds live updates the same way.
+      await page.goForward();
+      await expect(inspector.getByRole("heading", { name: first, exact: true })).toBeVisible();
+      const second = await watch.expectHeldWhileOpen();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page.getByRole("heading", { name: second, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await page.getByRole("link", { name: "Synthetic event 2", exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 2", exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // A shared link closes with replaceState, so the timeline entry keeps the search the link was
+  // rendered with. An event opened from it, a live update, and Forward back to that event must still
+  // open it: Forward reopens from the URL, which holds live updates too.
+  ownerTest("reopens with Forward after a shared link was closed and a live update arrived", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector shared live update");
+    try {
+      const path = `/w/${workspace.slug}/timeline`;
+      const watch = await watchHeldRefreshes(page, workspace, path);
+      const { data: event, error } = await adminClient()
+        .from("activity_events")
+        .select("id")
+        .eq("workspace_id", workspace.id)
+        .eq("title", "Synthetic event 0")
+        .single();
+      if (error) throw new Error(`Reading the shared event failed (code ${error.code}).`);
+      await page.goto(`${path}?event=${event.id}`);
+      await expectSubscribed(watch.live);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+      await inspector.getByRole("button", { name: "Close event" }).click();
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(path);
+
+      await page.getByRole("link", { name: "Synthetic event 1", exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+      const title = await watch.expectHeldWhileOpen();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+
+      await page.goForward();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // The hold ends when the details leave with their route: live updates reach the next page.
+  ownerTest("keeps live updates after following a related event link from the open details", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector related live update");
+    try {
+      const path = `/w/${workspace.slug}/timeline`;
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(path);
       await expectSubscribed(live);
       const inspector = page.getByRole("dialog", { name: "Event details" });
       await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
       await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
-
-      // Counted from here: a seeded row Realtime delivers late (#226) may refresh before the open.
-      const renders: string[] = [];
-      page.on("request", (request) => {
-        if (isRenderRequest(request, path)) renders.push(request.url());
-      });
-      const title = `Live event ${randomUUID().slice(0, 8)}`;
-      const { error } = await adminClient().from("activity_events").insert({
-        workspace_id: workspace.id,
-        provider: "vercel",
-        type_id: "vercel.deployment_ready",
-        severity: "info",
-        title,
-        occurred_at: new Date().toISOString(),
-        dedupe_key: `e2e-timeline-live-${randomUUID()}`,
-      });
-      if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
-      await expect.poll(() => deliveredEvent(live, title), { timeout: LIVE_TIMEOUT_MS }).toBe(true);
-      // A round trip so the page has handled the change, past the longest wait before a refresh,
-      // and another round trip for any request that sends.
-      await page.evaluate(() => undefined);
-      await page.clock.runFor(REFRESH_MAX_WAIT_MS);
-      await page.evaluate(() => undefined);
-      expect(renders, "a live refresh ran while the details were open").toEqual([]);
-      await expect(page.getByRole("heading", { name: title, exact: true })).toHaveCount(0);
-
-      await page.keyboard.press("Escape");
+      await inspector.getByRole("link", { name: "Show only this event type", exact: true }).click();
+      await expect(page).toHaveURL(`${path}?type=vercel.deployment_ready`);
       await expect(inspector).toBeHidden();
-      await expect(page).toHaveURL(path);
+
+      const title = await insertLiveEvent(workspace, { provider: "vercel", type_id: "vercel.deployment_ready" });
       await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
-
-      await page.getByRole("link", { name: "Synthetic event 1", exact: true }).click();
-      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
-      if (process.env.PW_PR_EVIDENCE === "1") {
-        await page.screenshot({ path: "pr-evidence/after/inspector-after-live-update.png", animations: "disabled" });
-      }
-      await page.keyboard.press("Escape");
-      await expect(inspector).toBeHidden();
-      await page.getByRole("link", { name: title, exact: true }).click();
-      await expect(inspector.getByRole("heading", { name: title, exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -341,16 +341,20 @@ describe("createRefreshHolds", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("waits for the last of two holds, released in either order", () => {
+  it.each([
+    { order: "the earlier hold first", earlierFirst: true },
+    { order: "the later hold first", earlierFirst: false },
+  ])("waits for the last of two holds, released $order", ({ earlierFirst }) => {
     const { holds, refresh, scheduler } = setupHeld();
-    const first = holds.hold();
-    const second = holds.hold();
+    const earlier = holds.hold();
+    const later = holds.hold();
+    const [releasedFirst, releasedLast] = earlierFirst ? [earlier, later] : [later, earlier];
     scheduler.notify();
-    first();
+    releasedFirst();
     vi.runAllTimers();
     expect(holds.held()).toBe(true);
     expect(refresh).not.toHaveBeenCalled();
-    second();
+    releasedLast();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
