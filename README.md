@@ -11,8 +11,7 @@ product preview, the StackDash logo, a note that StackDash is open source with a
 
 <img width="1280" height="1080" alt="5c74ee55-5622-48f7-b164-835cbf2ddd71" src="https://github.com/user-attachments/assets/888fc186-ff57-4f30-92df-cd0df1095c64" />
 
-This branch has its own history and is never merged to `main`. The product itself lives on `main`.
-Tracked in issue #438.
+This branch has its own history and is never merged to `main`. Tracked in issue #438.
 
 ## Run it
 
