@@ -504,14 +504,23 @@ function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now
   const key = signingKey(secret);
   if (key === null) return { ok: false, reason: "bad_signature" };
   const expected = svixSignature(key, deliveryId, timestamp, rawBody);
-  const matched = signatures.split(/\s+/).some((candidate) => safeEqual(candidate, expected));
+  // Every entry is compared, as Stripe's verify does, so the time taken does not say which matched.
+  let matched = false;
+  for (const candidate of signatures.split(/\s+/)) matched = safeEqual(candidate, expected) || matched;
   return matched ? { ok: true, deliveryId } : { ok: false, reason: "bad_signature" };
 }
 
 /**
  * Maps a verified `domain.updated` through the sync's own builder, dated to when Resend created the
- * event. A status the timeline does not show (pending, partially verified) is ignored, as the sync
- * ignores it. Reads the domain's id, name, and status only.
+ * event. Reads the domain's id, name, and status only.
+ *
+ * Not the same rule as polling. The sync emits an event only when a domain moves into `verified` or
+ * `failed` since its last snapshot (the cursor), and nothing on the first sync. A delivery carries
+ * no previous status and `parse` has no cursor, so it reports the domain's current status on every
+ * `domain.updated`: if Resend sends one for an update that is not a status change (unverified,
+ * docs/providers/resend.md), an already verified domain gets one "verified" event dated then. The
+ * shared dedupe key stores that at most once per domain and status. Whether to gate deliveries on
+ * the polling cursor instead is a decision on #427.
  */
 function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
   let raw: unknown;
@@ -540,12 +549,18 @@ function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): Webhook
   return { kind: "events", externalAccountId: RESEND_TEAM_EXTERNAL_ID, events: [event] };
 }
 
-/** `POST /webhooks`: the response carries the new webhook's signing secret (API reference, Create Webhook). */
+/**
+ * `POST /webhooks`: the response carries the new webhook's signing secret (API reference, Create
+ * Webhook). Only the fields used are required: Resend has already created the webhook by the time
+ * the response is read, so a response that names it but carries no usable secret deletes it again
+ * (best effort) before failing, rather than leave a webhook nothing stored points at.
+ */
 async function createWebhook({ credential, url }: CreateWebhookInput, ctx: OAuthContext): Promise<Readonly<{ webhookId: string; secret: Secret }>> {
   const path: WebhookPath = "/webhooks";
+  const endpoint = new URL(path, API_BASE);
   const created = await fetchJson(
     ctx,
-    new URL(path, API_BASE),
+    endpoint,
     {
       method: "POST",
       headers: { ...bearerHeaders(credential), "Content-Type": "application/json" },
@@ -553,7 +568,16 @@ async function createWebhook({ credential, url }: CreateWebhookInput, ctx: OAuth
     },
     CreateWebhookResponseSchema,
   );
-  return { webhookId: created.id, secret: new Secret(created.signing_secret) };
+  const signingSecret = typeof created.signing_secret === "string" ? created.signing_secret.trim() : "";
+  if (signingSecret !== "" && signingKey(new Secret(signingSecret)) !== null) {
+    return { webhookId: created.id, secret: new Secret(signingSecret) };
+  }
+  try {
+    await removeWebhook({ credential, webhookId: created.id }, ctx);
+  } catch (error) {
+    ctx.logger.warn("resend.webhook.cleanup_failed", { provider: "resend", error: error instanceof Error ? error.name : typeof error });
+  }
+  throw new InvalidResponseError("Resend created a webhook without a usable signing secret", { endpoint: `${endpoint.origin}${endpoint.pathname}` });
 }
 
 /** `DELETE /webhooks/:id`. A webhook already gone (the user deleted it in Resend) is removed. */

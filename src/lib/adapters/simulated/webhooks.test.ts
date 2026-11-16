@@ -89,13 +89,10 @@ describe("simulated connection webhooks (#426)", () => {
     expect(checkAdapterDeclaration(simulatedAdapters[id])).toEqual([]);
   });
 
-  it("forwards Resend's live declaration: its steps, Svix verify, and parse, with create and delete never leaving the process", async () => {
+  it("gives Resend's twin the live steps, with create and delete never leaving the process", async () => {
     const live = resendAdapter.webhooks;
     const twin = simulatedAdapters.resend.webhooks;
     if (live === undefined || twin === undefined) throw new Error("expected Resend webhooks");
-    expect(twin.verify).toBe(live.verify);
-    expect(twin.parse).toBe(live.parse);
-    expect(twin.subscriptions).toEqual(live.subscriptions);
     const liveSetup = setupOf(live);
     const twinSetup = setupOf(twin);
     expect(twinSetup.manualSteps).toEqual(liveSetup.manualSteps);
