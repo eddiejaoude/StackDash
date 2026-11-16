@@ -112,7 +112,7 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 
 ### Test mode, live mode, and sandboxes
 
-- A connection is one Stripe account in one environment. Live and test data never mix: key the connection on `stripe_user_id` plus `livemode`.
+- A connection is one Stripe account in one environment. Polled data never mixes, because each connection syncs with its own mode's key. Webhook deliveries are not yet routed by mode, so a live delivery also reaches a test mode connection of the same account: see [Webhooks](#webhooks), "Known gap".
 - `livemode=false` on objects and events does not say which kind of sandbox it came from.
 - Sandbox installs of a public app need `sandbox_install_compatible: true` in the manifest and use the managed sandbox keys. The MVP does not need general sandbox installs. Live mode plus, for development, the legacy test mode link is enough.
 
