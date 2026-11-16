@@ -1833,51 +1833,78 @@ ownerTest.describe("timeline event inspector", () => {
   });
 
   // Closing a shared link waits for the router's render, so the URL still names the event for one
-  // server round trip. A row clicked in that window must still open its event, though the
-  // selection changes without the panel ever being seen as closed.
-  ownerTest("opens an event clicked while closing a shared link is still on its way", async ({ page }) => {
-    const workspace = await seedTimeline("Inspector shared close race");
-    try {
-      const path = `/w/${workspace.slug}/timeline`;
-      const { data: event, error } = await adminClient()
-        .from("activity_events")
-        .select("id")
-        .eq("workspace_id", workspace.id)
-        .eq("title", "Synthetic event 0")
-        .single();
-      if (error) throw new Error(`Reading the shared event failed (code ${error.code}).`);
-      await page.goto(`${path}?event=${event.id}`);
-      const inspector = page.getByRole("dialog", { name: "Event details" });
-      await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+  // server round trip. Whatever happens in that window must leave the details working: the row
+  // just closed or another row opens its event although `open` never turned false. Back leaves the
+  // document the shared link loaded, and Forward reopens the shared event. The other controls are
+  // inside the panel, which is already closed.
+  for (const during of ["the same event", "another event", "Back"] as const) {
+    ownerTest(`keeps the details working after ${during} while closing a shared link is on its way`, async ({ page }) => {
+      const workspace = await seedTimeline("Inspector shared close race");
+      try {
+        const path = `/w/${workspace.slug}/timeline`;
+        const { data: events, error } = await adminClient()
+          .from("activity_events")
+          .select("id, title")
+          .eq("workspace_id", workspace.id)
+          .in("title", ["Synthetic event 0", "Synthetic event 1"]);
+        if (error) throw new Error(`Reading the shared events failed (code ${error.code}).`);
+        const idOf = new Map(events.map((row) => [row.title, row.id]));
+        const sharedId = idOf.get("Synthetic event 0");
+        if (sharedId === undefined || events.length !== 2) throw new Error("Seeded events are missing.");
+        // A page before the shared link, for Back to leave to.
+        const connectionsPath = `/w/${workspace.slug}/connections`;
+        await page.goto(connectionsPath);
+        await page.goto(`${path}?event=${sharedId}`);
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
 
-      // Holds the close's render until the click has landed; any later render goes through.
-      const held = Promise.withResolvers<Route>();
-      let holding = true;
-      await page.route(
-        (url) => url.pathname === path,
-        async (route) => {
-          if (!holding || !isRenderRequest(route.request(), path)) return route.fallback();
-          holding = false;
-          held.resolve(route);
-        },
-      );
-      await inspector.getByRole("button", { name: "Close event" }).click();
-      await expect(inspector).toBeHidden();
-      const closing = await held.promise;
-      await expect(page).toHaveURL(new RegExp(`event=${event.id}$`));
-      await page.getByRole("link", { name: "Synthetic event 1", exact: true }).click();
-      await closing.continue();
-      await page.unrouteAll({ behavior: "ignoreErrors" });
+        // Holds the close's render until the step has landed; any later render goes through.
+        const held = Promise.withResolvers<Route>();
+        let holding = true;
+        await page.route(
+          (url) => url.pathname === path,
+          async (route) => {
+            if (!holding || !isRenderRequest(route.request(), path)) return route.fallback();
+            holding = false;
+            held.resolve(route);
+          },
+        );
+        await inspector.getByRole("button", { name: "Close event" }).click();
+        await expect(inspector).toBeHidden();
+        const closing = await held.promise;
+        await expect(page).toHaveURL(new RegExp(`event=${sharedId}$`));
 
-      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(inspector).toBeHidden();
-      await expect(page).toHaveURL(path);
-    } finally {
-      await page.unrouteAll({ behavior: "ignoreErrors" });
-      await deleteTestWorkspace(workspace);
-    }
-  });
+        const title = during === "another event" ? "Synthetic event 1" : "Synthetic event 0";
+        if (during === "Back") {
+          await page.goBack();
+          await expect(page).toHaveURL(connectionsPath);
+          await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connections");
+          await page.unrouteAll({ behavior: "ignoreErrors" });
+          await page.goForward();
+        } else {
+          // Read or abandoned, the held render has to end before a late close could show.
+          const request = closing.request();
+          const settled = Promise.race([
+            page.waitForEvent("requestfailed", { predicate: (failed) => failed === request }).then(() => "abandoned", () => "unsettled"),
+            page.waitForFunction((name) => performance.getEntriesByName(name).length > 0, request.url()).then(() => "read", () => "unsettled"),
+          ]);
+          await page.getByRole("link", { name: title, exact: true }).click();
+          await closing.continue();
+          expect(await settled, "the held render neither finished nor failed").not.toBe("unsettled");
+          await page.unrouteAll({ behavior: "ignoreErrors" });
+        }
+        await expect(page).toHaveURL(new RegExp(`event=${idOf.get(title)}$`));
+        await expect(inspector.getByRole("heading", { name: title, exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        await expect(page).toHaveURL(path);
+        expect(await page.evaluate(() => document.documentElement.style.overflow)).toBe("");
+      } finally {
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   // The hold ends when the details leave with their route: live updates reach the next page.
   ownerTest("keeps live updates after following a related event link from the open details", async ({ page }) => {

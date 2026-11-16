@@ -101,8 +101,10 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
     if (!open && dialog.ref.current?.open) dialog.close();
   });
   // On the selection too, not only `open`: while a shared link's close waits for the router, the
-  // URL still names the event, so a row clicked then replaces the selection without `open` ever
-  // turning false. Only a closed dialog opens, so Older and Newer change nothing here (#477).
+  // URL still names the event, so another row clicked then replaces the selection without `open`
+  // ever turning false, and this opens the panel on it once it has rendered. The same row clicked
+  // then changes neither, so `select` opens that one itself. Only a closed dialog opens, so Older
+  // and Newer change nothing here (#477).
   useEffect(() => { syncDialog(); }, [open, selectedId]);
 
   // With cacheComponents, Next hides a route it leaves instead of unmounting it, and an open modal
@@ -156,6 +158,12 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
     // `select` did not push, and the next close would go back out of the timeline.
     if (new URL(window.location.href).searchParams.has("event")) {
       replaceEntry(eventHref(baseHref, id));
+      // The event whose close is still on its way: no render follows a write of the same URL, so
+      // the effect above cannot reopen it.
+      if (id === selectedId && dialog.ref.current?.open === false) {
+        dialog.open(from);
+        opener.current = null;
+      }
       return;
     }
     pushed.current = true;
