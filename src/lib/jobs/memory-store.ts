@@ -83,6 +83,7 @@ export class MemoryJobStore implements JobStore {
       display_name: "Example connection",
       authorized_account_label: null,
       external_installation_id: null,
+      granted_at: null,
       granted_scopes: [],
       missing_scopes: [],
       poll_interval_seconds: 3600,
@@ -567,25 +568,24 @@ export class MemoryJobStore implements JobStore {
     const endpoint = endpointId === null ? null : this.webhookEndpoints.find((row) => row.id === endpointId);
     if (endpoint === undefined) return [];
     return this.accounts
-      .filter((account) => {
-        if (account.external_id !== externalAccountId || !account.included) return false;
+      .flatMap((account) => {
+        if (account.external_id !== externalAccountId || !account.included) return [];
         if (endpoint !== null && (endpoint.workspace_id !== account.workspace_id || endpoint.connection_id !== account.connection_id)) {
-          return false;
+          return [];
         }
         const connection = this.#connection({ workspaceId: account.workspace_id, connectionId: account.connection_id });
-        return (
-          connection !== undefined &&
-          connection.provider === provider &&
-          (connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention")
-        );
+        if (connection === undefined || connection.provider !== provider) return [];
+        const live = connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention";
+        return live ? [{ account, connection }] : [];
       })
-      .sort((a, b) => a.id.localeCompare(b.id))
+      .sort((a, b) => a.account.id.localeCompare(b.account.id))
       .slice(0, WEBHOOK_TARGET_LIMIT)
-      .map((account) => ({
+      .map(({ account, connection }) => ({
         workspaceId: account.workspace_id,
         connectionId: account.connection_id,
         accountId: account.id,
-        credentialUpdatedAt: this.credentialUpdatedAt.get(account.connection_id) ?? null,
+        // list_webhook_targets: the recorded grant, else the credential's last save.
+        grantedAt: connection.granted_at ?? this.credentialUpdatedAt.get(connection.id) ?? null,
       }));
   }
 
