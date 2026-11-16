@@ -324,8 +324,8 @@ Disclose these on the connect screen before redirecting:
 - Star history days are not UTC aligned; daily star events come from count snapshots and are net.
 - The stargazer list is restricted; StackDash never knows who starred.
 - Single star events come only by webhook. A missed `star` delivery shows in the daily net and the star counts, not as its own event.
-- Activity is read one page per list per repository per sync, within a 20 second budget. A repository with more than 30 merges or 100 new issues since its list was last read, and a missed webhook among them, can miss some; the truncation is logged. A repository the budget defers is read first on the next sync, from where it left off.
-- Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags, or later when the budget defers the repository. A repository with more than 300 events since the read window began (the feed's cap) can miss a release; the truncation is logged.
+- Activity is read one page per list per repository per sync (the events feed up to three), within a 20 second budget. A repository with more than 30 merges or 100 new issues since its list was last read, and a missed webhook among them, can miss some; the truncation is logged. A repository the budget defers is read first on the next sync, from where it left off.
+- Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags. A repository with more than 300 events since its feed was last read (the feed's cap) can miss a release, and that is logged as `github.sync.activity_truncated`. On an hourly read that takes more than 300 events an hour. A repository the budget defers is read less often, so in an installation with more busy repositories than one sync reaches, releases published between two of its turns can be missed, and each such turn logs it.
 - One installation per account. A user with a personal account and two organizations installs three times and gets three connections.
 - Enterprise accounts are out of scope.
 
