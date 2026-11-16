@@ -113,8 +113,8 @@ function pipelineId(slot: number, index: number): number {
  * A number for `lane` of `slot` that no other slot or lane shares (#386): a deployment's id, a merge
  * request's iid, a release's patch version. Lane 0, the default volume's, is the slot itself; a higher
  * volume's lanes are twenty times a slot plus the lane. For any two slots from 2001-09-09 (slot
- * 100,000,000) to the year 2600 (slot 2,000,000,000), twenty times one is past the other, so no lane
- * of one slot meets lane 0 of another.
+ * 100,000,000) to 2603-10-11 (slot 2,000,000,000), twenty times one plus a lane of 1 or more is past
+ * the other, so no higher lane of one slot meets lane 0 of another.
  */
 function laneSerial(slot: number, lane: number): number {
   return lane === 0 ? slot : slot * MAX_EVENT_VOLUME + lane;
