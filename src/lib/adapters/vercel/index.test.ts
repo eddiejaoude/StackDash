@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { hmacHex } from "@/lib/webhooks/signature";
 import {
   AuthRevokedError,
   InvalidResponseError,
@@ -7,9 +8,22 @@ import {
   RateLimitedError,
 } from "../errors";
 import { validateAdapterEvents } from "../events";
+import { checkAdapterDeclaration, checkWebhookOutcome } from "../harness";
 import { validateAdapterMetrics } from "../metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
-import { MAX_DEPLOYMENT_PAGES, vercelAdapter } from "./index";
+import {
+  Secret,
+  type FetchLike,
+  type OAuthContext,
+  type OAuthCredential,
+  type WebhookDescriptor,
+  type WebhookRequest,
+} from "../types";
+import {
+  MAX_DEPLOYMENT_PAGES,
+  VERCEL_SIGNATURE_HEADER,
+  VERCEL_WEBHOOK_TOLERANCE_SECONDS,
+  vercelAdapter,
+} from "./index";
 
 // Every fixture below is from documentation, not recorded: the sample payloads on
 // docs/providers/vercel.md (Vercel REST API reference examples), trimmed, with synthetic ids and
@@ -24,6 +38,16 @@ import team from "./fixtures/team.json";
 //   documentation's string-typed timestamps.
 import deploymentsPage1 from "./fixtures/deployments-page-1.json";
 import deploymentsPage2 from "./fixtures/deployments-page-2.json";
+
+// - webhook-*.json: webhook deliveries built from the field tables of Vercel's Webhooks API
+//   reference (envelope `{ id, type, createdAt, region, payload }`), with synthetic ids. The
+//   deployment ids match the deployments fixtures, so a delivery and a poll of one deployment can
+//   be compared. Git `meta`, `url`, and `alias` are kept so the tests prove they are dropped;
+//   `payload.alias` is documented for `deployment.created` only and is added to the succeeded
+//   delivery for that reason.
+import webhookDeploymentError from "./fixtures/webhook-deployment-error.json";
+import webhookDeploymentSucceeded from "./fixtures/webhook-deployment-succeeded.json";
+import webhookRemoved from "./fixtures/webhook-integration-configuration-removed.json";
 
 // - billing-charges.jsonl: GET /v1/billing/charges FOCUS rows, one per line, with sub-cent usage
 //   amounts so the single rounding step is observable.
@@ -581,5 +605,206 @@ describe("vercelAdapter.sync", () => {
     await expect(vercelAdapter.sync({ ...teamSync, externalAccountId: "team_other" }, ctx)).rejects.toThrow(
       /does not cover/,
     );
+  });
+});
+
+describe("vercelAdapter webhooks", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+  const CLIENT_SECRET = new Secret(["example", "client", "value"].join("-"));
+  const SUCCEEDED_BODY = JSON.stringify(webhookDeploymentSucceeded);
+  const TOLERANCE_MS = VERCEL_WEBHOOK_TOLERANCE_SECONDS * 1000;
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = vercelAdapter;
+    if (webhooks === undefined) throw new Error("the Vercel adapter declares no webhook");
+    return webhooks;
+  }
+
+  type Delivery = Partial<{ secret: Secret; signedBody: string; signature: string | null }>;
+
+  // A delivery as Vercel sends it: the hex HMAC SHA-1 of the raw body under the client secret.
+  // Each option bends one part of it for a boundary test.
+  function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
+    const headers = new Headers({ "content-type": "application/json" });
+    const signature =
+      options.signature === undefined ? hmacHex("sha1", options.secret ?? CLIENT_SECRET, options.signedBody ?? rawBody) : options.signature;
+    if (signature !== null) headers.set(VERCEL_SIGNATURE_HEADER, signature);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  function verified(rawBody: string) {
+    return descriptor().verify(delivery(rawBody), CLIENT_SECRET, NOW);
+  }
+
+  function parsed(rawBody: string) {
+    const request = delivery(rawBody);
+    expect(descriptor().verify(request, CLIENT_SECRET, NOW).ok).toBe(true);
+    return descriptor().parse(request, makeCtx(fakeVercel().fetch).ctx);
+  }
+
+  function withEnvelope(overrides: Record<string, unknown>, base: object = webhookDeploymentSucceeded): string {
+    return JSON.stringify({ ...base, ...overrides });
+  }
+
+  function withPayload(overrides: Record<string, unknown>, base: { payload: object } = webhookDeploymentSucceeded): string {
+    return JSON.stringify({ ...base, payload: { ...base.payload, ...overrides } });
+  }
+
+  it("is registered on the integration with the client secret and subscribes to the events it maps", () => {
+    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: vercelAdapter.oauth.clientSecretEnv });
+    expect(descriptor().subscriptions).toEqual(["deployment.succeeded", "deployment.error", "integration-configuration.removed"]);
+    expect(checkAdapterDeclaration(vercelAdapter)).toEqual([]);
+  });
+
+  it("verifies the recorded delivery and maps it to the event the sync stores for the same deployment", async () => {
+    const request = delivery(SUCCEEDED_BODY);
+    expect(descriptor().verify(request, CLIENT_SECRET, NOW)).toEqual({ ok: true, deliveryId: "evt_exampleSucceeded0001" });
+    const outcome = descriptor().parse(request, makeCtx(fakeVercel().fetch).ctx);
+    expect(checkWebhookOutcome(vercelAdapter, outcome)).toEqual([]);
+
+    const polled = (await vercelAdapter.sync(teamSync, makeCtx(fakeVercel().fetch).ctx)).events.find(
+      (event) => event.dedupeKey === "dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa:READY",
+    );
+    expect(polled).toBeDefined();
+    // One dedupe key, so the timeline stores it once. Dated to when Vercel generated the event,
+    // one second after the deployment's `ready` time the poll reads.
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: TEAM_ID,
+      events: [{ ...polled, occurredAt: new Date(1793444701000) }],
+    });
+    const serialized = JSON.stringify(outcome);
+    for (const dropped of ["example commit", "example-dev", USER_ID, "docs-9jaeg38me.vercel.app", "docs.example.com"]) {
+      expect(serialized).not.toContain(dropped);
+    }
+  });
+
+  it("maps a failed production deployment to the polled failure's type, title, and dedupe key, without an error code", async () => {
+    const outcome = parsed(JSON.stringify(webhookDeploymentError));
+    expect(checkWebhookOutcome(vercelAdapter, outcome)).toEqual([]);
+    const polled = (await vercelAdapter.sync(teamSync, makeCtx(fakeVercel().fetch).ctx)).events.find(
+      (event) => event.dedupeKey === "dpl_3fErC2xYdDMDG1jTrHFnNZ2eUVc:ERROR",
+    );
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: TEAM_ID,
+      events: [
+        {
+          typeId: polled?.typeId,
+          occurredAt: new Date(1793441101000),
+          severity: "critical",
+          title: polled?.title,
+          externalAccountId: TEAM_ID,
+          dedupeKey: polled?.dedupeKey,
+          url: "https://vercel.com/acme/web/M4kAQ33tmXhrBisHHi0gqGwsVlYt",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["a preview (null target)", { target: null }, "Preview deployment of web failed"],
+    ["a staging target", { target: "staging" }, "Staging deployment of web failed"],
+    ["no target at all", { target: undefined }, "Preview deployment of web failed"],
+  ])("maps a failure on %s to a warning (boundary)", (_case, payload, title) => {
+    const outcome = parsed(withPayload(payload, webhookDeploymentError));
+    expect(outcome).toMatchObject({ kind: "events", events: [{ title, severity: "warning" }] });
+  });
+
+  it.each([
+    ["a dashboard link that is not https", { links: { deployment: "http://vercel.com/acme/docs/J1hX" } }],
+    ["no links", { links: null }],
+  ])("drops %s from the event (boundary)", (_case, payload) => {
+    const outcome = parsed(withPayload(payload));
+    expect(outcome.kind).toBe("events");
+    if (outcome.kind === "events") expect(outcome.events[0]).not.toHaveProperty("url");
+  });
+
+  it.each([
+    ["team is null", { team: null }],
+    ["team.id is null", { team: { id: null } }],
+    ["team is absent", { team: undefined }],
+  ])("maps a Hobby delivery to the user's account when %s (boundary)", (_case, payload) => {
+    const outcome = parsed(withPayload(payload));
+    expect(outcome).toMatchObject({ kind: "events", externalAccountId: USER_ID, events: [{ externalAccountId: USER_ID }] });
+    expect(checkWebhookOutcome(vercelAdapter, outcome)).toEqual([]);
+  });
+
+  it("reports an uninstall for the team, at the time Vercel generated the event", () => {
+    const outcome = parsed(JSON.stringify(webhookRemoved));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: TEAM_ID, occurredAt: new Date(1793448000000) });
+    expect(checkWebhookOutcome(vercelAdapter, outcome)).toEqual([]);
+  });
+
+  it("reports a Hobby uninstall for the user's account (boundary)", () => {
+    const outcome = parsed(withPayload({ team: null }, webhookRemoved));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: USER_ID, occurredAt: new Date(1793448000000) });
+  });
+
+  it.each([
+    ["a deployment", webhookDeploymentSucceeded, "events"],
+    ["an uninstall", webhookRemoved, "uninstalled"],
+  ])("maps %s for a team without an acting user (boundary)", (_case, base, kind) => {
+    for (const user of [undefined, null]) {
+      expect(parsed(withPayload({ user }, base))).toMatchObject({ kind, externalAccountId: TEAM_ID });
+    }
+  });
+
+  it.each<[string, string, Delivery, string]>([
+    ["no signature header", SUCCEEDED_BODY, { signature: null }, "missing_signature"],
+    ["an empty signature header", SUCCEEDED_BODY, { signature: "" }, "missing_signature"],
+    ["a signature made with another secret", SUCCEEDED_BODY, { secret: new Secret("another-client-value") }, "bad_signature"],
+    ["a SHA-256 signature instead of SHA-1", SUCCEEDED_BODY, { signature: hmacHex("sha256", CLIENT_SECRET, SUCCEEDED_BODY) }, "bad_signature"],
+    ["an uppercase hex signature", SUCCEEDED_BODY, { signature: hmacHex("sha1", CLIENT_SECRET, SUCCEEDED_BODY).toUpperCase() }, "bad_signature"],
+    ["a tampered body", SUCCEEDED_BODY.replace("docs", "evil"), { signedBody: SUCCEEDED_BODY }, "bad_signature"],
+    // A captured delivery re-sent under a new id: the id is inside the signed body.
+    ["a valid delivery replayed under another id", withEnvelope({ id: "evt_replayed" }), { signedBody: SUCCEEDED_BODY }, "bad_signature"],
+    ["a signed body that is not JSON", "type=deployment.succeeded", {}, "malformed"],
+    ["no delivery id", withEnvelope({ id: undefined }), {}, "malformed"],
+    ["a blank delivery id", withEnvelope({ id: "   " }), {}, "malformed"],
+    ["a delivery id of 201 characters", withEnvelope({ id: "e".repeat(201) }), {}, "malformed"],
+    ["no createdAt", withEnvelope({ createdAt: undefined }), {}, "malformed"],
+    ["a createdAt one second past the tolerance", withEnvelope({ createdAt: NOW.getTime() - TOLERANCE_MS - 1000 }), {}, "stale"],
+    ["a createdAt one second past the tolerance in the future", withEnvelope({ createdAt: NOW.getTime() + TOLERANCE_MS + 1000 }), {}, "stale"],
+  ])("rejects a delivery with %s (boundary)", (_case, body, options, reason) => {
+    expect(descriptor().verify(delivery(body, options), CLIENT_SECRET, NOW)).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ["exactly at the tolerance", NOW.getTime() - TOLERANCE_MS],
+    ["just under 24 hours old, Vercel's last retry", NOW.getTime() - 24 * HOUR_MS + 1000],
+  ])("accepts a createdAt %s (boundary)", (_case, createdAt) => {
+    expect(verified(withEnvelope({ createdAt }))).toEqual({ ok: true, deliveryId: "evt_exampleSucceeded0001" });
+  });
+
+  it("accepts a delivery id of exactly 200 characters, trimmed (boundary)", () => {
+    const id = "e".repeat(200);
+    expect(verified(withEnvelope({ id: ` ${id} ` }))).toEqual({ ok: true, deliveryId: id });
+  });
+
+  it.each([
+    ["project.created, since accounts are teams and not projects", withEnvelope({ type: "project.created" })],
+    ["project.removed", withEnvelope({ type: "project.removed" })],
+    ["deployment.created, which the sync never shows", withEnvelope({ type: "deployment.created" })],
+    ["deployment.canceled", withEnvelope({ type: "deployment.canceled" })],
+    ["deployment.ready, sent only to integrations that register checks", withEnvelope({ type: "deployment.ready" })],
+    ["a JSON array", "[]"],
+  ])("ignores %s without a warning (boundary)", (_case, body) => {
+    const { ctx, logger } = makeCtx(fakeVercel().fetch);
+    const outcome = descriptor().parse(delivery(body), ctx);
+    expect(outcome).toMatchObject({ kind: "ignored" });
+    expect(checkWebhookOutcome(vercelAdapter, outcome)).toEqual([]);
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a deployment delivery without a deployment id", withPayload({ deployment: { name: "docs" } }), "deployment.succeeded"],
+    ["a Hobby deployment delivery without a user", withPayload({ team: null, user: undefined }), "deployment.succeeded"],
+    ["a Hobby uninstall with a null user", withPayload({ team: { id: null }, user: null }, webhookRemoved), "integration-configuration.removed"],
+  ])("ignores %s and warns with the event type only (boundary)", (_case, body, type) => {
+    const { ctx, logger } = makeCtx(fakeVercel().fetch);
+    const outcome = descriptor().parse(delivery(body), ctx);
+    expect(outcome).toEqual({ kind: "ignored", reason: "not a delivery Vercel maps" });
+    expect(logger.warn).toHaveBeenCalledExactlyOnceWith("vercel.webhook.unreadable", { type });
   });
 });

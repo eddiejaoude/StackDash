@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { addDecimals, InvalidDecimalError, toMinorUnits, type Decimal } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { hmacHex, isFresh, safeEqual } from "@/lib/webhooks/signature";
 import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
@@ -12,6 +13,7 @@ import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
   Secret,
+  type AdapterContext,
   type ExternalAccount,
   type FetchLike,
   type OAuthContext,
@@ -19,13 +21,20 @@ import {
   type ProviderAdapter,
   type SyncInput,
   type SyncResult,
+  type WebhookOutcome,
+  type WebhookRequest,
+  type WebhookVerification,
 } from "../types";
 import {
   BillingChargesSchema,
   chargeCategories,
+  deploymentWebhookTypes,
   DeploymentsPageSchema,
   TeamSchema,
   TokenResponseSchema,
+  UNINSTALL_WEBHOOK_TYPE,
+  WebhookDeliverySchema,
+  WebhookEnvelopeSchema,
   type BillingCharge,
   type Deployment,
 } from "./schemas";
@@ -37,6 +46,17 @@ import {
  *
  * Calls only list endpoints. Never call `GET /v9/projects/{idOrName}` or any environment
  * variable endpoint: the project detail response carries environment variable records.
+ *
+ * Webhooks (#422): the integration's one Webhook URL is StackDash's app-level URL, and Vercel
+ * signs each delivery with the integration's client secret (`x-vercel-signature`, hex HMAC SHA-1
+ * of the raw body). Vercel sends no timestamp or delivery id header: both are envelope fields
+ * (`createdAt`, `id`) inside the signed body. Replay posture, as docs/adapters.md asks:
+ * - A captured delivery posted again carries its own signed `id`, so it is a duplicate for the
+ *   30 days StackDash keeps delivery ids, and it cannot be re-sent under a new id without the
+ *   secret: changing the id breaks the signature.
+ * - The signed `createdAt` must be within VERCEL_WEBHOOK_TOLERANCE_SECONDS of now, which covers
+ *   Vercel's 24 hours of retries, so a delivery captured more than a day ago is `stale` long
+ *   before its id leaves the deduplication window.
  */
 
 const API_ORIGIN = "https://api.vercel.com";
@@ -324,19 +344,32 @@ function environmentLabel(target: string | null | undefined): string {
   return "Preview";
 }
 
-/** Only finished deployments become events; personal creator fields never reach here. */
-export function deploymentEvent(deployment: Deployment, externalAccountId: string): ActivityEvent | undefined {
+/**
+ * A finished deployment as both read paths describe it: the deployments list (`deploymentEvent`)
+ * and a webhook delivery (`parseWebhook`). One builder, so a deployment pushed by
+ * webhook and then polled shares its type, title, severity, and dedupe key and is stored once.
+ */
+type FinishedDeployment = Readonly<{
+  uid: string;
+  name: string;
+  readyState: "READY" | "ERROR";
+  target: string | null | undefined;
+  occurredAt: Date;
+  errorCode: string | null | undefined;
+  inspectorUrl: string | null | undefined;
+}>;
+
+function finishedDeploymentEvent(deployment: FinishedDeployment, externalAccountId: string): ActivityEvent {
   const { readyState } = deployment;
-  if (readyState !== "READY" && readyState !== "ERROR") return undefined;
   const succeeded = readyState === "READY";
   const environment = environmentLabel(deployment.target);
   const event: ActivityEvent = {
     typeId: succeeded ? "vercel.deployment.succeeded" : "vercel.deployment.failed",
-    occurredAt: new Date(deployment.ready ?? deployment.created),
+    occurredAt: deployment.occurredAt,
     severity: succeeded ? "success" : deployment.target === "production" ? "critical" : "warning",
     title: `${environment} deployment of ${deployment.name} ${succeeded ? "succeeded" : "failed"}`,
     externalAccountId,
-    // Stable across re-polls: one event per deployment and final state.
+    // Stable across re-polls and webhook deliveries: one event per deployment and final state.
     dedupeKey: `${deployment.uid}:${readyState}`,
   };
   const errorCode = deployment.errorCode?.trim();
@@ -346,6 +379,24 @@ export function deploymentEvent(deployment: Deployment, externalAccountId: strin
   const link = HttpsUrlSchema.safeParse(deployment.inspectorUrl);
   if (link.success) event.url = link.data;
   return event;
+}
+
+/** Only finished deployments become events; personal creator fields never reach here. */
+export function deploymentEvent(deployment: Deployment, externalAccountId: string): ActivityEvent | undefined {
+  const { readyState } = deployment;
+  if (readyState !== "READY" && readyState !== "ERROR") return undefined;
+  return finishedDeploymentEvent(
+    {
+      uid: deployment.uid,
+      name: deployment.name,
+      readyState,
+      target: deployment.target,
+      occurredAt: new Date(deployment.ready ?? deployment.created),
+      errorCode: deployment.errorCode,
+      inspectorUrl: deployment.inspectorUrl,
+    },
+    externalAccountId,
+  );
 }
 
 /** The cursor is the latest deployment `created` time seen, in Unix milliseconds. */
@@ -399,6 +450,88 @@ async function syncDeployments(
   }
 
   return { events: [...events.values()], latestCreated };
+}
+
+/* Webhook -------------------------------------------------------------------------------------- */
+
+export const VERCEL_SIGNATURE_HEADER = "x-vercel-signature";
+// Vercel documents no signature tolerance, but it retries a failed delivery with backoff for up to
+// 24 hours and then discards it (docs/providers/vercel.md, "Webhooks"). One hour more absorbs a
+// last retry's own delay and clock skew; nothing older is a delivery Vercel would still send.
+export const VERCEL_WEBHOOK_TOLERANCE_SECONDS = 25 * 60 * 60;
+
+// The events StackDash maps. `deployment.ready` fires only for an integration that registers
+// checks, which StackDash does not; `deployment.created` and `deployment.canceled` are states the
+// sync never shows; project events are ignored because a Vercel account in StackDash is a team or
+// a personal account, never a project (#422, plan step 5).
+const WEBHOOK_SUBSCRIPTIONS = [...deploymentWebhookTypes, UNINSTALL_WEBHOOK_TYPE] as const;
+const mappedWebhookTypes: ReadonlySet<string> = new Set(WEBHOOK_SUBSCRIPTIONS);
+const WebhookTypeSchema = z.object({ type: z.string() });
+
+/** The decoded JSON body, or undefined when it is not JSON. Only read once the signature matches. */
+function readJsonBody(rawBody: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(rawBody));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return undefined;
+  }
+}
+
+/**
+ * The signature first, over the raw bytes and in constant time; then the envelope, which carries
+ * the delivery id and the timestamp inside the signed body (see the header comment for what that
+ * means for replay).
+ */
+function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const signature = headers.get(VERCEL_SIGNATURE_HEADER);
+  if (!signature) return { ok: false, reason: "missing_signature" };
+  if (!safeEqual(signature, hmacHex("sha1", secret, rawBody))) return { ok: false, reason: "bad_signature" };
+  const envelope = WebhookEnvelopeSchema.safeParse(readJsonBody(rawBody));
+  if (!envelope.success) return { ok: false, reason: "malformed" };
+  if (!isFresh(envelope.data.createdAt / 1000, now, VERCEL_WEBHOOK_TOLERANCE_SECONDS)) return { ok: false, reason: "stale" };
+  return { ok: true, deliveryId: envelope.data.id };
+}
+
+/**
+ * Maps a verified delivery. A deployment goes through the sync's own builder, dated to when Vercel
+ * generated the event. A delivery carries no error code, so a failed deployment pushed first is
+ * stored without the "Error code" line a poll would add (events are stored once, first write wins);
+ * #499 owns getting it back.
+ */
+function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
+  const raw = readJsonBody(rawBody);
+  const typed = WebhookTypeSchema.safeParse(raw);
+  if (!typed.success) return { kind: "ignored", reason: "not a Vercel webhook delivery" };
+  const { type } = typed.data;
+  if (!mappedWebhookTypes.has(type)) return { kind: "ignored", reason: "event type is not on the timeline" };
+  const parsed = WebhookDeliverySchema.safeParse(raw);
+  // The team, or the user for a Hobby account: the external account `sync` reads.
+  const externalAccountId = parsed.success ? (parsed.data.payload.team?.id ?? parsed.data.payload.user?.id) : undefined;
+  if (!parsed.success || externalAccountId === undefined) {
+    // A subscribed event StackDash cannot read means Vercel changed the payload: every such
+    // delivery is acknowledged and dropped, so say so. `type` is one of the subscribed names and
+    // quotes nothing else from the body.
+    ctx.logger.warn("vercel.webhook.unreadable", { type });
+    return { kind: "ignored", reason: "not a delivery Vercel maps" };
+  }
+  const delivery = parsed.data;
+  const occurredAt = new Date(delivery.createdAt);
+  if (delivery.type === UNINSTALL_WEBHOOK_TYPE) return { kind: "uninstalled", externalAccountId, occurredAt };
+  const { deployment, links, target } = delivery.payload;
+  const event = finishedDeploymentEvent(
+    {
+      uid: deployment.id,
+      name: deployment.name,
+      readyState: delivery.type === "deployment.succeeded" ? "READY" : "ERROR",
+      target,
+      occurredAt,
+      errorCode: undefined,
+      inspectorUrl: links?.deployment,
+    },
+    externalAccountId,
+  );
+  return { kind: "events", externalAccountId, events: [event] };
 }
 
 export const vercelAdapter: ProviderAdapter = {
@@ -457,6 +590,14 @@ export const vercelAdapter: ProviderAdapter = {
     extraEnv: { [SLUG_EXTRA_KEY]: "VERCEL_INTEGRATION_SLUG" },
   },
   pollIntervalSeconds: 3600,
+  // App-level: the integration has one Webhook URL for every installation, signed with the client
+  // secret the OAuth exchange already uses, so no new setting is needed.
+  webhooks: {
+    registration: { kind: "app", secretEnv: "VERCEL_CLIENT_SECRET" },
+    subscriptions: WEBHOOK_SUBSCRIPTIONS,
+    verify: verifyWebhook,
+    parse: parseWebhook,
+  },
 
   buildAuthorizeUrl({ client, state }) {
     const slug = client.extra[SLUG_EXTRA_KEY]?.reveal().trim();
