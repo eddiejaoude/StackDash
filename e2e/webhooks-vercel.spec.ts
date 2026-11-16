@@ -100,7 +100,9 @@ ownerTest.describe("Vercel webhooks", () => {
 
       // Stored under the provider's prefix, the key a poll of the same deployment would use.
       await tickUntilStored(page, workspace, `vercel:${deploymentId}:READY`);
-      await page.goto(`/w/${workspace.slug}/timeline?provider=vercel`);
+      // Searched by its project name: the simulated sync's own deployments are in the same window,
+      // and the timeline collapses a run of one type into a group, which would hide the title.
+      await page.goto(`/w/${workspace.slug}/timeline?provider=vercel&q=${projectName}`);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(events.getByRole("heading", { name: `Production deployment of ${projectName} succeeded`, exact: true })).toHaveCount(1);
 
