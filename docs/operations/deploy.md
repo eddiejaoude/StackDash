@@ -115,7 +115,7 @@ npm run invite -- tester@example.com
 npm run invite -- tester@example.com --remove     # same variables; stops new sign-ups only
 ```
 
-Start the line with a space if your shell is set to skip such lines in history, or export the key from your password manager instead of typing it. Invite the email that the tester's GitHub account exposes as its primary verified email, because that is what Supabase passes to the hook.
+Start the line with a space if your shell is set to skip such lines in history, or export the key from your password manager instead of typing it. Invite the email that the tester's GitHub account exposes as its primary verified email, because that is what Supabase passes to the hook. Removing an invite does not delete an account that already signed up.
 
 ## 5. Create the Vercel project
 
@@ -200,7 +200,15 @@ Losing `STACKDASH_ENCRYPTION_KEY` makes every stored provider credential unreada
 
 ### Key rotation
 
-Rotate `STACKDASH_ENCRYPTION_KEY` without downtime by moving the old key into `STACKDASH_ENCRYPTION_KEYS_PREVIOUS`, deploying, then running `npm run keys:rotate` with the production variables in the environment (the same way as `npm run invite`). The full procedure is in the header comment of `scripts/rotate-encryption-key.ts`.
+Rotate `STACKDASH_ENCRYPTION_KEY` without downtime with `npm run keys:rotate`, which re-encrypts stored credentials under the current key. Run it with the production variables in the environment, the same way as `npm run invite`. The full procedure is also in the header comment of `scripts/rotate-encryption-key.ts`:
+
+1. Generate a new key with `openssl rand -base64 32`.
+2. Work out the id of the key in use now, the first 8 hex characters of its SHA-256: `printf '%s' "$OLD_KEY" | openssl base64 -d -A | shasum -a 256 | cut -c1-8` (the script also prints the current key id on every run).
+3. Set `STACKDASH_ENCRYPTION_KEY` to the new key, add the old one to `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key`, and deploy. New credentials use the new key and old rows still decrypt.
+4. Once every running instance has the new configuration, run `npm run keys:rotate` with that environment's variables. It prints counts only and is safe to re-run; repeat until "remaining" is 0.
+5. After pending OAuth states sealed with the old key have expired, remove the old entry from `STACKDASH_ENCRYPTION_KEYS_PREVIOUS` and deploy again. The unsubscribe links in alert emails are signed with a key derived from the encryption key, so links in emails sent before the rotation stop working at this step; every newer email works.
+
+Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1). Those connections need reconnecting, and those alert channels need removing and adding again with their URL (alert settings marks them as needing attention after their next message).
 
 To rotate `CRON_SECRET`, set the new value in Vercel, deploy, then update the cron job as described in [Jobs](jobs.md#register-the-pg_cron-job). Ticks fail with `401` between the two steps, and the next tick after the update catches up.
 
@@ -243,3 +251,9 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **Page views are counted.** In a normal browser window, open the home page and a workspace timeline, then **Analytics** in the Vercel project: both views arrive, the timeline is listed under **Routes** as `/w/[workspace]/timeline`, and no address under **Pages** has a query string. An automated or headless browser shows nothing there: the script sends no views when the browser reports itself as automated. On both pages the browser console shows no Content Security Policy error, and the site's cookies in the developer tools are only the `sb-` ones, as the privacy policy says.
 - [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
 - [ ] **Link previews and crawl rules.** `curl -s https://<production-host>/docs | grep -oE '<(meta property="og:(title|url|image)"|link rel="canonical")[^>]*>'` prints the page's own title and production addresses, the `og:image` address answers `200` with a PNG, and `curl -s https://<production-host>/robots.txt` names `https://<production-host>/sitemap.xml` and disallows `/w/`, `/app`, `/api/`, `/auth/`, `/account`, and `/oauth`.
+
+## Instance overview
+
+`/app/admin` shows a super admin how this server is configured and used: whether each variable in [Environment variables](#environment-variables) is set (never its value) and what that means, which provider OAuth apps are registered and how many workspaces use each provider, the background job queue and its failures in the last 24 hours, users, workspaces with their members and timeline events, and whether the database has this build's migrations. Super admins are the addresses in `STACKDASH_SUPER_ADMIN_EMAILS`; anyone else gets page not found.
+
+A super admin reaches it from the Admin link in the workspace header on wider screens (the `lg` breakpoint, 1024 pixels, and up), or from the Admin command in the command palette at every width, which is the way in on a phone. Neither is sent to anyone else. Each view is logged with the viewer's user id (`admin.viewed`). Locally, add your GitHub email to `STACKDASH_SUPER_ADMIN_EMAILS` in `.env.local` and restart `npm run dev`.
