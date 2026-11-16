@@ -7,7 +7,7 @@ import { decryptSecret, DecryptionFailedError, encryptSecret, UnknownEncryptionK
 import { encryptedFromRow, encryptedToColumns } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Database } from "@/lib/supabase/database.types";
+import { Constants, type Database } from "@/lib/supabase/database.types";
 
 /*
  * Repository for `webhook_endpoints` (#28, #426): the per-connection URL of a provider whose
@@ -350,7 +350,7 @@ export type RemovedWebhookEndpoint = Readonly<{
 
 const RemovedEndpointSchema = z
   .strictObject({
-    setup_mode: z.enum(["manual", "automatic"]),
+    setup_mode: z.enum(Constants.public.Enums.webhook_setup_mode),
     provider_webhook_id: z.string().min(1).nullable(),
     sources: z.array(z.strictObject({ source_id: z.string().min(1), source_name: z.string().min(1), provider_webhook_id: z.string().min(1) })),
   })
@@ -369,8 +369,13 @@ export async function deleteWebhookEndpoint(workspaceId: string, connectionId: s
   });
   if (error) throw failure("delete", error);
   const parsed = RemovedEndpointSchema.safeParse(data);
-  // The shape only: issues would echo the row.
-  if (!parsed.success) throw new Error("delete_webhook_endpoint returned an unexpected shape.");
+  if (!parsed.success) {
+    // The endpoint is already deleted, so the webhook ids it returned exist only in `data` now. Log
+    // how many sources it named (never their values, which issues would echo) as a reference.
+    const sources = typeof data === "object" && data !== null && !Array.isArray(data) && Array.isArray(data.sources) ? data.sources.length : null;
+    log.error("webhook_endpoint.delete_shape_unexpected", { workspaceId, connectionId, sources });
+    throw new Error("delete_webhook_endpoint returned an unexpected shape.");
+  }
   if (parsed.data === null) return null;
   return {
     setupMode: parsed.data.setup_mode,
