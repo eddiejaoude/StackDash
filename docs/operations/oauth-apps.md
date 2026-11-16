@@ -56,7 +56,7 @@ Settings that must match the code:
 - **Setup URL**: the same `<SITE_URL>/api/connections/github/callback`, with **Redirect on update** checked.
 - **Request user authorization (OAuth) during installation**: unchecked (it disables the setup URL; StackDash runs the user authorization itself, with PKCE).
 - **Expire user authorization tokens**: checked. **Enable Device Flow**: unchecked.
-- **Webhook**: **Active** checked. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value, also set as `GITHUB_APP_WEBHOOK_SECRET`. An instance GitHub cannot reach (local development) leaves it unchecked and relies on the hourly sync.
+- **Webhook**: **Active** checked. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value, also set as `GITHUB_APP_WEBHOOK_SECRET`. An instance GitHub cannot reach (local development) leaves it unchecked: the hourly sync still brings pull requests, issues, and releases, but single star events never arrive, and an uninstall or suspension is noticed on the next failed sync.
 - **Permissions**: Repository, Metadata: Read-only. Repository, Issues: Read-only. Repository, Pull requests: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Everything else: No access, Contents included (it also reads code; releases come from the events feed instead).
 - **Subscribe to events**: Issues, Pull request, Star. Leave Release unchecked: it needs Contents read. Installation and authorization events reach every GitHub App without a box.
 - **Where can this GitHub App be installed?**: **Any account** for hosted StackDash or a shared install; **Only on this account** for a single-user self-host.

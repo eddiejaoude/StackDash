@@ -164,7 +164,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 ### Merged pull requests: `GET /repos/{owner}/{repo}/pulls`
 
-Pull requests read. `state=closed&sort=updated&direction=desc&per_page=100`: a merge updates the pull request, so the newest merges are on the first page. StackDash keeps `number`, `merged_at` (null when closed without merging), `updated_at` (to see whether the page reached back far enough), and `html_url`. The title, body, and author are never parsed.
+Pull requests read. `state=closed&sort=updated&direction=desc&per_page=30`: a merge updates the pull request, so the newest merges are on the first page. There is no `since` filter, so an active repository returns a full page every hour whether or not anything merged; a page of 100 is 2 to 3 MB, a page of 30 (GitHub's default) about 0.7 MB. StackDash keeps `number`, `merged_at` (null when closed without merging), `updated_at` (to see whether the page reached back far enough), and `html_url`. The title, body, and author are never parsed.
 
 ### Opened issues: `GET /repos/{owner}/{repo}/issues`
 
@@ -178,7 +178,9 @@ GitHub's events documentation says the feed "is not built to serve real-time use
 
 ### Activity read window
 
-The pull request and issue lists are the backfill for the webhooks: they catch a delivery that was missed. The events feed is the only source of releases. Each sync reads one page of each list per repository, from the previous sync's start less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync or after a long gap. The events feed reads 6 hours further back, as above. The read start is kept in the cursor as `activityReadAt`. A full page whose last item is still inside the window (or a third full page of the feed) is logged as `github.sync.activity_truncated`, by path template only. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
+The pull request and issue lists are the backfill for the webhooks: they catch a delivery that was missed. The events feed is the only source of releases. Each sync reads one page of each list per repository (the feed up to three), each list from its own previous read less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync, after a long gap, or once a list's permission is granted. The events feed reads 6 hours further back, as above. Each repository's read times are kept per list in the cursor (`activity`), and a list's time moves on only when it was read, not when its permission is missing or GitHub refused it. A full page whose last item is still inside the window (or a third full page of the feed) is logged as `github.sync.activity_truncated` with its page size, by path template only. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
+
+The activity reads have a time budget: no repository's reads start more than 20 seconds into them, so a sync of 100 busy repositories cannot outlast the 120 second claim a tick holds on its job. The repositories left over keep their read times, are logged as `github.sync.activity_deferred` with how many were deferred, and are read first on the next sync, oldest read first, from where they left off.
 
 ### New stars per day: `github.stars.gained.daily`
 
@@ -265,7 +267,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Secondary limits: at most 100 concurrent requests, 900 points per minute for REST (`GET` costs 1), 90 seconds of CPU per minute, and 2,000 OAuth token requests per hour per app. Some endpoints cost more, undisclosed.
 - Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions; use them for pacing, not exact counting.
 - Exceeded: `403` or `429`. If `retry-after` is present, wait that many seconds. If `x-ratelimit-remaining` is `0`, wait until `x-ratelimit-reset`. Otherwise wait at least one minute, then back off exponentially and give up after a fixed number of tries. Continuing while limited can get the app banned.
-- Budget: per repository per sync about 5 requests (star count, forks page 1, one page each of pull requests and issues, and usually one page of the events feed, at most 3) plus about 4 billing calls per account. 100 repositories hourly is about 500 requests per hour, well under the limit. Run requests serially per installation. Webhook deliveries cost no requests.
+- Budget: per repository per sync 2 requests for stars and forks, plus the activity reads within their 20 second budget: one page each of pull requests and issues and usually one page of the events feed (at most 3). About 4 billing calls per account. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request each: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, events (100) 0.55 to 0.75 MB in 1.2 to 2.1 s. So a busy repository's activity is about 3 to 4 s and 1.5 to 2 MB a sync, and the budget reads about 5 to 6 busy repositories, or about 20 quiet ones, per sync; 100 busy repositories cycle in about a day. Webhook deliveries cost no requests. Run requests serially per installation.
 
 ## Webhooks
 
@@ -310,7 +312,7 @@ Disclose these on the connect screen before redirecting:
 - The **webhook secret** signs every installation's deliveries: anyone holding it can post events to every workspace's timeline and mark connections as needing a reconnect. Server environment only; rotate by changing it on the app registration and in the environment together.
 - Installation tokens default to every permission and repository the installation has. Always narrow `permissions` when minting.
 - Org installs need an organization owner; the connect screen should say so.
-- **Private repository names** appear in the timeline titles of their events, which only the workspaces that connected that account can read, and in the verified delivery StackDash keeps for 30 days to deduplicate retries (`webhook_deliveries`, read only by the job runner). StackDash never logs them: a failed repository read names the path template (`/repos/{owner}/{repo}/pulls`), never the repository, and webhook logs name only the provider, the delivery id, and the outcome.
+- **Private repository names** appear in the timeline titles of their events, which only the workspaces that connected that account can read. A verified delivery holds its parsed events, titles included, until the next job tick applies them, normally within a minute; the row then keeps the delivery id for 30 days to deduplicate redeliveries, with the events cleared (`webhook_deliveries.outcome`, set to null once applied). StackDash never logs the names: a failed repository read names the path template (`/repos/{owner}/{repo}/pulls`), never the repository, and webhook logs name only the provider, the delivery id, and the outcome.
 
 ## Limitations
 
@@ -322,8 +324,8 @@ Disclose these on the connect screen before redirecting:
 - Star history days are not UTC aligned; daily star events come from count snapshots and are net.
 - The stargazer list is restricted; StackDash never knows who starred.
 - Single star events come only by webhook. A missed `star` delivery shows in the daily net and the star counts, not as its own event.
-- Activity is read one page per list per repository per sync. A repository with more than 100 merges or new issues within one poll, and a missed webhook among them, can miss some; the truncation is logged.
-- Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags. A repository with more than 300 events since the read window began (the feed's cap) can miss a release; the truncation is logged.
+- Activity is read one page per list per repository per sync, within a 20 second budget. A repository with more than 30 merges or 100 new issues since its list was last read, and a missed webhook among them, can miss some; the truncation is logged. A repository the budget defers is read first on the next sync, from where it left off.
+- Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags, or later when the budget defers the repository. A repository with more than 300 events since the read window began (the feed's cap) can miss a release; the truncation is logged.
 - One installation per account. A user with a personal account and two organizations installs three times and gets three connections.
 - Enterprise accounts are out of scope.
 
@@ -337,7 +339,7 @@ Each deployment registers its own GitHub App, because the private key, client se
 4. **Callback URL**: `<SITE_URL>/api/connections/github/callback`.
 5. Leave **Expire user authorization tokens** checked. Leave **Request user authorization (OAuth) during installation** unchecked (it disables the setup URL). Leave **Enable Device Flow** unchecked.
 6. **Setup URL**: `<SITE_URL>/api/connections/github/callback`. Check **Redirect on update**, so adding or removing repositories returns to StackDash.
-7. **Webhook**: check **Active**. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value (for example `openssl rand -hex 32`), the same value as `GITHUB_APP_WEBHOOK_SECRET`. GitHub Apps send JSON. SSL verification stays enabled. A local instance that GitHub cannot reach leaves the webhook inactive: polling still brings every event, pull requests and issues within an hour.
+7. **Webhook**: check **Active**. **Webhook URL**: `<SITE_URL>/api/webhooks/github`. **Webhook secret**: a long random value (for example `openssl rand -hex 32`), the same value as `GITHUB_APP_WEBHOOK_SECRET`. GitHub Apps send JSON. SSL verification stays enabled. A local instance that GitHub cannot reach leaves the webhook inactive. Polling then still brings merged pull requests and opened issues within an hour and releases within about 7 hours, but single star events never arrive (they come only by webhook), and an uninstall, a suspension, or a revoked authorization is noticed on the next failed sync instead of at once.
 8. **Permissions**: Repository, Metadata: Read-only (preselected). Repository, Issues: Read-only. Repository, Pull requests: Read-only. Organization, Administration: Read-only. Account, Plan: Read-only. Leave everything else at No access, Contents included. **Subscribe to events**: **Issues**, **Pull request**, and **Star** (`installation` and `github_app_authorization` need no box; **Release** needs Contents read, so it stays unchecked).
 9. **Where can this GitHub App be installed?**: **Any account** for a shared deployment, **Only on this account** for a single-user self-host.
 10. **Create GitHub App**. On the settings page note the **App ID** and **Client ID**, click **Generate a new client secret**, and under **Private keys** click **Generate a private key** (downloads a PEM file).

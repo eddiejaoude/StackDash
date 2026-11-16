@@ -73,7 +73,7 @@ and quotas work on every plan, and spend shows only where the provider reports i
 | Provider | What StackDash reads on every plan | Spend |
 | --- | --- | --- |
 | [Vercel](docs/providers/vercel.md) | Deployments and projects | Pro and Enterprise plans only. Vercel shares no billing data for Hobby accounts |
-| [GitHub](docs/providers/github.md) | Stars and forks | Billed usage, Actions minutes, and Copilot AI Credits on GitHub's enhanced billing platform. For an organization, an owner installs the app |
+| [GitHub](docs/providers/github.md) | Stars, forks, releases, merged pull requests, and opened issues | Billed usage, Actions minutes, and Copilot AI Credits on GitHub's enhanced billing platform. For an organization, an owner installs the app |
 | [Resend](docs/providers/resend.md) | Emails sent against the daily and monthly quota, with reset dates | None. Resend has no billing API |
 | [Stripe](docs/providers/stripe.md) | Payments, customers, subscriptions, and payouts | Stripe fees, on any account |
 | [Supabase](docs/providers/supabase.md) | Plan limits, project health, signups, and logins. Daily active users on Pro and above | None. No Supabase billing endpoint accepts OAuth |
