@@ -7,7 +7,7 @@ import { connectSimulated } from "./fixtures/connections";
 import { adminClient, cronSecret, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { tickUntilStored } from "./fixtures/webhook-ticks";
+import { tickUntilConnectionStatus, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Vercel webhooks (#422), end to end against the simulated Vercel provider, which runs the real
@@ -52,6 +52,16 @@ ownerTest.describe("Vercel webhooks", () => {
       await connectSimulated(page, workspace.slug, "Vercel");
       const connectionPage = page.url();
       const team = await teamId(workspace);
+
+      // The first sync runs before any delivery is posted, so the uninstall below never races it:
+      // a sync finishing after the uninstall's job writes the connection back to active (#487).
+      await expect(async () => {
+        const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
+        expect(response.status()).toBe(200);
+        const { data, error } = await adminClient().from("connections").select("last_synced_at").eq("workspace_id", workspace.id).eq("provider", "vercel");
+        if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
+        expect(data[0]?.last_synced_at ?? null).not.toBeNull();
+      }).toPass({ timeout: 90_000 });
 
       const suffix = randomUUID().slice(0, 8);
       const deploymentId = `dpl_e2e${suffix}`;
@@ -101,17 +111,12 @@ ownerTest.describe("Vercel webhooks", () => {
         region: "iad1",
         payload: { team: { id: team }, user: { id: "e2e-user" }, configuration: { id: `icfg_e2e${suffix}`, projects: [] } },
       });
+      // The first sync finished before this uninstall is posted (checked above), and the next
+      // simulated sync is not due for SIMULATED_POLL_INTERVAL_SECONDS (60): a sync finishing after
+      // the uninstall's job would set the connection back to active (#487). Keep this order.
       const uninstalled = await postVercelWebhook(vercel, removed);
       expect(uninstalled.status()).toBe(202);
-
-      const authorization = `Bearer ${cronSecret()}`;
-      await expect(async () => {
-        const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-        expect(response.status()).toBe(200);
-        const { data, error } = await adminClient().from("connections").select("status").eq("workspace_id", workspace.id).eq("provider", "vercel");
-        if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
-        expect(data.map((row) => row.status)).toEqual(["needs_attention"]);
-      }).toPass({ timeout: 90_000 });
+      await tickUntilConnectionStatus(page, workspace, "vercel", "needs_attention");
 
       await page.goto(connectionPage);
       await expect(page.getByRole("region", { name: "Status" }).getByText("Status: Needs attention")).toBeVisible();
