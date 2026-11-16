@@ -303,9 +303,12 @@ adapter's signature check and mapping. Where the provider has one URL for every 
 (`POST /api/webhooks/<provider>`), its deliveries are signed with
 `STACKDASH_SIMULATED_WEBHOOK_SECRET` from `.env.local` instead of the provider's own webhook
 secret, so simulation never needs one; unset, the URL answers `503`. A provider with one URL per
-connection keeps that connection's stored secret. A delivery's events go to every connection that
-includes its account, simulated or not. Nothing sends deliveries on its own: post one signed the
-way the provider signs, as the `e2e/webhooks-<provider>.spec.ts` specs do.
+connection keeps that connection's stored secret. The webhook job does not yet tell simulated
+connections from real ones: a delivery to the shared URL reaches every connection that includes
+its account, so its events land on a real connection too, and an uninstall asks a real connection
+to reconnect. A delivery to a per-connection URL reaches that connection only. Nothing sends
+deliveries on its own: post one signed the way the provider signs, as the
+`e2e/webhooks-<provider>.spec.ts` specs do.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
 sync rather than mix made-up data with real data: their next sync sends nothing to the provider

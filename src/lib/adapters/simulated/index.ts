@@ -108,8 +108,9 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  * the real `verify` and `parse`. An app-level secret is read from SIMULATED_WEBHOOK_SECRET_ENV
  * instead of the provider's own variable: simulation never reads a real provider secret, and one
  * synthetic value signs every simulated provider's deliveries, locally and in e2e. A per-connection
- * registration keeps the secret stored for its connection. The webhook job does not tell simulated
- * connections from real ones: a delivery reaches every connection that includes its account.
+ * registration keeps the secret stored for its connection. The webhook job does not yet tell
+ * simulated connections from real ones (#495): an app-level delivery reaches every connection that
+ * includes its account, real ones too.
  */
 function simulatedWebhooks(real: WebhookDescriptor): WebhookDescriptor {
   if (real.registration.kind !== "app") return real;
