@@ -52,11 +52,14 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connection" };
 
-// For this page's Server Actions (Next reads it from the page): disconnect and delete can wait up to
-// about 19 s for the credential refresh lock (#496), then refresh, delete the webhook, and revoke, up
-// to 15 s each (the adapter timeout): about 64 s. Automatic webhook setup is the same 19 s plus a
-// refresh, `create`, and a cleanup `remove`. 90 s covers either with room for the database calls.
-export const maxDuration = 90;
+// For this page's Server Actions (Next reads it from the page). A single webhook's disconnect or
+// delete waits up to about 19 s for the credential refresh lock (#496), then refreshes, deletes the
+// webhook, and revokes, up to 15 s each (the adapter timeout): about 64 s; automatic setup is the
+// same order. GitLab's per-project setup and removal (#428) add up to 100 project calls, 5 at a
+// time, so a run where every call hits the timeout needs about 350 s. 300 s is Vercel's default and
+// the Hobby maximum (https://vercel.com/docs/functions/limitations): stated here so a platform with
+// a lower default does not cut a disconnect off after its endpoint row is already deleted.
+export const maxDuration = 300;
 
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it.

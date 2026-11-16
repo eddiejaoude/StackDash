@@ -32,9 +32,11 @@ import { workspacePath } from "@/lib/workspaces/paths";
 import { ForbiddenError } from "@/lib/workspaces/permissions";
 
 // The code exchange and account listing (up to 15 s each, the adapter timeout), then automatic
-// webhook setup after consent: up to about 19 s waiting for the credential refresh lock (#496) and a
-// refresh, `create`, and a cleanup `remove` of 15 s each. 120 s covers it with room for the database.
-export const maxDuration = 120;
+// webhook setup after consent: up to about 19 s waiting for the credential refresh lock (#496), a
+// refresh, and the provider calls, 15 s each at worst, up to 100 of them 5 at a time for GitLab's
+// per-project setup. 300 s is Vercel's default and the Hobby maximum
+// (https://vercel.com/docs/functions/limitations); see the connection page for the same bound.
+export const maxDuration = 300;
 
 /**
  * Creates the webhook the user chose to set up automatically (#426), once the grant with its write
