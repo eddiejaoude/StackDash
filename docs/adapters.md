@@ -166,7 +166,7 @@ The example adapter shows each rule:
 - **Reconciliation.** Each event's `dedupeKey` is the one `sync` produces for the same provider event, so a delivery and a later poll store it once. Build both from one function: the example's `toActivityEvents` and the fake provider's `buildEvent` serve `sync` and `parse` alike.
 - **No personal data.** `parse` reads only the fields the timeline shows, as `sync` does: no names, emails, or free text from the user's app.
 - **Ignore what you do not map.** A verified delivery of a type the adapter does not show returns `ignored` with a short reason, never an error, so the provider does not retry it.
-- **Uninstalls.** When the provider reports that StackDash was removed from an account, return `uninstalled` with `occurredAt`, the time the provider gives for the removal, so its connections ask for a reconnect at once instead of after the next failed sync. A connection whose credential was saved after `occurredAt`, by a reconnect or by a token refresh, is left to its next sync, because a late or redelivered uninstall must not revoke a connection the user has since reconnected.
+- **Uninstalls.** When the provider reports that StackDash was removed from an account, return `uninstalled` with `occurredAt`, the time the provider gives for the removal, so its connections ask for a reconnect at once instead of after the next failed sync. A connection granted again after `occurredAt` (a reconnect, which StackDash records as `granted_at`) is left to its next sync, because a late or redelivered uninstall must not revoke a connection the user has since reconnected. A token refresh is not a grant, so it does not protect a connection from an uninstall that happened before it.
 
 ## Achievements
 

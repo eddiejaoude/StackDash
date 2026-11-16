@@ -331,7 +331,9 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       workspace_id: uuid(28001, index),
       connection_id: uuid(28002, index),
       account_id: uuid(28003, index),
-      credential_updated_at: "2026-11-15T09:00:00.123456+00:00",
+      // Still returned for code deployed before #476 (expand then contract); the store ignores it.
+      credential_updated_at: "2026-11-16T09:30:00.000000+00:00",
+      granted_at: "2026-11-15T09:00:00.123456+00:00",
     }));
   }
 
@@ -362,17 +364,17 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     expect(requests.map((request) => request.args)).toEqual([{ p_limit: 50, p_lease_seconds: 120 }]);
   });
 
-  it("maps every target of an app-level delivery, with when its credential was written, without restricting it to a connection", async () => {
-    // A connection without a stored credential comes back with null from the left join.
-    const rows = [...targets(1), { ...targets(2)[1], credential_updated_at: null }];
+  it("maps every target of an app-level delivery, with when its connection was granted, without restricting it to a connection", async () => {
+    // A live connection with neither a recorded grant nor a credential has no grant time.
+    const rows = [...targets(1), { ...targets(2)[1], granted_at: null }];
     const { store, requests } = storeWith({ list_webhook_targets: () => rows });
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
 
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), credentialUpdatedAt: "2026-11-15T09:00:00.123456+00:00" },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), credentialUpdatedAt: null },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1" }]);
     expect(warn).not.toHaveBeenCalled();

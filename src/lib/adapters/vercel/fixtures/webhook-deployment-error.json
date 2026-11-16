@@ -1,0 +1,24 @@
+{
+  "id": "evt_exampleError0002",
+  "type": "deployment.error",
+  "createdAt": 1793441101000,
+  "region": "iad1",
+  "payload": {
+    "team": { "id": "team_LLHUOMOoDlqOp8wPE4kFo9pE" },
+    "user": { "id": "2tUzTmv4ljvFVHifEf9TGdpH" },
+    "deployment": {
+      "id": "dpl_3fErC2xYdDMDG1jTrHFnNZ2eUVc",
+      "meta": {},
+      "url": "web-3ferc2xyd.vercel.app",
+      "name": "web"
+    },
+    "links": {
+      "deployment": "https://vercel.com/acme/web/M4kAQ33tmXhrBisHHi0gqGwsVlYt",
+      "project": "https://vercel.com/acme/web"
+    },
+    "target": "production",
+    "project": { "id": "prj_exampleWeb" },
+    "plan": "pro",
+    "regions": ["iad1"]
+  }
+}
