@@ -107,7 +107,8 @@ function refusal(error: unknown): SetupRefusal | null {
  * the provider's.
  */
 export async function setUpWebhookByHand({ workspaceId, connectionId, adapter, setup }: SetupTarget): Promise<ManualSetupOutcome> {
-  if ((await countWorkspaceWebhookEndpoints(workspaceId)) >= WEBHOOK_ENDPOINTS_PER_WORKSPACE) return { kind: "limit_reached" };
+  const refused = await setupRefusal(workspaceId, connectionId);
+  if (refused !== null) return refused;
   const endpointId = randomUUID();
   const secret = newWebhookSecret();
   const awaitingProviderSecret = setup.secretSource === "provider";
@@ -143,6 +144,21 @@ async function includedAccountIds(workspaceId: string, connectionId: string): Pr
 }
 
 /**
+ * Why automatic setup cannot start for this connection now, or null when it can: the connection
+ * has a webhook already, or the workspace is at its limit. Checked before the write access consent
+ * and again before the provider is called, so a stale tab or a repeat never creates a webhook only
+ * to delete it.
+ */
+export async function setupRefusal(workspaceId: string, connectionId: string): Promise<SetupRefusal | null> {
+  const [existing, count] = await Promise.all([
+    getConnectionWebhook(workspaceId, connectionId),
+    countWorkspaceWebhookEndpoints(workspaceId),
+  ]);
+  if (existing !== null) return { kind: "already_set_up" };
+  return count >= WEBHOOK_ENDPOINTS_PER_WORKSPACE ? { kind: "limit_reached" } : null;
+}
+
+/**
  * Creates the webhook at the provider with the connection's stored credential, then the endpoint.
  * Refused without a call to the provider when the grant lacks a scope automatic setup needs.
  */
@@ -153,16 +169,16 @@ export async function setUpWebhookAutomatically({
   setup,
   origin,
 }: SetupTarget & Readonly<{ origin: string }>): Promise<AutomaticSetupOutcome> {
-  const automatic = setup.automatic;
-  if (automatic === undefined) throw new Error(`${adapter.id} declares no automatic webhook setup.`);
-  if ((await countWorkspaceWebhookEndpoints(workspaceId)) >= WEBHOOK_ENDPOINTS_PER_WORKSPACE) return { kind: "limit_reached" };
+  if (setup.automatic === undefined) throw new Error(`${adapter.id} declares no automatic webhook setup.`);
+  const refused = await setupRefusal(workspaceId, connectionId);
+  if (refused !== null) return refused;
 
   const [credential, accountIds] = await Promise.all([
     loadCredential({ workspaceId, connectionId }),
     includedAccountIds(workspaceId, connectionId),
   ]);
   if (credential === null) throw new Error("The connection has no stored credential to set up a webhook with.");
-  if (automatic.extraPermissions.some((permission) => !credential.scopes.includes(permission.scope))) {
+  if (setup.automatic.extraPermissions.some((permission) => !credential.scopes.includes(permission.scope))) {
     return { kind: "write_access_missing" };
   }
   const client = loadOAuthClient(adapter);
@@ -170,27 +186,28 @@ export async function setUpWebhookAutomatically({
   const ctx = createOAuthContext(client);
 
   const endpointId = randomUUID();
-  const generated = newWebhookSecret();
-  const created = await automatic.create(
-    { credential, url: webhookUrl(origin, adapter.id, endpointId), secret: generated, externalAccountIds: accountIds },
-    ctx,
-  );
+  const input = { credential, url: webhookUrl(origin, adapter.id, endpointId), externalAccountIds: accountIds };
+  let created: Readonly<{ webhookId: string; secret: Secret }>;
+  if (setup.secretSource === "stackdash") {
+    const secret = newWebhookSecret();
+    created = { webhookId: (await setup.automatic.create({ ...input, secret }, ctx)).webhookId, secret };
+  } else {
+    created = await setup.automatic.create(input, ctx);
+  }
   try {
-    const secret = setup.secretSource === "provider" ? created.secret : generated;
-    if (secret === undefined) throw new Error(`${adapter.id} created a webhook without returning its signing secret.`);
     await insertWebhookEndpoint({
       id: endpointId,
       workspaceId,
       connectionId,
       provider: adapter.id,
-      secret,
+      secret: created.secret,
       setup: { mode: "automatic", providerWebhookId: created.webhookId },
     });
   } catch (error) {
     // Nothing points at the webhook any more: delete it at the provider rather than leave it
     // sending deliveries to a URL that answers 404.
     try {
-      await automatic.remove({ credential, webhookId: created.webhookId }, ctx);
+      await setup.automatic.remove({ credential, webhookId: created.webhookId }, ctx);
     } catch (removeError) {
       logError("webhook_setup.cleanup_failed", removeError, { provider: adapter.id, workspaceId, connectionId });
     }

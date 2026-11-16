@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConnectionWebhookSetup, FullAccessPermission } from "@/lib/adapters/types";
+import { Secret, type ConnectionWebhookSetup, type FullAccessPermission } from "@/lib/adapters/types";
 
 import {
   automaticChoiceCopy,
   endpointLimitCopy,
+  leftoverWriteAccessCopy,
   isWebhookSetupResult,
   manualChoiceCopy,
   needsWriteAccess,
+  switchToManualCopy,
   WEBHOOK_ENDPOINTS_PER_WORKSPACE,
   WEBHOOK_SETUP_RESULTS,
   webhookSetupResultCopy,
@@ -26,20 +28,26 @@ const write: FullAccessPermission = {
   fullAccessReason: "No read-only scope can create a webhook.",
 };
 
-function setup(change: Partial<ConnectionWebhookSetup> & { extra?: readonly FullAccessPermission[] }): ConnectionWebhookSetup {
-  const { extra = [], ...rest } = change;
+const steps = { manualSteps: ["Add the webhook."], removalSteps: ["Delete the webhook."] };
+const remove = () => Promise.resolve();
+
+/** Automatic setup with StackDash's secret, needing `extra` scopes. */
+function stackdashSetup(extra: readonly FullAccessPermission[]): ConnectionWebhookSetup {
+  return { ...steps, secretSource: "stackdash", automatic: { extraPermissions: extra, create: () => Promise.resolve({ webhookId: "hook_1" }), remove } };
+}
+
+/** Automatic setup with the access already granted, the provider making the secret (Resend). */
+function providerSetup(): ConnectionWebhookSetup {
   return {
-    secretSource: "stackdash",
-    manualSteps: ["Add the webhook."],
-    removalSteps: ["Delete the webhook."],
-    automatic: { extraPermissions: extra, create: () => Promise.resolve({ webhookId: "hook_1" }), remove: () => Promise.resolve() },
-    ...rest,
+    ...steps,
+    secretSource: "provider",
+    automatic: { extraPermissions: [], create: () => Promise.resolve({ webhookId: "hook_1", secret: new Secret("whsec_test") }), remove },
   };
 }
 
 describe("webhook setup copy", () => {
   it("warns about write access before it is asked for, and keeps setup by hand read-only (GitLab)", () => {
-    const gitlab = setup({ extra: [write] });
+    const gitlab = stackdashSetup([write]);
     expect(needsWriteAccess(gitlab)).toBe(true);
     expect(automaticChoiceCopy("GitLab", gitlab)).toBe(
       "StackDash asks GitLab for write access, because GitLab has no read-only access that can create a webhook. With write access, StackDash's connection can change your GitLab account, not only read it. If you want StackDash to stay read-only, set up the webhook by hand instead.",
@@ -50,7 +58,7 @@ describe("webhook setup copy", () => {
   });
 
   it("says automatic setup uses the access already granted when it needs no new scope (Resend)", () => {
-    const resend = setup({ secretSource: "provider" });
+    const resend = providerSetup();
     expect(needsWriteAccess(resend)).toBe(false);
     expect(automaticChoiceCopy("Resend", resend)).toBe(
       "StackDash adds a webhook to your Resend team, using the access you already granted. You can see it in Resend, and StackDash removes it when you disconnect.",
@@ -59,7 +67,24 @@ describe("webhook setup copy", () => {
   });
 
   it("names the secret under setup by hand whenever StackDash generates it (boundary: no write access)", () => {
-    expect(manualChoiceCopy("Render", setup({}))).toBe("You add the webhook in Render yourself, using the address and secret below.");
+    expect(manualChoiceCopy("Render", stackdashSetup([]))).toBe("You add the webhook in Render yourself, using the address and secret below.");
+  });
+
+  it("drops the read-only claim while write access is held without an automatic webhook, and says how to give it up", () => {
+    const gitlab = stackdashSetup([write]);
+    expect(manualChoiceCopy("GitLab", gitlab, true)).toBe("You add the webhook in GitLab yourself, using the address and secret below.");
+    expect(leftoverWriteAccessCopy("GitLab")).toBe(
+      "StackDash still holds write access from automatic setup, but no webhook uses it. Reconnect GitLab to return to read-only access.",
+    );
+  });
+
+  it("says how to switch to setup by hand for every automatic webhook, naming write access only where it is held", () => {
+    expect(switchToManualCopy("GitLab", stackdashSetup([write]))).toBe(
+      "To set up the webhook by hand instead, disconnect GitLab, reconnect it, and choose setup by hand. Disconnecting deletes the webhook and ends StackDash's write access; it cannot be given up while the webhook stays.",
+    );
+    expect(switchToManualCopy("Resend", providerSetup())).toBe(
+      "To set up the webhook by hand instead, disconnect Resend, reconnect it, and choose setup by hand. Disconnecting deletes the webhook.",
+    );
   });
 
   it("needs no write access for a provider with setup by hand only (boundary: no automatic setup)", () => {

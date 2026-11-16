@@ -12,7 +12,7 @@ import {
 } from "../src/lib/adapters/simulated/webhooks";
 import { Secret } from "../src/lib/adapters/types";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "../src/lib/connections/webhook-copy";
-import { expect, ownerTest } from "./fixtures/auth";
+import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
 import {
   adminClient,
@@ -61,10 +61,13 @@ async function evidence(locator: Locator, name: string): Promise<void> {
     page.getByRole("textbox", { name: "Webhook secret" }),
     page.getByLabel(/^Signing secret from /),
   ];
+  // The sticky app header would cover the top of a panel taller than the viewport, so it is hidden
+  // for the capture; it is not part of the captured element.
   await locator.screenshot({
     path: `pr-evidence/after/${name}.png`,
     animations: "disabled",
     mask,
+    style: "[role='banner'] { visibility: hidden !important; }",
   });
 }
 
@@ -169,15 +172,25 @@ async function grantedScopes(connection: string): Promise<readonly string[]> {
   return data.granted_scopes;
 }
 
+/**
+ * Disconnects from the Manage section, checking the dialog names `expectedStep` before confirming
+ * and the result says `expectedResult` after, with evidence of both under `evidenceName`.
+ */
 async function disconnect(
   page: Page,
   expectedStep: string | RegExp,
+  expectedResult: RegExp,
+  evidenceName: string,
 ): Promise<void> {
   await page.getByRole("button", { name: "Disconnect", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: /^Disconnect / });
   await expect(dialog.getByText(expectedStep)).toBeVisible();
+  await evidence(dialog, `${evidenceName}-dialog`);
   await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
   await expect(dialog).toBeHidden();
+  const manage = page.getByRole("region", { name: "Manage" });
+  await expect(manage.getByText(expectedResult)).toBeVisible();
+  await evidence(manage, `${evidenceName}-result`);
 }
 
 ownerTest.describe("webhook setup panel", () => {
@@ -279,10 +292,9 @@ ownerTest.describe("webhook setup panel", () => {
       await disconnect(
         page,
         "Deletes the webhook StackDash added in GitLab. If that fails, you are told how to do it there.",
+        /StackDash deleted its webhook in GitLab\./,
+        "disconnect-automatic",
       );
-      await expect(
-        page.getByText(/StackDash deleted its webhook in GitLab\./),
-      ).toBeVisible();
       await expect(panel(page)).toHaveCount(0);
       expect(await endpointCount(connection)).toBe(0);
     },
@@ -330,7 +342,7 @@ ownerTest.describe("webhook setup panel", () => {
         ).toBeVisible();
         await expect(
           panel(page).getByRole("status").filter({ hasText: "Last delivery:" }),
-        ).toHaveText("Last delivery: None has arrived yet.");
+        ).toHaveText("Last delivery: None in the last 30 days.");
 
         // Copy buttons, from the keyboard.
         await tabTo(
@@ -396,15 +408,20 @@ ownerTest.describe("webhook setup panel", () => {
         expect((await postDelivery(provider, url, secret)).status()).toBe(401);
         expect((await postDelivery(provider, url, rotated)).status()).toBe(202);
 
+        // Leaving the page hides the new secret: with cacheComponents the page is kept, hidden, so
+        // coming back through client navigation must not show it again.
+        await page.getByRole("link", { name: "All connections" }).click();
+        await expect(page.getByRole("heading", { level: 1, name: "Connections" })).toBeVisible();
+        await page.goBack();
+        await expect(panel(page)).toBeVisible();
+        await expect(panel(page).getByRole("textbox", { name: "Webhook secret" })).toHaveCount(0);
+
         await disconnect(
           page,
           /^Stops accepting the webhook you added in GitLab\. Remove it there afterwards: In GitLab, open the group/,
+          /Remove the webhook you added in GitLab: In GitLab, open the group, then Settings, then Webhooks/,
+          "disconnect-by-hand",
         );
-        await expect(
-          page.getByText(
-            /Remove the webhook you added in GitLab: In GitLab, open the group, then Settings, then Webhooks/,
-          ),
-        ).toBeVisible();
         // Deliveries for a removed connection are dropped.
         expect((await postDelivery(provider, url, rotated)).status()).toBe(404);
       } finally {
@@ -441,6 +458,12 @@ ownerTest.describe("webhook setup panel", () => {
       await expect(
         panel(page).getByRole("heading", { name: /^Write access/ }),
       ).toHaveCount(0);
+      // Every automatic webhook says how to move to setup by hand, here without write access.
+      await expect(
+        panel(page).getByText(
+          "To set up the webhook by hand instead, disconnect Resend, reconnect it, and choose setup by hand. Disconnecting deletes the webhook.",
+        ),
+      ).toBeVisible();
 
       // A second Resend connection, set up by hand: Resend generates the signing secret.
       await connectSimulated(page, workspace.slug, "Resend");
@@ -483,44 +506,7 @@ ownerTest.describe("webhook setup panel", () => {
   ownerTest(
     "a workspace at the endpoint limit says so instead of offering setup",
     async ({ page }) => {
-      const admin = adminClient();
-      const seeded = Array.from(
-        { length: WEBHOOK_ENDPOINTS_PER_WORKSPACE },
-        () => randomUUID(),
-      );
-      const { error: connectionError } = await admin
-        .from("connections")
-        .insert(
-          seeded.map((id, index) => ({
-            id,
-            workspace_id: workspace.id,
-            provider: "gitlab" as const,
-            status: "active" as const,
-            display_name: `Seeded ${index}`,
-            poll_interval_seconds: 3600,
-          })),
-        );
-      if (connectionError)
-        throw new Error(
-          `Seeding connections failed (code ${connectionError.code}).`,
-        );
-      const { error: endpointError } = await admin
-        .from("webhook_endpoints")
-        .insert(
-          seeded.map((id) => ({
-            workspace_id: workspace.id,
-            connection_id: id,
-            provider: "gitlab" as const,
-            key_id: "e2e",
-            iv: "\\x00",
-            ciphertext: "\\x00",
-            auth_tag: "\\x00",
-          })),
-        );
-      if (endpointError)
-        throw new Error(
-          `Seeding endpoints failed (code ${endpointError.code}).`,
-        );
+      await seedGitLabEndpoints(workspace, WEBHOOK_ENDPOINTS_PER_WORKSPACE);
 
       await connectSimulated(page, workspace.slug, "GitLab");
       await expect(
@@ -534,4 +520,98 @@ ownerTest.describe("webhook setup panel", () => {
       await evidence(panel(page), "panel-endpoint-limit");
     },
   );
+
+  ownerTest(
+    "write access left without a webhook drops the read-only claim and a read-only reconnect gives it up",
+    async ({ page }) => {
+      ownerTest.slow();
+      await connectSimulated(page, workspace.slug, "GitLab");
+      const connection = await connectionId(page);
+      await chooseWithKeyboard(page, "Set up automatically");
+      await page
+        .getByRole("checkbox", { name: "I understand StackDash gets full access to my GitLab account" })
+        .check();
+      await page.getByRole("button", { name: "Continue to GitLab" }).click();
+      await expect(page.getByText("Webhook set up", { exact: true })).toBeVisible();
+
+      // As if creating the webhook had failed after the consent: the write-scoped grant is stored
+      // and no webhook uses it.
+      const { error } = await adminClient().from("webhook_endpoints").delete().eq("connection_id", connection);
+      if (error) throw new Error(`Deleting the endpoint failed (code ${error.code}).`);
+      await page.goto(page.url().split("?")[0] ?? page.url());
+
+      await expect(
+        panel(page).getByText(
+          "StackDash still holds write access from automatic setup, but no webhook uses it. Reconnect GitLab to return to read-only access.",
+        ),
+      ).toBeVisible();
+      await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toHaveAccessibleDescription(
+        "You add the webhook in GitLab yourself, using the address and secret below.",
+      );
+      await expectAccessiblePanel(page);
+      await evidence(panel(page), "panel-leftover-write-access");
+
+      const reconnect = panel(page).getByRole("link", { name: "Reconnect GitLab read-only" });
+      await tabTo(page, reconnect);
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reconnect GitLab");
+      // Visible only: the connection page stays mounted, hidden, behind this one.
+      await expect(page.getByText(SIMULATED_WEBHOOK_WRITE_SCOPE).filter({ visible: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "Continue to GitLab" }).click();
+      await expect(page).toHaveURL(CONNECTION_URL);
+      expect(await grantedScopes(connection)).toEqual([SIMULATED_SCOPE]);
+      await expect(panel(page).getByRole("heading", { name: /^Write access/ })).toHaveCount(0);
+      await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toHaveAccessibleDescription(GITLAB_MANUAL);
+    },
+  );
 });
+
+viewerTest.describe("webhook setup panel for a viewer", () => {
+  viewerTest("shows how the webhook was set up and its last delivery, with no address or controls", async ({ page }) => {
+    const workspace = await createTestWorkspace("Webhook viewer");
+    try {
+      const [connection] = await seedGitLabEndpoints(workspace, 1);
+      if (connection === undefined) throw new Error("expected a seeded connection");
+      await page.goto(`/w/${workspace.slug}/connections/${connection}`);
+
+      await expect(panel(page).getByText("Set up by hand.", { exact: true })).toBeVisible();
+      await expect(panel(page).getByText("Last delivery: None in the last 30 days.")).toBeVisible();
+      for (const role of ["radio", "textbox", "button", "link"] as const) {
+        await expect(panel(page).getByRole(role)).toHaveCount(0);
+      }
+      await expectAccessiblePanel(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+/** Seeds `count` GitLab connections in the workspace, each with a webhook set up by hand. */
+async function seedGitLabEndpoints(workspace: TestWorkspace, count: number): Promise<string[]> {
+  const admin = adminClient();
+  const seeded = Array.from({ length: count }, () => randomUUID());
+  const { error: connectionError } = await admin.from("connections").insert(
+    seeded.map((id, index) => ({
+      id,
+      workspace_id: workspace.id,
+      provider: "gitlab" as const,
+      status: "active" as const,
+      display_name: `Seeded ${index}`,
+      poll_interval_seconds: 3600,
+    })),
+  );
+  if (connectionError) throw new Error(`Seeding connections failed (code ${connectionError.code}).`);
+  const { error: endpointError } = await admin.from("webhook_endpoints").insert(
+    seeded.map((id) => ({
+      workspace_id: workspace.id,
+      connection_id: id,
+      provider: "gitlab" as const,
+      key_id: "e2e",
+      iv: "\\x00",
+      ciphertext: "\\x00",
+      auth_tag: "\\x00",
+    })),
+  );
+  if (endpointError) throw new Error(`Seeding endpoints failed (code ${endpointError.code}).`);
+  return seeded;
+}

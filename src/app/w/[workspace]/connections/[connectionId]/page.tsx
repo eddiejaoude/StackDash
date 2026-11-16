@@ -30,6 +30,7 @@ import {
   isWebhookSetupResult,
   manualChoiceCopy,
   needsWriteAccess,
+  leftoverWriteAccessCopy,
   pollingCopy,
   switchToManualCopy,
   WEBHOOK_ENDPOINTS_PER_WORKSPACE,
@@ -102,6 +103,9 @@ async function ConnectionContent({
   );
   const webhookResult = isWebhookSetupResult(query.webhook) ? webhookSetupResultCopy(query.webhook, providerName) : null;
   const webhookRef = typeof query.ref === "string" && REFERENCE_ID_PATTERN.test(query.ref) ? query.ref : undefined;
+  // Write access left by an automatic setup that ended without a webhook (it failed after the
+  // consent): the panel must not claim read-only, and says how to give the access up.
+  const leftoverWriteAccess = heldWriteAccess.length > 0 && webhook?.setupMode !== "automatic";
   const webhookView: WebhookPanelView | null =
     webhookSetup === null
       ? null
@@ -112,13 +116,14 @@ async function ConnectionContent({
           pollingNote: pollingCopy(providerName),
           choices: {
             automatic: webhookSetup.automatic === undefined ? null : automaticChoiceCopy(providerName, webhookSetup),
-            manual: manualChoiceCopy(providerName, webhookSetup),
+            manual: manualChoiceCopy(providerName, webhookSetup, leftoverWriteAccess),
           },
           writeAccess: needsWriteAccess(webhookSetup),
+          leftoverWriteAccess: leftoverWriteAccess ? { note: leftoverWriteAccessCopy(providerName), reconnectHref } : null,
           secretSource: webhookSetup.secretSource,
           manualSteps: webhookSetup.manualSteps,
           removalSteps: webhookSetup.removalSteps,
-          switchNote: switchToManualCopy(providerName),
+          switchNote: switchToManualCopy(providerName, webhookSetup),
           limitMessage: webhook === null && endpointCount >= WEBHOOK_ENDPOINTS_PER_WORKSPACE ? endpointLimitCopy(providerName) : null,
           endpoint:
             webhook === null
@@ -267,7 +272,7 @@ async function ConnectionContent({
                   <p className="mt-1">
                     <span className="font-medium">Last delivery: </span>
                     {webhookView.endpoint.lastDelivery === null ? (
-                      "None has arrived yet."
+                      "None in the last 30 days."
                     ) : (
                       <time dateTime={webhookView.endpoint.lastDelivery.iso}>{webhookView.endpoint.lastDelivery.text}</time>
                     )}

@@ -59,16 +59,24 @@ function credential(scopes: readonly string[]): OAuthCredential {
   return { accessToken: new Secret("simulated-at"), scopes, tokenType: "bearer" };
 }
 
+const PROVIDER_SECRET = new Secret("whsec_provider");
+
 /** A copy of a simulated adapter whose automatic create and remove are spies. */
-function withSpies(adapter: ProviderAdapter, created: { webhookId: string; secret?: Secret } = { webhookId: "hook_1" }) {
+function withSpies(adapter: ProviderAdapter) {
   const webhooks = adapter.webhooks;
   const registration = webhooks?.registration;
   if (webhooks === undefined || registration?.kind !== "connection" || registration.setup.automatic === undefined) {
     throw new Error("expected automatic setup");
   }
-  const create = vi.fn(() => Promise.resolve(created));
+  const declared = registration.setup;
+  const extraPermissions = declared.automatic?.extraPermissions ?? [];
+  // Returns the provider's secret whichever arm calls it; a StackDash-secret provider ignores it.
+  const create = vi.fn(() => Promise.resolve({ webhookId: "hook_1", secret: PROVIDER_SECRET }));
   const remove = vi.fn(() => Promise.resolve());
-  const setup: ConnectionWebhookSetup = { ...registration.setup, automatic: { ...registration.setup.automatic, create, remove } };
+  const setup: ConnectionWebhookSetup =
+    declared.secretSource === "stackdash"
+      ? { ...declared, automatic: { extraPermissions, create, remove } }
+      : { ...declared, automatic: { extraPermissions, create, remove } };
   const spied: ProviderAdapter = { ...adapter, webhooks: { ...webhooks, registration: { kind: "connection", setup } } };
   vi.mocked(getAdapter).mockReturnValue(spied);
   return { adapter: spied, setup, create, remove };
@@ -78,6 +86,7 @@ const target = (adapter: ProviderAdapter, setup: ConnectionWebhookSetup) => ({ w
 
 beforeEach(() => {
   vi.mocked(countWorkspaceWebhookEndpoints).mockResolvedValue(0);
+  vi.mocked(getConnectionWebhook).mockResolvedValue(null);
   vi.mocked(insertWebhookEndpoint).mockResolvedValue();
   vi.mocked(loadOAuthClient).mockReturnValue(client);
   const { db } = fakeSupabase({
@@ -141,11 +150,19 @@ describe("setUpWebhookAutomatically", () => {
   });
 
   it("stores the provider's own signing secret where the provider generates it (Resend)", async () => {
-    const providerSecret = new Secret("whsec_provider");
-    const { adapter, setup } = withSpies(simulatedAdapters.resend, { webhookId: "hook_1", secret: providerSecret });
+    const { adapter, setup } = withSpies(simulatedAdapters.resend);
     vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read"]));
     await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN });
-    expect(vi.mocked(insertWebhookEndpoint).mock.calls[0]?.[0].secret).toBe(providerSecret);
+    expect(vi.mocked(insertWebhookEndpoint).mock.calls[0]?.[0].secret).toBe(PROVIDER_SECRET);
+  });
+
+  it("stores StackDash's own secret, the one it sent, where StackDash generates it (GitLab)", async () => {
+    const { adapter, setup, create } = withSpies(simulatedAdapters.gitlab);
+    vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
+    await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN });
+    const stored = vi.mocked(insertWebhookEndpoint).mock.calls[0]?.[0].secret;
+    expect(stored).not.toBe(PROVIDER_SECRET);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ secret: stored }), expect.anything());
   });
 
   it("asks the provider nothing when the grant lacks the write scope (boundary: consent not given)", async () => {
@@ -163,12 +180,13 @@ describe("setUpWebhookAutomatically", () => {
     expect(remove).toHaveBeenCalledWith(expect.objectContaining({ webhookId: "hook_1" }), expect.anything());
   });
 
-  it("deletes the webhook again and fails when a provider that generates the secret returns none (boundary)", async () => {
-    const { adapter, setup, remove } = withSpies(simulatedAdapters.resend, { webhookId: "hook_1" });
-    vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read"]));
-    await expect(setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).rejects.toThrow("without returning its signing secret");
-    expect(remove).toHaveBeenCalled();
-    expect(insertWebhookEndpoint).not.toHaveBeenCalled();
+  it("asks the provider nothing when the connection has a webhook already (boundary: repeat or stale tab)", async () => {
+    const { adapter, setup, create, remove } = withSpies(simulatedAdapters.gitlab);
+    vi.mocked(getConnectionWebhook).mockResolvedValue({ id: "e", setupMode: "automatic", awaitingProviderSecret: false, lastDeliveryAt: null });
+    vi.mocked(loadCredential).mockResolvedValue(credential(["simulated:read", "simulated:webhooks:write"]));
+    expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "already_set_up" });
+    expect(create).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("refuses before any call when the provider is no longer set up on this instance (boundary)", async () => {

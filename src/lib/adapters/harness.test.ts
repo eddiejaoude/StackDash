@@ -17,6 +17,7 @@ import { simulatedAdapters } from "./simulated";
 import {
   liveProviderIds,
   type ConnectionWebhookSetup,
+  type FullAccessPermission,
   type ProviderAdapter,
   type SyncResult,
   type WebhookDescriptor,
@@ -67,19 +68,33 @@ const writeHooks = {
   fullAccessReason: "Example Cloud has no read-only scope that can create a webhook.",
 } as const;
 
-function connectionSetup(change: Partial<ConnectionWebhookSetup> = {}): WebhookDescriptor {
+/**
+ * The example adapter with a per-connection webhook whose automatic setup asks for
+ * `extraPermissions`, and an authorize URL that requests them when passed as `extraScopes`, as the
+ * contract requires.
+ */
+function withConnectionSetup(
+  change: Readonly<{ manualSteps?: readonly string[]; removalSteps?: readonly string[]; extraPermissions?: readonly FullAccessPermission[] }> = {},
+): Partial<ProviderAdapter<string>> {
   const setup: ConnectionWebhookSetup = {
     secretSource: "stackdash",
-    manualSteps: ["Open Webhooks and add the address and the secret below."],
-    removalSteps: ["Open Webhooks and delete the StackDash webhook."],
+    manualSteps: change.manualSteps ?? ["Open Webhooks and add the address and the secret below."],
+    removalSteps: change.removalSteps ?? ["Open Webhooks and delete the StackDash webhook."],
     automatic: {
-      extraPermissions: [writeHooks],
+      extraPermissions: change.extraPermissions ?? [writeHooks],
       create: () => Promise.resolve({ webhookId: "hook_1" }),
       remove: () => Promise.resolve(),
     },
-    ...change,
   };
-  return webhooksWith({ registration: { kind: "connection", setup } });
+  return {
+    webhooks: webhooksWith({ registration: { kind: "connection", setup } }),
+    buildAuthorizeUrl(params) {
+      const url = exampleAdapter.buildAuthorizeUrl(params);
+      const scope = [url.searchParams.get("scope") ?? "", ...(params.extraScopes ?? [])].join(" ").trim();
+      url.searchParams.set("scope", scope);
+      return url;
+    },
+  };
 }
 
 describe("checkAdapterDeclaration", () => {
@@ -198,7 +213,7 @@ describe("checkAdapterDeclaration", () => {
 
   describe("webhooks", () => {
     it("passes a connection-level webhook, which names no instance secret", () => {
-      expect(checkAdapterDeclaration(adapterWith({ webhooks: connectionSetup() }))).toEqual([]);
+      expect(checkAdapterDeclaration(adapterWith(withConnectionSetup()))).toEqual([]);
     });
 
     it("passes a connection-level webhook with setup by hand only, or automatic setup that needs no new scope (boundary: none)", () => {
@@ -209,10 +224,7 @@ describe("checkAdapterDeclaration", () => {
         },
       });
       expect(checkAdapterDeclaration(adapterWith({ webhooks: manualOnly }))).toEqual([]);
-      const noNewScope = connectionSetup({
-        automatic: { extraPermissions: [], create: () => Promise.resolve({ webhookId: "hook_1" }), remove: () => Promise.resolve() },
-      });
-      expect(checkAdapterDeclaration(adapterWith({ webhooks: noNewScope }))).toEqual([]);
+      expect(checkAdapterDeclaration(adapterWith(withConnectionSetup({ extraPermissions: [] })))).toEqual([]);
     });
 
     it("passes a single subscription (boundary: one)", () => {
@@ -252,44 +264,45 @@ describe("checkAdapterDeclaration", () => {
       ],
       [
         "no steps for setup by hand",
-        { webhooks: connectionSetup({ manualSteps: [] }) },
+        withConnectionSetup({ manualSteps: [] }),
         "webhooks.registration.setup.manualSteps must list the steps, one non-empty step each",
       ],
       [
         "a blank removal step",
-        { webhooks: connectionSetup({ removalSteps: ["Open Webhooks.", " "] }) },
+        withConnectionSetup({ removalSteps: ["Open Webhooks.", " "] }),
         "webhooks.registration.setup.removalSteps must list the steps, one non-empty step each",
       ],
       [
         "an automatic setup scope the first consent already asks for",
-        { webhooks: connectionSetup(), oauth: { ...exampleAdapter.oauth, scopes: [...exampleAdapter.oauth.scopes, writeHooks.scope] } },
+        { ...withConnectionSetup(), oauth: { ...exampleAdapter.oauth, scopes: [...exampleAdapter.oauth.scopes, writeHooks.scope] } },
         "automatic webhook setup permission hooks:write is already requested by oauth.scopes",
       ],
       [
         "an automatic setup scope without its reason",
-        {
-          webhooks: connectionSetup({
-            automatic: {
-              extraPermissions: [{ ...writeHooks, fullAccessReason: " " }],
-              create: () => Promise.resolve({ webhookId: "hook_1" }),
-              remove: () => Promise.resolve(),
-            },
-          }),
-        },
+        withConnectionSetup({ extraPermissions: [{ ...writeHooks, fullAccessReason: " " }] }),
         "automatic webhook setup permission hooks:write needs a description and a fullAccessReason",
       ],
       [
         "an automatic setup scope listed twice",
-        {
-          webhooks: connectionSetup({
-            automatic: {
-              extraPermissions: [writeHooks, writeHooks],
-              create: () => Promise.resolve({ webhookId: "hook_1" }),
-              remove: () => Promise.resolve(),
-            },
-          }),
-        },
+        withConnectionSetup({ extraPermissions: [writeHooks, writeHooks] }),
         "automatic webhook setup permission hooks:write is listed twice",
+      ],
+      [
+        "an authorize URL that ignores extraScopes",
+        { ...withConnectionSetup(), buildAuthorizeUrl: exampleAdapter.buildAuthorizeUrl },
+        "automatic webhook setup permission hooks:write is not requested when passed in extraScopes",
+      ],
+      [
+        "an authorize URL that always asks for the write scope",
+        {
+          ...withConnectionSetup(),
+          buildAuthorizeUrl(params) {
+            const url = exampleAdapter.buildAuthorizeUrl(params);
+            url.searchParams.set("scope", `${url.searchParams.get("scope") ?? ""} ${writeHooks.scope}`);
+            return url;
+          },
+        },
+        "automatic webhook setup permission hooks:write is requested without extraScopes",
       ],
     ])("reports %s (boundary)", (_case, change, problem) => {
       expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);

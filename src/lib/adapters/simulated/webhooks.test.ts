@@ -70,13 +70,15 @@ describe("simulated connection webhooks (#426)", () => {
     expect(setupOf(simulatedAdapters.resend.webhooks).automatic?.extraPermissions).toEqual([]);
   });
 
-  it("returns the provider's signing secret from automatic setup only where the provider generates it", async () => {
+  it("returns the provider's signing secret from automatic setup where the provider generates it, and a new webhook id each time", async () => {
     const credential = { accessToken: new Secret("simulated-at"), scopes: [], tokenType: "bearer" };
-    const input = { credential, url: "http://localhost/api/webhooks/resend/id", secret: SECRET, externalAccountIds: [] };
-    const resend = await setupOf(simulatedAdapters.resend.webhooks).automatic?.create(input, oauthCtx);
-    expect(resend?.secret?.reveal()).toMatch(/^whsec_/);
-    const gitlabCreated = await setupOf(simulatedAdapters.gitlab.webhooks).automatic?.create(input, oauthCtx);
-    expect(gitlabCreated?.secret).toBeUndefined();
+    const input = { credential, url: "http://localhost/api/webhooks/resend/id", externalAccountIds: [] };
+    const resendSetup = setupOf(simulatedAdapters.resend.webhooks);
+    const gitlabSetup = setupOf(simulatedAdapters.gitlab.webhooks);
+    if (resendSetup.secretSource !== "provider" || gitlabSetup.secretSource !== "stackdash") throw new Error("unexpected secret sources");
+    const resend = await resendSetup.automatic?.create(input, oauthCtx);
+    expect(resend?.secret.reveal()).toMatch(/^whsec_/);
+    const gitlabCreated = await gitlabSetup.automatic?.create({ ...input, secret: SECRET }, oauthCtx);
     expect(gitlabCreated?.webhookId).not.toBe(resend?.webhookId);
   });
 

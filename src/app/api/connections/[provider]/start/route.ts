@@ -19,7 +19,7 @@ import {
   type ConnectFeedback,
 } from "@/lib/connections/oauth-state";
 import { needsWriteAccess } from "@/lib/connections/webhook-copy";
-import { connectionWebhookSetup, webhookWritePermissions } from "@/lib/connections/webhook-setup";
+import { connectionWebhookSetup, setupRefusal, webhookWritePermissions } from "@/lib/connections/webhook-setup";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
 import { logError } from "@/lib/log/logger";
 import { requireWorkspaceAction, type WorkspaceAccess } from "@/lib/workspaces/access";
@@ -33,8 +33,10 @@ function textField(form: FormData, name: string): string | null {
 }
 
 /**
- * Starts connecting a provider (#40): a `POST` of `workspace=<slug>&consent=1[&connection=<id>]`
- * from the permission disclosure form. It creates a state row and sends the user to a provider, so
+ * Starts connecting a provider (#40): a `POST` of
+ * `workspace=<slug>&consent=1[&connection=<id>][&webhook=automatic]` from the permission
+ * disclosure form; `webhook=automatic` asks for automatic webhook setup's write scopes too (#426).
+ * It creates a state row and sends the user to a provider, so
  * it refuses a request posted from another site. Authorizes the member, checks consent for
  * full-access permissions, stores a single-use state (with the PKCE verifier sealed), and answers
  * with a page that moves on to the provider's consent screen by meta refresh. Not a redirect:
@@ -129,6 +131,17 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       const mismatch = reconnectMismatch(existing, isSimulatedAdapter(adapter));
       if (mismatch !== null) return back(connectionsPath, { error: mismatch, provider });
       reconnectId = existing.id;
+    }
+
+    // Never ask for write access the webhook could not use: the connection has one already, or the
+    // workspace is at its limit (a stale tab or a race). The connection page explains which.
+    if (webhookSetup && reconnectId !== undefined) {
+      const refused = await setupRefusal(access.workspace.id, reconnectId);
+      if (refused !== null) {
+        const url = new URL(`${connectionsPath}/${reconnectId}`, request.nextUrl.origin);
+        url.searchParams.set("webhook", refused.kind);
+        return NextResponse.redirect(url, 303);
+      }
     }
 
     const extraPermissions = await webhookWritePermissions({

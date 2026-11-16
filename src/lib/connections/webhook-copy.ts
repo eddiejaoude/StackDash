@@ -31,11 +31,15 @@ export function automaticChoiceCopy(provider: string, setup: ConnectionWebhookSe
     : `StackDash adds a webhook to your ${provider} team, using the access you already granted. You can see it in ${provider}, and StackDash removes it when you disconnect.`;
 }
 
-/** The explanation under "Set up by hand". */
-export function manualChoiceCopy(provider: string, setup: ConnectionWebhookSetup): string {
+/**
+ * The explanation under "Set up by hand". `writeAccessHeld`: the grant still holds automatic
+ * setup's write access without an automatic webhook (setup failed after the consent), so the
+ * read-only claim would be false until a reconnect gives the access up.
+ */
+export function manualChoiceCopy(provider: string, setup: ConnectionWebhookSetup, writeAccessHeld = false): string {
   const using = setup.secretSource === "stackdash" ? "using the address and secret below" : "using the address below";
   const addIt = `You add the webhook in ${provider} yourself, ${using}.`;
-  return needsWriteAccess(setup) ? `StackDash stays read-only. ${addIt}` : addIt;
+  return needsWriteAccess(setup) && !writeAccessHeld ? `StackDash stays read-only. ${addIt}` : addIt;
 }
 
 export function pollingCopy(provider: string): string {
@@ -46,9 +50,17 @@ export function endpointLimitCopy(provider: string): string {
   return `This workspace already has ${WEBHOOK_ENDPOINTS_PER_WORKSPACE} webhooks, the most one workspace can have. To set one up here, first disconnect a connection whose webhook you no longer need. ${pollingCopy(provider)}`;
 }
 
-/** Shown while automatic setup holds write access, and on the panel of an automatic webhook. */
-export function switchToManualCopy(provider: string): string {
-  return `To set up the webhook by hand instead, disconnect ${provider}, reconnect it, and choose setup by hand. Disconnecting deletes the webhook and ends StackDash's write access; it cannot be given up while the webhook stays.`;
+/** Write access left from an automatic setup that did not finish, and how to give it up. */
+export function leftoverWriteAccessCopy(provider: string): string {
+  return `StackDash still holds write access from automatic setup, but no webhook uses it. Reconnect ${provider} to return to read-only access.`;
+}
+
+/** How to move from automatic setup to setup by hand, shown on every automatic webhook. */
+export function switchToManualCopy(provider: string, setup: ConnectionWebhookSetup): string {
+  const start = `To set up the webhook by hand instead, disconnect ${provider}, reconnect it, and choose setup by hand.`;
+  return needsWriteAccess(setup)
+    ? `${start} Disconnecting deletes the webhook and ends StackDash's write access; it cannot be given up while the webhook stays.`
+    : `${start} Disconnecting deletes the webhook.`;
 }
 
 /**

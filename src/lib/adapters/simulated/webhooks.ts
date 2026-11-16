@@ -1,6 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { Secret, type FullAccessPermission, type LiveProviderId, type WebhookDescriptor } from "@/lib/adapters/types";
+import {
+  Secret,
+  type ConnectionWebhookSetup,
+  type FullAccessPermission,
+  type LiveProviderId,
+  type WebhookDescriptor,
+} from "@/lib/adapters/types";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { hmacHex, readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
 
@@ -48,27 +54,25 @@ export function simulatedConnectionWebhooks(provider: LiveProviderId, setup: Sim
         },
       ]
     : [];
-  return {
-    registration: {
-      kind: "connection",
-      setup: {
-        secretSource: setup.secretSource,
-        manualSteps: setup.manualSteps,
-        removalSteps: setup.removalSteps,
-        automatic: {
-          extraPermissions,
-          async create() {
-            return {
-              webhookId: `simulated-webhook-${randomUUID()}`,
-              // The provider's own secret where it makes one, shaped like Svix's.
-              ...(setup.secretSource === "provider" ? { secret: new Secret(`whsec_${randomBytes(24).toString("base64")}`) } : {}),
-            };
+  const steps = { manualSteps: setup.manualSteps, removalSteps: setup.removalSteps };
+  const newWebhookId = () => `simulated-webhook-${randomUUID()}`;
+  // Nothing exists outside this process, so there is nothing to delete.
+  const remove = async () => {};
+  const connectionSetup: ConnectionWebhookSetup =
+    setup.secretSource === "stackdash"
+      ? { ...steps, secretSource: "stackdash", automatic: { extraPermissions, create: async () => ({ webhookId: newWebhookId() }), remove } }
+      : {
+          ...steps,
+          secretSource: "provider",
+          automatic: {
+            extraPermissions,
+            // The provider's own secret, shaped like Svix's.
+            create: async () => ({ webhookId: newWebhookId(), secret: new Secret(`whsec_${randomBytes(24).toString("base64")}`) }),
+            remove,
           },
-          // Nothing exists outside this process, so there is nothing to delete.
-          async remove() {},
-        },
-      },
-    },
+        };
+  return {
+    registration: { kind: "connection", setup: connectionSetup },
     subscriptions: setup.subscriptions,
     verify({ headers, rawBody }, secret) {
       const signature = headers.get(SIMULATED_SIGNATURE_HEADER);

@@ -12,6 +12,7 @@ import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/l
 import { needsWriteAccess, webhookSetupResultCopy, type WebhookSetupResult } from "@/lib/connections/webhook-copy";
 import {
   connectionWebhookSetup,
+  setupRefusal,
   removeConnectionWebhook,
   rotateWebhookSecret,
   setUpWebhookAutomatically,
@@ -488,8 +489,14 @@ export async function setUpWebhook(_previous: WebhookActionResult | null, formDa
     } else if (setup.automatic === undefined) {
       return { ok: false, message: STALE_FORM_MESSAGE };
     } else if (needsWriteAccess(setup)) {
-      const query = new URLSearchParams({ connection: connection.id, webhook: "automatic" });
-      next = { kind: "consent", path: `${workspacePath(access.workspace.slug, "connections")}/new/${connection.provider}?${query.toString()}` };
+      // Never send the user to a write access consent the webhook could not use.
+      const refused = await setupRefusal(access.workspace.id, connection.id);
+      if (refused !== null) {
+        next = asResult(refused.kind);
+      } else {
+        const query = new URLSearchParams({ connection: connection.id, webhook: "automatic" });
+        next = { kind: "consent", path: `${workspacePath(access.workspace.slug, "connections")}/new/${connection.provider}?${query.toString()}` };
+      }
     } else {
       const outcome = await setUpWebhookAutomatically({
         workspaceId: access.workspace.id,

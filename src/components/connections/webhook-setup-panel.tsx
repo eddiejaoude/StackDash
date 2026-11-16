@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useId, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useId, useLayoutEffect, useRef, useState, useTransition } from "react";
 
 import {
   regenerateWebhookSecret,
@@ -36,9 +37,12 @@ export type WebhookPanelView = Readonly<{
   // The explanation under each choice; `automatic` is null when the provider offers setup by hand only.
   choices: Readonly<{ automatic: string | null; manual: string }>;
   writeAccess: boolean;
+  // Write access held without an automatic webhook, and the reconnect that gives it up.
+  leftoverWriteAccess: Readonly<{ note: string; reconnectHref: string }> | null;
   secretSource: "stackdash" | "provider";
   manualSteps: readonly string[];
   removalSteps: readonly string[];
+  // How to move to setup by hand, shown on every automatic webhook.
   switchNote: string;
   // Set when the workspace holds as many endpoints as it may and this connection has none.
   limitMessage: string | null;
@@ -73,6 +77,17 @@ export function WebhookSetupPanel({ view }: { view: WebhookPanelView }) {
   const [status, setStatus] = useState<Outcome | null>(null);
   // Set once setup succeeds: the form that had focus is gone, so focus moves to what replaced it.
   const [justSetUp, setJustSetUp] = useState(false);
+  // With cacheComponents, leaving the route hides it in an Activity with its state kept instead of
+  // unmounting it (node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md). Clear the
+  // secret and the one-time focus when it is hidden, so neither comes back on return.
+  useLayoutEffect(
+    () => () => {
+      setSecret(null);
+      setJustSetUp(false);
+      setStatus(null);
+    },
+    [],
+  );
   const copied = (what: string) => (ok: boolean) =>
     setStatus(
       ok
@@ -84,6 +99,14 @@ export function WebhookSetupPanel({ view }: { view: WebhookPanelView }) {
     <div className="px-6 py-4 text-sm">
       {/* Always mounted, so screen readers announce every setup result and copy. */}
       <OutcomeAnnouncement outcome={status} messageClassName="mb-3" />
+      {view.leftoverWriteAccess === null ? null : (
+        <p className="mb-4 leading-6">
+          {view.leftoverWriteAccess.note}{" "}
+          <Link href={view.leftoverWriteAccess.reconnectHref} className="font-medium underline underline-offset-4">
+            Reconnect {view.providerName} read-only
+          </Link>
+        </p>
+      )}
       {view.endpoint === null ? (
         view.limitMessage === null ? (
           <SetupChoiceForm
@@ -219,11 +242,15 @@ function CopyField({
         <button
           type="button"
           className={`shrink-0 ${buttonClass("raised")}`}
-          onClick={() => {
-            navigator.clipboard.writeText(value).then(
-              () => onCopied(true),
-              () => onCopied(false),
-            );
+          onClick={async () => {
+            // `navigator.clipboard` is undefined outside a secure context, which throws here
+            // rather than rejecting, so both failures land in the catch.
+            try {
+              await navigator.clipboard.writeText(value);
+              onCopied(true);
+            } catch {
+              onCopied(false);
+            }
           }}
         >
           {copyLabel}
@@ -262,7 +289,7 @@ function EndpointDetails({
         </p>
         <CopyField label="Webhook address" value={endpoint.url} copyLabel="Copy address" onCopied={onCopied("Address")} />
         <LastDelivery endpoint={endpoint} />
-        {view.writeAccess ? <p className="mt-4 leading-6 text-muted">{view.switchNote}</p> : null}
+        <p className="mt-4 leading-6 text-muted">{view.switchNote}</p>
       </>
     );
   }
@@ -398,7 +425,7 @@ function LastDelivery({ endpoint }: { endpoint: WebhookPanelEndpoint }) {
         {checking ? (
           "Checking"
         ) : endpoint.lastDelivery === null ? (
-          "None has arrived yet."
+          "None in the last 30 days."
         ) : (
           <time dateTime={endpoint.lastDelivery.iso}>{endpoint.lastDelivery.text}</time>
         )}

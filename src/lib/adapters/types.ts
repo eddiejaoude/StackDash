@@ -146,54 +146,63 @@ export type FullAccessPermission = Extract<Permission, { access: "full" }>;
 
 /** What automatic setup hands the provider to create the connection's webhook. */
 export type CreateWebhookInput = Readonly<{
+  // The connection's stored credential as it is: it is not refreshed first, so it can be expired
+  // between syncs (#496). An adapter must not refresh it here, because it cannot save a rotated
+  // refresh token; a refused call fails setup, and on disconnect the user gets the steps by hand.
   credential: OAuthCredential;
   // The connection's own URL, `/api/webhooks/<provider>/<endpointId>` on this instance's origin.
   url: string;
-  // The secret StackDash generated. Sent to the provider only when `secretSource` is `stackdash`.
-  secret: Secret;
   // The accounts the connection includes, for a provider whose webhooks belong to one account or
   // project rather than to the whole grant.
   externalAccountIds: readonly string[];
-}>;
-
-export type CreatedWebhook = Readonly<{
-  // The provider's own id for the webhook, kept so disconnecting can delete it.
-  webhookId: string;
-  // The signing secret the provider generated. Required when `secretSource` is `provider`.
-  secret?: Secret;
 }>;
 
 export type RemoveWebhookInput = Readonly<{ credential: OAuthCredential; webhookId: string }>;
 
 /**
  * Automatic setup (#426): StackDash creates the webhook through the provider's API and deletes it
- * on disconnect, before revoking. Offered next to setup by hand, never instead of it.
+ * on disconnect, before revoking. Offered next to setup by hand, never instead of it. `Create` is
+ * the provider's create call, which differs by who makes the signing secret.
  */
-export type AutomaticWebhookSetup = Readonly<{
+export type AutomaticWebhookSetup<Create> = Readonly<{
   // Scopes beyond `oauth.scopes` that creating a webhook needs, each with its reason. Empty when the
   // grant StackDash already holds can create one (Resend). Requested in a second consent only when
   // the user chooses automatic setup, and the user is told before the consent screen that
   // StackDash then holds write access.
   extraPermissions: readonly FullAccessPermission[];
-  create(input: CreateWebhookInput, ctx: OAuthContext): Promise<CreatedWebhook>;
+  create: Create;
   remove(input: RemoveWebhookInput, ctx: OAuthContext): Promise<void>;
 }>;
 
 /**
  * How a user gets a `connection` webhook (#424, #426): the setup panel on the connection page
- * offers automatic setup where `automatic` is declared, and setup by hand always.
+ * offers automatic setup where `automatic` is declared, and setup by hand always. Split on who
+ * generates the signing secret, so a create call that loses the secret does not type-check:
+ * - `stackdash`: StackDash makes it; the user pastes it into the provider, and `create` sends it.
+ * - `provider`: the provider makes it; the user pastes it back, and `create` returns it.
  */
-export type ConnectionWebhookSetup = Readonly<{
-  // Who generates the signing secret: StackDash (the user pastes it into the provider) or the
-  // provider (the user pastes it back into StackDash).
-  secretSource: "stackdash" | "provider";
-  // Setup by hand, one plain-language step each, in order. They refer to "the address" and "the
-  // secret" the panel shows beside them.
-  manualSteps: readonly string[];
-  // Removing a webhook added by hand, shown on the panel and when the connection is disconnected.
-  removalSteps: readonly string[];
-  automatic?: AutomaticWebhookSetup;
-}>;
+export type ConnectionWebhookSetup = Readonly<
+  {
+    // Setup by hand, one plain-language step each, in order. They refer to "the address" and "the
+    // secret" the panel shows beside them.
+    manualSteps: readonly string[];
+    // Removing a webhook added by hand, shown on the panel and when the connection is disconnected.
+    removalSteps: readonly string[];
+  } & (
+    | {
+        secretSource: "stackdash";
+        automatic?: AutomaticWebhookSetup<
+          (input: CreateWebhookInput & Readonly<{ secret: Secret }>, ctx: OAuthContext) => Promise<Readonly<{ webhookId: string }>>
+        >;
+      }
+    | {
+        secretSource: "provider";
+        automatic?: AutomaticWebhookSetup<
+          (input: CreateWebhookInput, ctx: OAuthContext) => Promise<Readonly<{ webhookId: string; secret: Secret }>>
+        >;
+      }
+  )
+>;
 
 /** One delivery as received: the raw body bytes, never a parsed body, and the request headers. */
 export type WebhookRequest = Readonly<{
