@@ -270,7 +270,7 @@ Envelope: `{ id, type, createdAt, region, payload }`. Deployment payloads carry 
 
 What each event does:
 
-- `deployment.succeeded` and `deployment.error` become **Deployment succeeded** and **Deployment failed**, built by the same function as the sync, with the same dedupe key (`<deployment id>:READY` or `:ERROR`), so a deployment pushed and then polled shows once. The event is dated to the envelope's `createdAt`, when Vercel generated it, which is within a second or two of the `ready` time a poll reads. A delivery carries no error code, so a failure stored from a delivery has no "Error code" line; the poll that reads it later does not add one, because an event is stored once.
+- `deployment.succeeded` and `deployment.error` become **Deployment succeeded** and **Deployment failed**, built by the same function as the sync, with the same dedupe key (`<deployment id>:READY` or `:ERROR`), so a deployment pushed and then polled shows once. The event is dated to the envelope's `createdAt`, when Vercel generated it (see Unverified for how close that is to the `ready` time a poll reads). A delivery carries no error code, so a failure stored from a delivery has no "Error code" line; the poll that reads it later does not add one yet, because an event is stored once. Letting the poll fill that line in is planned.
 - `integration-configuration.removed` marks the account's connections as needing a reconnect at once, dated to the envelope's `createdAt`. A connection reconnected after that time is left to its next sync.
 - Not subscribed: `deployment.ready` fires only for an integration that registers checks, which StackDash does not; `deployment.created` and `deployment.canceled` are states the timeline never shows; `project.created` and `project.removed` change nothing, because a Vercel account in StackDash is a team or a personal account, not a project. A delivery of any of these, if a console subscribes to it anyway, is acknowledged and ignored.
 
@@ -442,6 +442,35 @@ Rate limit error body (from the REST API errors page):
 }
 ```
 
+Webhook delivery, `deployment.succeeded`. Vercel publishes no example body for integration webhooks, so this is assembled from the field tables of the Webhooks API reference and the envelope on the Webhooks page, with synthetic ids. It is the source of `fixtures/webhook-deployment-succeeded.json`; the `deployment.error` and `integration-configuration.removed` fixtures follow the same envelope with their own documented fields:
+
+```json
+{
+  "id": "evt_exampleSucceeded0001",
+  "type": "deployment.succeeded",
+  "createdAt": 1793444701000,
+  "region": "iad1",
+  "payload": {
+    "team": { "id": "team_LLHUOMOoDlqOp8wPE4kFo9pE" },
+    "user": { "id": "2tUzTmv4ljvFVHifEf9TGdpH" },
+    "deployment": {
+      "id": "dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa",
+      "meta": { "githubCommitMessage": "example commit" },
+      "url": "docs-9jaeg38me.vercel.app",
+      "name": "docs"
+    },
+    "links": {
+      "deployment": "https://vercel.com/acme/docs/J1hXN00qjUeoYfpEEf7dnDtpSiVq",
+      "project": "https://vercel.com/acme/docs"
+    },
+    "target": "production",
+    "project": { "id": "prj_exampleDocs" },
+    "plan": "pro",
+    "regions": ["iad1"]
+  }
+}
+```
+
 Fixtures for tests must be recorded from a real Pro test team and sanitized; these documentation samples are not realistic enough to stand in for them.
 
 ## Unverified
@@ -464,8 +493,9 @@ Could not be confirmed from documentation on 2026-10-31. Check each with a test 
 - Whether `GET /v9/projects/{idOrName}` returns decrypted environment variable values to an integration token.
 - Whether a newly created Community integration needs a Vercel review before users outside the owning team can install it.
 - Whether the installation deep link `https://vercel.com/d/dashboard/integrations/{slug}/{installationId}` (documented for native integrations) also works for connectable account integrations, which would make a better "uninstall in Vercel" link.
-- Whether a Hobby account's webhook payload sends `team: null` or `team: { id: null }`. StackDash accepts both.
-- Whether a `deployment.error` delivery ever carries an error code. None is documented, so a failure first seen by webhook is stored without one.
+- That a delivery's account id (`payload.team.id`, otherwise `payload.user.id`) equals the external account the connection stored: the team id for a team install, and the token response's `user_id` for a Hobby account. Check in particular that a Hobby account's deliveries send a null team (`team: null` or `team: { id: null }`, both accepted) rather than a team id the token exchange did not return; otherwise every Hobby delivery, uninstalls included, finds no connection (`webhook.no_targets`).
+- Whether a `deployment.error` delivery ever carries an error code. None is documented, so a failure first seen by webhook is stored without one until the poll can fill it in.
+- How close a delivery's `createdAt` is to the `ready` time the deployments list reports for the same deployment. `deployment.succeeded` fires after blocking checks pass, so another integration's check can delay it.
 
 ## Alternative considered: Sign in with Vercel
 
