@@ -316,11 +316,13 @@ function requestedScopes(url: URL): ReadonlySet<string> {
 /**
  * Automatic webhook setup's write scopes are requested exactly when the start route passes them as
  * `extraScopes`: an adapter that ignores them shows the write access consent and gets a read-only
- * grant, and one that always asks for them holds write access on every connection.
+ * grant, and one that always asks for them holds write access on every connection. The client has
+ * no `extra` values, so an adapter whose `buildAuthorizeUrl` reads one (Sentry's and Vercel's slug)
+ * would throw here; none of the providers planned for automatic setup has `extraEnv`.
  */
 function extraScopeRequestProblems(adapter: ProviderAdapter<string>, extraScopes: readonly string[]): string[] {
   const params = {
-    client: { clientId: "harness-client", clientSecret: new Secret("harness-client-secret"), extra: {} },
+    client: { clientId: HARNESS_CLIENT_ID, clientSecret: new Secret(HARNESS_CLIENT_SECRET), extra: {} },
     state: "harness-state",
     redirectUri: `https://stackdash.example/api/connections/${adapter.id}/callback`,
     codeChallenge: "harness-code-challenge",

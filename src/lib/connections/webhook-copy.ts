@@ -24,11 +24,17 @@ export function needsWriteAccess(setup: ConnectionWebhookSetup): boolean {
   return (setup.automatic?.extraPermissions.length ?? 0) > 0;
 }
 
-/** The explanation under "Set up automatically". */
-export function automaticChoiceCopy(provider: string, setup: ConnectionWebhookSetup): string {
-  return needsWriteAccess(setup)
-    ? `StackDash asks ${provider} for write access, because ${provider} has no read-only access that can create a webhook. With write access, StackDash's connection can change your ${provider} account, not only read it. If you want StackDash to stay read-only, set up the webhook by hand instead.`
-    : `StackDash adds a webhook to your ${provider} team, using the access you already granted. You can see it in ${provider}, and StackDash removes it when you disconnect.`;
+/**
+ * The explanation under "Set up automatically". `writeAccessHeld`: as for `manualChoiceCopy`; the
+ * advice to set up by hand to stay read-only is dropped, because setting up by hand would leave the
+ * write access held.
+ */
+export function automaticChoiceCopy(provider: string, setup: ConnectionWebhookSetup, writeAccessHeld = false): string {
+  if (!needsWriteAccess(setup)) {
+    return `StackDash adds a webhook to your ${provider} team, using the access you already granted. You can see it in ${provider}, and StackDash removes it when you disconnect.`;
+  }
+  const asks = `StackDash asks ${provider} for write access, because ${provider} has no read-only access that can create a webhook. With write access, StackDash's connection can change your ${provider} account, not only read it.`;
+  return writeAccessHeld ? asks : `${asks} If you want StackDash to stay read-only, set up the webhook by hand instead.`;
 }
 
 /**

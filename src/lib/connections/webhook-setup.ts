@@ -144,10 +144,10 @@ async function includedAccountIds(workspaceId: string, connectionId: string): Pr
 }
 
 /**
- * Why automatic setup cannot start for this connection now, or null when it can: the connection
- * has a webhook already, or the workspace is at its limit. Checked before the write access consent
- * and again before the provider is called, so a stale tab or a repeat never creates a webhook only
- * to delete it.
+ * Why a webhook cannot be set up for this connection now, or null when it can: the connection has
+ * one already, or the workspace is at its limit. Checked before the write access consent and at the
+ * start of either setup, so a stale tab or a repeat gets the reason before anything is created, at
+ * the provider or here.
  */
 export async function setupRefusal(workspaceId: string, connectionId: string): Promise<SetupRefusal | null> {
   const [existing, count] = await Promise.all([

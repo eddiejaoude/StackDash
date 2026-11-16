@@ -67,7 +67,7 @@ async function evidence(locator: Locator, name: string): Promise<void> {
     path: `pr-evidence/after/${name}.png`,
     animations: "disabled",
     mask,
-    style: "[role='banner'] { visibility: hidden !important; }",
+    style: "header.sticky { visibility: hidden !important; }",
   });
 }
 
@@ -547,6 +547,9 @@ ownerTest.describe("webhook setup panel", () => {
       ).toBeVisible();
       await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toHaveAccessibleDescription(
         "You add the webhook in GitLab yourself, using the address and secret below.",
+      );
+      await expect(panel(page).getByRole("radio", { name: /Set up automatically/ })).toHaveAccessibleDescription(
+        "StackDash asks GitLab for write access, because GitLab has no read-only access that can create a webhook. With write access, StackDash's connection can change your GitLab account, not only read it.",
       );
       await expectAccessiblePanel(page);
       await evidence(panel(page), "panel-leftover-write-access");

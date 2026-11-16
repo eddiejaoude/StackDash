@@ -73,6 +73,9 @@ describe("webhook setup copy", () => {
   it("drops the read-only claim while write access is held without an automatic webhook, and says how to give it up", () => {
     const gitlab = stackdashSetup([write]);
     expect(manualChoiceCopy("GitLab", gitlab, true)).toBe("You add the webhook in GitLab yourself, using the address and secret below.");
+    expect(automaticChoiceCopy("GitLab", gitlab, true)).toBe(
+      "StackDash asks GitLab for write access, because GitLab has no read-only access that can create a webhook. With write access, StackDash's connection can change your GitLab account, not only read it.",
+    );
     expect(leftoverWriteAccessCopy("GitLab")).toBe(
       "StackDash still holds write access from automatic setup, but no webhook uses it. Reconnect GitLab to return to read-only access.",
     );

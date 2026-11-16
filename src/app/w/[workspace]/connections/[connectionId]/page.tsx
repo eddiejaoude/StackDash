@@ -115,7 +115,8 @@ async function ConnectionContent({
           providerName,
           pollingNote: pollingCopy(providerName),
           choices: {
-            automatic: webhookSetup.automatic === undefined ? null : automaticChoiceCopy(providerName, webhookSetup),
+            automatic:
+              webhookSetup.automatic === undefined ? null : automaticChoiceCopy(providerName, webhookSetup, leftoverWriteAccess),
             manual: manualChoiceCopy(providerName, webhookSetup, leftoverWriteAccess),
           },
           writeAccess: needsWriteAccess(webhookSetup),

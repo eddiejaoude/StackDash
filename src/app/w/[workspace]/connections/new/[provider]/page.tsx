@@ -69,6 +69,10 @@ async function ConnectProviderContent({
     chosen: webhookChosen,
   });
   const permissions = [...adapter.permissions, ...extraPermissions];
+  // The grant holds the write access already (an automatic setup that failed after its consent),
+  // so the advice to stay read-only by setting up by hand would be false.
+  const writeAccessHeld =
+    reconnect !== null && extraPermissions.length > 0 && extraPermissions.every((permission) => reconnect.granted_scopes.includes(permission.scope));
 
   const canConnect = canPerform(role, "manage_connections");
   const configured = loadOAuthClient(adapter) !== null;
@@ -89,7 +93,7 @@ async function ConnectProviderContent({
         title={title}
         description={
           webhookChosen && webhookSetup !== null
-            ? automaticChoiceCopy(adapter.displayName, webhookSetup)
+            ? automaticChoiceCopy(adapter.displayName, webhookSetup, writeAccessHeld)
             : reconnect !== null
               ? mismatch !== null
                 ? `${reconnect.display_name} cannot be reconnected on this instance.`
