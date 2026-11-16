@@ -27,7 +27,11 @@ Each tick does three things, then answers with counts only (no data, no errors i
 
 There is at most one queued or running sync per connection (unique index `sync_jobs_one_open_sync_per_connection`). The scheduler, "Sync now", and the first sync after connecting can all ask at once without stacking jobs.
 
-Token refreshes are serialized per connection by the credential refresh lock (`credential_refresh_locks`), which a sync and automatic webhook setup and removal all take: providers that rotate refresh tokens invalidate the old one on use, so two parallel refreshes would lose the connection. The lock is a 60 second lease taken through `acquire_credential_refresh_lock`, so a holder that dies frees it on its own. A refresh that finds it held asks again every second for about 20 seconds, then re-reads the credential once it holds the lock and refreshes only if it is still about to expire. If the lock stays held, a sync is retried later and webhook setup fails with a reference.
+Token refreshes are serialized per connection by the credential refresh lock (`credential_refresh_locks`), which a sync and automatic webhook setup and removal all take: providers that rotate refresh tokens invalidate the old one on use, so two parallel refreshes would lose the connection. The lock is a 60 second lease taken through `acquire_credential_refresh_lock`, so a holder that dies frees it on its own. A refresh that finds it held asks again every second for about 20 seconds, then re-reads the credential once it holds the lock and refreshes only if it is still about to expire. The refresh token is spent only while more of the lease is left than the provider's request timeout plus 10 seconds for the save. If the lock stays held, or too little of the lease is left, nothing is spent and:
+
+- A sync fails as `internal_error` (`handleFailure` in `src/lib/jobs/sync-connection.ts`): it is retried with backoff (see [Failures and retries](#failures-and-retries)) and counts toward `consecutive_failures`.
+- Automatic webhook setup fails before anything is created, and the panel shows the failure with a reference.
+- Removal on disconnect is reported as a failed deletion: the disconnect goes on, and the user gets the steps to remove the webhook by hand with a reference.
 
 ### A sync job
 
