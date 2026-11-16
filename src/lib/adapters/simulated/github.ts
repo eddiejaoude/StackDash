@@ -1,8 +1,8 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import { githubAdapter } from "@/lib/adapters/github";
-import { activityEventTypeIds } from "@/lib/adapters/github/activity";
+import { issueOpenedEvent, pullRequestMergedEvent, releasePublishedEvent } from "@/lib/adapters/github/activity";
 import { billingMetricNames } from "@/lib/adapters/github/billing";
-import { eventTypeIds, starMetricNames, starMilestones } from "@/lib/adapters/github/repositories";
+import { eventTypeIds, newStarEvent, starMetricNames, starMilestones } from "@/lib/adapters/github/repositories";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 
 import {
@@ -180,57 +180,44 @@ function eventsInSlot(accountId: string, slot: number, volume: number): Activity
       });
     }
 
-    // One per star, dated and keyed like the real `star` delivery's `starred_at` (whole seconds).
+    // The real adapter's builders, so titles, severities, and dedupe keys cannot drift from what a
+    // delivery to a simulated connection (the real `parse`) stores. An empty link is dropped.
+    const ref = { id: repo.id, full_name: repo.full_name, html_url: "" };
+
+    // One per star, dated like the real `star` delivery's `starred_at` (whole seconds).
     if (repo.starEvents) {
       for (let star = 0; star < after - before; star += 1) {
-        const starredAt = instantInSlot(slot, accountId, repo.id, "star", star);
-        events.push({
-          typeId: eventTypeIds.starsNew,
-          occurredAt: starredAt,
-          severity: "info",
-          title: `New star on ${repo.full_name}`,
-          externalAccountId: accountId,
-          dedupeKey: `${eventTypeIds.starsNew}:${repo.id}:${starredAt.toISOString()}`,
-        });
+        events.push(newStarEvent(ref, instantInSlot(slot, accountId, repo.id, "star", star), accountId));
       }
     }
 
     // Later lanes number past every slot's lane 0 number, so a higher volume never repeats a key.
     const numberOf = (lane: number) => slot - NUMBER_ANCHOR_SLOT + lane * 10_000_000;
     for (const lane of lanesAt(repo.mergeChance, volume, accountId, repo.id, "merge", slot)) {
-      const number = numberOf(lane);
-      events.push({
-        typeId: activityEventTypeIds.pullRequestMerged,
-        occurredAt: instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "merge-at")),
-        severity: "success",
-        title: `Pull request #${number} merged in ${repo.full_name}`,
-        externalAccountId: accountId,
-        dedupeKey: `${activityEventTypeIds.pullRequestMerged}:${repo.id}:${number}`,
-      });
+      const mergedAt = instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "merge-at")).toISOString();
+      const event = pullRequestMergedEvent(ref, { number: numberOf(lane), merged_at: mergedAt, html_url: "" }, accountId);
+      if (event !== undefined) events.push(event);
     }
     for (const lane of lanesAt(repo.issueChance, volume, accountId, repo.id, "issue", slot)) {
-      const number = numberOf(lane);
-      events.push({
-        typeId: activityEventTypeIds.issueOpened,
-        occurredAt: instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "issue-at")),
-        severity: "info",
-        title: `Issue #${number} opened in ${repo.full_name}`,
-        externalAccountId: accountId,
-        dedupeKey: `${activityEventTypeIds.issueOpened}:${repo.id}:${number}`,
-      });
+      const createdAt = instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "issue-at")).toISOString();
+      events.push(issueOpenedEvent(ref, { number: numberOf(lane), created_at: createdAt, html_url: "" }, accountId));
     }
     for (const lane of lanesAt(repo.releaseChance, volume, accountId, repo.id, "release", slot)) {
       const sinceAnchor = slot - NUMBER_ANCHOR_SLOT;
-      const tag = `v1.${Math.floor(sinceAnchor / SLOTS_PER_DAY)}.${(sinceAnchor % SLOTS_PER_DAY) * MAX_EVENT_VOLUME + lane}`;
-      events.push({
-        typeId: activityEventTypeIds.releasePublished,
-        occurredAt: instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "release-at")),
-        severity: "success",
-        title: `Release ${tag} published in ${repo.full_name}`,
-        externalAccountId: accountId,
-        // The real key holds GitHub's release id; the tag is unique here, so it stands in for one.
-        dedupeKey: `${activityEventTypeIds.releasePublished}:${repo.id}:${tag}`,
-      });
+      // Release ids like fork ids: nine digits on lane 0, and past them, one per slot and lane, above it.
+      const id =
+        lane === 0
+          ? between(100_000_000, 999_999_999, accountId, repo.id, "release-id", slot)
+          : 1_000_000_000 + slot * MAX_EVENT_VOLUME + lane;
+      const release = {
+        id,
+        tag_name: `v1.${Math.floor(sinceAnchor / SLOTS_PER_DAY)}.${(sinceAnchor % SLOTS_PER_DAY) * MAX_EVENT_VOLUME + lane}`,
+        draft: false,
+        published_at: instantInSlot(slot, ...laneParts(lane, accountId, repo.id, "release-at")).toISOString(),
+        html_url: "",
+      };
+      const event = releasePublishedEvent(ref, release, accountId);
+      if (event !== undefined) events.push(event);
     }
 
     for (const lane of lanesAt(repo.forkChance, volume, accountId, repo.id, "fork", slot)) {
