@@ -9,9 +9,26 @@ import {
   RateLimitedError,
 } from "../errors";
 import { validateAdapterEvents } from "../events";
+import { checkWebhookOutcome } from "../harness";
 import { validateAdapterMetrics } from "../metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult } from "../types";
-import { MAX_PROJECT_PAGES, MAX_TRACKED_ISSUES, nextPageCursor, sentryAdapter } from "./index";
+import {
+  Secret,
+  type FetchLike,
+  type OAuthContext,
+  type OAuthCredential,
+  type SyncResult,
+  type WebhookDescriptor,
+  type WebhookRequest,
+} from "../types";
+import {
+  MAX_PROJECT_PAGES,
+  MAX_TRACKED_ISSUES,
+  nextPageCursor,
+  SENTRY_WEBHOOK_HEADERS,
+  SENTRY_WEBHOOK_TOLERANCE_SECONDS,
+  sentryAdapter,
+  sentryWebhookSignature,
+} from "./index";
 
 // Every fixture below is from documentation, not recorded: the response samples in the Sentry API
 // reference and integration platform docs (checked 2026-11-05, URLs in docs/providers/sentry.md,
@@ -34,6 +51,14 @@ import issuesCreated from "./fixtures/issues-created.json";
 import issuesResolved from "./fixtures/issues-resolved.json";
 // - releases.json: GET /api/0/organizations/{org}/releases/ (List an Organization's Releases).
 import releases from "./fixtures/releases.json";
+// - webhook-*.json: webhook bodies from the integration platform's Issues and Installation pages
+//   (the documented `issue.created` and `installation` samples, the resolved and regressed bodies
+//   built from the created one with the documented `status` and `substatus`), on the issues above,
+//   keeping the title, culprit, assignee, and actor so the tests prove they are dropped.
+import webhookInstallationDeleted from "./fixtures/webhook-installation-deleted.json";
+import webhookIssueCreated from "./fixtures/webhook-issue-created.json";
+import webhookIssueRegressed from "./fixtures/webhook-issue-regressed.json";
+import webhookIssueResolved from "./fixtures/webhook-issue-resolved.json";
 
 const NOW = new Date("2026-11-05T12:00:00.000Z");
 const CLIENT_ID = "sentry-client-id";
@@ -464,7 +489,7 @@ describe("sentryAdapter.sync, later syncs", () => {
         title: "Issue PRIME-MOVER-1A regressed",
         body: "Level: error",
         externalAccountId: PROJECT_ID,
-        dedupeKey: "sentry.issue.regressed:90:2026-11-05T11:00:00.000Z",
+        dedupeKey: "sentry.issue.regressed:90:2026-11-05",
         url: "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/90/",
       },
       {
@@ -473,7 +498,7 @@ describe("sentryAdapter.sync, later syncs", () => {
         severity: "success",
         title: "Issue PRIME-MOVER-19 resolved",
         externalAccountId: PROJECT_ID,
-        dedupeKey: "sentry.issue.resolved:80:2026-11-05T11:00:00.000Z",
+        dedupeKey: "sentry.issue.resolved:80:2026-11-04T22:00:00Z",
         url: "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/80/",
       },
     ]);
@@ -624,5 +649,169 @@ describe("sentryAdapter.sync boundaries", () => {
     await expect(sentryAdapter.sync({ credential, externalAccountId: PROJECT_ID }, ctx)).rejects.toBeInstanceOf(
       InvalidResponseError,
     );
+  });
+});
+
+describe("sentryAdapter.webhooks", () => {
+  // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+  const WEBHOOK_SECRET = new Secret(["sentry", "webhook", "value"].join("-"));
+  const NOW_SECONDS = NOW.getTime() / 1000;
+  const REQUEST_ID = "1f4c6a2b9e8d4c3ba7f05e6d2c1b0a99";
+  const CREATED_BODY = JSON.stringify(webhookIssueCreated);
+
+  function descriptor(): WebhookDescriptor {
+    const { webhooks } = sentryAdapter;
+    if (webhooks === undefined) throw new Error("the Sentry adapter declares no webhook");
+    return webhooks;
+  }
+
+  type Delivery = Partial<{
+    resource: string;
+    timestamp: string;
+    requestId: string;
+    secret: Secret;
+    // Signs this body while sending the real one, as a tampered delivery would.
+    signedBody: string;
+    omit: keyof typeof SENTRY_WEBHOOK_HEADERS;
+  }>;
+
+  // A delivery as Sentry sends it; each option bends one part of it for a boundary test.
+  function delivery(rawBody: string, options: Delivery = {}): WebhookRequest {
+    const headers = new Headers({
+      "content-type": "application/json",
+      [SENTRY_WEBHOOK_HEADERS.delivery]: options.requestId ?? REQUEST_ID,
+      [SENTRY_WEBHOOK_HEADERS.resource]: options.resource ?? "issue",
+      [SENTRY_WEBHOOK_HEADERS.timestamp]: options.timestamp ?? String(NOW_SECONDS),
+      [SENTRY_WEBHOOK_HEADERS.signature]: sentryWebhookSignature(options.secret ?? WEBHOOK_SECRET, options.signedBody ?? rawBody),
+    });
+    if (options.omit !== undefined) headers.delete(SENTRY_WEBHOOK_HEADERS[options.omit]);
+    return { headers, rawBody: new TextEncoder().encode(rawBody) };
+  }
+
+  function parsed(rawBody: string, options: Delivery = {}) {
+    const request = delivery(rawBody, options);
+    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW)).toEqual({ ok: true, deliveryId: REQUEST_ID });
+    return descriptor().parse(request, harness().ctx);
+  }
+
+  async function laterSyncEvents() {
+    const result = await sentryAdapter.sync({ credential, externalAccountId: PROJECT_ID, cursor: previousCursor }, harness().ctx);
+    return result.events;
+  }
+
+  it("is registered on the integration and signed with the client secret", () => {
+    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: sentryAdapter.oauth.clientSecretEnv });
+    expect(descriptor().subscriptions).toEqual(["issue.created", "issue.resolved", "issue.unresolved"]);
+  });
+
+  it("maps the documented issue.created delivery to the event the sync stores for the same issue", async () => {
+    const outcome = parsed(CREATED_BODY);
+    expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: PROJECT_ID,
+      events: [
+        {
+          typeId: "sentry.issue.created",
+          occurredAt: new Date("2026-11-05T11:40:00.679Z"),
+          severity: "critical",
+          title: "New issue PRIME-MOVER-2F",
+          body: "Level: fatal",
+          externalAccountId: PROJECT_ID,
+          dedupeKey: "sentry.issue.created:101",
+          url: "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/101/",
+        },
+      ],
+    });
+    // Polled later: the same dedupe key, so the timeline stores the issue once.
+    const polled = (await laterSyncEvents()).filter((event) => event.dedupeKey === "sentry.issue.created:101");
+    expect(polled).toHaveLength(1);
+  });
+
+  it("dates a resolution by the delivery and keys it as a later sync does, to the second of lastSeen", async () => {
+    const sentSeconds = NOW_SECONDS - 120;
+    const outcome = parsed(JSON.stringify(webhookIssueResolved), { timestamp: String(sentSeconds) });
+    expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
+    const polled = (await laterSyncEvents()).find((event) => event.typeId === "sentry.issue.resolved");
+    // The delivery carries lastSeen in microseconds, the issue search to the second: one key.
+    expect(polled?.dedupeKey).toBe("sentry.issue.resolved:80:2026-11-04T22:00:00Z");
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: PROJECT_ID,
+      events: [{ ...polled, occurredAt: new Date(sentSeconds * 1000) }],
+    });
+  });
+
+  it("dates a regression by the delivery and keys it as a sync on the same UTC day does", async () => {
+    const sentSeconds = NOW_SECONDS - 120;
+    const outcome = parsed(JSON.stringify(webhookIssueRegressed), { timestamp: String(sentSeconds) });
+    expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
+    const polled = (await laterSyncEvents()).find((event) => event.typeId === "sentry.issue.regressed");
+    expect(polled?.dedupeKey).toBe("sentry.issue.regressed:90:2026-11-05");
+    expect(outcome).toEqual({
+      kind: "events",
+      externalAccountId: PROJECT_ID,
+      events: [{ ...polled, occurredAt: new Date(sentSeconds * 1000) }],
+    });
+  });
+
+  it.each([
+    ["the first second of a UTC day", "2026-11-05T00:00:00Z", "sentry.issue.regressed:90:2026-11-05"],
+    ["the last second of the UTC day before", "2026-11-04T23:59:59Z", "sentry.issue.regressed:90:2026-11-04"],
+  ])("keys a regression delivered at %s by that day (boundary)", (_case, sentAt, dedupeKey) => {
+    const at = new Date(sentAt);
+    const request = delivery(JSON.stringify(webhookIssueRegressed), { timestamp: String(at.getTime() / 1000) });
+    expect(descriptor().verify(request, WEBHOOK_SECRET, at).ok).toBe(true);
+    expect(descriptor().parse(request, harness().ctx)).toMatchObject({ kind: "events", events: [{ dedupeKey, occurredAt: at }] });
+  });
+
+  it("never carries the issue title, culprit, assignee, or actor into the outcome", () => {
+    const outcomes = [webhookIssueCreated, webhookIssueResolved, webhookIssueRegressed].map((body) => parsed(JSON.stringify(body)));
+    const output = JSON.stringify(outcomes);
+    for (const text of ["ZeroDivisionError", "ValueError", "KeyError", "jane@example.com", "John Doe", "john.doe@example.com", "Meredith Heller", "raven.scripts"]) {
+      expect(output).not.toContain(text);
+    }
+  });
+
+  it.each<[string, Delivery, string]>([
+    ["no signature", { omit: "signature" }, "missing_signature"],
+    ["no timestamp", { omit: "timestamp" }, "missing_signature"],
+    ["a timestamp that is not whole seconds", { timestamp: "1762344000.5" }, "malformed"],
+    ["a timestamp one second past the tolerance", { timestamp: String(NOW_SECONDS - SENTRY_WEBHOOK_TOLERANCE_SECONDS - 1) }, "stale"],
+    ["a timestamp one second past the tolerance in the future", { timestamp: String(NOW_SECONDS + SENTRY_WEBHOOK_TOLERANCE_SECONDS + 1) }, "stale"],
+    ["no Request-ID", { omit: "delivery" }, "malformed"],
+    ["a Request-ID longer than 200 characters", { requestId: "a".repeat(201) }, "malformed"],
+    ["a signature made with another secret", { secret: new Secret("another-webhook-value") }, "bad_signature"],
+    ["a body changed after signing", { signedBody: CREATED_BODY.replace("PRIME-MOVER-2F", "PRIME-MOVER-2G") }, "bad_signature"],
+  ])("rejects a delivery with %s (boundary)", (_case, options, reason) => {
+    expect(descriptor().verify(delivery(CREATED_BODY, options), WEBHOOK_SECRET, NOW)).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ["the past", -SENTRY_WEBHOOK_TOLERANCE_SECONDS],
+    ["the future", SENTRY_WEBHOOK_TOLERANCE_SECONDS],
+  ])("accepts a timestamp exactly at the tolerance in %s (boundary)", (_case, offsetSeconds) => {
+    const request = delivery(CREATED_BODY, { timestamp: String(NOW_SECONDS + offsetSeconds) });
+    expect(descriptor().verify(request, WEBHOOK_SECRET, NOW).ok).toBe(true);
+  });
+
+  const issueBody = (action: string, substatus: string | null) =>
+    JSON.stringify({ ...webhookIssueRegressed, action, data: { issue: { ...webhookIssueRegressed.data.issue, substatus } } });
+
+  it.each<[string, string, Delivery]>([
+    ["issue.assigned", issueBody("assigned", "ongoing"), {}],
+    ["issue.archived", issueBody("archived", "archived_forever"), {}],
+    ["issue.unresolved that is escalating, not regressed", issueBody("unresolved", "escalating"), {}],
+    ["issue.unresolved without a substatus", issueBody("unresolved", null), {}],
+    ["an issue without its project", JSON.stringify({ ...webhookIssueCreated, data: { issue: { ...webhookIssueCreated.data.issue, project: null } } }), {}],
+    ["an issue body under the installation resource", CREATED_BODY, { resource: "installation" }],
+    ["installation.created", JSON.stringify({ ...webhookInstallationDeleted, action: "created" }), { resource: "installation" }],
+    ["a resource StackDash does not subscribe to", CREATED_BODY, { resource: "error" }],
+    ["no resource header", CREATED_BODY, { omit: "resource" }],
+    ["a body that is not JSON", "action=created", {}],
+  ])("ignores %s (boundary)", (_case, body, options) => {
+    const outcome = parsed(body, options);
+    expect(outcome).toMatchObject({ kind: "ignored" });
+    expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
   });
 });

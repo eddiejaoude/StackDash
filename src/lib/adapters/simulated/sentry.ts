@@ -19,7 +19,6 @@ import {
   instantInSlot,
   laneParts,
   lanesAt,
-  SLOT_MS,
   simulatedEndpoint,
   unit,
   utcDayStart,
@@ -85,19 +84,22 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
 function issue(accountId: string, slot: number, lane: number, ...parts: readonly (string | number)[]): IssueSnapshot {
   const level = unit(accountId, slot, ...parts, "level");
   const laneDigits = lane === 0 ? "" : String(lane).padStart(2, "0");
+  const firstSeen = instantInSlot(slot, accountId, ...parts, "first-seen");
   return {
     // Account first, so two projects or two simulated connections never share an issue id.
     id: `${accountId}${slot}${between(0, 9, accountId, slot, ...parts, "id")}${laneDigits}`,
     shortId: `${projectOf(accountId).toUpperCase()}-${Math.floor(unit(accountId, slot, ...parts, "short") * 36 ** 3).toString(36).toUpperCase()}`,
     level: level < 0.1 ? "fatal" : level < 0.8 ? "error" : "warning",
-    firstSeen: instantInSlot(slot, accountId, ...parts, "first-seen"),
+    firstSeen,
+    // One event per simulated issue: a resolution's dedupe key reads it, and the id is already
+    // unique per slot and lane.
+    lastSeen: firstSeen,
     permalink: null,
   };
 }
 
 function eventsInSlot(accountId: string, slot: number, volume: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
-  const windowKey = new Date(slot * SLOT_MS).toISOString();
 
   // About 1.4 new issues an hour (360 slots), times the volume.
   const created = countAtVolume([0.004], volume, accountId, "created", slot);
@@ -107,12 +109,12 @@ function eventsInSlot(accountId: string, slot: number, volume: number): Activity
   for (const lane of lanesAt(0.0015, volume, accountId, "regressed", slot)) {
     const regressed = issue(accountId, slot, lane, ...laneParts(lane, "regressed"));
     const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "regressed-at"));
-    events.push(issueStatusEvent("regressed", regressed, accountId, detectedAt, windowKey));
+    events.push(issueStatusEvent("regressed", regressed, accountId, detectedAt));
   }
   for (const lane of lanesAt(0.003, volume, accountId, "resolved", slot)) {
     const resolved = issue(accountId, slot, lane, ...laneParts(lane, "resolved"));
     const detectedAt = instantInSlot(slot, ...laneParts(lane, accountId, "resolved-at"));
-    events.push(issueStatusEvent("resolved", resolved, accountId, detectedAt, windowKey));
+    events.push(issueStatusEvent("resolved", resolved, accountId, detectedAt));
   }
 
   const offset = between(0, RELEASE_EVERY_SLOTS - 1, accountId, "release-offset");

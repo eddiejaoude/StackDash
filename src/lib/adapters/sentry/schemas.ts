@@ -70,6 +70,33 @@ export const IssuesPageSchema = z.array(IssueSchema);
 
 export type Issue = z.infer<typeof IssueSchema>;
 
+// An installation id is a UUID in Sentry's paths and payloads; the exact format is not documented,
+// so only characters that cannot change a path pass.
+export const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+
+const InstallationRefSchema = z.object({ uuid: z.string().regex(INSTALLATION_ID_PATTERN) });
+
+/**
+ * An `issue` webhook body (Sentry-Hook-Resource `issue`): the issue as the issue search returns it,
+ * plus the project it belongs to, which is the external account. `title`, `culprit`, `metadata`,
+ * `assignedTo`, and the top-level `actor` are never declared, so they are dropped here: they can
+ * carry personal data from the user's app or name a person.
+ */
+export const IssueWebhookSchema = z.object({
+  action: z.string().min(1),
+  installation: InstallationRefSchema,
+  data: z.object({ issue: IssueSchema.extend({ project: z.object({ id: IdSchema }) }) }),
+});
+
+/**
+ * An `installation` webhook body. Only the action and the installation's uuid are read: the
+ * `installation.created` body also carries a grant `code`, which is never declared, so never kept.
+ */
+export const InstallationWebhookSchema = z.object({
+  action: z.string().min(1),
+  installation: InstallationRefSchema,
+});
+
 const ReleaseSchema = z.object({
   id: IdSchema,
   version: z.string().min(1),
