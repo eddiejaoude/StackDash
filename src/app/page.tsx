@@ -24,7 +24,7 @@ const heroFeatures: readonly HeroFeature[] = [
 const FEATURES_START_MS = 1400;
 const FEATURES_STAGGER_MS = 90;
 
-/** The coming soon page: the landing page hero, with a launch note in place of its actions. */
+/** The coming soon page: the landing page hero, with a launch note and a repository link in place of its actions. */
 export default function Home() {
   return (
     <>
@@ -82,7 +82,7 @@ export default function Home() {
                 <p className="rise mt-4">
                   <a
                     href={site.githubUrl}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-line-strong px-4 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-foreground/40 px-4 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
                   >
                     <PlatformLogo platform="GitHub" />
                     Star {site.name} on GitHub
