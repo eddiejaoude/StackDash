@@ -569,3 +569,49 @@ describe("sync job: snapshots and billing periods (#53)", () => {
     expect(usage?.value).toBe(1200);
   });
 });
+
+describe("sync job: installation id of a connection made before #480", () => {
+  const INSTALLATION = "fake-installation-1";
+  const installed: ProviderAdapter = { ...fakeAdapter, installationIdOf: () => INSTALLATION };
+
+  it("fills a missing installation id from the credential on the next sync", async () => {
+    const harness = setup({ adapter: installed });
+    expect(connectionOf(harness).external_installation_id).toBeNull();
+
+    await harness.tick();
+
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).external_installation_id).toBe(INSTALLATION);
+  });
+
+  it("fills it even when the sync then fails (boundary: revoked credential)", async () => {
+    const harness = setup({ adapter: installed, mode: "revoked" });
+
+    await harness.tick();
+
+    expect(connectionOf(harness)).toMatchObject({ status: "needs_attention", external_installation_id: INSTALLATION });
+  });
+
+  it("never rewrites an installation id the grant recorded (boundary: already set)", async () => {
+    const harness = setup({ adapter: { ...fakeAdapter, installationIdOf: () => "fake-installation-2" } });
+    connectionOf(harness).external_installation_id = INSTALLATION;
+
+    await harness.tick();
+
+    expect(connectionOf(harness).external_installation_id).toBe(INSTALLATION);
+  });
+
+  it.each([
+    ["an adapter whose credential names no installation (boundary: null)", { ...fakeAdapter, installationIdOf: () => null }],
+    ["an adapter that returns an empty id (boundary: blank)", { ...fakeAdapter, installationIdOf: () => "" }],
+    ["an adapter that returns whitespace (boundary: blank)", { ...fakeAdapter, installationIdOf: () => " \t" }],
+    ["an adapter that does not declare installationIdOf (boundary: omitted)", fakeAdapter],
+  ])("leaves it null for %s", async (_case, adapter: ProviderAdapter) => {
+    const harness = setup({ adapter });
+
+    await harness.tick();
+
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).external_installation_id).toBeNull();
+  });
+});

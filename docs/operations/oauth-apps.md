@@ -13,7 +13,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 - **Hosted StackDash**: the hosted instance has one registration per app, owned by the StackDash account or organization, with callbacks on its production origin. Hosted users connect through these apps and never create their own.
 - **Self-hosted StackDash**: every install registers its own apps with the same permissions, because the callback URLs, client secrets, and private keys belong to one deployment. Never reuse the hosted apps' credentials.
 - **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`STACKDASH_ENABLE_FAKE_PROVIDER=1`, never in production). To try every provider locally without registering any app, simulate them (`STACKDASH_SIMULATE_PROVIDERS=1`, local only and refused on a Vercel production deployment): each connection is labeled "Simulated" and its data is made up on your machine.
-- **Webhooks**: StackDash can receive signed deliveries (see [Webhooks](../adapters.md#webhooks)), but no registered provider declares one yet. Leave every webhook setting empty or inactive until StackDash receives that provider's webhooks (planned for GitHub, Sentry, Vercel, and Stripe first; each provider page says where it stands), and register its URL then.
+- **Webhooks**: StackDash can receive signed deliveries (see [Webhooks](../adapters.md#webhooks)). Leave every webhook setting empty or inactive unless that provider's section below says to fill it in. Each provider page says whether StackDash receives that provider's webhooks.
 
 ## Summary
 
@@ -22,7 +22,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | GitHub OAuth app (sign-in) | GitHub, Settings, Developer settings, OAuth Apps | `https://<project-ref>.supabase.co/auth/v1/callback` | `read:user user:email` (requested by the sign-in page) | Entered in Supabase Auth, not in the app |
 | GitHub App | GitHub, Settings, Developer settings, GitHub Apps | `<SITE_URL>/api/connections/github/callback` (callback and setup URL) | Metadata read, Organization Administration read, Account Plan read | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` |
 | Vercel Integration | Vercel, Integrations Console | `<SITE_URL>/api/connections/vercel/callback` | `billing`, `deployment`, `project`, `team` at Read | `VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, `VERCEL_INTEGRATION_SLUG` |
-| Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional) |
+| Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional), `STRIPE_WEBHOOK_SECRET` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
 | DigitalOcean OAuth app | DigitalOcean control panel, API, OAuth Applications | `<SITE_URL>/api/connections/digitalocean/callback` | `billing:read`, `actions:read`, `app:read`, `droplet:read`, `account:read` (sent with each authorize request) | `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` |
@@ -71,9 +71,10 @@ Settings that must match the code:
 - Create it in the Vercel team that should own it: **Integrations, Integrations Console, Create**.
 - **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`. It is a single field, so one integration serves one origin.
 - **API Scopes**: `billing` Read, `deployment` Read, `project` Read, `team` Read. Everything else None.
-- **Webhook URL** and **Configuration URL**: empty.
+- **Webhook URL**: `<SITE_URL>/api/webhooks/vercel`, with only `deployment.succeeded`, `deployment.error`, and `integration-configuration.removed` ticked. Leave it empty on a local development integration, which no delivery can reach. See [Vercel, Webhooks](../providers/vercel.md#webhooks).
+- **Configuration URL**: empty.
 
-Variables: `VERCEL_CLIENT_ID` (`oac_...`), `VERCEL_CLIENT_SECRET` (from **Credentials**; **Rotate Secret** is there too), `VERCEL_INTEGRATION_SLUG` (the URL Slug, used to build `https://vercel.com/integrations/<slug>/new`).
+Variables: `VERCEL_CLIENT_ID` (`oac_...`), `VERCEL_CLIENT_SECRET` (from **Credentials**; **Rotate Secret** is there too; it also verifies webhook deliveries, so rotating it changes the webhook key at once), `VERCEL_INTEGRATION_SLUG` (the URL Slug, used to build `https://vercel.com/integrations/<slug>/new`).
 
 Adding or upgrading a scope later emails every installer for confirmation, so register with exactly these four.
 
@@ -87,8 +88,9 @@ Settings that must match the code:
 - `stripe-app.json`: `distribution_type` `public`, `stripe_api_access_type` `oauth` (fixed after the first upload), `allowed_redirect_uris` `["<SITE_URL>/api/connections/stripe/callback"]` (HTTPS for live mode).
 - Permissions, added with `stripe apps grant permission`: `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read`. Nothing else.
 - After `stripe apps upload`: in the Dashboard, **Created apps**, select the app, **Set external test version**, **Access**: **Anyone with the link**. Up to 25 external testers can install an unpublished app; MVP testers are added this way ([External testers and review](../providers/stripe.md#external-testers-and-review)). Testers need the Apps administrator role on their Stripe account.
+- Webhooks, optional: one endpoint in the owner account's live mode, **Developers**, **Webhooks**, at `<SITE_URL>/api/webhooks/stripe`, with **Listen to events on Connected accounts** and the eight events listed in [Stripe, Webhooks](../providers/stripe.md#webhooks). StackDash receives live mode installs' events there; test mode installs stay polled, so add no test mode endpoint.
 
-Variables: `STRIPE_APP_CLIENT_ID` (the `client_id` in the OAuth install link), `STRIPE_APP_SECRET_KEY` (live secret key `sk_live_...` of the owner account; Stripe Apps have no client secret, and a restricted key does not work), and `STRIPE_APP_TEST_SECRET_KEY` (`sk_test_...`, only to accept installs from the test mode link).
+Variables: `STRIPE_APP_CLIENT_ID` (the `client_id` in the OAuth install link), `STRIPE_APP_SECRET_KEY` (live secret key `sk_live_...` of the owner account; Stripe Apps have no client secret, and a restricted key does not work), `STRIPE_APP_TEST_SECRET_KEY` (`sk_test_...`, only to accept installs from the test mode link), and `STRIPE_WEBHOOK_SECRET` (the webhook endpoint's signing secret `whsec_...`, only to receive webhooks; empty leaves Stripe on polling alone).
 
 ## Supabase OAuth app
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DELIVERY_ID_MAX_LENGTH } from "@/lib/webhooks/signature";
 
 /**
  * Allowlist schemas for every Stripe response the adapter reads (docs/providers/stripe.md).
@@ -62,6 +63,23 @@ export const EventSchema = z.object({
   data: z.object({ object: z.unknown() }),
 });
 export type StripeEvent = z.infer<typeof EventSchema>;
+
+/**
+ * A webhook delivery's body (#423): the event `GET /v1/events` returns, plus `account`, the connected
+ * account it happened on (absent for an event on the app owner's own account), and `livemode`.
+ * `data.object` stays `unknown` and goes through the same allowlists as a polled event.
+ */
+export const WebhookEventSchema = EventSchema.extend({
+  account: StripeIdSchema.optional(),
+  livemode: z.boolean(),
+});
+
+/**
+ * Only the event id, read from a verified body as the delivery id. Stripe retries an event under
+ * the same id, and the id is inside the signed body, so it cannot be swapped on a replay. Bounded
+ * by DELIVERY_ID_MAX_LENGTH because it becomes a unique key in the database.
+ */
+export const WebhookEventIdSchema = z.object({ id: StripeIdSchema.max(DELIVERY_ID_MAX_LENGTH) });
 
 // Only the fields the timeline uses. Since #261 that includes the charge's amount, the total refunded
 // so far, and their currency, which the event title prints; each is optional, and a title without

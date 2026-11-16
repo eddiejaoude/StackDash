@@ -11,6 +11,7 @@ import {
   type ProviderAdapter,
   type SyncInput,
   type SyncResult,
+  type WebhookDescriptor,
 } from "@/lib/adapters/types";
 import { PROVIDER_NAMES } from "@/lib/providers";
 
@@ -100,6 +101,22 @@ export type SimulatedAdapterOptions = Readonly<{
   volume?: number;
 }>;
 
+export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET";
+
+/**
+ * The live adapter's push path (#479), so a delivery posted to a simulated provider runs through
+ * the real `verify` and `parse`. An app-level secret is read from SIMULATED_WEBHOOK_SECRET_ENV
+ * instead of the provider's own variable: simulation never reads a real provider secret, and one
+ * synthetic value signs every simulated provider's deliveries, locally and in e2e. A per-connection
+ * registration keeps the secret stored for its connection. The webhook job does not yet tell
+ * simulated connections from real ones (#495): an app-level delivery reaches every connection that
+ * includes its account, real ones too.
+ */
+function simulatedWebhooks(real: WebhookDescriptor): WebhookDescriptor {
+  if (real.registration.kind !== "app") return real;
+  return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
+}
+
 /** A simulated adapter for `provider`, optionally with an incident or at a higher event volume. */
 export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId, options: SimulatedAdapterOptions = {}): ProviderAdapter {
   const { incident, volume = DEFAULT_EVENT_VOLUME } = options;
@@ -129,6 +146,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     ...(real.dailyTotals === undefined ? {} : { dailyTotals: real.dailyTotals }),
     ...(real.projectedSpend === undefined ? {} : { projectedSpend: real.projectedSpend }),
     ...(real.beta === undefined ? {} : { beta: real.beta }),
+    ...(real.webhooks === undefined ? {} : { webhooks: simulatedWebhooks(real.webhooks) }),
     oauth: {
       authorizeUrl: FAKE_AUTHORIZE_PATH,
       // Never requested: `exchangeCode` mints the credential in memory.

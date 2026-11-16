@@ -11,6 +11,7 @@ import {
   type ClaimedJob,
   type ConnectionPatch,
   type ConnectionKey,
+  type ConnectionTarget,
   type EventRow,
   type JobFailure,
   type JobStore,
@@ -83,6 +84,7 @@ export class MemoryJobStore implements JobStore {
       display_name: "Example connection",
       authorized_account_label: null,
       external_installation_id: null,
+      granted_at: null,
       granted_scopes: [],
       missing_scopes: [],
       poll_interval_seconds: 3600,
@@ -297,8 +299,30 @@ export class MemoryJobStore implements JobStore {
   async getConnection(key: ConnectionKey) {
     const row = this.#connection(key);
     if (row === undefined) return null;
-    const { id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes } = row;
-    return { id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes };
+    const {
+      id,
+      workspace_id,
+      provider,
+      status,
+      display_name,
+      authorized_account_label,
+      poll_interval_seconds,
+      consecutive_failures,
+      missing_scopes,
+      external_installation_id,
+    } = row;
+    return {
+      id,
+      workspace_id,
+      provider,
+      status,
+      display_name,
+      authorized_account_label,
+      poll_interval_seconds,
+      consecutive_failures,
+      missing_scopes,
+      external_installation_id,
+    };
   }
 
   async listIncludedAccounts({ workspaceId, connectionId }: ConnectionKey) {
@@ -528,6 +552,9 @@ export class MemoryJobStore implements JobStore {
     // webhook_deliveries_delivery_id_length counts characters, not UTF-16 code units.
     const length = [...deliveryId].length;
     if (length < 1 || length > 200) throw new Error("violates check constraint webhook_deliveries_delivery_id_length");
+    if (outcome.kind === "uninstalled" && (outcome.by === "installation" ? outcome.installationId : outcome.externalAccountId) === "") {
+      throw new Error("an uninstalled p_outcome must name an account or an installation");
+    }
     if (endpointId !== null && !this.webhookEndpoints.some((row) => row.id === endpointId && row.provider === provider)) {
       throw new Error("p_endpoint_id must name an endpoint of p_provider");
     }
@@ -559,6 +586,20 @@ export class MemoryJobStore implements JobStore {
     return { id: row.id, provider: row.provider, endpointId: row.endpoint_id, outcome: row.outcome };
   }
 
+  /** list_webhook_targets' connection rules: the provider, a live status, and the endpoint's own connection when one is given. */
+  #isWebhookTarget(
+    connection: MemoryConnection | undefined,
+    provider: MemoryConnection["provider"],
+    endpoint: MemoryWebhookEndpoint | null,
+  ): connection is MemoryConnection {
+    return (
+      connection !== undefined &&
+      connection.provider === provider &&
+      (connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention") &&
+      (endpoint === null || (endpoint.workspace_id === connection.workspace_id && endpoint.connection_id === connection.id))
+    );
+  }
+
   async listWebhookTargets({
     provider,
     externalAccountId,
@@ -567,25 +608,37 @@ export class MemoryJobStore implements JobStore {
     const endpoint = endpointId === null ? null : this.webhookEndpoints.find((row) => row.id === endpointId);
     if (endpoint === undefined) return [];
     return this.accounts
-      .filter((account) => {
-        if (account.external_id !== externalAccountId || !account.included) return false;
-        if (endpoint !== null && (endpoint.workspace_id !== account.workspace_id || endpoint.connection_id !== account.connection_id)) {
-          return false;
-        }
+      .flatMap((account) => {
+        if (account.external_id !== externalAccountId || !account.included) return [];
         const connection = this.#connection({ workspaceId: account.workspace_id, connectionId: account.connection_id });
-        return (
-          connection !== undefined &&
-          connection.provider === provider &&
-          (connection.status === "active" || connection.status === "failed" || connection.status === "needs_attention")
-        );
+        return this.#isWebhookTarget(connection, provider, endpoint) ? [{ account, connection }] : [];
       })
-      .sort((a, b) => a.id.localeCompare(b.id))
+      .sort((a, b) => a.account.id.localeCompare(b.account.id))
       .slice(0, WEBHOOK_TARGET_LIMIT)
-      .map((account) => ({
+      .map(({ account, connection }) => ({
         workspaceId: account.workspace_id,
         connectionId: account.connection_id,
         accountId: account.id,
-        credentialUpdatedAt: this.credentialUpdatedAt.get(account.connection_id) ?? null,
+        // list_webhook_targets: the recorded grant, else the credential's last save.
+        grantedAt: connection.granted_at ?? this.credentialUpdatedAt.get(connection.id) ?? null,
+      }));
+  }
+
+  async listInstallationTargets({
+    provider,
+    installationId,
+    endpointId,
+  }: Parameters<JobStore["listInstallationTargets"]>[0]): Promise<ConnectionTarget[]> {
+    const endpoint = endpointId === null ? null : this.webhookEndpoints.find((row) => row.id === endpointId);
+    if (endpoint === undefined) return [];
+    return this.connections
+      .filter((connection) => connection.external_installation_id === installationId && this.#isWebhookTarget(connection, provider, endpoint))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .slice(0, WEBHOOK_TARGET_LIMIT)
+      .map((connection) => ({
+        workspaceId: connection.workspace_id,
+        connectionId: connection.id,
+        grantedAt: connection.granted_at ?? this.credentialUpdatedAt.get(connection.id) ?? null,
       }));
   }
 
