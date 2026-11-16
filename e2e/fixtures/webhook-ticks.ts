@@ -1,6 +1,5 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
-import { expect } from "./auth";
 import { adminClient, cronSecret, type TestWorkspace } from "./db";
 
 /*
