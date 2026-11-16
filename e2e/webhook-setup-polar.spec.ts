@@ -23,6 +23,7 @@ import {
   evidence,
   expectAccessiblePanel,
   grantedScopes,
+  HIDE_DEV_INDICATOR,
   panel,
   tabTo,
 } from "./fixtures/webhook-panel";
@@ -190,7 +191,12 @@ ownerTest.describe("Polar webhook setup", () => {
       expect(await grantedScopes(connection)).toEqual([SIMULATED_SCOPE]);
       if (EVIDENCE) {
         await page.evaluate(() => window.scrollTo(0, 0));
-        await page.screenshot({ path: "pr-evidence/after/polar-consent-write-access-warning.png", animations: "disabled", fullPage: true });
+        await page.screenshot({
+          path: "pr-evidence/after/polar-consent-write-access-warning.png",
+          animations: "disabled",
+          fullPage: true,
+          style: HIDE_DEV_INDICATOR,
+        });
       }
       const consent = page.getByRole("checkbox", { name: "I understand StackDash gets full access to my Polar account" });
       await tabTo(page, consent);
