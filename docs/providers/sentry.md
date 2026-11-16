@@ -1,8 +1,8 @@
 # Sentry
 
-Provider id: `sentry`. Verification: documentation only. Docs checked 2026-11-05.
+Provider id: `sentry`. Verification: documentation only. Docs checked 2026-11-05; webhook pages 2026-11-16.
 
-StackDash reads error counts per Sentry project, new and regressed issues, resolutions, and releases. It installs as a Sentry integration with three read-only scopes. Sentry does not report cost, so StackDash shows none.
+StackDash reads error counts per Sentry project, new and regressed issues, resolutions, and releases. It installs as a Sentry integration with three read-only scopes. Issue events arrive by webhook within a minute, and polling fills in the rest. Sentry does not report cost, so StackDash shows none.
 
 **Built without a real Sentry account.** No integration has been registered yet, so every request and response on this page comes from Sentry's documentation, and the tests run on samples from it. Everything not yet confirmed against a real organization is listed under [Unverified](#unverified); treat the adapter as unverified until that list is worked through.
 
@@ -52,7 +52,7 @@ The sync runner refreshes when the token is within its refresh window, so with h
 ### Disconnect and revoke
 
 - Sentry documents no endpoint an integration can call to revoke its own token or uninstall itself. Disconnecting in StackDash deletes the stored token and shows the manual step: in Sentry, open **Settings**, then **Integrations**, choose StackDash, and choose **Uninstall**.
-- After an uninstall the token stops working. Until StackDash receives Sentry webhooks (see [Webhooks](#webhooks)), it finds out on the next sync: a `401` on any call, or a `401`, `403`, or `404` on the refresh, marks the connection as needing a reconnect. The exact codes are unverified.
+- After an uninstall the token stops working. Sentry sends `installation.deleted` to the integration's Webhook URL, and StackDash marks every connection granted for that installation as needing a reconnect at once (see [Webhooks](#webhooks)). Without the delivery it finds out on the next sync: a `401` on any call, or a `401`, `403`, or `404` on the refresh, marks the connection as needing a reconnect. The exact codes are unverified.
 
 ## Permissions
 
@@ -123,16 +123,20 @@ The cursor remembers up to 100 unresolved issues per project (short id, whether 
 - Freshness of stats and of the issue search is not documented. The 10 minute overlap covers a short indexing delay.
 - Retention follows the organization's Sentry plan and is not read.
 
-### Timeline events (by polling)
+### Timeline events
 
 | Event type | Source | Dated | Severity | Rule |
 |---|---|---|---|---|
-| `sentry.issue.created` (New issue) | New issues search | `firstSeen` | `critical` for fatal, `warning` for error, `info` otherwise | One per issue id |
-| `sentry.issue.regressed` (Issue regressed) | Active issues search | When the sync saw it | `critical` for fatal and error, `warning` otherwise | When `substatus` is `regressed` and the issue was not remembered as regressed. Not on the first sync, which records a baseline |
-| `sentry.issue.resolved` (Issue resolved) | Resolved search over remembered issues | When the sync saw it | `success` | Once, then the issue is forgotten |
-| `sentry.release.created` (New release) | Release list | `dateCreated` | `info` | One per release and project |
+| `sentry.issue.created` (New issue) | New issues search, or an `issue.created` delivery | `firstSeen` | `critical` for fatal, `warning` for error, `info` otherwise | One per issue id |
+| `sentry.issue.regressed` (Issue regressed) | Active issues search, or an `issue.unresolved` delivery with `substatus: "regressed"` | When Sentry sent the delivery, or when the sync saw it | `critical` for fatal and error, `warning` otherwise | One per issue per UTC day. By polling: when `substatus` is `regressed` and the issue was not remembered as regressed, and not on the first sync, which records a baseline |
+| `sentry.issue.resolved` (Issue resolved) | Resolved search over remembered issues, or an `issue.resolved` delivery | When Sentry sent the delivery, or when the sync saw it | `success` | One per resolution. By polling: once, then the issue is forgotten |
+| `sentry.release.created` (New release) | Release list (polling only) | `dateCreated` | `info` | One per release and project |
 
-Titles carry the short id or the release version, never the issue title: "New issue WEB-1A", "Issue WEB-1A regressed", "Issue WEB-1A resolved", "Release web@1.2.0 created". Issue events link to the issue's `permalink` when it is an `https` address on `sentry.io`. The issue list does not say when a status changed, so regressed and resolved events carry the sync time; their dedupe key includes the sync window, so an issue that regresses again later gets a new event.
+Titles carry the short id or the release version, never the issue title: "New issue WEB-1A", "Issue WEB-1A regressed", "Issue WEB-1A resolved", "Release web@1.2.0 created". Issue events link to the issue's `permalink` when it is an `https` address on `sentry.io` or a subdomain of it. The issue list does not say when a status changed, so a sync dates regressed and resolved events by when it saw them; a delivery dates them by when Sentry sent it. Whichever arrives first is stored and the other is dropped, because both build the same dedupe key:
+
+- `sentry.issue.created:<issue id>`.
+- `sentry.issue.resolved:<issue id>:<lastSeen, to the second>`. A resolved issue receives no events (a new one regresses it), so `lastSeen` stands still from the resolution until the next regression, and the next resolution has a later one.
+- `sentry.issue.regressed:<issue id>:<UTC day>`. Nothing on a regressed issue stands still, so the delivery and the next sync agree by day.
 
 None of these events counts in the dashboard headline's signups or deploys: a release is a version Sentry was told about, not a deployment of it.
 
@@ -157,7 +161,7 @@ The issue achievements count `sentry.issue.resolved` events and the release ones
 | Errors accepted, filtered, and rate limited per project, last 24 hours | Verified (Sentry's own counts) |
 | New issues and their first seen time | Verified |
 | Releases and their creation time | Verified |
-| Regressions and resolutions | Verified status, estimated time: dated when the sync saw the change, up to one poll interval late |
+| Regressions and resolutions | Verified status. Time verified when a delivery arrives first (when Sentry sent it); otherwise estimated: when the sync saw the change, up to one poll interval late |
 | Spend, plan, reserved volume, on-demand budget, quota remaining | Unavailable: no endpoint for integrations |
 | Transactions, replays, attachments, profiles, and other categories | Unavailable in this adapter (the same endpoint can count them; StackDash does not read them) |
 | Who is assigned, who released, issue titles and messages | Not collected on purpose |
@@ -171,7 +175,33 @@ The issue achievements count `sentry.issue.resolved` events and the release ones
 
 ## Webhooks
 
-Not received yet; planned, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), with polling kept as the backfill. They need no extra access. The integration platform can push `installation` (created, deleted), `issue` (created, resolved, assigned, archived, unresolved), `error`, and alert resources to one webhook URL, each signed with `Sentry-Hook-Signature`: an HMAC SHA-256 hex digest of the raw body keyed with the client secret, compared in constant time. `installation.deleted` would also tell StackDash at once when a user uninstalls. There is no webhook for usage stats, so error volume stays polled.
+Received at `<SITE_URL>/api/webhooks/sentry`, the one Webhook URL on the integration's registration, through the shared webhook route (see [Webhooks](../adapters.md#webhooks)). Polling still runs hourly as the backfill and stays the only source of error volume and releases, which have no webhook. Webhooks need no access beyond the three read scopes.
+
+| Item | Value |
+|---|---|
+| Subscriptions | **Issue** on the registration (`issue.created`, `issue.resolved`, `issue.unresolved` are read). Installation webhooks reach every public integration without a subscription |
+| Signature | `Sentry-Hook-Signature`: the hex HMAC SHA-256 of the raw body bytes, keyed with `SENTRY_CLIENT_SECRET`, compared in constant time before the body is parsed |
+| Delivery id | `Request-ID` (a UUID in hex, one per request). A repeated id is acknowledged and dropped |
+| Freshness | `Sentry-Hook-Timestamp`, whole seconds. A delivery more than 5 minutes either side of StackDash's clock is refused. Sentry documents no tolerance |
+| Resource | `Sentry-Hook-Resource`: `issue` and `installation` are read; any other resource is acknowledged and ignored |
+| Response | Within Sentry's 1 second: the route checks the delivery, stores it with a job, and answers `202`. The next job tick, at most a minute later, applies it |
+
+Sentry signs only the body. Neither `Request-ID` nor `Sentry-Hook-Timestamp` is covered, so a captured delivery replayed under a new id and a fresh timestamp passes the check. What bounds a replay is that every event's dedupe key is the one the sync builds: a replayed new issue or resolution stores nothing new, and a replayed regression adds at most one entry per issue per UTC day. A replayed uninstall names an installation id, and a reconnect is granted a new one.
+
+### What a delivery becomes
+
+| Delivery | Becomes | Dated |
+|---|---|---|
+| `issue.created` | `sentry.issue.created` (New issue) | `firstSeen` |
+| `issue.resolved` | `sentry.issue.resolved` (Issue resolved) | When Sentry sent it (`Sentry-Hook-Timestamp`) |
+| `issue.unresolved` with `substatus: "regressed"` | `sentry.issue.regressed` (Issue regressed) | When Sentry sent it |
+| `issue.unresolved` with any other substatus (`escalating`, `ongoing`), `issue.assigned`, `issue.archived` | Nothing: acknowledged and ignored | Not applicable |
+| `installation.deleted` | Every connection granted for that installation is marked as needing a reconnect | When Sentry sent it |
+| `installation.created` | Nothing: a connection is made through the install redirect | Not applicable |
+
+The project (`data.issue.project.id`) is the external account, so an issue delivery reaches every workspace that includes that project; a project no workspace includes is acknowledged and dropped. An uninstall is matched on `installation.uuid` against the installation id stored with each connection (the install redirect's `installationId`); an installation StackDash does not know is acknowledged and dropped. A connection reconnected after the uninstall was sent is left alone.
+
+Fields read from an issue delivery: `action`, `id`, `shortId`, `status`, `substatus`, `level`, `firstSeen`, `lastSeen`, `permalink`, and `project.id`. From an installation delivery: `action` and `installation.uuid`. Never read: `title`, `culprit`, `metadata`, `assignedTo`, the `actor` (who triggered the delivery, by name), and the grant `code` in `installation.created`. Logs name the delivery id and why a delivery was refused, never the body.
 
 ## Permission risks
 
@@ -189,7 +219,8 @@ Disclose these on the connect screen before redirecting:
 - sentry.io only. Self-hosted Sentry servers use their own base URL and are out of scope. Organizations in the EU (`de.sentry.io`) are called through `sentry.io`, which Sentry documents as the general API host; whether every endpoint here answers for them there is unverified.
 - Projects created after connecting appear after a reconnect, like every provider's accounts.
 - More than 100 new issues, or more than 100 recently active unresolved issues, in one project between two syncs: only the first page is read and a warning is logged. Releases are read one page at a time for the same reason.
-- Regressions and resolutions are dated when the sync saw them, not when they happened.
+- Without a delivery (webhooks not set up on the integration, or one missed), regressions and resolutions are dated when the sync saw them, up to one poll interval late.
+- One regression event per issue per UTC day: a second regression of the same issue that day is not shown. A regression delivered in the last poll interval before midnight UTC and seen by the sync after midnight shows twice.
 - A resolution is seen only for issues StackDash remembers: up to 100 per project that were unresolved and active within the last 13 days. An issue resolved weeks after its last event is not reported.
 - Renaming the organization changes its slug, which StackDash stores; calls then fail until the user reconnects (unverified whether Sentry redirects old slugs).
 - The hosted integration is unavailable to other organizations until Sentry approves its publication.
@@ -201,7 +232,7 @@ Each deployment registers its own public integration, because the redirect URL a
 1. In sentry.io, open **Settings**, **Developer Settings**, then **Create New Integration** and choose **Public Integration**. Use the organization that should own it.
 2. **Name**: for example `StackDash (your name)`. The slug Sentry derives from it is `SENTRY_INTEGRATION_SLUG`; it appears in `https://sentry.io/sentry-apps/<slug>/external-install/`.
 3. **Redirect URL**: `<SITE_URL>/api/connections/sentry/callback`.
-4. Leave **Verify Installation** unchecked, and leave **Webhook URL**, **Alert Rule Action**, and every webhook subscription empty or off.
+4. Leave **Verify Installation** unchecked. Set **Webhook URL** to `<SITE_URL>/api/webhooks/sentry` and, under **Webhooks**, check **Issue**. Leave **Alert Rule Action** off and the other webhook subscriptions unchecked. Installation webhooks need no subscription.
 5. **Permissions**: Project Read, Issue & Event Read, Organization Read. Everything else No Access.
 6. Save. On the integration's page, under **Credentials**, copy the **Client ID** and **Client Secret**.
 7. Upload the logo Sentry requires for public integrations (PNG, 256 to 1024 pixels square, transparent background).
@@ -210,7 +241,7 @@ Each deployment registers its own public integration, because the redirect URL a
 | Variable | Value |
 |---|---|
 | `SENTRY_CLIENT_ID` | Client ID |
-| `SENTRY_CLIENT_SECRET` | Client Secret. Also signs the refresh JWT |
+| `SENTRY_CLIENT_SECRET` | Client Secret. Also signs the refresh JWT and verifies webhook deliveries |
 | `SENTRY_INTEGRATION_SLUG` | The integration's slug, lowercase letters, digits, hyphens, and underscores |
 
 A self-hosted StackDash can keep the integration unpublished: only its own organization can then install it. To let other organizations connect, choose **Publish** on the integration, which sends it to Sentry for review.
@@ -310,6 +341,52 @@ Redirect after install (from documentation, not recorded):
 ]
 ```
 
+Issue webhook, `Sentry-Hook-Resource: issue` (from documentation, not recorded; trimmed, synthetic ids, and the fields StackDash drops are kept to show what it drops):
+
+```json
+{
+  "action": "created",
+  "installation": { "uuid": "24b397fc-a86e-43ef-9297-949e21b82480" },
+  "data": {
+    "issue": {
+      "id": "1234567890",
+      "shortId": "PYTHON-Y",
+      "title": "Error generated with event_id: 495d375a-1df6-45c0-9890-34dae8e1b6a4(Priority: HIGH)",
+      "culprit": "test-transaction-0-41e49cd3-7252-441f-8d27-63a9ad697b0a",
+      "permalink": "https://example-org.sentry.io/issues/1234567890/",
+      "level": "fatal",
+      "status": "unresolved",
+      "statusDetails": {},
+      "substatus": "new",
+      "project": { "id": "112313123123134", "name": "python", "slug": "python", "platform": "python" },
+      "assignedTo": null,
+      "firstSeen": "2025-11-10T20:56:00.679000+00:00",
+      "lastSeen": "2025-11-10T20:56:00.738000+00:00"
+    }
+  },
+  "actor": { "type": "application", "id": "example-app", "name": "Example App" }
+}
+```
+
+Installation webhook, `Sentry-Hook-Resource: installation` (from documentation, not recorded; the grant code shown as a placeholder):
+
+```json
+{
+  "action": "created",
+  "actor": { "id": 1, "name": "Meredith Heller", "type": "user" },
+  "data": {
+    "installation": {
+      "status": "pending",
+      "organization": { "slug": "test-org" },
+      "app": { "uuid": "2ebf071f-28df-4989-aca9-c37c763b278f", "slug": "webhooks-galore" },
+      "code": "<grant-code>",
+      "uuid": "a8e5d37a-696c-4c54-adb5-b3f28d64c7de"
+    }
+  },
+  "installation": { "uuid": "a8e5d37a-696c-4c54-adb5-b3f28d64c7de" }
+}
+```
+
 ## Unverified
 
 Nothing on this page has been tried against a real Sentry organization. Confirm with a test organization and an unpublished integration before relying on the adapter:
@@ -325,16 +402,22 @@ Nothing on this page has been tried against a real Sentry organization. Confirm 
 - That the release list is sorted by `dateCreated`, newest first, and accepts a numeric project id in `project`.
 - Whether EU organizations answer on `sentry.io` for every endpoint here, or need `de.sentry.io`.
 - The Sentry UI names in the registration steps and the manual uninstall path (**Settings**, **Integrations**, StackDash, **Uninstall**).
-- Whether the public integration form requires a webhook URL.
+- Whether the public integration form requires a webhook URL (StackDash now sets one).
+- Webhooks end to end: that deliveries carry `Request-ID`, `Sentry-Hook-Resource`, and `Sentry-Hook-Timestamp` in whole seconds as Sentry's source sets them, and the signature as documented; whether Sentry retries a failed delivery, and under which `Request-ID`.
+- That a resolved issue's `lastSeen` in a delivery matches the issue search's to the second (the resolution's dedupe key relies on it), and that a regression is delivered as `issue.unresolved` with `substatus: "regressed"`.
+- That `installation.deleted` is sent on uninstall with the `installation.uuid` the install redirect gave as `installationId`.
 - Real rate limits for these endpoints, and how long the issue search lags behind ingestion.
 
 ## Sources
 
-All checked 2026-11-05.
+All checked 2026-11-05, except the webhook pages and Sentry's source, checked 2026-11-16.
 
 - [Integration platform](https://docs.sentry.io/organization/integrations/integration-platform/) (now at [integrations/integration-platform](https://docs.sentry.io/integrations/integration-platform/))
 - [Public integrations: installation, OAuth process, external install URL and `state`, token refresh, verifying installations](https://docs.sentry.io/integrations/integration-platform/public-integration/)
-- [Integration platform webhooks](https://docs.sentry.io/integrations/integration-platform/webhooks/)
+- [Integration platform webhooks: headers, signature, request structure, 1 second response](https://docs.sentry.io/integrations/integration-platform/webhooks/)
+- [Issue webhooks: actions, `status`, `substatus`, payload](https://docs.sentry.io/integrations/integration-platform/webhooks/issues/)
+- [Installation webhooks: `created` and `deleted`, payload](https://docs.sentry.io/integrations/integration-platform/webhooks/installation/)
+- [Sentry source, `AppPlatformEvent` headers: `Request-ID` as a UUID in hex, `Sentry-Hook-Timestamp` in whole seconds, signature over the body only](https://github.com/getsentry/sentry/blob/72757dae9b6d527e564c81d4921dec0d62d7beca/src/sentry/sentry_apps/api/serializers/app_platform_event.py)
 - [API authentication (OAuth applications, the alternative considered)](https://docs.sentry.io/api/auth/)
 - [Permissions and scopes](https://docs.sentry.io/api/permissions/)
 - [API overview: region domains](https://docs.sentry.io/api/)
