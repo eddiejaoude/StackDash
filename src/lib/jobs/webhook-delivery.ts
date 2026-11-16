@@ -2,7 +2,7 @@ import type { ActivityEvent } from "@/lib/adapters/events";
 import type { ProviderId } from "@/lib/adapters/types";
 
 import { toEventRow } from "./ingest";
-import type { ClaimedJob, WebhookTarget } from "./store";
+import type { ClaimedJob, ConnectionKey, WebhookTarget } from "./store";
 import { markConnectionRevoked, type JobOutcome, type SyncDeps } from "./sync-connection";
 
 /*
@@ -41,26 +41,45 @@ function distinctConnections(targets: readonly WebhookTarget[]): WebhookTarget[]
 }
 
 /**
- * Achievements (#413) can be earned by an event (a first deployment), so the connections that
- * received one are evaluated now rather than on their next poll, as `runSyncJob` does after a
- * sync. Never fails the job: earning is idempotent, and the next sync catches up. Alerts are not
- * evaluated here: every alert rule is a threshold on snapshots, which a delivery never writes.
+ * Achievements (#413) can be earned by an event (a first deployment), so once a tick's webhook jobs
+ * are done (src/lib/jobs/runner.ts) the connections they stored a new event for are evaluated
+ * rather than left to their next poll, as `runSyncJob` does after a sync. Once per connection, not
+ * per delivery: an evaluation reads all retained events and readings of the pending rules' types
+ * (src/lib/achievements/store.ts), and a burst for one account would otherwise repeat the same
+ * reads for every delivery. None starts once `hasTime` (the tick's webhook share) is spent. Never
+ * fails a job: earning is idempotent, and the connection's next sync evaluates whatever was
+ * deferred or failed here. Alerts are not evaluated: every alert rule is a threshold on snapshots,
+ * which a delivery never writes.
  */
-async function evaluateAchievements(job: ClaimedJob, targets: readonly WebhookTarget[], deps: SyncDeps): Promise<void> {
-  for (const target of distinctConnections(targets)) {
+export async function evaluateDeliveredConnections(
+  delivered: ReadonlyMap<string, ConnectionKey>,
+  deps: SyncDeps,
+  hasTime: () => boolean,
+): Promise<void> {
+  let evaluated = 0;
+  for (const key of delivered.values()) {
+    if (!hasTime()) {
+      deps.log.info("webhook.achievements_deferred", { connections: delivered.size - evaluated });
+      return;
+    }
+    evaluated += 1;
     try {
-      await deps.evaluateAchievements(target.workspaceId, target.connectionId, deps.now());
+      await deps.evaluateAchievements(key.workspaceId, key.connectionId, deps.now());
     } catch (error) {
-      deps.logError("webhook.achievement_evaluation_failed", error, {
-        jobId: job.id,
-        workspaceId: target.workspaceId,
-        connectionId: target.connectionId,
-      });
+      deps.logError("webhook.achievement_evaluation_failed", error, key);
     }
   }
 }
 
-export async function runWebhookJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOutcome> {
+/**
+ * Applies one delivery. Every connection it stores a new event for is added to `delivered`, keyed
+ * by connection id, for the tick to evaluate once its webhook jobs are done.
+ */
+export async function runWebhookJob(
+  job: ClaimedJob,
+  deps: SyncDeps,
+  delivered: Map<string, ConnectionKey>,
+): Promise<JobOutcome> {
   if (job.webhook_delivery_id === null) {
     // The table's checks make this unreachable for kind 'webhook'; fail loudly rather than guess.
     return { status: "failed", errorCode: "invalid_job", errorReference: null };
@@ -85,7 +104,9 @@ export async function runWebhookJob(job: ClaimedJob, deps: SyncDeps): Promise<Jo
   } else if (outcome.kind === "events") {
     const inserted = await writeEvents(provider, targets, outcome.events, deps);
     deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
-    if (inserted > 0) await evaluateAchievements(job, targets, deps);
+    if (inserted > 0) {
+      for (const { workspaceId, connectionId } of targets) delivered.set(connectionId, { workspaceId, connectionId });
+    }
   } else {
     for (const target of distinctConnections(targets)) {
       // An uninstall older than the last time the connection's credential was saved is left to

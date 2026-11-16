@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import type { ActivityEvent } from "@/lib/adapters/events";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { Secret, type WebhookOutcome } from "@/lib/adapters/types";
-import type { Logger } from "@/lib/log/logger";
+import type { LogFields, Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { MemoryJobStore } from "./memory-store";
-import { CRON_SECRET_MIN_LENGTH, isAuthorizedCronRequest, runTick, TICK_CLAIM_LIMIT, WEBHOOK_TICK_CLAIM_LIMIT } from "./runner";
+import {
+  CRON_SECRET_MIN_LENGTH,
+  isAuthorizedCronRequest,
+  runTick,
+  TICK_CLAIM_LIMIT,
+  WEBHOOK_TICK_BUDGET_MS,
+  WEBHOOK_TICK_CLAIM_LIMIT,
+} from "./runner";
 import { retentionDedupeKey } from "./schedule";
 import type { ConnectionKey } from "./store";
 import type { SyncDeps } from "./sync-connection";
@@ -78,6 +86,31 @@ class QueuedOnlyStore extends MemoryJobStore {
 async function deliver(store: MemoryJobStore, deliveryId: string): Promise<void> {
   const outcome: WebhookOutcome = { kind: "events", externalAccountId: "fake-acct-9", events: [] };
   expect(await store.recordWebhookDelivery({ provider: "fake", deliveryId, endpointId: null, outcome })).toBe(true);
+}
+
+/** A connection including fake-acct-1, not due to sync for an hour, so only webhook jobs evaluate it. */
+function connectAccount(store: MemoryJobStore, workspaceId: string, now: Date): string {
+  const connection = store.addConnection({
+    workspace_id: workspaceId,
+    provider: "fake",
+    next_sync_at: new Date(now.getTime() + 3_600_000).toISOString(),
+  });
+  store.addAccount({ workspace_id: workspaceId, connection_id: connection.id, external_id: "fake-acct-1" });
+  return connection.id;
+}
+
+/** Records a delivery of one new deployment for fake-acct-1, distinct per `day`. */
+async function deliverDeployment(store: MemoryJobStore, day: number): Promise<void> {
+  const event: ActivityEvent = {
+    typeId: "fake.deploy.succeeded",
+    occurredAt: new Date(Date.UTC(2026, 9, day, 12)),
+    severity: "success",
+    title: "Deployment succeeded",
+    externalAccountId: "fake-acct-1",
+    dedupeKey: `fake.deploy.succeeded:fake-acct-1:2026-10-${String(day).padStart(2, "0")}`,
+  };
+  const outcome: WebhookOutcome = { kind: "events", externalAccountId: "fake-acct-1", events: [event] };
+  expect(await store.recordWebhookDelivery({ provider: "fake", deliveryId: `delivery-${day}`, endpointId: null, outcome })).toBe(true);
 }
 
 describe("runTick", () => {
@@ -163,6 +196,124 @@ describe("runTick", () => {
     expect(result).toMatchObject({ claimed: WEBHOOK_TICK_CLAIM_LIMIT + 1, succeeded: WEBHOOK_TICK_CLAIM_LIMIT + 1 });
     expect(store.jobs.find((job) => job.kind === "sync")?.status).toBe("succeeded");
     expect(store.jobs.filter((job) => job.kind === "webhook" && job.status === "queued")).toHaveLength(1);
+  });
+
+  it("releases webhook jobs once their share of the budget is spent and still runs the other kinds (boundary: webhook jobs slower than their share)", async () => {
+    let clock = new Date("2026-10-14T10:00:00.000Z");
+    // Each webhook job takes longer than the whole webhook share.
+    class SlowWebhookStore extends QueuedOnlyStore {
+      override async loadWebhookDelivery(deliveryRowId: string) {
+        clock = new Date(clock.getTime() + WEBHOOK_TICK_BUDGET_MS + 1);
+        return super.loadWebhookDelivery(deliveryRowId);
+      }
+    }
+    const store = new SlowWebhookStore(() => clock);
+    const connection = store.addConnection({ workspace_id: "w", provider: "fake", status: "needs_attention" });
+    for (let i = 0; i < 5; i += 1) await deliver(store, `delivery-${i}`);
+    await store.enqueueSync({ workspaceId: "w", connectionId: connection.id });
+
+    const result = await runTick(deps(store, () => clock));
+
+    expect(result).toMatchObject({ claimed: 6, succeeded: 2, released: 4 });
+    expect(store.jobs.find((job) => job.kind === "sync")?.status).toBe("succeeded");
+    const released = store.jobs.filter((job) => job.kind === "webhook" && job.status === "queued");
+    expect(released).toHaveLength(4);
+    expect(released.every((job) => job.attempts === 0)).toBe(true);
+  });
+
+  it("runs every webhook job that starts within their share of the budget", async () => {
+    let clock = new Date("2026-10-14T10:00:00.000Z");
+    // A full claim whose jobs each take just under an even part of the share.
+    class SteadyWebhookStore extends QueuedOnlyStore {
+      override async loadWebhookDelivery(deliveryRowId: string) {
+        clock = new Date(clock.getTime() + WEBHOOK_TICK_BUDGET_MS / WEBHOOK_TICK_CLAIM_LIMIT - 1);
+        return super.loadWebhookDelivery(deliveryRowId);
+      }
+    }
+    const store = new SteadyWebhookStore(() => clock);
+    const connection = store.addConnection({ workspace_id: "w", provider: "fake", status: "needs_attention" });
+    for (let i = 0; i < WEBHOOK_TICK_CLAIM_LIMIT; i += 1) await deliver(store, `delivery-${i}`);
+    await store.enqueueSync({ workspaceId: "w", connectionId: connection.id });
+
+    const result = await runTick(deps(store, () => clock));
+
+    expect(result).toMatchObject({ claimed: WEBHOOK_TICK_CLAIM_LIMIT + 1, succeeded: WEBHOOK_TICK_CLAIM_LIMIT + 1, released: 0 });
+  });
+
+  it.each([
+    ["evaluates one connection once for every delivery to it", 1],
+    ["evaluates each connection once (boundary: two connections)", 2],
+  ])("%s in a tick", async (_case, connectionCount) => {
+    const clock = new Date("2026-10-14T10:00:00.000Z");
+    const store = new QueuedOnlyStore(() => clock);
+    const connectionIds = Array.from({ length: connectionCount }, (_, i) => connectAccount(store, `w${i}`, clock));
+    for (let day = 1; day <= 5; day += 1) await deliverDeployment(store, day);
+    const evaluated: ConnectionKey[] = [];
+    const tickDeps: SyncDeps = {
+      ...deps(store, () => clock),
+      evaluateAchievements: async (workspaceId, connectionId) => {
+        evaluated.push({ workspaceId, connectionId });
+        return 0;
+      },
+    };
+
+    const result = await runTick(tickDeps);
+
+    expect(result).toMatchObject({ claimed: 5, succeeded: 5 });
+    expect(store.events).toHaveLength(5 * connectionCount);
+    expect(evaluated.map((key) => key.connectionId).sort()).toEqual([...connectionIds].sort());
+  });
+
+  it("leaves achievements to the next sync when the webhook share is spent before they are evaluated (boundary)", async () => {
+    let clock = new Date("2026-10-14T10:00:00.000Z");
+    class SlowWebhookStore extends QueuedOnlyStore {
+      override async loadWebhookDelivery(deliveryRowId: string) {
+        clock = new Date(clock.getTime() + WEBHOOK_TICK_BUDGET_MS);
+        return super.loadWebhookDelivery(deliveryRowId);
+      }
+    }
+    const store = new SlowWebhookStore(() => clock);
+    connectAccount(store, "w", clock);
+    await deliverDeployment(store, 1);
+    let evaluations = 0;
+    const infos: Array<{ event: string; fields: LogFields | undefined }> = [];
+    const tickDeps: SyncDeps = {
+      ...deps(store, () => clock),
+      log: { ...silent, info: (event, fields) => infos.push({ event, fields }) },
+      evaluateAchievements: async () => {
+        evaluations += 1;
+        return 0;
+      },
+    };
+
+    const result = await runTick(tickDeps);
+
+    expect(result).toMatchObject({ claimed: 1, succeeded: 1 });
+    expect(store.events).toHaveLength(1);
+    expect(evaluations).toBe(0);
+    expect(infos).toContainEqual({ event: "webhook.achievements_deferred", fields: { connections: 1 } });
+  });
+
+  it("keeps webhook jobs succeeded when an evaluation fails, and logs it", async () => {
+    const clock = new Date("2026-10-14T10:00:00.000Z");
+    const store = new QueuedOnlyStore(() => clock);
+    const connectionId = connectAccount(store, "w", clock);
+    await deliverDeployment(store, 1);
+    const errors: Array<{ event: string; fields: LogFields | undefined }> = [];
+    const tickDeps: SyncDeps = {
+      ...deps(store, () => clock),
+      logError: (event, _error, fields) => {
+        errors.push({ event, fields });
+        return "REF-TEST0000";
+      },
+      evaluateAchievements: () => Promise.reject(new Error("database unavailable")),
+    };
+
+    const result = await runTick(tickDeps);
+
+    expect(result).toMatchObject({ claimed: 1, succeeded: 1, failed: 0 });
+    expect(store.jobs.find((job) => job.kind === "webhook")?.status).toBe("succeeded");
+    expect(errors).toEqual([{ event: "webhook.achievement_evaluation_failed", fields: { workspaceId: "w", connectionId } }]);
   });
 
   it("returns counts only", async () => {

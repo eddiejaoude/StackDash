@@ -8,6 +8,7 @@ import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { MemoryJobStore, type MemoryConnection, type MemoryJob } from "./memory-store";
 import { runTick } from "./runner";
+import type { ConnectionKey } from "./store";
 import { SYNC_FAILED_TYPE_ID, type SyncDeps } from "./sync-connection";
 import { runWebhookJob } from "./webhook-delivery";
 
@@ -41,7 +42,8 @@ function setup() {
   const now = () => clock;
   const store = new MemoryJobStore(now);
   const infos: Array<{ event: string; fields: LogFields | undefined }> = [];
-  const achievementCalls: Array<{ workspaceId: string; connectionId: string }> = [];
+  // The connections a job stored a new event for, which the tick evaluates once its webhook jobs are done.
+  const delivered = new Map<string, ConnectionKey>();
   const deps: SyncDeps = {
     store,
     getAdapter: () => fakeAdapter,
@@ -52,10 +54,7 @@ function setup() {
     logError: () => "REF-TEST0000",
     log: { ...silent, info: (event, fields) => infos.push({ event, fields }) },
     evaluateAlerts: async () => ({ triggered: 0 }),
-    evaluateAchievements: async (workspaceId, connectionId) => {
-      achievementCalls.push({ workspaceId, connectionId });
-      return 0;
-    },
+    evaluateAchievements: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
 
@@ -87,7 +86,7 @@ function setup() {
     store,
     deps,
     infos,
-    achievementCalls,
+    delivered,
     connect,
     deliver,
     eventsIn,
@@ -114,7 +113,7 @@ describe("runWebhookJob", () => {
     };
     const job = await harness.deliver(events([deployment]));
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
 
     expect(inserts).toBe(1);
     expect(harness.eventsIn(WORKSPACE_A)).toHaveLength(1);
@@ -128,22 +127,37 @@ describe("runWebhookJob", () => {
         dedupe_key: DEPLOYMENT_ROW_KEY,
       }),
     ]);
-    expect(harness.achievementCalls).toEqual(
+    expect([...harness.delivered.values()]).toEqual(
       expect.arrayContaining([
         { workspaceId: WORKSPACE_A, connectionId: first.id },
         { workspaceId: WORKSPACE_A, connectionId: second.id },
         { workspaceId: WORKSPACE_B, connectionId: other.id },
       ]),
     );
-    expect(harness.achievementCalls).toHaveLength(3);
+    expect(harness.delivered.size).toBe(3);
+  });
+
+  it("adds no connection to evaluate when a delivery's events were already stored (boundary: nothing new)", async () => {
+    const harness = setup();
+    harness.connect(WORKSPACE_A);
+    await harness.deliver(events([deployment]), "delivery-1");
+    await harness.deliver(events([deployment]), "delivery-2");
+    const [first, second] = harness.store.jobs.filter((job) => job.kind === "webhook");
+    if (first === undefined || second === undefined) throw new Error("Expected two webhook jobs");
+    await runWebhookJob(first, harness.deps, harness.delivered);
+    harness.delivered.clear();
+
+    expect(await runWebhookJob(second, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+    expect(harness.eventsIn(WORKSPACE_A)).toHaveLength(1);
+    expect(harness.delivered.size).toBe(0);
   });
 
   it("writes nothing twice when the same job runs again after finishing (retried after a lost completion)", async () => {
     const harness = setup();
     harness.connect(WORKSPACE_A);
     const job = await harness.deliver(events([deployment]));
-    await runWebhookJob(job, harness.deps);
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    await runWebhookJob(job, harness.deps, harness.delivered);
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(harness.eventsIn(WORKSPACE_A)).toHaveLength(1);
   });
 
@@ -152,7 +166,7 @@ describe("runWebhookJob", () => {
     const failing = harness.connect(WORKSPACE_A, { status: "failed", consecutive_failures: 2 });
     const job = await harness.deliver(events([deployment]));
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(harness.eventsIn(WORKSPACE_A)).toEqual([
       expect.objectContaining({ connection_id: failing.id, type_id: "fake.deploy.succeeded", dedupe_key: DEPLOYMENT_ROW_KEY }),
     ]);
@@ -197,7 +211,7 @@ describe("runWebhookJob", () => {
     const other = harness.connect(WORKSPACE_B);
     const job = await harness.deliver(uninstall);
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
 
     for (const connection of [active, other]) {
       expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", next_sync_at: null });
@@ -211,7 +225,7 @@ describe("runWebhookJob", () => {
     const waiting = harness.connect(WORKSPACE_A, { status: "needs_attention", consecutive_failures: 1, last_error_code: "auth_revoked" });
     const job = await harness.deliver(uninstall);
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(waiting).toMatchObject({ status: "needs_attention", consecutive_failures: 1 });
     expect(harness.store.events).toEqual([]);
   });
@@ -221,7 +235,7 @@ describe("runWebhookJob", () => {
     const failing = harness.connect(WORKSPACE_A, { status: "failed", consecutive_failures: 2 });
     const job = await harness.deliver(uninstall);
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(failing).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", consecutive_failures: 3, next_sync_at: null });
     // The episode's stackdash.sync_failed event was written when the connection left active.
     expect(harness.store.events.filter((event) => event.type_id === SYNC_FAILED_TYPE_ID)).toEqual([]);
@@ -237,7 +251,7 @@ describe("runWebhookJob", () => {
     if (credentialUpdatedAt !== null) harness.store.credentialUpdatedAt.set(connection.id, credentialUpdatedAt);
     const job = await harness.deliver(uninstall);
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
   });
 
@@ -249,7 +263,7 @@ describe("runWebhookJob", () => {
     harness.store.credentialUpdatedAt.set(removed.id, new Date(UNINSTALLED_AT.getTime() - 60_000).toISOString());
     const job = await harness.deliver(uninstall);
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(reconnected).toMatchObject({ status: "active", last_error_code: null });
     expect(removed).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
     expect(harness.infos).toContainEqual({
@@ -265,7 +279,7 @@ describe("runWebhookJob", () => {
     harness.connect(WORKSPACE_A);
     const job = harness.store.newJob({ workspace_id: null, connection_id: null, kind: "webhook", webhook_delivery_id: crypto.randomUUID() });
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(harness.store.events).toEqual([]);
     expect(harness.infos.map((line) => line.event)).toEqual(["webhook.delivery_missing"]);
   });
@@ -275,7 +289,7 @@ describe("runWebhookJob", () => {
     harness.connect(WORKSPACE_A);
     const job = await harness.deliver({ kind: "events", externalAccountId: "fake-acct-2", events: [{ ...deployment, externalAccountId: "fake-acct-2" }] });
 
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "succeeded" });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(harness.store.events).toEqual([]);
     expect(harness.infos.map((line) => line.event)).toContain("webhook.no_targets");
     expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
@@ -298,6 +312,6 @@ describe("runWebhookJob", () => {
   it("fails a webhook job without a delivery id instead of guessing", async () => {
     const harness = setup();
     const job = harness.store.newJob({ workspace_id: null, connection_id: null, kind: "webhook" });
-    expect(await runWebhookJob(job, harness.deps)).toEqual({ status: "failed", errorCode: "invalid_job", errorReference: null });
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "failed", errorCode: "invalid_job", errorReference: null });
   });
 });

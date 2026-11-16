@@ -17,6 +17,7 @@ import {
 import { derivedKey } from "@/lib/crypto/credentials";
 import { loadWebhookEndpoint, type WebhookEndpoint } from "@/lib/data/webhook-endpoints";
 import { readBoundedRequestBody } from "@/lib/http/bounded-body";
+import { WEBHOOK_TICK_CLAIM_LIMIT } from "@/lib/jobs/runner";
 import { createSupabaseJobStore, type RecordWebhookDeliveryInput } from "@/lib/jobs/store";
 import { log, logError, type LogFields, type Logger } from "@/lib/log/logger";
 import { rateLimitedHeaders, secondsUntilNextMinute } from "@/lib/public-metrics/requests";
@@ -50,14 +51,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 
 /**
- * Verified deliveries one per-connection URL is answered in a minute, sized from the drain: a tick
- * runs every minute and applies up to WEBHOOK_TICK_CLAIM_LIMIT (50) webhook jobs
- * (src/lib/jobs/runner.ts), so one endpoint at this limit queues about one tick of that shared
- * allowance a minute, never many ticks of it. A busy account's real burst (a monorepo deploying
- * every project at once sends a few dozen) fits under it, and anything over is answered 429, which
- * the provider retries.
+ * Verified deliveries one per-connection URL is answered in a minute: the webhook jobs one tick
+ * claims (WEBHOOK_TICK_CLAIM_LIMIT, src/lib/jobs/runner.ts), and a tick runs every minute. One
+ * endpoint at this limit queues no more a minute than a tick takes, so on its own it cannot grow
+ * the backlog every workspace's deliveries share while ticks apply their full claim. A busy
+ * account's real burst (a monorepo deploying every project at once sends a few dozen) fits under
+ * it, and anything over is answered 429, which the provider retries.
  */
-export const WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE = 60;
+export const WEBHOOK_ENDPOINT_DELIVERIES_PER_MINUTE = WEBHOOK_TICK_CLAIM_LIMIT;
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
