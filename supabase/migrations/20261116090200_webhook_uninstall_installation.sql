@@ -107,14 +107,16 @@ grant execute on function public.record_webhook_delivery(public.provider_id, tex
 
 -- ── list_webhook_targets ────────────────────────────────────────────────────────
 -- Exactly one of p_external_id and p_installation_id names what the delivery is about.
--- - p_external_id: as in 20261116090000_connection_granted_at.sql, each included external account
---   with that external id, ordered by account id.
+-- - p_external_id: each included external account with that external id, ordered by account id,
+--   as in 20261116090000_connection_granted_at.sql except for granted_at (below).
 -- - p_installation_id: each connection with that external_installation_id, one row per connection
 --   and account_id null (an uninstall acts on connections, and a connection may have no included
 --   account), ordered by connection id.
 -- Both only on connections of p_provider that are active, failed, or needs_attention, only on the
 -- endpoint's own connection when p_endpoint_id is set, bounded at 100, with credential_updated_at
--- and granted_at. Security invoker: only the service role may call it, and it already reads every
+-- and granted_at. granted_at is the column alone here;
+-- 20261116090300_webhook_targets_grant_fallback.sql restores the credential fallback of
+-- 20261116090000. Security invoker: only the service role may call it, and it already reads every
 -- row it needs. Dropped and created again because its parameters change; a second overload beside
 -- the old one would make a call naming only the first three parameters ambiguous.
 

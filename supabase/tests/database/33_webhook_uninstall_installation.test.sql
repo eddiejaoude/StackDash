@@ -55,10 +55,15 @@ values
   ('c3300005-0000-4000-8000-000000000001', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000001',
    'fake', 'deadbeef', '\x00'::bytea, '\x01'::bytea, '\x02'::bytea);
 
--- A's failed connection has no recorded grant but a credential; B's needs_attention one has neither.
+-- A's active connection has a recorded grant (08:00) and a credential saved later (09:00), which
+-- must not move its grant time; A's failed connection has no recorded grant but a credential; B's
+-- needs_attention one has neither.
 insert into public.connection_credentials (connection_id, workspace_id, key_id, iv, ciphertext, auth_tag, updated_at)
-values ('c3300003-0000-4000-8000-000000000002', 'c3300002-0000-4000-8000-000000000001', 'deadbeef',
-        '\x00'::bytea, '\x01'::bytea, '\x02'::bytea, '2026-11-12T10:00:00Z');
+values
+  ('c3300003-0000-4000-8000-000000000001', 'c3300002-0000-4000-8000-000000000001', 'deadbeef',
+   '\x00'::bytea, '\x01'::bytea, '\x02'::bytea, '2026-11-16T09:00:00Z'),
+  ('c3300003-0000-4000-8000-000000000002', 'c3300002-0000-4000-8000-000000000001', 'deadbeef',
+   '\x00'::bytea, '\x01'::bytea, '\x02'::bytea, '2026-11-12T10:00:00Z');
 
 -- ---------------------------------------------------------------------------
 -- The index and the grants
@@ -119,7 +124,7 @@ select is(
   (select workspace_id::text || ' ' || granted_at::text from public.list_webhook_targets('fake', p_installation_id => 'inst-1')
    where connection_id = 'c3300003-0000-4000-8000-000000000001'),
   'c3300002-0000-4000-8000-000000000001 ' || '2026-11-16T08:00:00Z'::timestamptz::text,
-  'installation: each target names its workspace and when its connection was granted');
+  'installation: each target names its workspace and when its connection was granted, which a later credential save does not move (boundary: refresh after grant)');
 select results_eq(
   $$ select connection_id from public.list_webhook_targets('fake', p_endpoint_id => 'c3300005-0000-4000-8000-000000000001', p_installation_id => 'inst-1') $$,
   $$ values ('c3300003-0000-4000-8000-000000000001'::uuid) $$,
