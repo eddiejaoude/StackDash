@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
 import { z } from "zod";
 
+import { REFRESH_MAX_WAIT_MS } from "../src/lib/realtime/refresh-scheduler";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
@@ -11,6 +14,7 @@ import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, 
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
 import { openWith } from "./fixtures/palette";
+import { deliveredEvent, expectSubscribed, isRenderRequest, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 type AccountInsert = Database["public"]["Tables"]["external_accounts"]["Insert"];
@@ -1683,6 +1687,66 @@ ownerTest.describe("timeline event inspector", () => {
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
       await page.goBack();
       await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // #477: while the details are open, the URL names an event the router never rendered. A live
+  // refresh in that state left Next.js caching the page empty for the URL closing goes Back to, so
+  // after the close no event opened again until a reload. Live updates now wait for the close.
+  ownerTest("holds a live update while the details are open, shows it on close, and opens the next event", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector live update");
+    try {
+      const path = `/w/${workspace.slug}/timeline`;
+      // The page's timers run on Playwright's clock, so the test can end every refresh wait at once.
+      await page.clock.install();
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(path);
+      await expectSubscribed(live);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+
+      // Counted from here: a seeded row Realtime delivers late (#226) may refresh before the open.
+      const renders: string[] = [];
+      page.on("request", (request) => {
+        if (isRenderRequest(request, path)) renders.push(request.url());
+      });
+      const title = `Live event ${randomUUID().slice(0, 8)}`;
+      const { error } = await adminClient().from("activity_events").insert({
+        workspace_id: workspace.id,
+        provider: "vercel",
+        type_id: "vercel.deployment_ready",
+        severity: "info",
+        title,
+        occurred_at: new Date().toISOString(),
+        dedupe_key: `e2e-timeline-live-${randomUUID()}`,
+      });
+      if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
+      await expect.poll(() => deliveredEvent(live, title), { timeout: LIVE_TIMEOUT_MS }).toBe(true);
+      // A round trip so the page has handled the change, past the longest wait before a refresh,
+      // and another round trip for any request that sends.
+      await page.evaluate(() => undefined);
+      await page.clock.runFor(REFRESH_MAX_WAIT_MS);
+      await page.evaluate(() => undefined);
+      expect(renders, "a live refresh ran while the details were open").toEqual([]);
+      await expect(page.getByRole("heading", { name: title, exact: true })).toHaveCount(0);
+
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(path);
+      await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+
+      await page.getByRole("link", { name: "Synthetic event 1", exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+      if (process.env.PW_PR_EVIDENCE === "1") {
+        await page.screenshot({ path: "pr-evidence/after/inspector-after-live-update.png", animations: "disabled" });
+      }
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await page.getByRole("link", { name: title, exact: true }).click();
+      await expect(inspector.getByRole("heading", { name: title, exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }

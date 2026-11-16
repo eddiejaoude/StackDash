@@ -21,29 +21,18 @@ import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { expectTopRowFits } from "./fixtures/header";
 import {
+  deliveredEvent,
   expectSubscribed,
   FrameSchema,
   isRenderRequest,
+  LiveChangeSchema,
   LIVE_TIMEOUT_MS,
-  type LiveChannel,
   SubscribedSchema,
   watchLiveChannel,
 } from "./fixtures/realtime";
 
 // Live updates (#129): a row written after the page loaded appears without a reload. Every test
 // seeds its own workspaces, and the rows go in with the service role, the way a sync writes them.
-
-// What a test reads from a postgres_changes payload: the table, the event type, and the row's
-// workspace, plus its title for an activity event.
-const LiveChangeSchema = z
-  .object({
-    data: z.object({
-      table: z.string(),
-      type: z.string(),
-      record: z.object({ workspace_id: z.string(), title: z.string().optional() }),
-    }),
-  })
-  .transform(({ data }) => data);
 
 // A seeded connection with no next_sync_at is due for a sync, so a job tick run against the same
 // database (`npm run jobs:tick`, its watcher, or an instance-wide spec) would sync it mid-test and
@@ -226,14 +215,6 @@ async function holdNextRender(page: Page, path: string): Promise<HeldRender> {
     },
   );
   return { route: () => held.promise, renders: () => renders };
-}
-
-/** Whether the channel has delivered the activity event with this title. */
-function deliveredEvent(live: LiveChannel, title: string): boolean {
-  return z
-    .array(LiveChangeSchema)
-    .parse(live.changes())
-    .some(({ table, record }) => table === "activity_events" && record.title === title);
 }
 
 ownerTest.describe("live updates", () => {
