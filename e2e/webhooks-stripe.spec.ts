@@ -87,9 +87,10 @@ ownerTest.describe("Stripe webhooks", () => {
       await connectSimulated(page, workspace.slug, "Stripe");
       const accountId = await connectedAccountId(workspace);
 
-      const occurredAt = new Date(Date.now() - DAYS_BACK * DAY_MS);
-      const day = occurredAt.toISOString().slice(0, 10);
-      const createdSeconds = Math.floor(occurredAt.getTime() / 1000);
+      // Noon UTC is the same day in London whether it is GMT or BST, so `from` and `to` (London days)
+      // always hold the event.
+      const day = new Date(Date.now() - DAYS_BACK * DAY_MS).toISOString().slice(0, 10);
+      const createdSeconds = Date.parse(`${day}T12:00:00.000Z`) / 1000;
       const eventId = `evt_e2e_${randomUUID().replaceAll("-", "")}`;
       const body = chargeSucceeded(eventId, accountId, createdSeconds, true);
 
