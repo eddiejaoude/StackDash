@@ -31,8 +31,8 @@ export type SimulatedProfile = Readonly<{
    * happen in that slot; a daily summary is seen at UTC midnight and dated like the real adapter's.
    * `volume` (DEFAULT_EVENT_VOLUME to MAX_EVENT_VOLUME) multiplies the chance of every random
    * occurrence, through `countAtVolume` and `lanesAt`; calendar events (daily summaries, monthly
-   * invoices, fixed cadences) do not scale. At DEFAULT_EVENT_VOLUME the events are exactly the
-   * ones the profile made before volume existed.
+   * invoices, fixed cadences) do not scale. At DEFAULT_EVENT_VOLUME only lane 0 occurs, so the
+   * volume adds and changes nothing.
    */
   eventsInSlot: (accountId: string, slot: number, volume: number) => ActivityEvent[];
   /**
