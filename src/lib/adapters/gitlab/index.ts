@@ -821,8 +821,8 @@ export const gitlabAdapter: ProviderAdapter = {
 
   /**
    * GitLab invalidates the old access and refresh token on every refresh, so the returned pair
-   * replaces the stored one. The sync runner saves it before anything else runs and never runs
-   * two syncs of one connection together (`refreshIfExpiring` in src/lib/jobs/sync-connection.ts).
+   * replaces the stored one. StackDash saves it before anything else runs and never runs two
+   * refreshes of one connection together (`refreshIfExpiring` in src/lib/connections/credential-refresh.ts).
    */
   async refreshTokens(credential, ctx) {
     if (credential.refreshToken === undefined) {

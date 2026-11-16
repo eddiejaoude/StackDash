@@ -25,13 +25,15 @@ Each tick does three things, then answers with counts only (no data, no errors i
 2. **Claim.** Takes up to 50 runnable `webhook` jobs (`claim_webhook_jobs`), then up to 10 runnable jobs of every other kind (`claim_sync_jobs`), from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job. Each claim takes the oldest `run_after` first. The two claims are separate, so neither kind can take the other's share of a tick.
 3. **Run.** Runs the claimed jobs, three at a time, `webhook` jobs first, within a 50 second budget. Webhook jobs, and the achievement checks after them, start only in the first 25 seconds of it (`WEBHOOK_TICK_BUDGET_MS`), so the other kinds always have the rest. Jobs not started when their part of the budget runs out go back to the queue without using an attempt. The route's `maxDuration` is 120 seconds, which leaves room for jobs already running.
 
-There is at most one queued or running sync per connection (unique index `sync_jobs_one_open_sync_per_connection`). The scheduler, "Sync now", and the first sync after connecting can all ask at once without stacking jobs. It also serializes token refreshes: providers that rotate refresh tokens invalidate the old one on use, so two parallel refreshes would lose the connection.
+There is at most one queued or running sync per connection (unique index `sync_jobs_one_open_sync_per_connection`). The scheduler, "Sync now", and the first sync after connecting can all ask at once without stacking jobs.
+
+Token refreshes are serialized per connection by the credential refresh lock (`credential_refresh_locks`), which a sync and automatic webhook setup and removal all take: providers that rotate refresh tokens invalidate the old one on use, so two parallel refreshes would lose the connection. The lock is a 60 second lease taken through `acquire_credential_refresh_lock`, so a holder that dies frees it on its own. A refresh that finds it held asks again every second for about 20 seconds, then re-reads the credential once it holds the lock and refreshes only if it is still about to expire. If the lock stays held, a sync is retried later and webhook setup fails with a reference.
 
 ### A sync job
 
 For each included external account of the connection:
 
-1. Load and decrypt the credential. If the access token expires within 5 minutes, refresh it and save the new credential before anything else.
+1. Load and decrypt the credential. If the access token expires within 5 minutes, refresh it under the connection's refresh lock and save the new credential before anything else.
 2. Call the adapter's `sync` with the account's stored cursor. The result is validated (`validateAdapterMetrics`, `validateAdapterEvents`); an invalid batch fails the job as `invalid_response`.
 3. Store the result: one `usage_snapshots` row per account, metric, and UTC day (upserted, so the latest row is the current value), events inserted once per `dedupe_key`, then the new cursor. A billing period rollover writes one `stackdash.allowance_reset` event.
 4. On success: `consecutive_failures = 0`, `last_synced_at = now`, `next_sync_at = now + poll_interval_seconds`. Parts the grant could not reach are recorded in `missing_scopes`; the connection stays `active`.
