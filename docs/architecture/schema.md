@@ -58,6 +58,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261116090300_webhook_targets_grant_fallback.sql` | `list_webhook_targets` returns the credential's last save as `granted_at` for a live connection with no recorded grant, on the account and the installation match alike, as `20261116090000_connection_granted_at.sql` does for the three-parameter version |
 | `20261116090400_backfill_granted_at_guard.sql` | `backfill_connection_granted_at` stated again with the body `20261116090100_connection_granted_at_backfill.sql` creates (its update repeats `granted_at is null`), for a database that applied the earlier body; a no-op anywhere else |
 | `20261116120000_webhook_setup.sql` | `webhook_setup_mode`; `webhook_endpoints.setup_mode`, `provider_webhook_id` (set exactly for an automatic endpoint), and `awaiting_provider_secret` (manual only); `webhook_endpoints_enforce_limit`, at most 5 endpoints per workspace, serialized on the workspace row; `webhook_deliveries_endpoint_received_at_idx` replaces `webhook_deliveries_endpoint_id_idx` for the panel's last delivery; `oauth_states.webhook_setup`, set when the user chose automatic webhook setup |
+| `20261116170000_credential_refresh_locks.sql` | `credential_refresh_locks` (service role only), one per connection: the refresh lock a sync and automatic webhook setup and removal take before refreshing a credential; `acquire_credential_refresh_lock` takes it for a lease of up to 600 seconds (StackDash asks for 60) and returns its id, or null while another holder's lease is current; the holder frees it by deleting the row with that id |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -81,6 +82,7 @@ erDiagram
   workspaces ||--o{ sync_jobs : "owns (null for instance jobs)"
   profiles }o--o| workspaces : "last_workspace_id"
   connections ||--o| connection_credentials : "secret (service role only)"
+  connections ||--o| credential_refresh_locks : "refresh lock (service role only)"
   connections ||--o{ external_accounts : "sees"
   projects |o--o{ external_accounts : "groups"
   external_accounts ||--o{ usage_snapshots : "measured by"
@@ -178,7 +180,7 @@ Every table in `public` has RLS enabled. Policies read the caller's role from `w
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
-| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries`, `webhook_endpoints`, `webhook_deliveries` | none | none (service role; the auth hook reads invites) |
+| `connection_credentials`, `credential_refresh_locks`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries`, `webhook_endpoints`, `webhook_deliveries` | none | none (service role; the auth hook reads invites) |
 | `api_keys` | admin, every column but `token_hash` | admin creates keys and revokes them (`revoked_at` only, final) |
 | `api_key_request_windows` | none | none (service role) |
 
