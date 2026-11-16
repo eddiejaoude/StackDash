@@ -18,9 +18,9 @@
 --
 -- Expand step of expand then contract: list_webhook_targets keeps returning credential_updated_at,
 -- in the same position, so code deployed before this migration keeps reading it. The contract
--- migration, once no deployed code reads that column, runs backfill_connection_granted_at again
--- (it fills connections the previous deployment made after the first backfill), then drops the
--- column and the credential fallback above. A reconnect made by the previous deployment between
+-- migration (#502), once no deployed code reads that column, runs backfill_connection_granted_at
+-- again (it fills connections the previous deployment made after the first backfill), then drops
+-- the column and the credential fallback above. A reconnect made by the previous deployment between
 -- the backfill and the promote keeps its backfilled time from before it and cannot be repaired
 -- afterwards: nothing recorded tells that save from a token refresh. A late uninstall from between
 -- its old grant and that reconnect then revokes it, and the user reconnects once more.
