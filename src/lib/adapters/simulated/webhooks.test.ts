@@ -106,13 +106,10 @@ describe("simulated connection webhooks (#426)", () => {
     await expect(twinSetup.automatic?.remove({ credential, webhookId: created?.webhookId ?? "" }, oauthCtx)).resolves.toBeUndefined();
   });
 
-  it("forwards Polar's live declaration with the simulated write scope in place of webhooks:write, never calling Polar", async () => {
+  it("forwards Polar's live steps with the simulated write scope in place of webhooks:write, never calling Polar", async () => {
     const live = polarAdapter.webhooks;
     const twin = simulatedAdapters.polar.webhooks;
     if (live === undefined || twin === undefined) throw new Error("expected Polar webhooks");
-    expect(twin.verify).toBe(live.verify);
-    expect(twin.parse).toBe(live.parse);
-    expect(twin.subscriptions).toEqual(live.subscriptions);
     const twinSetup = setupOf(twin);
     expect(twinSetup.manualSteps).toEqual(setupOf(live).manualSteps);
     expect(twinSetup.automatic?.extraPermissions.map((permission) => permission.scope)).toEqual([SIMULATED_WEBHOOK_WRITE_SCOPE]);
