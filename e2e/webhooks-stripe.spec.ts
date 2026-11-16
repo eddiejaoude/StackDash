@@ -120,9 +120,10 @@ ownerTest.describe("Stripe webhooks", () => {
       const testMode = await postStripeWebhook(stripe, chargeSucceeded(testModeId, accountId, createdSeconds, false));
       expect(testMode.status()).toBe(202);
 
-      // Applied on the next tick, which also runs the connection's first sync.
-      await tickUntilStored(page, workspace, eventId);
-      expect(await storedCopies(workspace, testModeId)).toBe(0);
+      // Applied on the next tick, which also runs the connection's first sync. The store prefixes an
+      // adapter's dedupe key (the Stripe event id) with the provider.
+      await tickUntilStored(page, workspace, `stripe:${eventId}`);
+      expect(await storedCopies(workspace, `stripe:${testModeId}`)).toBe(0);
 
       await page.goto(`/w/${workspace.slug}/timeline?from=${day}&to=${day}&provider=stripe`);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
