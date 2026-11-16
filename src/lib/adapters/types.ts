@@ -346,6 +346,17 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   sync(input: SyncInput, ctx: OAuthContext): Promise<SyncResult>;
 }
 
+/**
+ * The installation a credential belongs to (`installationIdOf`), or null when the adapter omits the
+ * member, returns null, or returns a blank id. A blank id is never recorded: no uninstall can name
+ * one (the route, `record_webhook_delivery`, and the stored outcome schema all refuse it), so
+ * recording it would only stop the next sync from filling a real one.
+ */
+export function credentialInstallationId(adapter: ProviderAdapter<string>, credential: OAuthCredential): string | null {
+  const id = adapter.installationIdOf?.(credential) ?? null;
+  return id === null || id.trim() === "" ? null : id;
+}
+
 export type ValidationIssue = Readonly<{
   index: number;
   path: string;
