@@ -74,32 +74,24 @@ export const starMetricNames = {
     metricKey: `github.stars.repo_${repo.id}`,
     label: `Stars on ${repo.full_name}`.slice(0, 120),
   }),
-  total: {
-    metricKey: "github.stars.total",
-    label: "Stars across connected repositories",
-  },
+  total: { metricKey: "github.stars.total", label: "Stars across connected repositories" },
   // A daily total (`ProviderAdapter.dailyTotals`): its timeframe carries the UTC day it counts, so
   // the label holds on any day the dashboard shows.
-  gainedDaily: {
-    metricKey: "github.stars.gained.daily",
-    label: "New stars over one UTC day",
-  },
+  gainedDaily: { metricKey: "github.stars.gained.daily", label: "New stars over one UTC day" },
 } as const;
 
 export const eventTypes: readonly EventType[] = [
   {
     id: eventTypeIds.starsDaily,
     label: "New stars",
-    description:
-      "Net new stars on a repository over one UTC day, from hourly star count snapshots.",
+    description: "Net new stars on a repository over one UTC day, from hourly star count snapshots.",
     shownByDefault: true,
     emoji: "⭐",
   },
   {
     id: eventTypeIds.starsMilestone,
     label: "Star milestone",
-    description:
-      "A repository reached 100, 500, 1,000, or another multiple of 1,000 stars.",
+    description: "A repository reached 100, 500, 1,000, or another multiple of 1,000 stars.",
     shownByDefault: true,
     emoji: "🌟",
   },
@@ -108,8 +100,7 @@ export const eventTypes: readonly EventType[] = [
     // list that could backfill it is restricted and personal (docs/providers/github.md).
     id: eventTypeIds.starsNew,
     label: "Repository starred",
-    description:
-      "Someone starred a repository, sent by GitHub as it happens. Who starred it is not collected.",
+    description: "Someone starred a repository, sent by GitHub as it happens. Who starred it is not collected.",
     shownByDefault: true,
     emoji: "⭐",
   },
@@ -159,13 +150,8 @@ export type Cursor = z.infer<typeof CursorSchema>;
 /** 100, 500, 1000, then every further 1000. Returns milestones in (after, upTo], ascending. */
 export function starMilestones(after: number, upTo: number): number[] {
   const milestones: number[] = [];
-  for (const fixed of [100, 500])
-    if (fixed > after && fixed <= upTo) milestones.push(fixed);
-  for (
-    let thousand = Math.max(1000, (Math.floor(after / 1000) + 1) * 1000);
-    thousand <= upTo;
-    thousand += 1000
-  ) {
+  for (const fixed of [100, 500]) if (fixed > after && fixed <= upTo) milestones.push(fixed);
+  for (let thousand = Math.max(1000, (Math.floor(after / 1000) + 1) * 1000); thousand <= upTo; thousand += 1000) {
     milestones.push(thousand);
   }
   return milestones;
@@ -187,11 +173,7 @@ export type RepositoriesResult = {
  * One star, from a `star` delivery (./webhooks.ts). Dated and deduplicated by `starred_at`, so a
  * redelivery stores it once; the stargazer is never read.
  */
-export function newStarEvent(
-  repo: ActivityRepository,
-  starredAt: Date,
-  externalAccountId: string,
-): ActivityEvent {
+export function newStarEvent(repo: ActivityRepository, starredAt: Date, externalAccountId: string): ActivityEvent {
   return {
     typeId: eventTypeIds.starsNew,
     occurredAt: starredAt,
@@ -204,20 +186,12 @@ export function newStarEvent(
 }
 
 /** Where a list's activity read starts: see ACTIVITY_BACKFILL_MS. */
-export function activitySince(
-  previousReadAt: string | undefined,
-  now: Date,
-): Date {
+export function activitySince(previousReadAt: string | undefined, now: Date): Date {
   const backfill = now.getTime() - ACTIVITY_BACKFILL_MS;
   if (previousReadAt === undefined) return new Date(backfill);
   const overlapped = Date.parse(previousReadAt) - POLL_INTERVAL_SECONDS * 1000;
   // A read time from the future means the clock moved back: read the last poll interval again.
-  return new Date(
-    Math.max(
-      backfill,
-      Math.min(overlapped, now.getTime() - POLL_INTERVAL_SECONDS * 1000),
-    ),
-  );
+  return new Date(Math.max(backfill, Math.min(overlapped, now.getTime() - POLL_INTERVAL_SECONDS * 1000)));
 }
 
 type RepoContext = Readonly<{
@@ -229,13 +203,7 @@ type RepoContext = Readonly<{
   now: Date;
 }>;
 
-function starEvents({
-  repo,
-  count,
-  previous,
-  externalAccountId,
-  now,
-}: RepoContext): {
+function starEvents({ repo, count, previous, externalAccountId, now }: RepoContext): {
   events: ActivityEvent[];
   state: Pick<RepoState, "day" | "dayCount" | "milestone">;
   // The repository's new stars over yesterday (UTC): its net change from the baseline taken
@@ -247,22 +215,10 @@ function starEvents({
   const today = now.toISOString().slice(0, 10);
   // First sync: no history, so set the baselines without backfilling events.
   if (previous === undefined) {
-    return {
-      events: [],
-      state: {
-        day: today,
-        dayCount: count,
-        milestone: highestMilestone(count),
-      },
-      yesterdayGain: undefined,
-    };
+    return { events: [], state: { day: today, dayCount: count, milestone: highestMilestone(count) }, yesterdayGain: undefined };
   }
   const events: ActivityEvent[] = [];
-  let state = {
-    day: previous.day,
-    dayCount: previous.dayCount,
-    milestone: previous.milestone,
-  };
+  let state = { day: previous.day, dayCount: previous.dayCount, milestone: previous.milestone };
   let yesterdayGain: number | undefined;
 
   if (previous.day < today) {
@@ -308,12 +264,7 @@ function starEvents({
   return { events, state, yesterdayGain };
 }
 
-function forkEvents({
-  repo,
-  forks,
-  previous,
-  externalAccountId,
-}: RepoContext): {
+function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): {
   events: ActivityEvent[];
   state: Pick<RepoState, "forksSeenAt" | "forkIdsAtSeenAt">;
 } {
@@ -324,51 +275,37 @@ function forkEvents({
   }
   const state =
     newestAt === undefined
-      ? {
-          forksSeenAt: previous?.forksSeenAt ?? null,
-          forkIdsAtSeenAt: previous?.forkIdsAtSeenAt ?? [],
-        }
+      ? { forksSeenAt: previous?.forksSeenAt ?? null, forkIdsAtSeenAt: previous?.forkIdsAtSeenAt ?? [] }
       : {
           forksSeenAt: new Date(newestAt).toISOString(),
-          forkIdsAtSeenAt: forks
-            .filter((fork) => Date.parse(fork.created_at) === newestAt)
-            .map((fork) => fork.id),
+          forkIdsAtSeenAt: forks.filter((fork) => Date.parse(fork.created_at) === newestAt).map((fork) => fork.id),
         };
   // First sync sets the baseline without reporting old forks.
   if (previous === undefined) return { events: [], state };
 
-  const seenAt =
-    previous.forksSeenAt === null
-      ? Number.NEGATIVE_INFINITY
-      : Date.parse(previous.forksSeenAt);
+  const seenAt = previous.forksSeenAt === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.forksSeenAt);
   const seenIds = new Set(previous.forkIdsAtSeenAt);
   if (newestAt !== undefined && newestAt < seenAt) {
     // Newest fork older than the baseline (forks deleted): keep the baseline.
-    return {
-      events: [],
-      state: {
-        forksSeenAt: previous.forksSeenAt,
-        forkIdsAtSeenAt: previous.forkIdsAtSeenAt,
-      },
-    };
+    return { events: [], state: { forksSeenAt: previous.forksSeenAt, forkIdsAtSeenAt: previous.forkIdsAtSeenAt } };
   }
   const events = forks
     .filter((fork) => {
       const createdAt = Date.parse(fork.created_at);
-      return (
-        createdAt > seenAt || (createdAt === seenAt && !seenIds.has(fork.id))
-      );
+      return createdAt > seenAt || (createdAt === seenAt && !seenIds.has(fork.id));
     })
-    .map((fork): ActivityEvent => ({
-      typeId: eventTypeIds.forksNew,
-      occurredAt: new Date(fork.created_at),
-      severity: "info",
-      title: `New fork of ${repo.full_name}`,
-      externalAccountId,
-      // Fork id only: the fork's name carries its owner's login, which is personal data.
-      dedupeKey: `${eventTypeIds.forksNew}:${repo.id}:${fork.id}`,
-      url: `${repo.html_url}/forks`,
-    }));
+    .map(
+      (fork): ActivityEvent => ({
+        typeId: eventTypeIds.forksNew,
+        occurredAt: new Date(fork.created_at),
+        severity: "info",
+        title: `New fork of ${repo.full_name}`,
+        externalAccountId,
+        // Fork id only: the fork's name carries its owner's login, which is personal data.
+        dedupeKey: `${eventTypeIds.forksNew}:${repo.id}:${fork.id}`,
+        url: `${repo.html_url}/forks`,
+      }),
+    );
   return { events, state };
 }
 
@@ -379,16 +316,10 @@ export async function collectRepositories(
   externalAccountId: string,
   previous: Cursor | undefined,
 ): Promise<RepositoriesResult> {
-  const page = await getJson(
-    ctx,
-    "/installation/repositories",
-    installationToken,
-    InstallationRepositoriesSchema,
-    {
-      per_page: String(MAX_REPOSITORIES),
-      page: "1",
-    },
-  );
+  const page = await getJson(ctx, "/installation/repositories", installationToken, InstallationRepositoriesSchema, {
+    per_page: String(MAX_REPOSITORIES),
+    page: "1",
+  });
   if (page.total_count > MAX_REPOSITORIES) {
     ctx.logger.warn("github.sync.repositories_truncated", {
       totalCount: page.total_count,
@@ -405,38 +336,20 @@ export async function collectRepositories(
   // soon after midnight; undefined when none did (nothing to report, so no reading is written).
   let starsGainedYesterday: number | undefined;
   const reads = Object.values(activityReads);
-  const granted = new Set(
-    reads
-      .map((read) => read.permission)
-      .filter((permission) => grantsRead(installation, permission)),
-  );
+  const granted = new Set(reads.map((read) => read.permission).filter((permission) => grantsRead(installation, permission)));
   // One partial error per permission, however many repositories it was missing on.
   const partialErrors = new Map<string, PermissionMissingError>();
   for (const read of reads) {
-    if (!granted.has(read.permission))
-      partialErrors.set(read.permission, activityPermissionError(read));
+    if (!granted.has(read.permission)) partialErrors.set(read.permission, activityPermissionError(read));
   }
   const repositories = page.repositories.slice(0, MAX_REPOSITORIES);
 
   for (const repo of repositories) {
-    const { count } = await getRepositoryJson(
-      ctx,
-      repo,
-      "/stargazers/count",
-      installationToken,
-      StargazersCountSchema,
-    );
-    const forks = await getRepositoryJson(
-      ctx,
-      repo,
-      "/forks",
-      installationToken,
-      ForksSchema,
-      {
-        sort: "newest",
-        per_page: String(FORKS_PAGE_SIZE),
-      },
-    );
+    const { count } = await getRepositoryJson(ctx, repo, "/stargazers/count", installationToken, StargazersCountSchema);
+    const forks = await getRepositoryJson(ctx, repo, "/forks", installationToken, ForksSchema, {
+      sort: "newest",
+      per_page: String(FORKS_PAGE_SIZE),
+    });
     const repoContext: RepoContext = {
       repo,
       count,
@@ -450,8 +363,7 @@ export async function collectRepositories(
     events.push(...stars.events, ...forked.events);
     repos[String(repo.id)] = { ...stars.state, ...forked.state };
     totalStars += count;
-    if (stars.yesterdayGain !== undefined)
-      starsGainedYesterday = (starsGainedYesterday ?? 0) + stars.yesterdayGain;
+    if (stars.yesterdayGain !== undefined) starsGainedYesterday = (starsGainedYesterday ?? 0) + stars.yesterdayGain;
 
     metrics.push({
       kind: "usage",
@@ -461,27 +373,21 @@ export async function collectRepositories(
       timeframe: { type: "point", at: now },
       externalAccountId,
       retrievedAt: now,
-      provenance: {
-        source: "provider_api",
-        endpoint: "/repos/{owner}/{repo}/stargazers/count",
-      },
+      provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
     });
   }
 
   // Activity, the repositories attempted longest ago first (never attempted first), until the
   // budget is spent. A repository not reached keeps its times, so the next sync reads it first and
   // from where it left off.
-  const readTimes = (repo: Repository): ActivityReadTimes =>
-    previous?.repos[String(repo.id)]?.activity ?? {};
+  const readTimes = (repo: Repository): ActivityReadTimes => previous?.repos[String(repo.id)]?.activity ?? {};
   const attemptedAt = (repo: Repository) => {
     const at = previous?.repos[String(repo.id)]?.activityAttemptedAt;
     return at === undefined ? 0 : Date.parse(at);
   };
   const activityStartedAt = ctx.now().getTime();
   let deferred = 0;
-  for (const repo of [...repositories].sort(
-    (a, b) => attemptedAt(a) - attemptedAt(b),
-  )) {
+  for (const repo of [...repositories].sort((a, b) => attemptedAt(a) - attemptedAt(b))) {
     const id = String(repo.id);
     const state = repos[id];
     if (state === undefined) continue;
@@ -502,20 +408,10 @@ export async function collectRepositories(
       releases: activitySince(times.releases, now),
     };
     // The feed counts as cut short only if it did not reach back to its own previous read.
-    const feedReadBefore =
-      times.releases === undefined ? since.releases : new Date(times.releases);
-    const activity = await collectActivity(
-      ctx,
-      installationToken,
-      repo,
-      since,
-      feedReadBefore,
-      granted,
-      externalAccountId,
-    );
+    const feedReadBefore = times.releases === undefined ? since.releases : new Date(times.releases);
+    const activity = await collectActivity(ctx, installationToken, repo, since, feedReadBefore, granted, externalAccountId);
     events.push(...activity.events);
-    for (const [permission, error] of activity.refused)
-      if (!partialErrors.has(permission)) partialErrors.set(permission, error);
+    for (const [permission, error] of activity.refused) if (!partialErrors.has(permission)) partialErrors.set(permission, error);
     const readAt: ActivityReadTimes = { ...times };
     for (const list of activity.read) readAt[list] = now.toISOString();
     repos[id] = {
@@ -524,11 +420,7 @@ export async function collectRepositories(
       activityAttemptedAt: now.toISOString(),
     };
   }
-  if (deferred > 0)
-    ctx.logger.warn("github.sync.activity_deferred", {
-      deferred,
-      read: repositories.length - deferred,
-    });
+  if (deferred > 0) ctx.logger.warn("github.sync.activity_deferred", { deferred, read: repositories.length - deferred });
 
   metrics.push({
     kind: "usage",
@@ -538,34 +430,23 @@ export async function collectRepositories(
     timeframe: { type: "point", at: now },
     externalAccountId,
     retrievedAt: now,
-    provenance: {
-      source: "provider_api",
-      endpoint: "/repos/{owner}/{repo}/stargazers/count",
-    },
+    provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
   });
 
   if (starsGainedYesterday !== undefined) {
     // Shaped like PostHog's daily signups: a period of one whole UTC day, stored in today's row,
     // so a `daily_total_threshold` rule dates it to yesterday. A repository added to the
     // installation starts from a baseline, so its existing stars never count as new.
-    const dayStart =
-      Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`) - DAY_MS;
+    const dayStart = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00.000Z`) - DAY_MS;
     metrics.push({
       kind: "usage",
       ...starMetricNames.gainedDaily,
       value: starsGainedYesterday,
       unit: "stars",
-      timeframe: {
-        type: "period",
-        start: new Date(dayStart),
-        end: new Date(dayStart + DAY_MS),
-      },
+      timeframe: { type: "period", start: new Date(dayStart), end: new Date(dayStart + DAY_MS) },
       externalAccountId,
       retrievedAt: now,
-      provenance: {
-        source: "provider_api",
-        endpoint: "/repos/{owner}/{repo}/stargazers/count",
-      },
+      provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
     });
   }
 

@@ -10,18 +10,8 @@ import {
   ProviderUnavailableError,
   RateLimitedError,
 } from "../errors";
-import {
-  Secret,
-  type AdapterContext,
-  type OAuthClient,
-  type OAuthContext,
-  type OAuthCredential,
-} from "../types";
-import {
-  InstallationSchema,
-  InstallationTokenSchema,
-  type Installation,
-} from "./schemas";
+import { Secret, type AdapterContext, type OAuthClient, type OAuthContext, type OAuthCredential } from "../types";
+import { InstallationSchema, InstallationTokenSchema, type Installation } from "./schemas";
 
 /** GitHub REST plumbing shared by the connect flow and sync, per docs/providers/github.md. */
 
@@ -50,10 +40,7 @@ const JWT_LIFETIME_SECONDS = 9 * 60;
 
 type RequestContext = Pick<AdapterContext, "fetch" | "now" | "timeoutMs">;
 
-export function apiHeaders(
-  bearer: Secret | string,
-  extra: Record<string, string> = {},
-): Record<string, string> {
+export function apiHeaders(bearer: Secret | string, extra: Record<string, string> = {}): Record<string, string> {
   return {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": API_VERSION,
@@ -71,14 +58,8 @@ export async function getJson<T>(
   query: Record<string, string> = {},
 ): Promise<T> {
   const url = new URL(path, API_ORIGIN);
-  for (const [name, value] of Object.entries(query))
-    url.searchParams.set(name, value);
-  return fetchJson(
-    ctx,
-    url,
-    { method: "GET", headers: apiHeaders(bearer) },
-    schema,
-  );
+  for (const [name, value] of Object.entries(query)) url.searchParams.set(name, value);
+  return fetchJson(ctx, url, { method: "GET", headers: apiHeaders(bearer) }, schema);
 }
 
 /**
@@ -89,32 +70,21 @@ export async function getJson<T>(
  */
 function withEndpointTemplate(error: unknown, endpoint: string): unknown {
   if (!(error instanceof AdapterError)) return error;
-  const message =
-    error.endpoint === undefined
-      ? error.message
-      : error.message.replaceAll(error.endpoint, endpoint);
+  const message = error.endpoint === undefined ? error.message : error.message.replaceAll(error.endpoint, endpoint);
   const options = {
     endpoint,
     ...(error.status === undefined ? {} : { status: error.status }),
     ...(error.cause === undefined ? {} : { cause: error.cause }),
   };
-  if (error instanceof PermissionMissingError)
-    return new PermissionMissingError(message, error.missingScopes, options);
-  if (error instanceof RateLimitedError)
-    return new RateLimitedError(message, error.retryAfterMs, options);
-  if (error instanceof AuthRevokedError)
-    return new AuthRevokedError(message, options);
-  if (error instanceof ProviderUnavailableError)
-    return new ProviderUnavailableError(message, options);
-  if (error instanceof AdapterTimeoutError)
-    return new AdapterTimeoutError(message, options);
+  if (error instanceof PermissionMissingError) return new PermissionMissingError(message, error.missingScopes, options);
+  if (error instanceof RateLimitedError) return new RateLimitedError(message, error.retryAfterMs, options);
+  if (error instanceof AuthRevokedError) return new AuthRevokedError(message, options);
+  if (error instanceof ProviderUnavailableError) return new ProviderUnavailableError(message, options);
+  if (error instanceof AdapterTimeoutError) return new AdapterTimeoutError(message, options);
   return new InvalidResponseError(message, options);
 }
 
-export type RepositoryPath = Readonly<{
-  owner: Readonly<{ login: string }>;
-  name: string;
-}>;
+export type RepositoryPath = Readonly<{ owner: Readonly<{ login: string }>; name: string }>;
 
 /** The path template of a repository read, for provenance and errors: `/repos/{owner}/{repo}/forks`. */
 export function repositoryEndpoint(suffix: string): string {
@@ -137,21 +107,14 @@ export async function getRepositoryJson<T>(
   try {
     return await getJson(ctx, path, bearer, schema, query);
   } catch (error) {
-    throw withEndpointTemplate(
-      error,
-      `${API_ORIGIN}${repositoryEndpoint(suffix)}`,
-    );
+    throw withEndpointTemplate(error, `${API_ORIGIN}${repositoryEndpoint(suffix)}`);
   }
 }
 
-export function requireExtra(
-  client: OAuthClient,
-  key: keyof typeof extraKeys,
-): Secret {
+export function requireExtra(client: OAuthClient, key: keyof typeof extraKeys): Secret {
   const value = client.extra[extraKeys[key]];
   // A deployment configuration error, not a provider failure: the message names the setting only.
-  if (value === undefined)
-    throw new Error(`GitHub adapter is missing the "${key}" app setting`);
+  if (value === undefined) throw new Error(`GitHub adapter is missing the "${key}" app setting`);
   return value;
 }
 
@@ -166,29 +129,21 @@ function base64UrlJson(value: Record<string, string | number>): string {
  */
 export function createAppJwt(ctx: OAuthContext): string {
   const appId = requireExtra(ctx.client, "appId").reveal();
-  const privateKey = requireExtra(ctx.client, "privateKey")
-    .reveal()
-    .replaceAll("\\n", "\n");
+  const privateKey = requireExtra(ctx.client, "privateKey").reveal().replaceAll("\\n", "\n");
   const nowSeconds = Math.floor(ctx.now().getTime() / 1000);
-  const unsigned = `${base64UrlJson({ alg: "RS256", typ: "JWT" })}.${base64UrlJson(
-    {
-      iat: nowSeconds - JWT_BACKDATE_SECONDS,
-      exp: nowSeconds + JWT_LIFETIME_SECONDS,
-      iss: appId,
-    },
-  )}`;
-  const signature = createSign("RSA-SHA256")
-    .update(unsigned)
-    .sign(privateKey, "base64url");
+  const unsigned = `${base64UrlJson({ alg: "RS256", typ: "JWT" })}.${base64UrlJson({
+    iat: nowSeconds - JWT_BACKDATE_SECONDS,
+    exp: nowSeconds + JWT_LIFETIME_SECONDS,
+    iss: appId,
+  })}`;
+  const signature = createSign("RSA-SHA256").update(unsigned).sign(privateKey, "base64url");
   return `${unsigned}.${signature}`;
 }
 
 export function installationIdOf(credential: OAuthCredential): string {
   const installationId = credential.metadata?.[metadataKeys.installationId];
   if (installationId === undefined || !/^\d+$/.test(installationId)) {
-    throw new AuthRevokedError(
-      "GitHub credential has no installation id; reconnect GitHub",
-    );
+    throw new AuthRevokedError("GitHub credential has no installation id; reconnect GitHub");
   }
   return installationId;
 }
@@ -197,9 +152,7 @@ export function installationIdOf(credential: OAuthCredential): string {
  * The docs list 404 or 403 when the installation is gone or suspended as "needs reconnection"
  * (exact codes are in docs/providers/github.md, Unverified), so both become `auth_revoked`.
  */
-async function withInstallationGoneAsRevoked<T>(
-  request: () => Promise<T>,
-): Promise<T> {
+async function withInstallationGoneAsRevoked<T>(request: () => Promise<T>): Promise<T> {
   try {
     return await request();
   } catch (error) {
@@ -207,44 +160,28 @@ async function withInstallationGoneAsRevoked<T>(
       (error instanceof PermissionMissingError && error.status === 403) ||
       (error instanceof InvalidResponseError && error.status === 404)
     ) {
-      throw new AuthRevokedError(
-        "The GitHub App installation is no longer available; reconnect GitHub",
-        {
-          cause: error,
-          status: error.status,
-          ...(error.endpoint === undefined ? {} : { endpoint: error.endpoint }),
-        },
-      );
+      throw new AuthRevokedError("The GitHub App installation is no longer available; reconnect GitHub", {
+        cause: error,
+        status: error.status,
+        ...(error.endpoint === undefined ? {} : { endpoint: error.endpoint }),
+      });
     }
     throw error;
   }
 }
 
 /** `GET /app/installations/{id}` with the app JWT: the current account login, id, and type. */
-export async function getInstallation(
-  ctx: OAuthContext,
-  installationId: string,
-): Promise<Installation> {
+export async function getInstallation(ctx: OAuthContext, installationId: string): Promise<Installation> {
   const installation = await withInstallationGoneAsRevoked(() =>
-    getJson(
-      ctx,
-      `/app/installations/${installationId}`,
-      createAppJwt(ctx),
-      InstallationSchema,
-    ),
+    getJson(ctx, `/app/installations/${installationId}`, createAppJwt(ctx), InstallationSchema),
   );
   assertNotSuspended(installation);
   return installation;
 }
 
 export function assertNotSuspended(installation: Installation): void {
-  if (
-    installation.suspended_at !== null &&
-    installation.suspended_at !== undefined
-  ) {
-    throw new AuthRevokedError(
-      "The GitHub App installation is suspended; unsuspend it or reconnect GitHub",
-    );
+  if (installation.suspended_at !== null && installation.suspended_at !== undefined) {
+    throw new AuthRevokedError("The GitHub App installation is suspended; unsuspend it or reconnect GitHub");
   }
 }
 
@@ -255,10 +192,7 @@ export function assertNotSuspended(installation: Installation): void {
 const activityPermissions = ["pull_requests", "issues"] as const;
 
 /** True when the installation holds `permission` at read level or above. */
-export function grantsRead(
-  installation: Installation,
-  permission: string,
-): boolean {
+export function grantsRead(installation: Installation, permission: string): boolean {
   const level = installation.permissions[permission];
   return level === "read" || level === "write" || level === "admin";
 }
@@ -270,10 +204,7 @@ export function grantsRead(
  * permission is requested only when the installation holds it: GitHub documents that a token
  * "cannot be granted permissions that the app was not granted".
  */
-export async function mintInstallationToken(
-  ctx: OAuthContext,
-  installation: Installation,
-): Promise<Secret> {
+export async function mintInstallationToken(ctx: OAuthContext, installation: Installation): Promise<Secret> {
   const permissions: Record<string, string> =
     installation.account.type === "Organization"
       ? { metadata: "read", organization_administration: "read" }
@@ -288,9 +219,7 @@ export async function mintInstallationToken(
       new URL(`/app/installations/${installationId}/access_tokens`, API_ORIGIN),
       {
         method: "POST",
-        headers: apiHeaders(createAppJwt(ctx), {
-          "Content-Type": "application/json",
-        }),
+        headers: apiHeaders(createAppJwt(ctx), { "Content-Type": "application/json" }),
         body: JSON.stringify({ permissions }),
       },
       InstallationTokenSchema,
