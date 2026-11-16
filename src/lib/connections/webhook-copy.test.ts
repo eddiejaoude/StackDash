@@ -101,6 +101,14 @@ describe("webhook setup copy", () => {
     );
   });
 
+  it("says why automatic setup needs one account and what to do, before any write access is asked for (Polar)", () => {
+    expect(webhookSetupResultCopy("one_account_needed", "Polar")).toEqual({
+      tone: "error",
+      title: "Webhook not set up",
+      body: "Polar adds a webhook to one account at a time, so automatic setup needs this connection to include exactly one account. Under Accounts on this page, include only the account you want events from, then choose automatic setup again. Or set up the webhook by hand in that account.",
+    });
+  });
+
   it.each(WEBHOOK_SETUP_RESULTS)("has a banner for the %s result without a dash", (result) => {
     const copy = webhookSetupResultCopy(result, "GitLab");
     expect(copy.title.length).toBeGreaterThan(0);

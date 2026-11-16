@@ -73,7 +73,15 @@ export function switchToManualCopy(provider: string, setup: ConnectionWebhookSet
  * What became of automatic setup after the write-access consent, carried to the connection page
  * as `?webhook=<result>` (and `ref` for `failed`). Only these fixed codes travel.
  */
-export const WEBHOOK_SETUP_RESULTS = ["automatic", "limit_reached", "already_set_up", "write_access_missing", "not_configured", "failed"] as const;
+export const WEBHOOK_SETUP_RESULTS = [
+  "automatic",
+  "limit_reached",
+  "already_set_up",
+  "one_account_needed",
+  "write_access_missing",
+  "not_configured",
+  "failed",
+] as const;
 export type WebhookSetupResult = (typeof WEBHOOK_SETUP_RESULTS)[number];
 
 export function isWebhookSetupResult(value: unknown): value is WebhookSetupResult {
@@ -93,6 +101,12 @@ export function webhookSetupResultCopy(result: WebhookSetupResult, provider: str
       return { tone: "error", title: "Webhook not set up", body: endpointLimitCopy(provider) };
     case "already_set_up":
       return { tone: "success", title: "Webhook already set up", body: "This connection already has a webhook. Its details are below." };
+    case "one_account_needed":
+      return {
+        tone: "error",
+        title: "Webhook not set up",
+        body: `${provider} adds a webhook to one account at a time, so automatic setup needs this connection to include exactly one account. Under Accounts on this page, include only the account you want events from, then choose automatic setup again. Or set up the webhook by hand in that account.`,
+      };
     case "write_access_missing":
       return {
         tone: "error",
