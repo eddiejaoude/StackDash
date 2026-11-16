@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InvalidDecimalError, parseDecimal } from "@/lib/money";
+import { DELIVERY_ID_MAX_LENGTH } from "@/lib/webhooks/signature";
 
 /**
  * Zod schemas for every Vercel response the adapter reads (docs/providers/vercel.md).
@@ -93,3 +94,47 @@ export const DeploymentsPageSchema = z.object({
 });
 
 export type Deployment = z.infer<typeof DeploymentSchema>;
+
+/*
+ * Webhook deliveries (docs/providers/vercel.md, "Webhooks"). Every delivery is the envelope
+ * `{ id, type, createdAt, region, payload }`: `id` is the delivery's own id and `createdAt` the
+ * Unix milliseconds the event was generated. Both sit inside the signed body.
+ */
+
+/** The envelope fields `verify` reads once the signature matches. */
+export const WebhookEnvelopeSchema = z.object({
+  id: z.string().trim().min(1).max(DELIVERY_ID_MAX_LENGTH),
+  createdAt: EpochMsSchema,
+});
+
+export const deploymentWebhookTypes = ["deployment.succeeded", "deployment.error"] as const;
+export const UNINSTALL_WEBHOOK_TYPE = "integration-configuration.removed";
+
+/**
+ * The account a delivery belongs to. `team.id` is null (or `team` itself is) for a Hobby account,
+ * whose deliveries name only the user.
+ */
+const WebhookOwnerSchema = z.object({
+  team: z.object({ id: z.string().min(1).nullish() }).nullish(),
+  user: z.object({ id: z.string().min(1) }),
+});
+
+/** `deployment.succeeded` and `deployment.error`. `deployment.meta` (Git commit fields) and `url` are never declared. */
+const DeploymentWebhookSchema = z.object({
+  type: z.enum(deploymentWebhookTypes),
+  createdAt: EpochMsSchema,
+  payload: WebhookOwnerSchema.extend({
+    deployment: z.object({ id: z.string().min(1), name: z.string().min(1) }),
+    links: z.object({ deployment: z.string().nullish() }).nullish(),
+    target: z.string().nullish(),
+  }),
+});
+
+/** `integration-configuration.removed`: StackDash was uninstalled from the account. */
+const UninstallWebhookSchema = z.object({
+  type: z.literal(UNINSTALL_WEBHOOK_TYPE),
+  createdAt: EpochMsSchema,
+  payload: WebhookOwnerSchema,
+});
+
+export const WebhookDeliverySchema = z.discriminatedUnion("type", [DeploymentWebhookSchema, UninstallWebhookSchema]);
