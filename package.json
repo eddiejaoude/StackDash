@@ -44,7 +44,7 @@
     "@modelcontextprotocol/client": "^2.4.0",
     "@playwright/test": "^1.65.1",
     "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
@@ -52,7 +52,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
-    "vitest": "^4.1.12"
+    "vitest": "^5.1.0"
   },
   "allowScripts": {
     "esbuild": false,
