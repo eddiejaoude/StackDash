@@ -7,7 +7,12 @@ import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { ProviderIdSchema, type OAuthCredential, type ProviderId, type WebhookOutcome } from "@/lib/adapters/types";
 import { ANOMALY_KINDS, type AnomalyMute, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
-import { loadCredential, saveCredential } from "@/lib/data/credentials";
+import {
+  acquireCredentialRefreshLock,
+  loadCredential,
+  releaseCredentialRefreshLock,
+  saveCredential,
+} from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json, Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
@@ -151,6 +156,9 @@ export interface JobStore {
   updateConnection(key: ConnectionKey, patch: ConnectionPatch): Promise<void>;
   loadCredential(key: ConnectionKey): Promise<OAuthCredential | null>;
   saveCredential(key: ConnectionKey, credential: OAuthCredential): Promise<void>;
+  /** The connection's credential refresh lock for `leaseSeconds`: its id, or null while it is held (#496). */
+  acquireCredentialRefreshLock(key: ConnectionKey, leaseSeconds: number): Promise<string | null>;
+  releaseCredentialRefreshLock(key: ConnectionKey, lockId: string): Promise<void>;
 
   /** metric_key -> resets_at (ISO, or null) of the latest snapshot of each metric of the account. */
   latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>>;
@@ -463,6 +471,14 @@ export function createSupabaseJobStore(): JobStore {
 
     saveCredential(key, credential) {
       return saveCredential({ ...key, credential });
+    },
+
+    acquireCredentialRefreshLock(key, leaseSeconds) {
+      return acquireCredentialRefreshLock(key, leaseSeconds);
+    },
+
+    releaseCredentialRefreshLock(key, lockId) {
+      return releaseCredentialRefreshLock(key, lockId);
     },
 
     async latestResets(workspaceId, externalAccountId) {

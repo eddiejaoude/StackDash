@@ -651,8 +651,11 @@ export const exampleAdapter: ProviderAdapter<"example"> = {
   },
 
   /**
-   * Returns the new refresh token: Example Cloud rotates it on every use. The sync runner saves the
-   * returned credential before anything else runs, and never refreshes one connection twice at once.
+   * Returns the new refresh token: Example Cloud rotates it on every use. StackDash saves the returned
+   * credential before anything uses it, and every refresh of one connection (a sync, automatic webhook
+   * setup, removal on disconnect) runs under the connection's refresh lock
+   * (`refreshIfExpiring` in src/lib/connections/credential-refresh.ts), so it is never called twice
+   * at once for one connection.
    */
   async refreshTokens(credential, ctx) {
     if (credential.refreshToken === undefined) {

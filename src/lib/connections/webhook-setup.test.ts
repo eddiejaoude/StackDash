@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AuthRevokedError } from "@/lib/adapters/errors";
 import { getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
 import {
@@ -10,7 +11,12 @@ import {
   type ProviderAdapter,
   type WebhookSource,
 } from "@/lib/adapters/types";
-import { loadCredential } from "@/lib/data/credentials";
+import {
+  acquireCredentialRefreshLock,
+  loadCredential,
+  releaseCredentialRefreshLock,
+  saveCredential,
+} from "@/lib/data/credentials";
 import type * as EndpointsModule from "@/lib/data/webhook-endpoints";
 import {
   countWorkspaceWebhookEndpoints,
@@ -33,6 +39,7 @@ import { log, logError } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fakeSupabase } from "@/lib/supabase/fake-postgrest";
 
+import { TOKEN_REFRESH_SKEW_MS } from "./credential-refresh";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
 import {
   addMissingSourceWebhooks,
@@ -68,7 +75,12 @@ vi.mock("@/lib/data/webhook-endpoints", async (importOriginal) => {
     saveCreatedWebhookSource: vi.fn(),
   };
 });
-vi.mock("@/lib/data/credentials", () => ({ loadCredential: vi.fn() }));
+vi.mock("@/lib/data/credentials", () => ({
+  loadCredential: vi.fn(),
+  saveCredential: vi.fn(),
+  acquireCredentialRefreshLock: vi.fn(),
+  releaseCredentialRefreshLock: vi.fn(),
+}));
 vi.mock("@/lib/adapters/registry", () => ({ getAdapter: vi.fn(), loadOAuthClient: vi.fn(), createOAuthContext: vi.fn(() => ({})) }));
 vi.mock("@/lib/supabase/admin");
 vi.mock("@/lib/log/logger", () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, logError: vi.fn(() => "ref123") }));
@@ -81,6 +93,30 @@ const client = { clientId: "simulated", clientSecret: new Secret("simulated"), e
 
 function credential(scopes: readonly string[]): OAuthCredential {
   return { accessToken: new Secret("simulated-at"), scopes, tokenType: "bearer" };
+}
+
+const WRITE_SCOPES = ["simulated:read", "simulated:webhooks:write"];
+const KEY = { workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID };
+
+/** A credential with write access whose access token expires `ms` from now (#496). */
+function expiringIn(ms: number): OAuthCredential {
+  return { ...credential(WRITE_SCOPES), refreshToken: new Secret("rt-1"), expiresAt: new Date(Date.now() + ms) };
+}
+
+const REFRESHED: OAuthCredential = {
+  accessToken: new Secret("refreshed-at"),
+  refreshToken: new Secret("rt-2"),
+  expiresAt: new Date(Date.now() + 2 * 60 * 60_000),
+  scopes: WRITE_SCOPES,
+  tokenType: "bearer",
+};
+
+/** `spied` with a refresh that rotates the token, as GitLab's does (#496). */
+function refreshing(spied: ProviderAdapter) {
+  const refreshTokens = vi.fn<(current: OAuthCredential) => Promise<OAuthCredential>>(() => Promise.resolve(REFRESHED));
+  const adapter: ProviderAdapter = { ...spied, refreshTokens };
+  vi.mocked(getAdapter).mockReturnValue(adapter);
+  return { adapter, refreshTokens };
 }
 
 const PROVIDER_SECRET = new Secret("whsec_provider");
@@ -138,6 +174,9 @@ beforeEach(() => {
   vi.mocked(countWorkspaceWebhookEndpoints).mockResolvedValue(0);
   vi.mocked(getConnectionWebhook).mockResolvedValue(null);
   vi.mocked(insertWebhookEndpoint).mockResolvedValue();
+  vi.mocked(saveCredential).mockResolvedValue();
+  vi.mocked(acquireCredentialRefreshLock).mockResolvedValue("lock_1");
+  vi.mocked(releaseCredentialRefreshLock).mockResolvedValue();
   vi.mocked(loadOAuthClient).mockReturnValue(client);
   const { db } = fakeSupabase({
     external_accounts: [
@@ -246,6 +285,48 @@ describe("setUpWebhookAutomatically", () => {
     expect(await setUpWebhookAutomatically({ ...target(adapter, setup), origin: ORIGIN })).toEqual({ kind: "not_configured" });
     expect(create).not.toHaveBeenCalled();
   });
+
+  it("refreshes an expiring credential and saves it before creating the webhook with it (#496)", async () => {
+    const spies = withSpies(simulatedAdapters.resend);
+    const { adapter, refreshTokens } = refreshing(spies.adapter);
+    const expiring = expiringIn(60_000);
+    vi.mocked(loadCredential).mockResolvedValue(expiring);
+
+    expect(await setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
+
+    expect(refreshTokens).toHaveBeenCalledExactlyOnceWith(expiring, expect.anything());
+    expect(saveCredential).toHaveBeenCalledWith({ ...KEY, credential: REFRESHED });
+    expect(spies.create).toHaveBeenCalledWith(expect.objectContaining({ credential: REFRESHED }), expect.anything());
+    expect(vi.mocked(saveCredential).mock.invocationCallOrder[0]).toBeLessThan(spies.create.mock.invocationCallOrder[0] ?? 0);
+    expect(releaseCredentialRefreshLock).toHaveBeenCalledWith(KEY, "lock_1");
+  });
+
+  it("creates with an unexpired credential as it is, without the refresh lock (boundary: outside the skew)", async () => {
+    const spies = withSpies(simulatedAdapters.resend);
+    const { adapter, refreshTokens } = refreshing(spies.adapter);
+    const fresh = expiringIn(TOKEN_REFRESH_SKEW_MS + 60_000);
+    vi.mocked(loadCredential).mockResolvedValue(fresh);
+
+    await setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN });
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expect(acquireCredentialRefreshLock).not.toHaveBeenCalled();
+    expect(spies.create).toHaveBeenCalledWith(expect.objectContaining({ credential: fresh }), expect.anything());
+  });
+
+  it("refuses setup, creating nothing at the provider or here, when the refresh fails (boundary: refresh refused)", async () => {
+    const spies = withSpies(simulatedAdapters.resend);
+    const { adapter, refreshTokens } = refreshing(spies.adapter);
+    refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
+    vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+
+    await expect(setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN })).rejects.toBeInstanceOf(AuthRevokedError);
+
+    expect(spies.create).not.toHaveBeenCalled();
+    expect(insertWebhookEndpoint).not.toHaveBeenCalled();
+    expect(saveCredential).not.toHaveBeenCalled();
+    expect(releaseCredentialRefreshLock).toHaveBeenCalledWith(KEY, "lock_1");
+  });
 });
 
 describe("setupRefusal for a webhook that covers one account (Polar, #429)", () => {
@@ -324,6 +405,35 @@ describe("removeConnectionWebhook", () => {
     expect(removal).toEqual({ kind: "failed", referenceId: "ref123", left: [] });
     expect(logError).toHaveBeenCalledWith("webhook_setup.remove_failed", expect.any(Error), expect.objectContaining({ provider: "gitlab" }));
     expect(webhookRemovalMessage("gitlab", removal)).toMatch(/^StackDash could not delete its webhook in GitLab \(reference ref123\)\. In GitLab, open/);
+  });
+
+  it("refreshes an expiring credential and saves it before deleting the webhook with it (#496)", async () => {
+    const spies = withSpies(simulatedAdapters.resend);
+    const { refreshTokens } = refreshing(spies.adapter);
+    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9", sourceWebhooks: [] });
+    vi.mocked(loadCredential).mockResolvedValue(expiringIn(-1));
+
+    const removal = await removeConnectionWebhook({ ...KEY, provider: "resend" });
+
+    expect(removal).toEqual({ kind: "removed" });
+    expect(refreshTokens).toHaveBeenCalledOnce();
+    expect(saveCredential).toHaveBeenCalledWith({ ...KEY, credential: REFRESHED });
+    expect(spies.remove).toHaveBeenCalledWith({ credential: REFRESHED, webhookId: "hook_9" }, expect.anything());
+  });
+
+  it("gives the steps by hand, with a reference, when the refresh fails (boundary: refresh refused on disconnect)", async () => {
+    const spies = withSpies(simulatedAdapters.resend);
+    const { refreshTokens } = refreshing(spies.adapter);
+    refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
+    vi.mocked(deleteWebhookEndpoint).mockResolvedValue({ setupMode: "automatic", providerWebhookId: "hook_9", sourceWebhooks: [] });
+    vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+
+    const removal = await removeConnectionWebhook({ ...KEY, provider: "resend" });
+
+    expect(removal).toEqual({ kind: "failed", referenceId: "ref123", left: [] });
+    expect(spies.remove).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalledWith("webhook_setup.remove_failed", expect.any(AuthRevokedError), expect.objectContaining({ provider: "resend" }));
+    expect(webhookRemovalMessage("resend", removal)).toMatch(/^StackDash could not delete its webhook in Resend \(reference ref123\)\./);
   });
 });
 
@@ -459,6 +569,33 @@ describe("one webhook per source (#428)", () => {
       expect(listSources).not.toHaveBeenCalled();
       expect(create).not.toHaveBeenCalled();
     });
+
+    it("refreshes an expiring credential once, not once per project, and uses it for every call (#496)", async () => {
+      const spies = withSourceSpies();
+      const { adapter, refreshTokens } = refreshing(spies.adapter);
+      vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+
+      expect(await setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN })).toEqual({ kind: "automatic" });
+
+      expect(refreshTokens).toHaveBeenCalledOnce();
+      expect(saveCredential).toHaveBeenCalledExactlyOnceWith({ ...KEY, credential: REFRESHED });
+      expect(spies.listSources).toHaveBeenCalledWith(expect.objectContaining({ credential: REFRESHED }), expect.anything());
+      const withRefreshed = [expect.objectContaining({ credential: REFRESHED }), expect.anything()];
+      expect(spies.create.mock.calls).toEqual([withRefreshed, withRefreshed]);
+    });
+
+    it("stores no endpoint and asks GitLab nothing when the refresh fails (boundary: refresh refused)", async () => {
+      const spies = withSourceSpies();
+      const { adapter, refreshTokens } = refreshing(spies.adapter);
+      refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
+      vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+
+      await expect(setUpWebhookAutomatically({ ...target(adapter, spies.setup), origin: ORIGIN })).rejects.toBeInstanceOf(AuthRevokedError);
+
+      expect(insertWebhookEndpoint).not.toHaveBeenCalled();
+      expect(spies.listSources).not.toHaveBeenCalled();
+      expect(spies.create).not.toHaveBeenCalled();
+    });
   });
 
   describe("removeConnectionWebhook", () => {
@@ -509,6 +646,31 @@ describe("one webhook per source (#428)", () => {
       removed([]);
       expect(await removeConnectionWebhook({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID, provider: "gitlab" })).toEqual({ kind: "none" });
       expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("refreshes an expiring credential once and deletes every project's webhook with it (#496)", async () => {
+      const spies = withSourceSpies();
+      const { refreshTokens } = refreshing(spies.adapter);
+      vi.mocked(loadCredential).mockResolvedValue(expiringIn(-1));
+      removed([hook("1001"), hook("1002")]);
+
+      expect(await removeConnectionWebhook({ ...KEY, provider: "gitlab" })).toEqual({ kind: "removed" });
+
+      expect(refreshTokens).toHaveBeenCalledOnce();
+      expect(spies.remove.mock.calls.map(([input]) => input.credential)).toEqual([REFRESHED, REFRESHED]);
+    });
+
+    it("names every project when the refresh fails and none could be tried (boundary: refresh refused on disconnect)", async () => {
+      const spies = withSourceSpies();
+      const { refreshTokens } = refreshing(spies.adapter);
+      refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
+      vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+      removed([hook("1001"), hook("1002")]);
+
+      const removal = await removeConnectionWebhook({ ...KEY, provider: "gitlab" });
+
+      expect(removal).toEqual({ kind: "failed", referenceId: "ref123", left: ["example-group/p1001", "example-group/p1002"] });
+      expect(spies.remove).not.toHaveBeenCalled();
     });
   });
 
@@ -589,6 +751,31 @@ describe("one webhook per source (#428)", () => {
       const { create } = withSourceSpies();
       create.mockRejectedValue(new Error("GitLab unavailable"));
       await expect(addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).rejects.toThrow("No new gitlab webhook could be created.");
+    });
+
+    it("refreshes an expiring credential once before listing projects and creating the missing webhooks (#496)", async () => {
+      const spies = withSourceSpies();
+      const { refreshTokens } = refreshing(spies.adapter);
+      vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+
+      expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(2);
+
+      expect(refreshTokens).toHaveBeenCalledOnce();
+      expect(saveCredential).toHaveBeenCalledExactlyOnceWith({ ...KEY, credential: REFRESHED });
+      expect(spies.listSources).toHaveBeenCalledWith(expect.objectContaining({ credential: REFRESHED }), expect.anything());
+      const withRefreshed = [expect.objectContaining({ credential: REFRESHED }), expect.anything()];
+      expect(spies.create.mock.calls).toEqual([withRefreshed, withRefreshed]);
+    });
+
+    it("throws without asking GitLab anything when the refresh fails, so the sync logs it (boundary: refresh refused)", async () => {
+      const spies = withSourceSpies();
+      const { refreshTokens } = refreshing(spies.adapter);
+      refreshTokens.mockRejectedValue(new AuthRevokedError("invalid_grant"));
+      vi.mocked(loadCredential).mockResolvedValue(expiringIn(60_000));
+
+      await expect(addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).rejects.toBeInstanceOf(AuthRevokedError);
+      expect(spies.listSources).not.toHaveBeenCalled();
+      expect(spies.create).not.toHaveBeenCalled();
     });
   });
 });

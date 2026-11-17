@@ -5,6 +5,7 @@ import { gitlabAdapter } from "@/lib/adapters/gitlab";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
+import { TOKEN_REFRESH_SKEW_MS } from "@/lib/connections/credential-refresh";
 import type { Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
@@ -12,7 +13,7 @@ import { BACKOFF_CAP_MS, backoffCeilingMs } from "./backoff";
 import { ALLOWANCE_RESET_TYPE_ID } from "./ingest";
 import { MemoryJobStore, type MemoryEvent } from "./memory-store";
 import { runTick, type TickResult } from "./runner";
-import { SYNC_FAILED_TYPE_ID, TOKEN_REFRESH_SKEW_MS, type SyncDeps } from "./sync-connection";
+import { SYNC_FAILED_TYPE_ID, type SyncDeps } from "./sync-connection";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} };
@@ -511,6 +512,8 @@ describe("sync job: token refresh (#44)", () => {
     expect(harness.store.credentials.get(harness.connectionId)).toBe(rotated);
     expect(seen).toEqual([rotated]);
     expect(lastSyncJob(harness).status).toBe("succeeded");
+    // The connection's refresh lock (#496) is free again for the next refresh.
+    expect(harness.store.refreshLocks.size).toBe(0);
   });
 
   it("refreshes a GitLab token, which lasts 2 hours, inside the skew and saves GitLab's rotated pair before syncing", async () => {

@@ -862,8 +862,8 @@ export const railwayAdapter: ProviderAdapter = {
 
   /**
    * Returns the NEW refresh token: Railway rotates it and a rotated one fails with invalid_grant.
-   * The sync runner persists the returned credential before anything else runs and never runs two
-   * syncs of one connection together (src/lib/jobs/sync-connection.ts, refreshIfExpiring).
+   * StackDash persists the returned credential before anything else runs and never runs two
+   * refreshes of one connection together (src/lib/connections/credential-refresh.ts, refreshIfExpiring).
    */
   async refreshTokens(credential, ctx) {
     if (credential.refreshToken === undefined) {

@@ -46,7 +46,7 @@ Then `GET /api/v4/user` (needs `read_user`) reads the user's id and username. Th
 
 Access tokens expire after 2 hours. `POST /oauth/token` with `client_id`, `client_secret`, `grant_type=refresh_token`, `refresh_token`, and `redirect_uri` (the guide's example sends it and says it must match the authorize request). The refresh invalidates the old access token **and the old refresh token** and returns a new pair.
 
-StackDash refreshes through the shared sync path (`refreshIfExpiring` in `src/lib/jobs/sync-connection.ts`): a token within 5 minutes of expiry is refreshed, the new pair is saved before anything else runs, and two syncs of one connection never run together, so two refreshes can never race and spend the same refresh token. `invalid_grant` on refresh means the grant is gone and the connection asks to be reconnected.
+StackDash refreshes through the shared path (`refreshIfExpiring` in `src/lib/connections/credential-refresh.ts`): a token within 5 minutes of expiry is refreshed, the new pair is saved before anything else runs, and every refresh of one connection, by a sync or by automatic webhook setup and removal, runs under the connection's refresh lock, so two refreshes can never race and spend the same refresh token. `invalid_grant` on refresh means the grant is gone and the connection asks to be reconnected.
 
 ### Disconnect and revoke
 
