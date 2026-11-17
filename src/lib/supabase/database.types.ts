@@ -273,6 +273,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"credential_refresh_locks": {
+                  Row: {
+                    "connection_id": string,"lock_id": string,"locked_until": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "connection_id": string,"lock_id": string,"locked_until": string,"workspace_id": string
+                  }
+                  Update: {
+                    "connection_id"?: string,"lock_id"?: string,"locked_until"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "credential_refresh_locks_connection_fkey"
+      columns: ["workspace_id","connection_id"]
+isOneToOne: false
+      referencedRelation: "connections"
+      referencedColumns: ["workspace_id","id"]
+    }
+                  ]
                 },"external_accounts": {
                   Row: {
                     "connection_id": string,"created_at": string,"display_name": string,"external_id": string,"id": string,"included": boolean,"kind": string,"project_id": string | null,"sync_cursor": string | null,"updated_at": string,"workspace_id": string
@@ -731,14 +751,14 @@ isOneToOne: false
                   ]
                 },"webhook_endpoints": {
                   Row: {
-                    "auth_tag": string,"awaiting_provider_secret": boolean,"ciphertext": string,"connection_id": string,"created_at": string,"id": string,"iv": string,"key_id": string,"provider": Database["public"]['Enums']["provider_id"],"provider_webhook_id": string | null,"setup_mode": Database["public"]['Enums']["webhook_setup_mode"],"updated_at": string,"workspace_id": string
+                    "auth_tag": string,"awaiting_provider_secret": boolean,"ciphertext": string,"connection_id": string,"created_at": string,"id": string,"iv": string,"key_id": string,"per_source": boolean,"provider": Database["public"]['Enums']["provider_id"],"provider_webhook_id": string | null,"setup_mode": Database["public"]['Enums']["webhook_setup_mode"],"updated_at": string,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "auth_tag": string,"awaiting_provider_secret"?: boolean,"ciphertext": string,"connection_id": string,"created_at"?: string,"id"?: string,"iv": string,"key_id": string,"provider": Database["public"]['Enums']["provider_id"],"provider_webhook_id"?: string | null,"setup_mode"?: Database["public"]['Enums']["webhook_setup_mode"],"updated_at"?: string,"workspace_id": string
+                    "auth_tag": string,"awaiting_provider_secret"?: boolean,"ciphertext": string,"connection_id": string,"created_at"?: string,"id"?: string,"iv": string,"key_id": string,"per_source"?: boolean,"provider": Database["public"]['Enums']["provider_id"],"provider_webhook_id"?: string | null,"setup_mode"?: Database["public"]['Enums']["webhook_setup_mode"],"updated_at"?: string,"workspace_id": string
                   }
                   Update: {
-                    "auth_tag"?: string,"awaiting_provider_secret"?: boolean,"ciphertext"?: string,"connection_id"?: string,"created_at"?: string,"id"?: string,"iv"?: string,"key_id"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"provider_webhook_id"?: string | null,"setup_mode"?: Database["public"]['Enums']["webhook_setup_mode"],"updated_at"?: string,"workspace_id"?: string
+                    "auth_tag"?: string,"awaiting_provider_secret"?: boolean,"ciphertext"?: string,"connection_id"?: string,"created_at"?: string,"id"?: string,"iv"?: string,"key_id"?: string,"per_source"?: boolean,"provider"?: Database["public"]['Enums']["provider_id"],"provider_webhook_id"?: string | null,"setup_mode"?: Database["public"]['Enums']["webhook_setup_mode"],"updated_at"?: string,"workspace_id"?: string
                   }
                   Relationships: [
                     {
@@ -752,6 +772,26 @@ isOneToOne: false
       columns: ["workspace_id"]
 isOneToOne: false
       referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"webhook_sources": {
+                  Row: {
+                    "created_at": string,"endpoint_id": string,"last_delivery_at": string | null,"provider_webhook_id": string | null,"source_id": string,"source_name": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"endpoint_id": string,"last_delivery_at"?: string | null,"provider_webhook_id"?: string | null,"source_id": string,"source_name": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"endpoint_id"?: string,"last_delivery_at"?: string | null,"provider_webhook_id"?: string | null,"source_id"?: string,"source_name"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "webhook_sources_endpoint_id_fkey"
+      columns: ["endpoint_id"]
+isOneToOne: false
+      referencedRelation: "webhook_endpoints"
       referencedColumns: ["id"]
     }
                   ]
@@ -797,6 +837,9 @@ isOneToOne: false
           Functions: {
             "achievement_event_dedupe_key":
 { Args: { "p_achievement_id": string,"p_project_id": string }; Returns: string
+                           },
+"acquire_credential_refresh_lock":
+{ Args: { "p_connection_id": string,"p_lease_seconds": number,"p_workspace_id": string }; Returns: string
                            },
 "activity_event_counts":
 { Args: { "p_account_ids"?: (string)[],"p_bucket": string,"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
@@ -954,6 +997,9 @@ isOneToOne: false
 "current_user_workspace_ids":
 { Args: { "p_min_role": Database["public"]['Enums']["workspace_role"] }; Returns: string[]
                            },
+"delete_webhook_endpoint":
+{ Args: { "p_connection_id": string,"p_workspace_id": string }; Returns: Json
+                           },
 "disable_project_page":
 { Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
@@ -1074,6 +1120,9 @@ isOneToOne: false
 "record_webhook_delivery":
 { Args: { "p_delivery_id": string,"p_endpoint_id"?: string,"p_outcome": Json,"p_provider": Database["public"]['Enums']["provider_id"] }; Returns: boolean
                            },
+"record_webhook_source":
+{ Args: { "p_endpoint_id": string,"p_received_at": string,"p_source_id": string,"p_source_name": string }; Returns: undefined
+                           },
 "remove_workspace_handle":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: string
                            },
@@ -1085,6 +1134,9 @@ isOneToOne: false
                            },
 "require_workspace_handle_admin":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"save_created_webhook_source":
+{ Args: { "p_endpoint_id": string,"p_provider_webhook_id": string,"p_source_id": string,"p_source_name": string }; Returns: boolean
                            },
 "save_project_page":
 { Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string

@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import {
   AdapterError,
   AuthRevokedError,
@@ -9,14 +11,8 @@ import { validateAdapterEvents } from "@/lib/adapters/events";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
 import { isSimulatedAdapter, SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
 import { isSimulatedCredential } from "@/lib/adapters/simulated/marker";
-import {
-  credentialInstallationId,
-  type OAuthClient,
-  type OAuthContext,
-  type OAuthCredential,
-  type ProviderAdapter,
-  type ProviderId,
-} from "@/lib/adapters/types";
+import { credentialInstallationId, type OAuthClient, type OAuthContext, type ProviderAdapter, type ProviderId } from "@/lib/adapters/types";
+import { refreshIfExpiring } from "@/lib/connections/credential-refresh";
 import type { LogFields, Logger } from "@/lib/log/logger";
 import type { NotificationDeps } from "@/lib/notifications/dispatch";
 import { providerName } from "@/lib/providers";
@@ -33,8 +29,6 @@ import type { ClaimedJob, ConnectionKey, ConnectionPatch, EventRow, JobStore, Sy
 
 type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
 
-// Refresh this long before the access token expires, so a token never expires mid-sync.
-export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
 export const SYNC_FAILED_TYPE_ID = "stackdash.sync_failed";
 
 export type JobOutcome =
@@ -57,6 +51,11 @@ export type SyncDeps = Readonly<{
   // evaluateConnectionAchievements from src/lib/achievements/run.ts in production (#413); injected
   // so tests stub it.
   evaluateAchievements: (workspaceId: string, connectionId: string, now: Date) => Promise<unknown>;
+  // addMissingSourceWebhooks from src/lib/connections/webhook-setup.ts in production (#428): gives
+  // the sources a connection reads since its last sync (GitLab projects) their webhook, for a
+  // connection whose webhooks were set up automatically per source. Injected so tests stub it.
+  // Returns before any query for a provider without per-source webhooks.
+  addMissingSourceWebhooks: (workspaceId: string, connectionId: string, provider: ProviderId) => Promise<unknown>;
   // Built per alert_dispatch or digest job (createNotificationDeps in production), so a broken
   // email configuration fails that job only.
   notifications: () => NotificationDeps;
@@ -127,6 +126,17 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
       connectionId: key.connectionId,
     });
   }
+  // A source added since the last sync gets its webhook (#428). Likewise never fails the sync: the
+  // next sync tries again, and polling brings the source's events meanwhile.
+  try {
+    await deps.addMissingSourceWebhooks(key.workspaceId, key.connectionId, connection.provider);
+  } catch (error) {
+    deps.logError("sync.source_webhooks_failed", error, {
+      jobId: job.id,
+      workspaceId: key.workspaceId,
+      connectionId: key.connectionId,
+    });
+  }
   return { status: "succeeded" };
 }
 
@@ -163,7 +173,13 @@ async function syncConnection(
     throw new SyncSetupError("provider_not_configured", `${adapter.id} OAuth client is not configured on this instance`);
   }
   const ctx = deps.createOAuthContext(client);
-  credential = await refreshIfExpiring(adapter, credential, key, ctx, deps);
+  // Under the connection's refresh lock, which automatic webhook setup and removal also take (#496).
+  credential = await refreshIfExpiring(adapter, credential, key, ctx, {
+    store: deps.store,
+    now: deps.now,
+    sleep: (ms) => sleep(ms),
+    logError: deps.logError,
+  });
 
   const accounts = await deps.store.listIncludedAccounts(key);
   const missingScopes = new Set(adapter.detectMissingPermissions({ scopes: credential.scopes }));
@@ -219,35 +235,6 @@ async function syncConnection(
     next_sync_at: addMs(now, connection.poll_interval_seconds * 1000).toISOString(),
     missing_scopes: [...missingScopes],
   });
-}
-
-/**
- * Refreshes before expiry and saves the new credential before anything else runs. Providers that
- * rotate refresh tokens invalidate the old one on use, so the rotated token must be persisted at
- * once: if it were lost, the connection could never refresh again. Two syncs of one connection
- * never run together (sync_jobs_one_open_sync_per_connection), which is what keeps two refreshes
- * from racing and one of them saving an already-dead token.
- */
-async function refreshIfExpiring(
-  adapter: ProviderAdapter,
-  credential: OAuthCredential,
-  key: ConnectionKey,
-  ctx: OAuthContext,
-  deps: SyncDeps,
-): Promise<OAuthCredential> {
-  if (adapter.refreshTokens === undefined || credential.expiresAt === undefined) return credential;
-  if (credential.expiresAt.getTime() - deps.now().getTime() > TOKEN_REFRESH_SKEW_MS) return credential;
-
-  const refreshed = await adapter.refreshTokens(credential, ctx);
-  try {
-    await deps.store.saveCredential(key, refreshed);
-  } catch (error) {
-    // The old refresh token may already be spent. Logged distinctly so an operator can see why
-    // the connection will ask to be reconnected on its next sync.
-    deps.logError("sync.refreshed_credential_not_saved", error, { connectionId: key.connectionId, provider: adapter.id });
-    throw error;
-  }
-  return refreshed;
 }
 
 function syncFailedEvent(input: {

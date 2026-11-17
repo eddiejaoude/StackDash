@@ -1,0 +1,31 @@
+{
+  "type": "domain.updated",
+  "created_at": "2026-07-28T11:58:00.000Z",
+  "data": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "example.com",
+    "status": "verified",
+    "created_at": "2026-04-26T20:21:26.347Z",
+    "region": "us-east-1",
+    "capabilities": { "sending": "enabled", "receiving": "disabled" },
+    "records": [
+      {
+        "record": "SPF",
+        "name": "send",
+        "type": "MX",
+        "ttl": "Auto",
+        "status": "verified",
+        "value": "feedback-smtp.us-east-1.amazonses.com",
+        "priority": 10
+      },
+      {
+        "record": "DKIM",
+        "name": "resend._domainkey",
+        "value": "p=EXAMPLEPUBLICKEY",
+        "type": "TXT",
+        "status": "verified",
+        "ttl": "Auto"
+      }
+    ]
+  }
+}

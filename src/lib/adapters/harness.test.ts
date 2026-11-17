@@ -304,6 +304,28 @@ describe("checkAdapterDeclaration", () => {
         },
         "automatic webhook setup permission hooks:write is requested without extraScopes",
       ],
+      [
+        "a per-source automatic setup with no noun for its sources",
+        (() => {
+          const base = withConnectionSetup();
+          const registration = base.webhooks?.registration;
+          if (registration?.kind !== "connection") throw new Error("expected a per-connection webhook");
+          const setup: ConnectionWebhookSetup = {
+            secretSource: "stackdash",
+            manualSteps: registration.setup.manualSteps,
+            removalSteps: registration.setup.removalSteps,
+            automatic: {
+              per: "source",
+              extraPermissions: [writeHooks],
+              listSources: () => Promise.resolve([]),
+              create: () => Promise.resolve({ webhookId: "hook_1" }),
+              remove: () => Promise.resolve(),
+            },
+          };
+          return { ...base, webhooks: webhooksWith({ registration: { kind: "connection", setup } }) };
+        })(),
+        "webhooks.registration.setup.sourceNoun must name the sources of a per-source automatic setup",
+      ],
     ])("reports %s (boundary)", (_case, change, problem) => {
       expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);
     });

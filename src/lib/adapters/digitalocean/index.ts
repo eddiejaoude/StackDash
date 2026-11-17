@@ -1063,9 +1063,9 @@ export const digitaloceanAdapter: ProviderAdapter = {
   /**
    * Returns the NEW access and refresh token as one credential: a DigitalOcean refresh token works
    * exactly once and refreshing invalidates the old access token, so the pair must be stored
-   * together before either is used. The sync runner refreshes and saves before anything else, and
-   * at most one sync per connection runs at a time (docs/operations/jobs.md,
-   * `sync_jobs_one_open_sync_per_connection`), so two refreshes never race on one token.
+   * together before either is used. StackDash refreshes and saves before anything else, under a
+   * per-connection refresh lock (`refreshIfExpiring` in src/lib/connections/credential-refresh.ts),
+   * so two refreshes never race on one token.
    */
   async refreshTokens(credential, ctx) {
     if (credential.refreshToken === undefined) {

@@ -1,16 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import AxeBuilder from "@axe-core/playwright";
-import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { SIMULATED_SCOPE } from "../src/lib/adapters/simulated/marker";
-import {
-  SIMULATED_DELIVERY_HEADER,
-  SIMULATED_SIGNATURE_HEADER,
-  SIMULATED_WEBHOOK_WRITE_SCOPE,
-  simulatedWebhookSignature,
-} from "../src/lib/adapters/simulated/webhooks";
-import { Secret } from "../src/lib/adapters/types";
+import { SIMULATED_WEBHOOK_WRITE_SCOPE } from "../src/lib/adapters/simulated/webhooks";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "../src/lib/connections/webhook-copy";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
@@ -21,24 +14,35 @@ import {
   deleteTestWorkspace,
   type TestWorkspace,
 } from "./fixtures/db";
+import { postGitLabDelivery, pipelineDeliveryBody, SIMULATED_GITLAB_GROUP } from "./fixtures/gitlab-webhook";
 import { anonymous } from "./fixtures/share";
+import {
+  chooseWithKeyboard,
+  connectionId,
+  disconnect,
+  endpointCount,
+  EVIDENCE,
+  evidence,
+  expectAccessiblePanel,
+  grantedScopes,
+  panel,
+  tabTo,
+} from "./fixtures/webhook-panel";
 
 /*
- * The webhook setup panel (#426), end to end through the simulated providers: no live adapter
- * declares a user-created webhook yet, so GitLab's and Resend's simulated twins carry one
- * (src/lib/adapters/simulated/webhooks.ts) until #428 and #427 land. GitLab's automatic setup needs
- * write access, Resend's uses the access already granted and generates the signing secret.
+ * The webhook setup panel (#426), end to end through the simulated providers. GitLab's twin runs
+ * the live adapter's project webhooks (#428): its steps, `verify` (the secret token in
+ * `X-Gitlab-Token`), and `parse`, with automatic setup simulated, one webhook per project of the
+ * simulated group. Resend's twin carries the live declaration (#427). GitLab's automatic setup
+ * needs write access, Resend's uses the access already granted and generates the signing secret.
  *
  * Covers both paths with the copy from #426, the write access warning before the consent screen,
- * the write access shown while it is held, setup by hand with the address, the secret shown once,
- * the steps, a signed delivery and its time, a new secret, disconnect for each path, the endpoint
- * limit, an axe scan of the panel, and a keyboard-only pass. Deliveries are posted from a context
- * with no session, as a provider sends them. No job tick runs: a delivery shows on the panel when
- * it is received.
+ * the write access shown while it is held, the projects automatic setup added a webhook to, setup
+ * by hand with the address, the secret shown once, the steps, a delivery and its time, the project
+ * it came from, a new secret, disconnect for each path, the endpoint limit, an axe scan of the
+ * panel, and a keyboard-only pass. Deliveries are posted from a context with no session, as a
+ * provider sends them. No job tick runs: a delivery shows on the panel when it is received.
  */
-
-const PANEL = "Get events as they happen";
-const EVIDENCE = process.env.PW_PR_EVIDENCE === "1";
 
 const GITLAB_AUTOMATIC =
   "StackDash asks GitLab for write access, because GitLab has no read-only access that can create a webhook. With write access, StackDash's connection can change your GitLab account, not only read it. If you want StackDash to stay read-only, set up the webhook by hand instead.";
@@ -48,28 +52,6 @@ const RESEND_AUTOMATIC =
   "StackDash adds a webhook to your Resend team, using the access you already granted. You can see it in Resend, and StackDash removes it when you disconnect.";
 const RESEND_MANUAL =
   "You add the webhook in Resend yourself, using the address below.";
-
-function panel(page: Page): Locator {
-  return page.getByRole("region", { name: PANEL });
-}
-
-/** A named screenshot for the pull request (PW_PR_EVIDENCE=1), with every secret field masked. */
-async function evidence(locator: Locator, name: string): Promise<void> {
-  if (!EVIDENCE) return;
-  const page = locator.page();
-  const mask = [
-    page.getByRole("textbox", { name: "Webhook secret" }),
-    page.getByLabel(/^Signing secret from /),
-  ];
-  // The sticky app header would cover the top of a panel taller than the viewport, so it is hidden
-  // for the capture; it is not part of the captured element.
-  await locator.screenshot({
-    path: `pr-evidence/after/${name}.png`,
-    animations: "disabled",
-    mask,
-    style: "header.sticky { visibility: hidden !important; }",
-  });
-}
 
 async function pageEvidence(page: Page, name: string): Promise<void> {
   if (!EVIDENCE) return;
@@ -81,116 +63,15 @@ async function pageEvidence(page: Page, name: string): Promise<void> {
   });
 }
 
-/** Axe finds nothing on the panel. */
-async function expectAccessiblePanel(page: Page): Promise<void> {
-  const scan = await new AxeBuilder({ page })
-    .include('section[aria-labelledby="webhook-title"]')
-    .analyze();
-  expect(scan.violations).toEqual([]);
-}
-
-/** Presses Tab until `target` has focus, then checks it shows a focus style. */
-async function tabTo(page: Page, target: Locator): Promise<void> {
-  for (
-    let presses = 0;
-    presses < 80 &&
-    !(await target.evaluate((element) => element === document.activeElement));
-    presses++
-  ) {
-    await page.keyboard.press("Tab");
-  }
-  await expect(target).toBeFocused();
-  expect(
-    await target.evaluate((element) => element.matches(":focus-visible")),
-  ).toBe(true);
-}
-
-/** Chooses a setup path from the panel with the keyboard only. */
-async function chooseWithKeyboard(
-  page: Page,
-  choice: "Set up automatically" | "Set up by hand",
-): Promise<void> {
-  const radio = panel(page).getByRole("radio", { name: choice });
-  await tabTo(page, panel(page).getByRole("radio").first());
-  // Arrow keys move through a radio group and select as they go; Space selects the focused one.
-  if (!(await radio.evaluate((element) => element === document.activeElement)))
-    await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Space");
-  await expect(radio).toBeChecked();
-  await tabTo(
-    page,
-    panel(page).getByRole("button", { name: "Set up the webhook" }),
-  );
-  await page.keyboard.press("Enter");
-}
-
-function postDelivery(
-  request: APIRequestContext,
-  url: string,
-  secret: string,
-  deliveryId = `e2e-${randomUUID()}`,
-) {
-  const body = JSON.stringify({ test: true });
-  return request.post(new URL(url).pathname, {
-    data: body,
-    headers: {
-      "Content-Type": "application/json",
-      [SIMULATED_DELIVERY_HEADER]: deliveryId,
-      [SIMULATED_SIGNATURE_HEADER]: simulatedWebhookSignature(
-        new Secret(secret),
-        deliveryId,
-        new TextEncoder().encode(body),
-      ),
-    },
-  });
-}
-
-async function connectionId(page: Page): Promise<string> {
-  const id = CONNECTION_URL.exec(page.url())?.[1];
-  if (id === undefined) throw new Error("expected to be on a connection page");
-  return id;
-}
-
-async function endpointCount(connection: string): Promise<number> {
-  const { count, error } = await adminClient()
-    .from("webhook_endpoints")
-    .select("id", { count: "exact", head: true })
-    .eq("connection_id", connection);
-  if (error)
-    throw new Error(`Reading the endpoints failed (code ${error.code}).`);
-  return count ?? 0;
-}
-
-async function grantedScopes(connection: string): Promise<readonly string[]> {
+/** How many project webhooks StackDash created for the connection's endpoint (#428). */
+async function sourceWebhookCount(connection: string): Promise<number> {
   const { data, error } = await adminClient()
-    .from("connections")
-    .select("granted_scopes")
-    .eq("id", connection)
-    .single();
-  if (error)
-    throw new Error(`Reading the connection failed (code ${error.code}).`);
-  return data.granted_scopes;
-}
-
-/**
- * Disconnects from the Manage section, checking the dialog names `expectedStep` before confirming
- * and the result says `expectedResult` after, with evidence of both under `evidenceName`.
- */
-async function disconnect(
-  page: Page,
-  expectedStep: string | RegExp,
-  expectedResult: RegExp,
-  evidenceName: string,
-): Promise<void> {
-  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: /^Disconnect / });
-  await expect(dialog.getByText(expectedStep)).toBeVisible();
-  await evidence(dialog, `${evidenceName}-dialog`);
-  await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
-  await expect(dialog).toBeHidden();
-  const manage = page.getByRole("region", { name: "Manage" });
-  await expect(manage.getByText(expectedResult)).toBeVisible();
-  await evidence(manage, `${evidenceName}-result`);
+    .from("webhook_endpoints")
+    .select("webhook_sources(provider_webhook_id)")
+    .eq("connection_id", connection)
+    .maybeSingle();
+  if (error) throw new Error(`Reading the webhook sources failed (code ${error.code}).`);
+  return (data?.webhook_sources ?? []).filter((source) => source.provider_webhook_id !== null).length;
 }
 
 ownerTest.describe("webhook setup panel", () => {
@@ -270,10 +151,25 @@ ownerTest.describe("webhook setup panel", () => {
         page.getByText("Webhook set up", { exact: true }),
       ).toBeVisible();
       await expect(
-        panel(page).getByText(
-          /^Set up automatically\. StackDash added this webhook in GitLab/,
+        page.getByText(
+          "StackDash added a webhook to the GitLab projects it reads. Any it could not reach are listed below and tried again after the next sync. New events reach the timeline within a minute of GitLab sending them.",
         ),
       ).toBeVisible();
+      await expect(
+        panel(page).getByText(
+          "Set up automatically. StackDash added a webhook to each GitLab project it reads, adds one to each project it starts reading on a later sync, and deletes them when you disconnect.",
+        ),
+      ).toBeVisible();
+      // One webhook per project of the simulated group, each listed once, none of which has sent a
+      // delivery yet. The consent's reconnect mints a new grant, and only its account's projects
+      // get a webhook.
+      const projects = panel(page).getByRole("list", { name: "Projects" }).getByRole("listitem");
+      await expect(projects).toHaveCount(3);
+      for (const name of ["api", "docs", "web"]) {
+        const row = projects.filter({ hasText: `${SIMULATED_GITLAB_GROUP}/${name}` });
+        await expect(row).toHaveCount(1);
+        await expect(row).toContainText("Webhook added by StackDash. No delivery yet.");
+      }
       const held = panel(page).getByRole("heading", {
         name: "Write access StackDash holds in GitLab",
       });
@@ -286,13 +182,14 @@ ownerTest.describe("webhook setup panel", () => {
         SIMULATED_WEBHOOK_WRITE_SCOPE,
       ]);
       expect(await endpointCount(connection)).toBe(1);
+      expect(await sourceWebhookCount(connection)).toBe(3);
       await expectAccessiblePanel(page);
       await evidence(panel(page), "panel-automatic-write-access-held");
 
       await disconnect(
         page,
-        "Deletes the webhook StackDash added in GitLab. If that fails, you are told how to do it there.",
-        /StackDash deleted its webhook in GitLab\./,
+        "Deletes the webhooks StackDash added in GitLab. If that fails, you are told how to do it there.",
+        /StackDash deleted its webhooks in GitLab\./,
         "disconnect-automatic",
       );
       await expect(panel(page)).toHaveCount(0);
@@ -363,11 +260,25 @@ ownerTest.describe("webhook setup panel", () => {
         await expectAccessiblePanel(page);
         await evidence(panel(page), "panel-by-hand-secret-shown-once");
 
-        // The provider sends a delivery; checking again shows when it arrived, through a polite region.
-        expect(
-          (await postDelivery(provider, url, "not-the-secret")).status(),
-        ).toBe(401);
-        expect((await postDelivery(provider, url, secret)).status()).toBe(202);
+        // No project has sent a delivery yet, and the panel says so.
+        await expect(
+          panel(page).getByText(
+            "No project has sent a delivery yet. Each project the webhook is added to shows here once it sends one.",
+          ),
+        ).toBeVisible();
+
+        // GitLab sends a pipeline delivery from one project; checking again shows when it arrived,
+        // through a polite region, and which project sent it.
+        const delivery = (token: string | null) =>
+          postGitLabDelivery(
+            provider,
+            url,
+            token,
+            pipelineDeliveryBody({ projectId: 4242, projectPath: `${SIMULATED_GITLAB_GROUP}/web`, pipelineId: 77, status: "success" }),
+          );
+        expect((await delivery("not-the-secret")).status()).toBe(401);
+        expect((await delivery(null)).status()).toBe(401);
+        expect((await delivery(secret)).status()).toBe(202);
         await tabTo(
           page,
           panel(page).getByRole("button", { name: "Check for deliveries" }),
@@ -381,6 +292,12 @@ ownerTest.describe("webhook setup panel", () => {
           "datetime",
           /^\d{4}-\d{2}-\d{2}T/,
         );
+        const sent = panel(page).getByRole("list", { name: "Projects" }).getByRole("listitem");
+        await expect(sent).toHaveCount(1);
+        await expect(sent).toContainText(`${SIMULATED_GITLAB_GROUP}/web`);
+        await expect(sent.locator("time")).toHaveAttribute("datetime", /^\d{4}-\d{2}-\d{2}T/);
+        await expect(sent).not.toContainText("Webhook added by StackDash");
+        await expectAccessiblePanel(page);
 
         // The secret is not shown again after a reload; a new one replaces it and the old one stops working.
         await page.reload();
@@ -405,8 +322,8 @@ ownerTest.describe("webhook setup panel", () => {
           .getByRole("textbox", { name: "Webhook secret" })
           .inputValue();
         expect(rotated).not.toBe(secret);
-        expect((await postDelivery(provider, url, secret)).status()).toBe(401);
-        expect((await postDelivery(provider, url, rotated)).status()).toBe(202);
+        expect((await delivery(secret)).status()).toBe(401);
+        expect((await delivery(rotated)).status()).toBe(202);
 
         // Leaving the page hides the new secret: with cacheComponents the page is kept, hidden, so
         // coming back through client navigation must not show it again.
@@ -418,12 +335,12 @@ ownerTest.describe("webhook setup panel", () => {
 
         await disconnect(
           page,
-          /^Stops accepting the webhook you added in GitLab\. Remove it there afterwards: In GitLab, open the group/,
-          /Remove the webhook you added in GitLab: In GitLab, open the group, then Settings, then Webhooks/,
+          /^Stops accepting the webhook you added in GitLab\. Remove it there afterwards: In GitLab, open each project you added it to/,
+          /Remove the webhook you added in GitLab: In GitLab, open each project you added it to, then Settings, then Webhooks/,
           "disconnect-by-hand",
         );
         // Deliveries for a removed connection are dropped.
-        expect((await postDelivery(provider, url, rotated)).status()).toBe(404);
+        expect((await delivery(rotated)).status()).toBe(404);
       } finally {
         await provider.dispose();
       }
@@ -579,6 +496,9 @@ viewerTest.describe("webhook setup panel for a viewer", () => {
 
       await expect(panel(page).getByText("Set up by hand.", { exact: true })).toBeVisible();
       await expect(panel(page).getByText("Last delivery: None in the last 30 days.")).toBeVisible();
+      // A webhook added by hand, from which no project has sent anything yet (#428).
+      await expect(panel(page).getByRole("heading", { name: "Projects" })).toBeVisible();
+      await expect(panel(page).getByText(/^No project has sent a delivery yet\./)).toBeVisible();
       for (const role of ["radio", "textbox", "button", "link"] as const) {
         await expect(panel(page).getByRole(role)).toHaveCount(0);
       }

@@ -133,10 +133,11 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       reconnectId = existing.id;
     }
 
-    // Never ask for write access the webhook could not use: the connection has one already, or the
-    // workspace is at its limit (a stale tab or a race). The connection page explains which.
+    // Never ask for write access the webhook could not use: the connection has one already, the
+    // workspace is at its limit (a stale tab or a race), or the connection's accounts are more or
+    // fewer than automatic setup can serve. The connection page explains which.
     if (webhookSetup && reconnectId !== undefined) {
-      const refused = await setupRefusal(access.workspace.id, reconnectId);
+      const refused = await setupRefusal(access.workspace.id, reconnectId, webhookSetupDeclared?.automatic);
       if (refused !== null) {
         const url = new URL(`${connectionsPath}/${reconnectId}`, request.nextUrl.origin);
         url.searchParams.set("webhook", refused.kind);

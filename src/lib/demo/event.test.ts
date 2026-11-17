@@ -259,6 +259,7 @@ async function setup(
       return { triggered: fresh.length };
     },
     evaluateAchievements: async () => 0,
+    addMissingSourceWebhooks: async () => 0,
     notifications: () => memoryNotificationDeps(),
   };
   const target: DemoEventTarget = {

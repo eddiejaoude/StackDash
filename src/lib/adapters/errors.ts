@@ -113,21 +113,14 @@ function isRateLimited403(response: Response): boolean {
   );
 }
 
-/**
- * One outbound JSON request with the adapter contract applied: a timeout on
- * every call, HTTP failures mapped to typed errors, and the body parsed at the
- * boundary so nothing unvalidated reaches the adapter.
- * The signal is owned here so the timeout cannot be bypassed.
- */
-export async function fetchJson<T>(
-  ctx: Pick<AdapterContext, "fetch" | "now" | "timeoutMs">,
-  url: string | URL,
-  init: Omit<RequestInit, "signal">,
-  schema: z.ZodType<T>,
-): Promise<T> {
-  const endpoint = describeEndpoint(url);
-  const signal = AbortSignal.timeout(ctx.timeoutMs);
+type RequestContext = Pick<AdapterContext, "fetch" | "now" | "timeoutMs">;
 
+/**
+ * Sends one request under `signal` and maps every HTTP failure to its typed error, so `fetchJson`
+ * and `fetchNoContent` treat statuses alike. Returns the response of a 2xx answer.
+ */
+async function sendChecked(ctx: RequestContext, url: string | URL, init: Omit<RequestInit, "signal">, signal: AbortSignal): Promise<Response> {
+  const endpoint = describeEndpoint(url);
   let response: Response;
   try {
     response = await ctx.fetch(url, { ...init, signal });
@@ -173,7 +166,34 @@ export async function fetchJson<T>(
       endpoint,
     });
   }
+  return response;
+}
 
+/**
+ * One outbound request whose answer StackDash does not read (a DELETE that may answer 204 or an
+ * empty body), with the same timeout and error mapping as `fetchJson`. The body is discarded.
+ */
+export async function fetchNoContent(ctx: RequestContext, url: string | URL, init: Omit<RequestInit, "signal">): Promise<void> {
+  const response = await sendChecked(ctx, url, init, AbortSignal.timeout(ctx.timeoutMs));
+  await response.body?.cancel();
+}
+
+/**
+ * One outbound JSON request with the adapter contract applied: a timeout on
+ * every call, HTTP failures mapped to typed errors, and the body parsed at the
+ * boundary so nothing unvalidated reaches the adapter.
+ * The signal is owned here so the timeout cannot be bypassed.
+ */
+export async function fetchJson<T>(
+  ctx: RequestContext,
+  url: string | URL,
+  init: Omit<RequestInit, "signal">,
+  schema: z.ZodType<T>,
+): Promise<T> {
+  const endpoint = describeEndpoint(url);
+  const signal = AbortSignal.timeout(ctx.timeoutMs);
+  const response = await sendChecked(ctx, url, init, signal);
+  const { status } = response;
   let body: unknown;
   try {
     body = await response.json();

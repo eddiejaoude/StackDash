@@ -16,7 +16,7 @@ import { ConnectionStatusBadge } from "@/components/connections/connection-statu
 import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import { WebhookSetupPanel, type WebhookPanelView } from "@/components/connections/webhook-setup-panel";
+import { WebhookSetupPanel, WebhookSourceList, type WebhookPanelView } from "@/components/connections/webhook-setup-panel";
 import { LockIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
 import { ReferenceNote } from "@/components/ui/live-region";
@@ -26,12 +26,14 @@ import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import {
   automaticChoiceCopy,
+  automaticSetUpCopy,
   endpointLimitCopy,
   isWebhookSetupResult,
   manualChoiceCopy,
   needsWriteAccess,
   leftoverWriteAccessCopy,
   pollingCopy,
+  sourceListCopy,
   switchToManualCopy,
   WEBHOOK_ENDPOINTS_PER_WORKSPACE,
   WEBHOOK_PANEL_HEADING,
@@ -39,7 +41,7 @@ import {
 } from "@/lib/connections/webhook-copy";
 import { connectionWebhookSetup, webhookUrl } from "@/lib/connections/webhook-setup";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
-import { countWorkspaceWebhookEndpoints, getConnectionWebhook } from "@/lib/data/webhook-endpoints";
+import { countWorkspaceWebhookEndpoints, getConnectionWebhook, listWebhookSources } from "@/lib/data/webhook-endpoints";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
@@ -49,6 +51,15 @@ import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connection" };
+
+// For this page's Server Actions (Next reads it from the page). A single webhook's disconnect or
+// delete waits up to about 19 s for the credential refresh lock (#496), then refreshes, deletes the
+// webhook, and revokes, up to 15 s each (the adapter timeout): about 64 s; automatic setup is the
+// same order. GitLab's per-project setup and removal (#428) add up to 100 project calls, 5 at a
+// time, so a run where every call hits the timeout needs about 350 s. 300 s is Vercel's default and
+// the Hobby maximum (https://vercel.com/docs/functions/limitations): stated here so a platform with
+// a lower default does not cut a disconnect off after its endpoint row is already deleted.
+export const maxDuration = 300;
 
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it.
@@ -82,8 +93,13 @@ async function ConnectionContent({
     webhookSetup === null || !canManage ? Promise.resolve(0) : countWorkspaceWebhookEndpoints(workspace.id),
     requestPublicOrigin(),
   ]);
+  // A provider whose deliveries name their source (#428, GitLab projects) lists them; read once
+  // the endpoint is known.
+  const sourceNoun = webhookSetup?.sourceNoun;
+  const storedSources = webhook === null || sourceNoun === undefined ? null : await listWebhookSources(webhook.id);
   // Read after the request data above, so the clock is safe to read now.
   const now = new Date();
+  const deliveryTime = (at: Date) => ({ iso: at.toISOString(), text: `${formatRelative(at, now)} (${formatDateTime(at)})` });
 
   const providerName = PROVIDER_NAMES[connection.provider];
   const simulated = isSimulatedConnection(connection);
@@ -101,7 +117,7 @@ async function ConnectionContent({
   const heldWriteAccess = (webhookSetup?.automatic?.extraPermissions ?? []).filter((permission) =>
     connection.granted_scopes.includes(permission.scope),
   );
-  const webhookResult = isWebhookSetupResult(query.webhook) ? webhookSetupResultCopy(query.webhook, providerName) : null;
+  const webhookResult = isWebhookSetupResult(query.webhook) ? webhookSetupResultCopy(query.webhook, providerName, webhookSetup) : null;
   const webhookRef = typeof query.ref === "string" && REFERENCE_ID_PATTERN.test(query.ref) ? query.ref : undefined;
   // Write access left by an automatic setup that ended without a webhook (it failed after the
   // consent): the panel must not claim read-only, and says how to give the access up.
@@ -125,6 +141,7 @@ async function ConnectionContent({
           manualSteps: webhookSetup.manualSteps,
           removalSteps: webhookSetup.removalSteps,
           switchNote: switchToManualCopy(providerName, webhookSetup),
+          automaticNote: automaticSetUpCopy(providerName, webhookSetup),
           limitMessage: webhook === null && endpointCount >= WEBHOOK_ENDPOINTS_PER_WORKSPACE ? endpointLimitCopy(providerName) : null,
           endpoint:
             webhook === null
@@ -133,12 +150,19 @@ async function ConnectionContent({
                   mode: webhook.setupMode,
                   url: webhookUrl(origin, connection.provider, webhook.id),
                   awaitingProviderSecret: webhook.awaitingProviderSecret,
-                  lastDelivery:
-                    webhook.lastDeliveryAt === null
+                  lastDelivery: webhook.lastDeliveryAt === null ? null : deliveryTime(webhook.lastDeliveryAt),
+                  sources:
+                    storedSources === null || sourceNoun === undefined
                       ? null
                       : {
-                          iso: webhook.lastDeliveryAt.toISOString(),
-                          text: `${formatRelative(webhook.lastDeliveryAt, now)} (${formatDateTime(webhook.lastDeliveryAt)})`,
+                          ...sourceListCopy(providerName, sourceNoun, webhook.setupMode),
+                          items: storedSources.map((source) => ({
+                            id: source.sourceId,
+                            name: source.name,
+                            addedByStackDash: source.providerWebhookId !== null,
+                            missingWebhook: webhook.setupMode === "automatic" && source.providerWebhookId === null,
+                            lastDelivery: source.lastDeliveryAt === null ? null : deliveryTime(source.lastDeliveryAt),
+                          })),
                         },
                 },
         };
@@ -278,6 +302,7 @@ async function ConnectionContent({
                       <time dateTime={webhookView.endpoint.lastDelivery.iso}>{webhookView.endpoint.lastDelivery.text}</time>
                     )}
                   </p>
+                  {webhookView.endpoint.sources === null ? null : <WebhookSourceList sources={webhookView.endpoint.sources} />}
                 </>
               )}
             </div>
@@ -358,7 +383,7 @@ async function ConnectionContent({
               webhook={
                 webhook === null || webhookSetup === null
                   ? null
-                  : { mode: webhook.setupMode, removalSteps: webhookSetup.removalSteps.join(" ") }
+                  : { mode: webhook.setupMode, perSource: webhook.perSource, removalSteps: webhookSetup.removalSteps.join(" ") }
               }
             />
             <DeleteConnectionDialog workspaceSlug={workspace.slug} connectionId={connection.id} providerName={providerName} />

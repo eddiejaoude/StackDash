@@ -144,3 +144,34 @@ export async function deleteCredential({ workspaceId, connectionId }: Credential
     .eq("workspace_id", workspaceId);
   if (error) throw failure("delete", error);
 }
+
+/**
+ * Takes the connection's credential refresh lock for `leaseSeconds` (#496) and returns its id, or
+ * null while another holder's lease is current (acquire_credential_refresh_lock). Throws when the
+ * connection is not in the workspace.
+ */
+export async function acquireCredentialRefreshLock(
+  { workspaceId, connectionId }: CredentialKey,
+  leaseSeconds: number,
+): Promise<string | null> {
+  const { data, error } = await createAdminClient().rpc("acquire_credential_refresh_lock", {
+    p_workspace_id: workspaceId,
+    p_connection_id: connectionId,
+    p_lease_seconds: leaseSeconds,
+  });
+  if (error) throw failure("refresh lock acquire", error);
+  // The function returns null while the lock is held, which the generated `string` does not say.
+  const lockId: unknown = data;
+  return typeof lockId === "string" ? lockId : null;
+}
+
+/** Frees the lock `lockId` took; a lock taken over since its lease ran out is left to its new holder. */
+export async function releaseCredentialRefreshLock({ workspaceId, connectionId }: CredentialKey, lockId: string): Promise<void> {
+  const { error } = await createAdminClient()
+    .from("credential_refresh_locks")
+    .delete()
+    .eq("connection_id", connectionId)
+    .eq("workspace_id", workspaceId)
+    .eq("lock_id", lockId);
+  if (error) throw failure("refresh lock release", error);
+}

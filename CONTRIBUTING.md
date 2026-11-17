@@ -155,7 +155,9 @@ Closes #123
 - **How it was verified** lists each command you ran and its result, and anything you did not run
   and why. A claim that it works is not verification.
 - **Update the docs in the same pull request**: the README, `.env.example`, the pages in `docs/`,
-  and the provider page for an adapter. A document that is wrong costs more than no document.
+  the provider page for an adapter, and `docs/roadmap.md` and the home page roadmap cards
+  (`src/components/sections/roadmap.tsx`) when the pull request closes an issue either one names.
+  A document that is wrong costs more than no document.
 
 ## Review process
 

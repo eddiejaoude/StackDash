@@ -311,6 +311,20 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     expect(webhookOutcomeFromJson(stored)).toEqual(outcome);
   });
 
+  it.each<[WebhookOutcome, WebhookOutcome]>([
+    [
+      { kind: "events", externalAccountId: "fake-acct-1", events: [event], source: { id: "9", name: "group1/app" } },
+      { kind: "events", externalAccountId: "fake-acct-1", events: [event] },
+    ],
+    [
+      { kind: "ignored", reason: "pipeline has not finished", source: { id: "9", name: "group1/app" } },
+      { kind: "ignored", reason: "pipeline has not finished" },
+    ],
+  ])("stores an outcome without the source it names (#428), which the job reads back", (outcome, expected) => {
+    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome)));
+    expect(webhookOutcomeFromJson(stored)).toEqual(expected);
+  });
+
   it.each([
     { name: "null, a processed delivery", value: null },
     { name: "an unknown kind", value: { kind: "deleted", externalAccountId: "fake-acct-1" } },

@@ -23,17 +23,19 @@ const SEGMENT = /^[a-z0-9-]+$/;
 // The top-level pages written for people using StackDash, in reading order. They lead the index.
 // Any other top-level page is for people working on StackDash's code and is listed under
 // Developers.
-const GUIDE_PAGES = ["getting-started", "api", "mcp"];
+const GUIDE_PAGES = ["getting-started", "connect-providers", "api", "mcp", "roadmap"];
 const GUIDES_GROUP = "guides";
 const DEVELOPERS_GROUP = "developers";
 const PROVIDERS_GROUP = "providers";
 
-// Index order and label of each group. A folder under docs/ that is not listed here still
-// publishes, after these, labeled from its name.
-const GROUPS: readonly { id: string; label: string }[] = [
-  { id: GUIDES_GROUP, label: "Using StackDash" },
+// Index order and label of each group, and the reading order of a group's pages by file name
+// where one matters. Pages a group does not list follow its listed ones, by title. A folder under
+// docs/ that is not listed here still publishes, after these, labeled from its name.
+const GROUPS: readonly { id: string; label: string; readingOrder?: readonly string[] }[] = [
+  { id: GUIDES_GROUP, label: "Using StackDash", readingOrder: GUIDE_PAGES },
   { id: PROVIDERS_GROUP, label: "Providers" },
-  { id: "operations", label: "Self-hosting and operations" },
+  // The self-hosting guide is the starting point; the pages after it go in the order it links them.
+  { id: "operations", label: "Self-hosting and operations", readingOrder: ["self-hosting", "deploy", "oauth-apps", "jobs"] },
   { id: "architecture", label: "Architecture" },
   { id: DEVELOPERS_GROUP, label: "Developers" },
 ];
@@ -214,9 +216,22 @@ function groupRank(group: string): number {
   return index === -1 ? GROUPS.length : index;
 }
 
-/** Reading order inside a group: the guides as GUIDE_PAGES lists them, every other page by title. */
-function guideRank(doc: DocPage): number {
-  return doc.group === GUIDES_GROUP ? GUIDE_PAGES.indexOf(doc.slug[0] ?? "") : 0;
+/**
+ * The position of the doc at this slug in its group's reading order: its index in readingOrder, or
+ * readingOrder's length for a page the order does not list, so it follows the listed ones (and then
+ * sorts by title). A group with no order ranks every page 0.
+ *
+ * readingOrder names files that sit directly in the group: a top-level guide, or a file directly in
+ * the group's folder. A file in a subfolder (`operations/notes/deploy.md`) is a different page that
+ * only shares a file name, so it is never matched and ranks as unlisted.
+ */
+export function readingRank(slug: readonly string[]): number {
+  const group = docGroup(slug);
+  const order = GROUPS.find((known) => known.id === group)?.readingOrder ?? [];
+  const depth = group === GUIDES_GROUP || group === DEVELOPERS_GROUP ? 1 : 2;
+  const fileName = slug.length === depth ? slug.at(-1) : undefined;
+  const index = fileName === undefined ? -1 : order.indexOf(fileName);
+  return index === -1 ? order.length : index;
 }
 
 /** Every published doc, ordered by group (GROUPS first) and then by reading order or title. */
@@ -231,7 +246,7 @@ export const listDocs = cache((): readonly DocPage[] => {
       (a, b) =>
         groupRank(a.group) - groupRank(b.group) ||
         a.group.localeCompare(b.group) ||
-        guideRank(a) - guideRank(b) ||
+        readingRank(a.slug) - readingRank(b.slug) ||
         a.title.localeCompare(b.title),
     );
 });

@@ -7,7 +7,12 @@ import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { ProviderIdSchema, type OAuthCredential, type ProviderId, type WebhookOutcome } from "@/lib/adapters/types";
 import { ANOMALY_KINDS, type AnomalyMute, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
-import { loadCredential, saveCredential } from "@/lib/data/credentials";
+import {
+  acquireCredentialRefreshLock,
+  loadCredential,
+  releaseCredentialRefreshLock,
+  saveCredential,
+} from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json, Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
@@ -151,6 +156,9 @@ export interface JobStore {
   updateConnection(key: ConnectionKey, patch: ConnectionPatch): Promise<void>;
   loadCredential(key: ConnectionKey): Promise<OAuthCredential | null>;
   saveCredential(key: ConnectionKey, credential: OAuthCredential): Promise<void>;
+  /** The connection's credential refresh lock for `leaseSeconds`: its id, or null while it is held (#496). */
+  acquireCredentialRefreshLock(key: ConnectionKey, leaseSeconds: number): Promise<string | null>;
+  releaseCredentialRefreshLock(key: ConnectionKey, lockId: string): Promise<void>;
 
   /** metric_key -> resets_at (ISO, or null) of the latest snapshot of each metric of the account. */
   latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>>;
@@ -265,11 +273,18 @@ const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({ kind: z.literal("ignored"), reason: z.string() }),
 ]);
 
-/** A delivery's outcome as record_webhook_delivery stores it. */
+/**
+ * A delivery's outcome as record_webhook_delivery stores it. A `source` (#428) is left out: the
+ * route records it for the setup panel, and the job has no use for it.
+ */
 export function webhookOutcomeToJson(outcome: WebhookOutcome): Json {
   if (outcome.kind === "uninstalled") return { ...outcome, occurredAt: outcome.occurredAt.toISOString() };
-  if (outcome.kind !== "events") return { ...outcome };
-  return { ...outcome, events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })) };
+  if (outcome.kind === "ignored") return { kind: outcome.kind, reason: outcome.reason };
+  return {
+    kind: outcome.kind,
+    externalAccountId: outcome.externalAccountId,
+    events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })),
+  };
 }
 
 /** A stored outcome read back, or null when it is not the shape webhookOutcomeToJson writes. */
@@ -456,6 +471,14 @@ export function createSupabaseJobStore(): JobStore {
 
     saveCredential(key, credential) {
       return saveCredential({ ...key, credential });
+    },
+
+    acquireCredentialRefreshLock(key, leaseSeconds) {
+      return acquireCredentialRefreshLock(key, leaseSeconds);
+    },
+
+    releaseCredentialRefreshLock(key, lockId) {
+      return releaseCredentialRefreshLock(key, lockId);
     },
 
     async latestResets(workspaceId, externalAccountId) {
