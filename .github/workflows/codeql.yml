@@ -1,8 +1,8 @@
 name: CodeQL
 
-# Advanced setup for CodeQL code scanning. Alerts appear in the repository's Security tab and as a
-# code scanning check on each pull request. This conflicts with CodeQL default setup: keep default
-# setup off in the repository settings while this workflow exists.
+# Advanced setup for CodeQL code scanning. Alerts appear in the repository's Security and quality
+# tab and as a code scanning check on each pull request. This conflicts with CodeQL default setup:
+# keep default setup off in the repository settings while this workflow exists.
 # Docs: https://docs.github.com/en/code-security/reference/code-scanning/workflow-configuration-options
 on:
   pull_request:

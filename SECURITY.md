@@ -9,7 +9,7 @@ learns of it.
 **Never report a vulnerability in a public issue, pull request, discussion, or comment.**
 
 1. Report it through GitHub's private vulnerability reporting: open the repository's
-   [Security tab](https://github.com/eddiejaoude/StackDash/security) and choose
+   [Security and quality tab](https://github.com/eddiejaoude/StackDash/security) and choose
    **Report a vulnerability**. Only you and the maintainers can read the report.
 2. If that button is not shown, email [eddie@jaoudestudios.com](mailto:eddie@jaoudestudios.com)
    with "StackDash security" in the subject.
