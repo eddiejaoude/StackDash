@@ -37,8 +37,9 @@ export async function tickUntilStored(page: Page, workspace: TestWorkspace, dedu
 
 /**
  * Ticks until the workspace's one connection of `provider` has finished its first sync
- * (`last_synced_at` is set). Every spec that posts an uninstall waits for this first: a sync that
- * finishes after the uninstall's job sets the connection back to `active` (#487).
+ * (`last_synced_at` is set). Every spec that posts an uninstall waits for this first, so the
+ * uninstall is the last write to the connection the spec observes: before #487 was fixed, a sync
+ * that finished after the uninstall's job set the connection back to `active`.
  */
 export async function tickUntilFirstSync(
   page: Page,
@@ -58,9 +59,9 @@ export async function tickUntilFirstSync(
  * Ticks until the workspace's one connection of `provider` has `status`, for an uninstall delivery
  * (`needs_attention`). Post the uninstall while no sync of the connection is running or due: after
  * its first sync has finished (`tickUntilFirstSync`) and before the next one is due,
- * SIMULATED_POLL_INTERVAL_SECONDS later for a simulated connection. A tick runs a due sync beside
- * the uninstall's job, and a sync that finishes after that job sets the connection back to
- * `active` (#487).
+ * SIMULATED_POLL_INTERVAL_SECONDS later for a simulated connection. Then the uninstall is the last
+ * write the spec observes; before #487 was fixed, a sync finishing after the uninstall's job set
+ * the connection back to `active`.
  */
 export async function tickUntilConnectionStatus(
   page: Page,

@@ -53,8 +53,9 @@ ownerTest.describe("Vercel webhooks", () => {
       const connectionPage = page.url();
       const team = await teamId(workspace);
 
-      // The first sync runs before any delivery is posted, so the uninstall below never races it:
-      // a sync finishing after the uninstall's job writes the connection back to active (#487).
+      // The first sync runs before any delivery is posted, so the uninstall below is the last write
+      // the spec observes: before #487 was fixed, a sync finishing after it set the connection back
+      // to active.
       await tickUntilFirstSync(page, workspace, "vercel");
 
       const suffix = randomUUID().slice(0, 8);
@@ -108,8 +109,9 @@ ownerTest.describe("Vercel webhooks", () => {
         payload: { team: { id: team }, user: { id: "e2e-user" }, configuration: { id: `icfg_e2e${suffix}`, projects: [] } },
       });
       // The first sync finished before this uninstall is posted (checked above), and the next
-      // simulated sync is not due for SIMULATED_POLL_INTERVAL_SECONDS (60): a sync finishing after
-      // the uninstall's job would set the connection back to active (#487). Keep this order.
+      // simulated sync is not due for SIMULATED_POLL_INTERVAL_SECONDS (60), so no sync runs after
+      // the uninstall's job. Before #487 was fixed, one that did set the connection back to active.
+      // Keep this order.
       const uninstalled = await postVercelWebhook(vercel, removed);
       expect(uninstalled.status()).toBe(202);
       await tickUntilConnectionStatus(page, workspace, "vercel", "needs_attention");
