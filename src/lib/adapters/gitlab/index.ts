@@ -319,7 +319,7 @@ export function pipelineEvent(project: ProjectRef, pipeline: Pipeline, externalA
 
 /**
  * What a deployment event needs. A webhook delivery carries no iid, ref, or environment id, so its
- * event leaves out the body that names them.
+ * event leaves out the body that names them, and the next poll fills it in (#499).
  */
 type DeploymentFacts = Pick<Deployment, "id" | "status" | "updated_at"> &
   Readonly<{ environment: Pick<Deployment["environment"], "name"> & Partial<Pick<Deployment["environment"], "id">> }> &
@@ -877,8 +877,8 @@ type HookResult = Readonly<{ event: ActivityEvent } | { reason: string }>;
 /**
  * One delivery through the sync's own builders, so the event has the dedupe key a poll of the same
  * pipeline, deployment, release, or merge gives it and is stored once whichever arrives first. A
- * deployment delivery carries no iid or ref, so pushed first it is stored without the body a poll
- * adds.
+ * deployment delivery carries no iid or ref, so pushed first it is stored without its body until
+ * the next poll of the deployment fills that in (#499).
  */
 function hookEvent(raw: unknown, kind: string, project: HookProject, externalAccountId: string, ctx: AdapterContext): HookResult {
   const unreadable = (): HookResult => {

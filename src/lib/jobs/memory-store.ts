@@ -400,13 +400,21 @@ export class MemoryJobStore implements JobStore {
 
   async insertEvents(rows: readonly EventRow[]): Promise<number> {
     let inserted = 0;
+    const written = new Set<string>();
     for (const row of rows) {
-      const exists = this.events.some(
-        (event) => event.workspace_id === row.workspace_id && event.dedupe_key === row.dedupe_key,
-      );
-      if (exists) continue;
-      this.events.push({ ...row, id: crypto.randomUUID() });
-      inserted += 1;
+      // insert_activity_events writes the first row of a key in one call and skips the rest.
+      const key = `${row.workspace_id}|${row.dedupe_key}`;
+      if (written.has(key)) continue;
+      written.add(key);
+      const stored = this.events.find((event) => event.workspace_id === row.workspace_id && event.dedupe_key === row.dedupe_key);
+      const body = row.body ?? null;
+      if (stored === undefined) {
+        this.events.push({ ...row, id: crypto.randomUUID() });
+        inserted += 1;
+      } else if ((stored.body ?? null) === null && body !== null) {
+        // A stored event only gains a missing body; nothing else of it changes (#499).
+        stored.body = body;
+      }
     }
     return inserted;
   }
