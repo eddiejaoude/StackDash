@@ -3,6 +3,7 @@ import { AchievementSchema, achievementRuleMetricKey, achievementRuleTypeIds } f
 import { EventTypeSchema, validateAdapterEvents } from "./events";
 import { validateAdapterMetrics, type AdapterMetric } from "./metrics";
 import {
+  connectionModes,
   Secret,
   type AdapterCapabilities,
   type BatchValidation,
@@ -438,6 +439,9 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
  * carries a real time, which the job compares with the connection's grant. Only an adapter that
  * declares `installationIdOf` may name an installation, on an uninstall (#480) or on events (#497):
  * without it no connection records one, so the job could never find its connections.
+ * A `mode` (#481) needs `modeOf` for the same reason, and must be `"live"` or `"test"`, which the
+ * webhook route and the stored outcome also refuse otherwise, so a `parse` that copies an
+ * unchecked value fails here rather than with a 422 in production.
  */
 export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: WebhookOutcome): string[] {
   if (outcome.kind === "ignored") return blank(outcome.reason) ? ["an ignored delivery has no reason"] : [];
@@ -448,8 +452,11 @@ export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: W
       problems.push(`the ${outcome.kind} outcome names an installation, but the adapter does not declare installationIdOf`);
     }
   };
-  if (outcome.mode !== undefined && adapter.modeOf === undefined) {
-    problems.push(`the ${outcome.kind} outcome names a mode, but the adapter does not declare modeOf`);
+  if (outcome.mode !== undefined) {
+    if (adapter.modeOf === undefined) problems.push(`the ${outcome.kind} outcome names a mode, but the adapter does not declare modeOf`);
+    if (!connectionModes.some((mode) => mode === outcome.mode)) {
+      problems.push(`the ${outcome.kind} outcome names mode ${String(outcome.mode)}, which is not "live" or "test"`);
+    }
   }
   if (outcome.kind === "uninstalled") {
     if (outcome.by === "installation") {

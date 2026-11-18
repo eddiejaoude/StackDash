@@ -641,6 +641,16 @@ describe("checkWebhookOutcome", () => {
     ])("reports %s naming a mode from an adapter without modeOf, whose connections never record one (boundary)", (_case, outcome, problem) => {
       expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([problem]);
     });
+
+    it.each<[string, WebhookOutcome]>([
+      ["events", { kind: "events", externalAccountId: ACCOUNT, mode: "live", events: [signup] }],
+      ["an uninstall", { kind: "uninstalled", externalAccountId: ACCOUNT, mode: "test", occurredAt: NOW }],
+    ])("reports %s naming a mode that is not live or test, as a parse copying an unchecked value would (boundary: drifted value)", (_case, outcome) => {
+      // The type allows only "live" and "test"; a parse that copies the provider's value unchecked can still return another.
+      const drifted: WebhookOutcome = { ...outcome };
+      Object.assign(drifted, { mode: "sandbox" });
+      expect(checkWebhookOutcome(moded, drifted)).toEqual([`the ${outcome.kind} outcome names mode sandbox, which is not "live" or "test"`]);
+    });
   });
 
   it.each<[string, WebhookOutcome, string[]]>([
