@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./fixtures/db";
 import { anonymous, HISTORY_DAYS, pngSize, seedShareProject } from "./fixtures/share";
 
 // The year in review (#151, slides #262): four slides of the workspace's year, walked by keyboard,
@@ -150,9 +150,6 @@ ownerTest.describe("year in review", () => {
       expect(stranger.headers()["location"]).toMatch(/\/sign-in\?next=/);
       expect((await page.request.get(`/w/${workspace.slug}/year/${year}/totals.png`)).status()).toBe(404);
       expect((await page.request.get(`/w/${workspace.slug}/year/${year + 1}/card.png`)).status()).toBe(404);
-      // A year that has not started still renders the workspace's not-found page (#559).
-      await page.goto(`/w/${workspace.slug}/year/${year + 1}`);
-      await expect(page.getByRole("heading", { name: "We could not find that workspace" })).toBeVisible();
     } finally {
       await api.dispose();
       await deleteTestWorkspace(workspace);
@@ -189,6 +186,51 @@ ownerTest.describe("year in review", () => {
       const provider = page.getByRole("group", { name: "Most active provider" });
       await expect(provider).toContainText("No provider activity");
       expect(await provider.evaluate((element) => getComputedStyle(element).animationName)).toBe("feed-content-in");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("a year that has not started says so and links to this year, by keyboard too", async ({ page }) => {
+    const workspace = await createTestWorkspace("Future year in review");
+    const year = new Date().getUTCFullYear();
+    try {
+      // Next year has not started, and a malformed year is the same answer.
+      for (const path of [`/w/${workspace.slug}/year/${year + 1}`, `/w/${workspace.slug}/year/not-a-year`]) {
+        await page.goto(path);
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText("We could not find that year");
+        await expect(page.getByText("The link may be mistyped, or the year may not have started yet.")).toBeVisible();
+        await expect(page.getByRole("link", { name: "Open the latest year in review", exact: true })).toHaveAttribute(
+          "href",
+          `/w/${workspace.slug}/year/${year}`,
+        );
+        expect(await axeViolations(page)).toEqual([]);
+      }
+
+      // The link is the way on, by keyboard.
+      await page.getByRole("link", { name: "Open the latest year in review", exact: true }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/year/${year}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Your stack in ${year} so far`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("a missing or inaccessible workspace keeps the workspace's page on a year path", async ({ page }) => {
+    const workspace = await createTestWorkspace("Inaccessible year in review");
+    const year = new Date().getUTCFullYear();
+    try {
+      // The viewer's personal workspace exists, and the owner is not a member of it.
+      const inaccessible = (await personalWorkspace(workspace.viewerId)).slug;
+      for (const slug of ["zzzzzzzzzzzzzzzz", inaccessible]) {
+        for (const path of [`/w/${slug}/year/${year}`, `/w/${slug}/year/${year + 1}`]) {
+          await page.goto(path);
+          await expect(page.getByRole("heading", { level: 1 })).toHaveText("We could not find that workspace");
+          await expect(page.getByRole("link", { name: "Open your workspaces", exact: true })).toHaveAttribute("href", "/app");
+          expect(await axeViolations(page)).toEqual([]);
+        }
+      }
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -4,9 +4,12 @@ import { useParams, useSearchParams } from "next/navigation";
 import { createContext, use, type ReactNode } from "react";
 
 import { NotFoundPanel, WorkspaceNotFoundPanel } from "@/components/app/not-found-panel";
-import { workspacePath, type WorkspaceSection } from "@/lib/workspaces/paths";
+import { workspacePath, yearInReviewPath, type WorkspaceSection } from "@/lib/workspaces/paths";
 
-const ITEMS = {
+type ItemCopy = { title: string; description: string; label: string };
+
+// Items each listed on a section of the workspace: the link opens that list.
+const LISTED_ITEMS = {
   connection: {
     title: "We could not find that connection",
     description:
@@ -35,9 +38,21 @@ const ITEMS = {
     section: "projects",
     label: "Open all projects",
   },
-} as const satisfies Record<string, { title: string; description: string; section: WorkspaceSection; label: string }>;
+} as const satisfies Record<string, ItemCopy & { section: WorkspaceSection }>;
 
-export type MissingItem = keyof typeof ITEMS;
+// A year in review that has not started, or a malformed year (year/[year]/page.tsx, #559). It has
+// no list to link to, so the link opens the newest year in review instead.
+const YEAR = {
+  title: "We could not find that year",
+  description: "The link may be mistyped, or the year may not have started yet. A year in review opens on 1 January of its year.",
+  label: "Open the latest year in review",
+} as const satisfies ItemCopy;
+
+export type MissingItem = keyof typeof LISTED_ITEMS | "year";
+
+// The year's link needs the newest year by the server's clock (year/[year]/not-found.tsx), the
+// clock that decides what the year page shows; every other item links to a fixed section.
+type ItemNotFoundProps = { item: Exclude<MissingItem, "year"> } | { item: "year"; latestYear: Promise<number> };
 
 // Whether the user belongs to the workspace in the URL, resolved on the server (WorkspaceItemScope).
 const MembershipContext = createContext<Promise<boolean> | null>(null);
@@ -60,7 +75,7 @@ export function WorkspaceMembershipProvider({ isMember, children }: { isMember: 
  * That reveals nothing, because `requireWorkspace` throws before any item is read. So the answer
  * decides wording only and must never gate data.
  */
-export function ItemNotFound({ item }: { item: MissingItem }) {
+export function ItemNotFound(props: ItemNotFoundProps) {
   const { workspace } = useParams<{ workspace: string }>();
   const searchParams = useSearchParams();
   const membership = use(MembershipContext);
@@ -68,10 +83,21 @@ export function ItemNotFound({ item }: { item: MissingItem }) {
   const isMember = membership === null ? false : use(membership);
   if (!isMember) return <WorkspaceNotFoundPanel />;
 
+  if (props.item === "year") {
+    const { title, description, label } = YEAR;
+    return (
+      <NotFoundPanel
+        title={title}
+        description={description}
+        action={{ href: yearInReviewPath(workspace, use(props.latestYear)), label }}
+      />
+    );
+  }
+
   // A reconnect link names a connection (connections/new/[provider]/page.tsx); when that is what is
   // missing, the provider in the address is the part that is fine.
-  const missing = item === "provider" && searchParams.has("connection") ? "connection" : item;
-  const { title, description, section, label } = ITEMS[missing];
+  const missing = props.item === "provider" && searchParams.has("connection") ? "connection" : props.item;
+  const { title, description, section, label } = LISTED_ITEMS[missing];
   return (
     <NotFoundPanel
       title={title}
