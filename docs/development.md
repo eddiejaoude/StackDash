@@ -306,13 +306,15 @@ adapter's signature check and mapping. Where the provider has one URL for every 
 (`POST /api/webhooks/<provider>`), its deliveries are signed with
 `STACKDASH_SIMULATED_WEBHOOK_SECRET` from `.env.local` instead of the provider's own webhook
 secret, so simulation never needs one; unset, the URL answers `503`. A provider with one URL per
-connection keeps that connection's stored secret. The webhook job does not yet tell simulated
-connections from real ones: a delivery to the shared URL reaches every connection that includes
-its account, so its events land on a real connection too, and an uninstall asks a real connection
-to reconnect. Events that also name an installation (Sentry's issue deliveries) reach only the
-connections whose recorded installation is that one, and a simulated grant's installation is its
-seed, so post `installation.uuid` as the connection's `external_installation_id`: any other gets
-`202` and nothing on the timeline. A delivery to a per-connection URL reaches that connection only.
+connection keeps that connection's stored secret. The webhook job applies a delivery to simulated
+connections only while the flag is on, and to real connections only while it is off, so a
+delivery signed with the simulated secret never reaches a real connection that includes the same
+account; it logs any connection it left out as `webhook.targets_dropped`. A delivery to the
+shared URL reaches every simulated connection that includes its account. Events that also name
+an installation (Sentry's issue deliveries) reach only the connections whose recorded
+installation is that one, and a simulated grant's installation is its seed, so post
+`installation.uuid` as the connection's `external_installation_id`: any other gets `202` and
+nothing on the timeline. A delivery to a per-connection URL reaches that connection only.
 Nothing sends deliveries on its own: post one signed the way the provider signs, as the
 `e2e/webhooks-<provider>.spec.ts` specs do.
 

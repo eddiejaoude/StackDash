@@ -1,4 +1,5 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
+import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import type { ProviderId } from "@/lib/adapters/types";
 
 import { toEventRow } from "./ingest";
@@ -54,6 +55,31 @@ async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRec
   return distinctConnections(
     await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, installationId: null, endpointId }),
   );
+}
+
+/**
+ * The targets of the kind this process verifies the provider's deliveries for (#495): simulated
+ * connections while the provider's adapter is its simulated twin, real ones otherwise. The twin
+ * checks an app-level delivery with STACKDASH_SIMULATED_WEBHOOK_SECRET, a value from .env.local or
+ * the synthetic one e2e signs with, so what it accepts must never reach a real connection that
+ * includes the same account; and a real delivery has nothing to say to a connection of made-up
+ * data. The fake provider has no twin, so its connections, never simulated, are always kept. The
+ * rest are logged as a count, never by id.
+ */
+function targetsOfDeliveryKind<T extends ConnectionTarget>(targets: readonly T[], job: ClaimedJob, delivery: WebhookDeliveryRecord, deps: SyncDeps): T[] {
+  const simulated = isSimulatedAdapter(deps.getAdapter(delivery.provider));
+  const kept = targets.filter((target) => target.simulated === simulated);
+  if (kept.length < targets.length) {
+    deps.log.info("webhook.targets_dropped", {
+      jobId: job.id,
+      provider: delivery.provider,
+      deliveryRowId: delivery.id,
+      kind: delivery.outcome.kind,
+      simulated,
+      dropped: targets.length - kept.length,
+    });
+  }
+  return kept;
 }
 
 /**
@@ -116,15 +142,21 @@ export async function runWebhookJob(
   if (outcome.kind === "events") {
     // An installation named with the account (#497) narrows the targets to that installation's
     // connections, so an uninstalled connection that still includes the account gets nothing.
-    const targets = await deps.store.listWebhookTargets({
-      provider,
-      externalAccountId: outcome.externalAccountId,
-      installationId: outcome.installationId ?? null,
-      endpointId: delivery.endpointId,
-    });
+    const targets = targetsOfDeliveryKind(
+      await deps.store.listWebhookTargets({
+        provider,
+        externalAccountId: outcome.externalAccountId,
+        installationId: outcome.installationId ?? null,
+        endpointId: delivery.endpointId,
+      }),
+      job,
+      delivery,
+      deps,
+    );
     if (targets.length === 0) {
       // An account no workspace includes, or whose connection is gone or belongs to another or no
-      // recorded installation: nothing to apply it to. `installationNamed` (never the id) says
+      // recorded installation, or only connections of the other kind (logged just above as
+      // `webhook.targets_dropped`): nothing to apply it to. `installationNamed` (never the id) says
       // whether the installation took part, so a mismatch that polling would hide is not read as an
       // account nobody includes.
       deps.log.info("webhook.no_targets", {
@@ -143,9 +175,9 @@ export async function runWebhookJob(
     }
   } else {
     const by = outcome.by ?? "account";
-    const targets = await uninstallTargets(outcome, delivery, deps);
+    const targets = targetsOfDeliveryKind(await uninstallTargets(outcome, delivery, deps), job, delivery, deps);
     if (targets.length === 0) {
-      // An account or installation no live connection has: nothing to apply it to.
+      // An account or installation no live connection of this kind has: nothing to apply it to.
       deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind, by });
     }
     for (const target of targets) {
