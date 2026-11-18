@@ -9,6 +9,14 @@ import { reconnectTarget } from "./reconnect";
 const CONNECTIONS_PATH = "/w/abcdefghij/connections";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000000";
 
+// This file stands in for a Playwright spec of the switched-off case, as #562's fallback allows.
+// `playwright.config.ts` starts one app server for every spec, `isFakeProviderEnabled` reads the
+// process environment on each request, and CI sets STACKDASH_ENABLE_FAKE_PROVIDER=1 because other
+// specs connect through the fake provider, so no spec can switch it off for itself. A second server
+// with the flag off would need a second `next dev` in the same directory, which Next's dev lock
+// refuses. Hence `targetFor` repeats the page's lookup rather than rendering the page, and the flag
+// table below overlaps `registry.test.ts`: here it decides the reconnect, not the registry.
+//
 // The connection page's own lookup: the registry's entry for the connection's provider, if any.
 function targetFor(provider: ProviderId) {
   return reconnectTarget({
