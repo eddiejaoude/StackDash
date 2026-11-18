@@ -40,6 +40,7 @@ async function seedWorkspaceData(workspace: TestWorkspace): Promise<Seeded> {
       workspace_id: workspace.id,
       provider: "fake",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "API fake",
       poll_interval_seconds: 3600,
       // Never due, so a sync elsewhere in the run leaves this workspace alone.

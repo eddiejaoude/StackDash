@@ -34,6 +34,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
       workspace_id: workspaceId,
       provider: "fake",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "Example provider (Example team)",
       poll_interval_seconds: 3600,
     })

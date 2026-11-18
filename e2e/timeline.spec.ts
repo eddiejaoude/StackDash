@@ -63,6 +63,7 @@ async function seedAccount(
       workspace_id: workspace.id,
       provider: seed.provider,
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: seed.connectionName,
       poll_interval_seconds: 3600,
     })
@@ -636,6 +637,7 @@ ownerTest.describe("timeline scope filters", () => {
           workspace_id: workspace.id,
           provider: "vercel",
           status: "active",
+          granted_at: new Date().toISOString(),
           display_name: "Vercel second connection",
           poll_interval_seconds: 3600,
         })

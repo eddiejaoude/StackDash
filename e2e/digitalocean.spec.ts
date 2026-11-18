@@ -53,6 +53,7 @@ ownerTest.describe("DigitalOcean", () => {
           workspace_id: workspace.id,
           provider: "digitalocean",
           status: "active",
+          granted_at: new Date().toISOString(),
           display_name: "DigitalOcean (Example team)",
           poll_interval_seconds: 3600,
         })

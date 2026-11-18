@@ -282,6 +282,45 @@ describe("createSupabaseJobStore listSummaryConnections", () => {
   });
 });
 
+describe("createSupabaseJobStore updateConnectionInStatus (#487)", () => {
+  const CONNECTION_ID = uuid(48701, 1);
+  // The fake answers the update with the rows its filters match, as PostgREST does when asked to
+  // return them; it does not apply the patch, which these tests do not read back.
+  const connection = (status: string): Row => ({ id: CONNECTION_ID, workspace_id: WORKSPACE_ID, status });
+
+  it.each([
+    { name: "active (happy path)", status: "active", applied: true },
+    { name: "failed", status: "failed", applied: true },
+    { name: "needs_attention, an uninstall applied meanwhile", status: "needs_attention", applied: false },
+    { name: "revoked, disconnected meanwhile", status: "revoked", applied: false },
+  ])("filters the update on the status in the same request (boundary: $name)", async ({ status, applied }) => {
+    const { store, requests } = storeOver([connection(status)], "connections");
+
+    const result = await store.updateConnectionInStatus({ workspaceId: WORKSPACE_ID, connectionId: CONNECTION_ID }, ["active", "failed"], {
+      status: "active",
+    });
+
+    expect(result).toBe(applied);
+    expect(requests.map((request) => request.filters)).toEqual([
+      [
+        ["id", `eq.${CONNECTION_ID}`],
+        ["workspace_id", `eq.${WORKSPACE_ID}`],
+        ["status", "in.(active,failed)"],
+      ],
+    ]);
+  });
+
+  it("does not apply to the same connection id in another workspace (boundary: wrong owner)", async () => {
+    const { store } = storeOver([connection("active")], "connections");
+
+    const result = await store.updateConnectionInStatus({ workspaceId: OTHER_WORKSPACE_ID, connectionId: CONNECTION_ID }, ["active"], {
+      status: "active",
+    });
+
+    expect(result).toBe(false);
+  });
+});
+
 describe("webhook delivery outcome stored as JSON (#28)", () => {
   const event = {
     typeId: "fake.deploy.succeeded",
@@ -352,8 +391,6 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       workspace_id: uuid(28001, index),
       connection_id: uuid(28002, index),
       account_id: uuid(28003, index),
-      // Still returned for code deployed before #476 (expand then contract); the store ignores it.
-      credential_updated_at: "2026-11-16T09:30:00.000000+00:00",
       granted_at: "2026-11-15T09:00:00.123456+00:00",
     }));
   }
@@ -386,7 +423,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
   });
 
   it("maps every target of an app-level delivery, with when its connection was granted, without restricting it to a connection", async () => {
-    // A live connection with neither a recorded grant nor a credential has no grant time.
+    // A live connection with no recorded grant has no grant time (#502).
     const rows = [...targets(1), { ...targets(2)[1], granted_at: null }];
     const { store, requests } = storeWith({ list_webhook_targets: () => rows });
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);

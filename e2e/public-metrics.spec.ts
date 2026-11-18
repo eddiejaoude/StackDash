@@ -30,6 +30,7 @@ async function seedStarredProject(workspace: TestWorkspace): Promise<string> {
       workspace_id: workspace.id,
       provider: "github",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "GitHub",
       poll_interval_seconds: 3600,
       // Far in the future, so no tick another spec runs ever syncs this credential-less row.
