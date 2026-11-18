@@ -99,6 +99,16 @@ Organization owners approve "Administration: read" at install time. On a persona
 
 `GET /installation/repositories` (installation token, `per_page=100`, paginate). Returns the repositories the owner granted. Respect `repository_selection`: a "selected" install only shows chosen repositories. Re-read every sync because users add and remove repositories. Each repository carries `stargazers_count`, a required integer in GitHub's reference for this endpoint ([List repositories accessible to the app installation](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-app-installation)) and the number of users who starred it ([REST API endpoints for starring](https://docs.github.com/en/rest/activity/starring)). It is StackDash's star count for every repository, with no request per repository.
 
+### Repositories and StackDash projects
+
+A GitHub connection represents the user or organization account where the GitHub App is installed, not an individual repository. StackDash assigns that account to one StackDash project, so every repository selected for the installation follows the same project assignment.
+
+| Goal | Supported | Setup |
+|---|---|---|
+| Put several repositories in one StackDash project | Yes | Select those repositories for one or more GitHub account installations, then assign each resulting GitHub account to the same StackDash project |
+| Put one repository in each StackDash project | Yes, when each repository belongs to a different GitHub user or organization | Install the app once per GitHub account, select the repository, and assign each resulting account to its StackDash project |
+| Split repositories from the same GitHub user or organization across different StackDash projects | No | GitHub allows one installation per account, and StackDash assigns that account as one unit |
+
 ### Billing usage, organization: `GET /organizations/{org}/settings/billing/usage`
 
 Daily line items for every metered product. **Only for organizations on the enhanced billing platform**; others get an error (see Unverified for the exact code).
