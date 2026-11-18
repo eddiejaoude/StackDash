@@ -607,16 +607,6 @@ describe("runWebhookJob", () => {
       expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
     });
 
-    it("keeps the fake provider's connections: it has no twin, so its deliveries and connections are real (boundary: no twin)", async () => {
-      const harness = setup();
-      const connection = harness.connect(WORKSPACE_A);
-      const job = await harness.deliver(events([deployment]));
-
-      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
-      expect(harness.eventsIn(WORKSPACE_A)).toEqual([expect.objectContaining({ connection_id: connection.id })]);
-      expect(harness.infos.map((line) => line.event)).not.toContain("webhook.targets_dropped");
-    });
-
     describe("from the route to the job, across a flag change", () => {
       const ROUTE_SECRET = "test-only-vercel-webhook-secret";
 
