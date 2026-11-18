@@ -56,7 +56,6 @@ Want something that is not here? Search the issues first, then open a new one: a
 - **Timeline.** Hide the event types you do not care about, save named views, give deploys, payments, and alerts their own detail fields, and serve the per-provider counts from a rollup for very large workspaces.
 - **Dashboard and events.** How the monthly comparison treats accounts that start or stop reporting, blocked on a decision. Record the deployment environment on events, and add a daily logins metric.
 - **Email.** A weekly email with what changed across your stack and how your leaderboard rank moved.
-- **Stripe test mode webhooks.** Route Stripe deliveries by live or test mode, and push test mode events.
 - **Versioned releases.** Tagged releases with release notes, to upgrade to instead of `main`.
 - **A light theme**, blocked on a decision: whether to offer a manual switch as well as following the system setting.
 - **An admin console** for the hosted version, with audited impersonation for support.

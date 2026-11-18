@@ -22,7 +22,7 @@ All facts below come from Stripe's documentation, checked 2026-10-31. Anything n
 | Events history | `GET /v1/events` goes back up to 30 days |
 | Rate limits | 100 requests per second per account in live mode, 25 in sandboxes, 25 per endpoint by default |
 | Before review | Up to 25 external testers per app |
-| Webhooks | Received for live mode installs at `/api/webhooks/stripe`, with polling as the backfill. Test mode installs are polled only (see [Webhooks](#webhooks)) |
+| Webhooks | Received for live mode and test mode installs at `/api/webhooks/stripe`, each delivery reaching only connections of its mode, with polling as the backfill (see [Webhooks](#webhooks)) |
 
 ## Connection
 
@@ -112,17 +112,17 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 
 ### Test mode, live mode, and sandboxes
 
-- A connection is one Stripe account in one environment. Polled data never mixes, because each connection syncs with its own mode's key. Webhook deliveries are not yet routed by mode, so a live delivery also reaches a test mode connection of the same account: see [Webhooks](#webhooks), "Known gap".
+- A connection is one Stripe account in one environment, and live and test data never mix. Polled data comes from each connection's own mode's key, and each webhook delivery reaches only connections of the mode its `livemode` names (see [Webhooks](#webhooks)). StackDash records a connection's mode beside it (`connections.mode`) when the grant completes.
 - `livemode=false` on objects and events does not say which kind of sandbox it came from.
 - Sandbox installs of a public app need `sandbox_install_compatible: true` in the manifest and use the managed sandbox keys. The MVP does not need general sandbox installs. Live mode plus, for development, the legacy test mode link is enough.
 
 ### Disconnect and uninstall
 
 - Users uninstall the app in the Stripe Dashboard: **Settings** > **Installed apps**, the app's menu, **Uninstall**. Only an administrator can do this.
-- Stripe sends `apps.install.deleted` and `account.application.deauthorized` when an account uninstalls the app. On API versions before 2026-09-30 the install events are named `app.install.created`, `app.install.updated`, and `app.install.deleted`. StackDash receives both uninstall events (and the older name) by webhook for live mode installs, and marks the account's connections as needing a reconnect at once (see [Webhooks](#webhooks)).
+- Stripe sends `apps.install.deleted` and `account.application.deauthorized` when an account uninstalls the app. On API versions before 2026-09-30 the install events are named `app.install.created`, `app.install.updated`, and `app.install.deleted`. StackDash receives both uninstall events (and the older name) by webhook for live mode and test mode installs, and marks the account's connections of that mode as needing a reconnect at once (see [Webhooks](#webhooks)).
 - Stripe documents no token revocation endpoint for Stripe Apps OAuth. Connect's `POST https://connect.stripe.com/oauth/deauthorize` is documented for Connect OAuth only; do not use it here (see [Unverified](#unverified)).
 - So in the MVP, "Disconnect" in StackDash deletes the stored tokens and synced Stripe data, then tells the user to uninstall the app in the Stripe Dashboard to remove StackDash's access on Stripe's side.
-- A test mode install, or an instance without `STRIPE_WEBHOOK_SECRET`, gets no uninstall event of its own: the uninstall shows up as a failed refresh or a failed API call with a valid token, and the next sync marks the connection as needing reconnection and stops syncing it. The exception is an account that is also installed in live mode: uninstalling the live install sends a live uninstall event, which marks every connection of that account as needing a reconnect, the test mode one included (see [Webhooks](#webhooks), "Known gap").
+- An instance without the webhook secret for a mode (`STRIPE_WEBHOOK_SECRET` for live mode, `STRIPE_WEBHOOK_TEST_SECRET` for test mode, unless the account installed the app in both modes, whose test mode events also reach the live endpoint) gets no uninstall event for that mode: the uninstall shows up as a failed refresh or a failed API call with a valid token, and the next sync marks the connection as needing reconnection and stops syncing it. Uninstalling one mode's install never marks the other mode's connection of the same account.
 
 ### External testers and review
 
@@ -277,7 +277,7 @@ Polling algorithm:
 
 1. First sync: `created[gte]` = now minus 30 days, `limit=100`, page with `starting_after` = last id of the previous page until `has_more` is `false`.
 2. Later syncs: `created[gte]` = the `created` of the newest stored event. Timestamps are whole seconds, so overlap at the boundary is expected. Dedupe on the Stripe event id with a unique constraint on (connection, event id).
-3. `/v1/events` only goes back 30 days. If a connection has not synced for more than 30 days, events in the gap are gone. Record the gap instead of pretending the timeline is complete. On an instance that receives webhooks, a live mode event delivered by webhook is stored when it happens, so the gap only loses what a delivery also missed.
+3. `/v1/events` only goes back 30 days. If a connection has not synced for more than 30 days, events in the gap are gone. Record the gap instead of pretending the timeline is complete. On an instance that receives webhooks for the connection's mode, an event delivered by webhook is stored when it happens, so the gap only loses what a delivery also missed.
 4. Each event's `data` is rendered in the API version that was current when the event was created (`api_version`), not the pinned `Stripe-Version`. The zod schema must accept only the few fields above and ignore everything else, so older shapes still parse.
 5. `data.object` is a full snapshot that contains personal data. Parse it with an allowlist schema and drop the raw payload immediately. Never log it.
 
@@ -339,24 +339,23 @@ A unit test asserts that the stored row types for this adapter contain none of t
 
 ## Webhooks
 
-StackDash receives Stripe's webhooks for live mode installs through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), so a payment reaches the timeline within a minute instead of on the next hourly sync. Polling keeps running: it fills in fees, revenue, and any event a delivery missed. The app already holds `event_read`, so webhooks need no extra permission.
+StackDash receives Stripe's webhooks for live mode and test mode installs through the shared webhook route (see [Webhooks](../adapters.md#webhooks)), so a payment reaches the timeline within a minute instead of on the next hourly sync. Polling keeps running: it fills in fees, revenue, and any event a delivery missed. The app already holds `event_read`, so webhooks need no extra permission.
 
 | Item | Value |
 |---|---|
-| Where the endpoint lives | One endpoint on the app owner's account, in live mode, with **Listen to events on Connected accounts**, at `<SITE_URL>/api/webhooks/stripe`. Events from installs arrive with `account` set to the installing account, the connection's account id (`stripe_user_id`) |
-| Signature | `Stripe-Signature: t=<timestamp>,v1=<signature>`: hex HMAC SHA-256 of `<t>.<raw body>` keyed with the endpoint's `whsec_` signing secret (`STRIPE_WEBHOOK_SECRET`). Every `v1` entry is compared in constant time and one must match, which covers a secret being rolled. Other schemes (`v0`, which Stripe adds to sandbox events) are ignored |
+| Where the endpoints live | Two endpoints on the app owner's account, both at `<SITE_URL>/api/webhooks/stripe` with **Listen to events on Connected accounts**: one in live mode and one in test mode. Events from installs arrive with `account` set to the installing account, the connection's account id (`stripe_user_id`) |
+| Signature | `Stripe-Signature: t=<timestamp>,v1=<signature>`: hex HMAC SHA-256 of `<t>.<raw body>` keyed with the endpoint's `whsec_` signing secret. Stripe gives each endpoint its own secret, and a different one in each mode ([Webhooks](https://docs.stripe.com/webhooks), "Retrieving your endpoint's secret"), so StackDash checks a delivery against `STRIPE_WEBHOOK_SECRET` (live mode endpoint) and `STRIPE_WEBHOOK_TEST_SECRET` (test mode endpoint), each one that is set. Every `v1` entry is compared in constant time and one must match, which covers a secret being rolled. Other schemes (`v0`, which Stripe adds to sandbox events) are ignored |
 | Tolerance | 5 minutes either side of StackDash's clock, the default of Stripe's libraries. Stripe signs each delivery attempt afresh, so a retry is never stale |
 | Delivery id | The Stripe event id (`evt_...`), read from the body once the signature matches. Stripe retries an event under the same id, so a retry is acknowledged as a duplicate. The id is inside the signed body, so a captured delivery cannot be sent again under a new one |
 | Events | `charge.succeeded`, `charge.failed`, `charge.refunded`, `customer.created`, `customer.subscription.created`, `customer.subscription.deleted`: the six the sync polls, mapped by the same function with the same allowlists, so a pushed event and the same event polled later share a dedupe key (the event id) and show once |
-| Uninstall | `apps.install.deleted` (`app.install.deleted` on endpoints pinned before 2026-09-30) and `account.application.deauthorized`, live mode only. Either marks the account's connections as needing a reconnect at once, whatever their mode, so a live uninstall also marks a test mode connection of the same account (see "Known gap" below). A connection whose credential was saved after the event's `created` time, by a reconnect or a token refresh, is left to its next sync, because deliveries arrive late and out of order |
-| Ignored | Events without `account` (the app owner's own account), test mode events (`livemode: false`), event types the timeline does not show, and an object the allowlist rejects. Each is acknowledged so Stripe stops retrying, and none is stored. A rejected object is logged by event type only, and the next sync fails on the same event, which is where it surfaces |
+| Mode | Every event and uninstall names its mode from the event's `livemode`, and reaches only connections of that mode, in every workspace that includes the account. A delivery only the test mode secret verifies must be a test mode one, or it is refused with `422`, so that secret can never reach a live connection. A connection with no recorded mode (made before StackDash recorded one and not yet synced since) gets nothing from a delivery until its next sync records the mode, within the hour |
+| Uninstall | `apps.install.deleted` (`app.install.deleted` on endpoints pinned before 2026-09-30) and `account.application.deauthorized`, in either mode. Either marks the account's connections of that mode as needing a reconnect at once. A connection granted again after the event's `created` time (a reconnect) is left to its next sync, because deliveries arrive late and out of order |
+| Ignored | Events without `account` (the app owner's own account), event types the timeline does not show, and an object the allowlist rejects. Each is acknowledged so Stripe stops retrying, and none is stored. A rejected object is logged by event type only, and the next sync fails on the same event, which is where it surfaces |
 | Not pushed | Fees, revenue, balances, and payouts stay polled |
 
 The payment events are the `charge.*` ones the sync polls (Unverified item 1), not `payment_intent.*`: a payment intent event is a different Stripe event with its own id, so pushing it beside a polled charge event would show one payment twice.
 
-**Test mode stays polled.** A public app's test mode install sends its events only to test mode endpoints, which have their own signing secret, and an account that installed the app in both modes sends its test mode events to the live mode endpoint as well ([Handle different modes](https://docs.stripe.com/stripe-apps/handling-modes#webhooks)). A Stripe account id is the same in both modes and StackDash does not yet route a delivery by mode, so a test mode uninstall arriving at the live endpoint would revoke the live connection. The live endpoint therefore ignores every `livemode: false` event, and test mode connections keep the hourly sync.
-
-**Known gap: live deliveries reach test mode connections.** For the same reason, a live mode delivery goes to every connection of its account, test mode ones included. That happens when an account is connected in both modes (in one workspace or two), or when a live connection was deleted in StackDash but the app was never uninstalled in Stripe while a test mode connection of the account remains. The test mode connection then shows the account's live payments, customers, and subscriptions on its timeline and counts them toward its achievements, while its revenue and fees stay test mode figures, and polling with the test key never removes them. A live uninstall also marks it as needing a reconnect although its test mode install is intact. Routing deliveries by mode, in both directions, and receiving test mode events are planned.
+**Both modes, one URL.** A public app's test mode install sends its events only to test mode endpoints, and an account that installed the app in both modes sends its test mode events to the live mode endpoint as well ([Handle different modes](https://docs.stripe.com/stripe-apps/handling-modes#webhooks), [Event behavior depends on install mode](https://docs.stripe.com/stripe-apps/build-backend#event-behavior-depends-on-install-mode)). Such an event arrives twice, once per endpoint, under the same event id, so the second copy is acknowledged as a duplicate. A Stripe account id is the same in both modes, so StackDash routes each delivery by the mode its `livemode` names: a live payment never lands on a test mode connection, and a test mode uninstall never marks a live one. `livemode: false` does not say which kind of sandbox an event came from, and StackDash's app is not sandbox compatible, so every non-live event here is from the test mode sandbox.
 
 Nothing is stored from a delivery but the timeline event the sync would store: `data.object` goes through the allowlists above and the raw body is dropped. Rejected deliveries are logged by reason only, never with their body.
 
@@ -371,7 +370,7 @@ Every self-hosted instance registers its own Stripe App, because the app's redir
 5. Run `stripe apps upload` from the app directory. The authentication type is fixed after this.
 6. In the Dashboard, open **Created apps** in the account's live mode, select the app, click **Set external test version**, pick the uploaded version, and set **Access** to **Anyone with the link**.
 7. Copy the OAuth install link for each environment you want to support. The `client_id` query parameter of that link is your client id.
-8. Optional, for webhooks: in the Dashboard, in the account's live mode, open **Developers**, **Webhooks**, add an endpoint at `<SITE_URL>/api/webhooks/stripe`, select **Listen to events on Connected accounts**, and choose the eight events in [Webhooks](#webhooks). Copy its signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`. Without it, Stripe is polled only.
+8. Optional, for webhooks: in the Dashboard, in the account's live mode, open **Developers**, **Webhooks**, add an endpoint at `<SITE_URL>/api/webhooks/stripe`, select **Listen to events on Connected accounts**, and choose the eight events in [Webhooks](#webhooks). Copy its signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`. To push test mode installs' events too, switch the Dashboard to test mode and add a second endpoint at the same URL with the same settings, and copy its signing secret into `STRIPE_WEBHOOK_TEST_SECRET`. Without either, Stripe is polled only.
 9. Set the environment variables below and restart StackDash.
 10. To go beyond 25 testers, submit the app for review and switch to the public links from the **Settings** tab after publishing.
 
@@ -382,7 +381,8 @@ Environment variables (server only, never `NEXT_PUBLIC_`):
 | `STRIPE_APP_CLIENT_ID` | The `client_id` from the install link | Yes |
 | `STRIPE_APP_SECRET_KEY` | Live mode secret key (`sk_live_...`) of the account that owns the app. Used as Basic auth username for code exchange and refresh of live mode installs | Yes, for live mode installs |
 | `STRIPE_APP_TEST_SECRET_KEY` | Test mode secret key (`sk_test_...`) of the same account. Used for installs from the test mode link | Only to support test mode installs |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_...`) of the live mode webhook endpoint from step 8. Verifies every delivery to `/api/webhooks/stripe` | Only to receive webhooks. A delivery while it is unset is answered `503` |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_...`) of the live mode webhook endpoint from step 8. Verifies live mode deliveries to `/api/webhooks/stripe`, and the test mode events of an account installed in both modes, which Stripe sends there too | Only to receive live mode webhooks. A delivery while neither webhook secret is set is answered `503` |
+| `STRIPE_WEBHOOK_TEST_SECRET` | Signing secret (`whsec_...`) of the test mode webhook endpoint from step 8. Verifies test mode deliveries only: one it alone verifies that is not a test mode event is refused | Only to receive test mode webhooks |
 
 There is no OAuth client secret for Stripe Apps; the secret key takes that role. Do not use a restricted key: Stripe documents that the exchange fails with one.
 
@@ -515,7 +515,7 @@ Go. Self-serve OAuth with read-only permissions, 25 testers before review, and f
 
 ## Sources
 
-All checked 2026-10-31, except the webhook pages, checked 2026-11-16.
+All checked 2026-10-31, except the webhook pages, checked 2026-11-16, and the mode routing pages ([Handle different modes](https://docs.stripe.com/stripe-apps/handling-modes), [Event behavior depends on install mode](https://docs.stripe.com/stripe-apps/build-backend#event-behavior-depends-on-install-mode), and "Retrieving your endpoint's secret" in [Webhooks](https://docs.stripe.com/webhooks)), checked 2026-11-18.
 
 - [Stripe Apps: OAuth 2.0](https://docs.stripe.com/stripe-apps/api-authentication/oauth)
 - [Stripe Apps: API authentication methods](https://docs.stripe.com/stripe-apps/api-authentication)
