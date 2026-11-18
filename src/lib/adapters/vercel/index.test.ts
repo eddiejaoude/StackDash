@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
+import { ingestSyncResult, toEventRow } from "@/lib/jobs/ingest";
+import { MemoryJobStore } from "@/lib/jobs/memory-store";
 import { hmacHex } from "@/lib/webhooks/signature";
 import {
   AuthRevokedError,
@@ -700,6 +702,26 @@ describe("vercelAdapter webhooks", () => {
         },
       ],
     });
+  });
+
+  it("keeps a failure stored from the delivery and adds the error code once the next poll reads it (#499)", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    const connection = { id: "conn-vercel", workspace_id: "ws-vercel" };
+    const account = { id: "acct-row-vercel", external_id: TEAM_ID, display_name: "Acme", sync_cursor: null };
+    const outcome = parsed(JSON.stringify(webhookDeploymentError));
+    if (outcome.kind !== "events") throw new Error("the delivery maps to no events");
+    // Written as the webhook job writes a delivery's events (src/lib/jobs/webhook-delivery.ts).
+    expect(await store.insertEvents(outcome.events.map((event) => toEventRow(event, "vercel", connection, account)))).toBe(1);
+    const [delivered] = store.events;
+    expect(delivered).toMatchObject({ body: null, title: "Production deployment of web failed" });
+
+    const polled = await vercelAdapter.sync(teamSync, makeCtx(fakeVercel().fetch).ctx);
+    await ingestSyncResult({ store, provider: "vercel", connection, account, metrics: [], events: polled.events, cursor: polled.cursor });
+
+    // The poll's time (a second earlier) and its missing link do not reach the stored event.
+    expect(store.events.filter((event) => event.dedupe_key === "vercel:dpl_3fErC2xYdDMDG1jTrHFnNZ2eUVc:ERROR")).toEqual([
+      { ...delivered, body: "Error code: BUILD_FAILED" },
+    ]);
   });
 
   it.each([

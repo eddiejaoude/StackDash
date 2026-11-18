@@ -496,8 +496,8 @@ function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now
 /**
  * Maps a verified delivery. A deployment goes through the sync's own builder, dated to when Vercel
  * generated the event. A delivery carries no error code, so a failed deployment pushed first is
- * stored without the "Error code" line a poll would add (events are stored once, first write wins);
- * #499 owns getting it back.
+ * stored without the "Error code" line; the next poll that reads the deployment's `errorCode`
+ * fills it in, since a stored event gains a body it lacks and nothing else (#499).
  */
 function parseWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): WebhookOutcome {
   const raw = readJsonBody(rawBody);
