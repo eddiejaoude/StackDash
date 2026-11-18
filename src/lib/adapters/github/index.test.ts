@@ -777,6 +777,13 @@ describe("sync", () => {
     await expect(githubAdapter.sync(syncInput(), ctx)).rejects.toBeInstanceOf(InvalidResponseError);
   });
 
+  it("fails with invalid_response when the repository list drifts and loses its star counts (boundary: schema drift)", async () => {
+    // An undefined field is left out of the JSON body.
+    const repositories = installationRepositories.repositories.map((repo) => ({ ...repo, stargazers_count: undefined }));
+    const { ctx } = harness({ [`GET ${api("/installation/repositories")}`]: json({ ...installationRepositories, repositories }) });
+    await expect(githubAdapter.sync(syncInput(), ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+
   it("treats a corrupt cursor as a first sync without backfilled events (boundary: bad cursor)", async () => {
     const { ctx, warnings } = harness();
     const result = await githubAdapter.sync(syncInput("not json"), ctx);
@@ -1537,26 +1544,27 @@ describe("sync: fork read budget", () => {
     expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 96 + 44 });
   });
 
-  it("sets the fork baseline on the first fork read without reporting old forks, after a first sync that did not reach them (boundary: forks never read)", async () => {
+  it("reports a fork made between a new repository's first sync and its first fork read, and none from before (boundary: forks not reached on the first sync)", async () => {
+    const forkSince = { ...forks[0], id: 7100003, created_at: "2026-10-31T12:30:00Z" };
     const repos = (webForks: NonNullable<BudgetRepo["forks"]>) => [
       { id: 5000001, name: "api", count: 96 },
       { id: 5000002, name: "web", count: 44, forks: webForks },
     ];
-    // First sync: api's forks are read, web's are not reached, but web has its star baseline.
+    // 12:00, first sync: api's forks are read, web's are not reached, so web's fork baseline is now.
     const first = await timedSync(routesFor(repos([seenFork])), undefined, NOW, forksCost(20_000));
     expect(first.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(0);
-    expect(first.cursor.repos["5000002"]).toMatchObject({ day: "2026-10-31", dayCount: 44, forkIdsAtSeenAt: [] });
-    expect(first.cursor.repos["5000002"]?.forksSeenAt).toBeUndefined();
+    expect(first.cursor.repos["5000002"]).toMatchObject({ day: "2026-10-31", dayCount: 44, forksSeenAt: NOW.toISOString(), forkIdsAtSeenAt: [] });
 
-    // The next sync reads web's forks first: a fork made before StackDash saw them is the baseline, not news.
-    const second = await timedSync(routesFor(repos([seenFork])), first.cursor, new Date(NOW.getTime() + 3_600_000), forksCost(20_000));
+    // 13:00: web's forks are read first. The fork made at 12:30 is new; the one from before StackDash
+    // listed web is not.
+    const second = await timedSync(routesFor(repos([forkSince, seenFork])), first.cursor, new Date(NOW.getTime() + 3_600_000), forksCost(20_000));
     expect(second.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(1);
-    expect(keys(second.result)).toEqual([]);
-    expect(second.cursor.repos["5000002"]).toMatchObject({ forksSeenAt: "2026-10-30T09:00:00.000Z", forkIdsAtSeenAt: [7100001] });
+    expect(keys(second.result)).toEqual(["github.forks.new:5000002:7100003"]);
+    expect(second.cursor.repos["5000002"]).toMatchObject({ forksSeenAt: "2026-10-31T12:30:00.000Z", forkIdsAtSeenAt: [7100003] });
 
-    // A fork made after that baseline is reported, once.
-    const third = await timedSync(routesFor(repos([newFork, seenFork])), second.cursor, new Date(NOW.getTime() + 7_200_000), () => 0);
-    expect(keys(third.result)).toEqual(["github.forks.new:5000002:7100002"]);
+    // 14:00, with time for both: reported once.
+    const third = await timedSync(routesFor(repos([forkSince, seenFork])), second.cursor, new Date(NOW.getTime() + 7_200_000), () => 0);
+    expect(keys(third.result)).toEqual([]);
   });
 
   it("closes every repository's day on time and reports a deferred repository's new fork once, on the sync that reads it (boundary: deferred, then read)", async () => {
@@ -1594,13 +1602,6 @@ describe("sync: fork read budget", () => {
     const third = await timedSync(routesFor(repos), second.cursor, new Date("2026-10-31T02:10:00Z"), () => 0);
     expect(third.callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(1);
     expect(keys(third.result)).toEqual([]);
-  });
-
-  it("fails with invalid_response when the repository list drifts and loses its star counts (boundary: schema drift)", async () => {
-    // An undefined field is left out of the JSON body.
-    const repositories = installationRepositories.repositories.map((repo) => ({ ...repo, stargazers_count: undefined }));
-    const { ctx } = harness({ [`GET ${api("/installation/repositories")}`]: json({ ...installationRepositories, repositories }) });
-    await expect(githubAdapter.sync(syncInput(), ctx)).rejects.toBeInstanceOf(InvalidResponseError);
   });
 });
 

@@ -133,11 +133,11 @@ const RepoStateSchema = z.object({
   dayCount: z.int().nonnegative(),
   // Highest milestone already fired (0 when none), so a dip and recovery never fires it again.
   milestone: z.int().nonnegative(),
-  // Creation time of the newest fork seen (null when the forks were read and there were none), and
-  // the fork ids created at exactly that time. Absent until the forks are first read, which sets
-  // the baseline without reporting old forks: a repository the fork budget did not reach on its
-  // first sync has its star baseline but not this one.
-  forksSeenAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  // Creation time of the newest fork seen (null when there were none), and the fork ids created at
+  // exactly that time. A repository's first sync sets it: from its first page of forks when the fork
+  // budget reaches them, otherwise to that sync's time, so its first fork read reports every fork
+  // made after StackDash first listed it, and none from before.
+  forksSeenAt: z.iso.datetime({ offset: true }).nullable(),
   forkIdsAtSeenAt: z.array(z.int().positive()),
   // When the forks were last read, so the fork budget reads the repository read longest ago first.
   // Absent before #504 and until the first fork read.
@@ -288,15 +288,15 @@ function forkEvents({ repo, previous, externalAccountId }: RepoContext, forks: r
           forksSeenAt: new Date(newestAt).toISOString(),
           forkIdsAtSeenAt: forks.filter((fork) => Date.parse(fork.created_at) === newestAt).map((fork) => fork.id),
         };
-  // The first fork read sets the baseline without reporting old forks.
-  const seenAtBaseline = previous?.forksSeenAt;
-  if (previous === undefined || seenAtBaseline === undefined) return { events: [], state };
+  // First sync sets the baseline without reporting old forks.
+  if (previous === undefined) return { events: [], state };
 
-  const seenAt = seenAtBaseline === null ? Number.NEGATIVE_INFINITY : Date.parse(seenAtBaseline);
+  const seenAt = previous.forksSeenAt === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.forksSeenAt);
   const seenIds = new Set(previous.forkIdsAtSeenAt);
   if (newestAt !== undefined && newestAt < seenAt) {
-    // Newest fork older than the baseline (forks deleted): keep the baseline.
-    return { events: [], state: { forksSeenAt: seenAtBaseline, forkIdsAtSeenAt: previous.forkIdsAtSeenAt } };
+    // Newest fork older than the baseline (forks deleted, or none made since a baseline taken at the
+    // repository's first sync): keep the baseline.
+    return { events: [], state: { forksSeenAt: previous.forksSeenAt, forkIdsAtSeenAt: previous.forkIdsAtSeenAt } };
   }
   const events = forks
     .filter((fork) => {
@@ -383,14 +383,17 @@ export async function collectRepositories(
   const repositories = page.repositories.slice(0, MAX_REPOSITORIES);
 
   // Stars of every repository on every sync, from the count the list carries. Its fork and activity
-  // state stays as the previous sync left it until a read within the budgets below moves it on.
+  // state stays as the previous sync left it until a read within the budgets below moves it on. A
+  // repository new to the installation takes this sync's time as its fork baseline, which its first
+  // fork read replaces with the newest fork, this sync or a later one.
   const entries: { repo: Repository; previous: RepoState | undefined; state: RepoState }[] = [];
   for (const repo of repositories) {
     const previousRepo = previous?.repos[String(repo.id)];
     const count = repo.stargazers_count;
     const stars = starEvents({ repo, previous: previousRepo, externalAccountId, now }, count);
     events.push(...stars.events);
-    entries.push({ repo, previous: previousRepo, state: { ...previousRepo, ...stars.state, forkIdsAtSeenAt: previousRepo?.forkIdsAtSeenAt ?? [] } });
+    const kept = previousRepo ?? { forksSeenAt: now.toISOString(), forkIdsAtSeenAt: [] };
+    entries.push({ repo, previous: previousRepo, state: { ...kept, ...stars.state } });
     totalStars += count;
     if (stars.yesterdayGain !== undefined) starsGainedYesterday = (starsGainedYesterday ?? 0) + stars.yesterdayGain;
 
