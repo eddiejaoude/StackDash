@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { createContext, use, type ReactNode } from "react";
 
 import { NotFoundPanel, WorkspaceNotFoundPanel } from "@/components/app/not-found-panel";
@@ -14,12 +14,15 @@ const ITEMS = {
     section: "connections",
     label: "Open all connections",
   },
-  // The connect page's not-found also answers a reconnect link whose connection is gone or belongs
-  // to another provider, so the copy names both.
+  // The connect page's not-found also answers the fake provider while it is switched off
+  // (connections/new/[provider]/page.tsx:50) and an automatic webhook choice the provider cannot
+  // use (page.tsx:64). A reconnect address, one that carries `connection`, gets the connection's
+  // copy instead (ItemNotFound): its connection is gone or belongs to another provider (page.tsx:59),
+  // or, rarely, it is also the webhook case, which the address cannot tell apart.
   provider: {
     title: "We could not find that provider",
     description:
-      "The link may be mistyped, or it may lead to a provider or connection this workspace cannot connect. Choose a provider from the list on the connections page.",
+      "The link may be mistyped, or it may lead to a provider this workspace cannot connect. Choose a provider from the list on the connections page.",
     section: "connections",
     label: "Choose a provider",
   },
@@ -48,15 +51,25 @@ export function WorkspaceMembershipProvider({ isMember, children }: { isMember: 
  * reveals nothing new. Anyone else gets the workspace's page, which answers both cases alike.
  * A not-found page gets no props, so the workspace comes from the URL (Next.js docs, not-found.js,
  * "Data Fetching") and membership from the segment's layout.
+ *
+ * Membership is as of the layout's last render, not of the request that threw `notFound()`: the
+ * client keeps a layout across navigations below it (Next.js docs, layout.js, "Caveats"), so a
+ * user removed from the workspace while one of its pages is open can still get the item's copy.
+ * That reveals nothing, because `requireWorkspace` throws before any item is read. So the answer
+ * decides wording only and must never gate data.
  */
 export function ItemNotFound({ item }: { item: MissingItem }) {
   const { workspace } = useParams<{ workspace: string }>();
+  const searchParams = useSearchParams();
   const membership = use(MembershipContext);
   // Without the layout's answer, confirm nothing.
   const isMember = membership === null ? false : use(membership);
   if (!isMember) return <WorkspaceNotFoundPanel />;
 
-  const { title, description, section, label } = ITEMS[item];
+  // A reconnect link names a connection (connections/new/[provider]/page.tsx); when that is what is
+  // missing, the provider in the address is the part that is fine.
+  const missing = item === "provider" && searchParams.has("connection") ? "connection" : item;
+  const { title, description, section, label } = ITEMS[missing];
   return (
     <NotFoundPanel
       title={title}

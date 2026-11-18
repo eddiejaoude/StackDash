@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./fixtures/db";
+import { expectNoAxeViolations } from "./fixtures/axe";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, personalWorkspace, type TestWorkspace } from "./fixtures/db";
+import { insertUnheard } from "./fixtures/realtime";
 
 // A missing item inside a workspace the user belongs to names the item and links to its list
 // (#484); a missing or inaccessible workspace keeps the one page that confirms nothing, under any
@@ -13,8 +14,21 @@ import { createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./f
 async function expectNotFoundPage(page: Page, heading: string, link: { name: string; href: string }): Promise<void> {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
   await expect(page.getByRole("link", { name: link.name, exact: true })).toHaveAttribute("href", link.href);
-  const scan = await new AxeBuilder({ page }).analyze();
-  expect(scan.violations).toEqual([]);
+  await expectNoAxeViolations(page);
+}
+
+// Seeded so Realtime has read the insert before the page opens: the test deletes the row behind the
+// open list, and a late refresh from the insert would remove its link first (#448).
+function seedConnection(workspace: TestWorkspace): Promise<string> {
+  return insertUnheard("connections", workspace.id, async () => {
+    const { data, error } = await adminClient()
+      .from("connections")
+      .insert({ workspace_id: workspace.id, provider: "fake", status: "active", display_name: "Fake (Deleted team)", poll_interval_seconds: 3600 })
+      .select("id")
+      .single();
+    if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+    return data.id;
+  });
 }
 
 ownerTest.describe("not found inside a workspace", () => {
@@ -37,16 +51,49 @@ ownerTest.describe("not found inside a workspace", () => {
     }
   });
 
+  // The way #484 was found: a link to a connection that was deleted after the page rendered. The
+  // client navigates without a page load, so the segment's layout, and the membership its not-found
+  // page reads, come through the router rather than a fresh document.
+  ownerTest("a stale link to a deleted connection says so on a client navigation", async ({ page }) => {
+    const workspace = await createTestWorkspace("Deleted connection");
+    try {
+      const connectionId = await seedConnection(workspace);
+      await page.goto(`/w/${workspace.slug}/connections`);
+      const link = page.getByRole("list", { name: "Connections" }).getByRole("link", { name: /Fake \(Deleted team\)/ });
+      await expect(link).toHaveAttribute("href", `/w/${workspace.slug}/connections/${connectionId}`);
+      // Survives a client navigation, not a page load, so it proves the click stayed in the app.
+      await page.evaluate(() => document.documentElement.setAttribute("data-e2e-document", "kept"));
+
+      const { error } = await adminClient().from("connections").delete().eq("id", connectionId);
+      if (error) throw new Error(`Deleting the connection failed (code ${error.code}).`);
+      await link.click();
+
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections/${connectionId}`);
+      await expectNotFoundPage(page, "We could not find that connection", {
+        name: "Open all connections",
+        href: `/w/${workspace.slug}/connections`,
+      });
+      await expect(page.locator("html")).toHaveAttribute("data-e2e-document", "kept");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("an unknown provider on the connect page says so and links to the connections catalog", async ({ page }) => {
     const workspace = await createTestWorkspace("Unknown provider");
     try {
-      const catalog = { name: "Choose a provider", href: `/w/${workspace.slug}/connections` };
       await page.goto(`/w/${workspace.slug}/connections/new/not-a-provider`);
-      await expectNotFoundPage(page, "We could not find that provider", catalog);
+      await expectNotFoundPage(page, "We could not find that provider", {
+        name: "Choose a provider",
+        href: `/w/${workspace.slug}/connections`,
+      });
 
-      // A reconnect link whose connection does not exist answers with the same page.
+      // A reconnect link whose connection is gone names the connection, not the provider.
       await page.goto(`/w/${workspace.slug}/connections/new/github?connection=${randomUUID()}`);
-      await expectNotFoundPage(page, "We could not find that provider", catalog);
+      await expectNotFoundPage(page, "We could not find that connection", {
+        name: "Open all connections",
+        href: `/w/${workspace.slug}/connections`,
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }
