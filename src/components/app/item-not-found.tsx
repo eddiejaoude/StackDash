@@ -1,8 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { createContext, use, type ReactNode } from "react";
 
-import { NotFoundPanel } from "@/components/app/not-found-panel";
+import { NotFoundPanel, WorkspaceNotFoundPanel } from "@/components/app/not-found-panel";
 import { workspacePath, type WorkspaceSection } from "@/lib/workspaces/paths";
 
 const ITEMS = {
@@ -33,14 +34,28 @@ const ITEMS = {
 
 export type MissingItem = keyof typeof ITEMS;
 
+// Whether the user belongs to the workspace in the URL, resolved on the server (WorkspaceItemScope).
+const MembershipContext = createContext<Promise<boolean> | null>(null);
+
+export function WorkspaceMembershipProvider({ isMember, children }: { isMember: Promise<boolean>; children: ReactNode }) {
+  return <MembershipContext value={isMember}>{children}</MembershipContext>;
+}
+
 /**
- * Not-found page for an item inside a workspace the user is a member of (#484). Naming the missing
- * item reveals nothing new there: the segment's layout has already confirmed membership through
- * WorkspaceGate, and a missing or inaccessible workspace never reaches this page. A not-found page
- * gets no props, so the workspace comes from the URL (Next.js docs, not-found.js, "Data Fetching").
+ * Not-found page of an item segment inside a workspace (#484). A segment's not-found.tsx catches
+ * every `notFound()` from its page, `requireWorkspace`'s for a missing or inaccessible workspace
+ * included, so it names the item only for a member: inside a workspace the user belongs to, that
+ * reveals nothing new. Anyone else gets the workspace's page, which answers both cases alike.
+ * A not-found page gets no props, so the workspace comes from the URL (Next.js docs, not-found.js,
+ * "Data Fetching") and membership from the segment's layout.
  */
 export function ItemNotFound({ item }: { item: MissingItem }) {
   const { workspace } = useParams<{ workspace: string }>();
+  const membership = use(MembershipContext);
+  // Without the layout's answer, confirm nothing.
+  const isMember = membership === null ? false : use(membership);
+  if (!isMember) return <WorkspaceNotFoundPanel />;
+
   const { title, description, section, label } = ITEMS[item];
   return (
     <NotFoundPanel

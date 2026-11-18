@@ -1,14 +1,6 @@
-import { WorkspaceGate } from "@/components/app/workspace-gate";
+import { WorkspaceItemScope } from "@/components/app/workspace-item-scope";
 
-// Confirms the workspace before this segment's not-found.tsx can catch anything, so a missing or
-// inaccessible workspace still gets the workspace's not-found page (#484).
+// Lets this segment's not-found page name the missing item for a member only (#484).
 export default function ConnectionLayout({ children, params }: LayoutProps<"/w/[workspace]/connections/[connectionId]">) {
-  return (
-    <WorkspaceGate
-      params={params}
-      loadingLabel="Loading the connection"
-    >
-      {children}
-    </WorkspaceGate>
-  );
+  return <WorkspaceItemScope params={params}>{children}</WorkspaceItemScope>;
 }
