@@ -13,6 +13,10 @@ create extension if not exists pgtap with schema extensions;
 
 select plan(18);
 
+-- Every other Stripe connection in the local database already has a mode inside this rolled-back
+-- transaction, so the backfill below sees only this file's fixtures.
+update public.connections set mode = 'live' where provider = 'stripe' and mode is null;
+
 -- Fixtures: one workspace. Stripe account acct_1 is included by a live and a test mode connection
 -- of installation inst-1, and by a connection with no recorded mode. The backfill rows below have
 -- no mode yet: a live label, a test mode label, the simulated test mode label, a label recorded
