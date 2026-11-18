@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { evaluateAchievements } from "@/lib/achievements/evaluate";
 import { toSnapshotRow } from "@/lib/jobs/ingest";
+import { TICK_BUDGET_MS, TICK_LEASE_SECONDS } from "@/lib/jobs/runner";
 import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError, RateLimitedError } from "../errors";
 import { validateAdapterEvents } from "../events";
@@ -12,7 +13,7 @@ import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type S
 import { monthsToSync } from "./billing";
 import { releasePublishedEvent, TAG_MAX } from "./activity";
 import { buildUserAuthorizeUrl, githubAdapter, readCallback, type GitHubCallback } from "./index";
-import { activitySince, starMetricNames, starMilestones, type Cursor } from "./repositories";
+import { activitySince, CursorSchema, starMetricNames, starMilestones, type Cursor } from "./repositories";
 import { githubWebhookSignature } from "./webhooks";
 
 // Every fixture below is from documentation (docs/providers/github.md, "Sample responses"), not
@@ -528,6 +529,8 @@ describe("sync", () => {
       milestone: 0,
       forksSeenAt: "2026-10-30T09:00:00.000Z",
       forkIdsAtSeenAt: [7000002],
+      count: 95,
+      readAt: NOW.toISOString(),
       activity: { pullRequests: NOW.toISOString(), issues: NOW.toISOString(), releases: NOW.toISOString() },
       activityAttemptedAt: NOW.toISOString(),
     });
@@ -1148,11 +1151,11 @@ describe("sync: timeline activity", () => {
         "5100002": { ...repoState, activity: allReadAt("2026-10-31T10:00:00.000Z"), activityAttemptedAt: "2026-10-31T10:00:00.000Z" },
       },
     };
-    const { ctx, callsTo, warnings } = harness(routes);
-    // Each look at the clock is 15 seconds later: the second repository's reads would start 30
-    // seconds into the activity reads, past the 20 second budget.
-    let ticks = 0;
-    const slow = { ...ctx, now: () => new Date(NOW.getTime() + 15_000 * ticks++) };
+    const { ctx, calls, callsTo, warnings } = harness(routes);
+    // Each repository's pull requests take 25 seconds, and every other read none, so the star and
+    // fork reads finish at once and the second repository's activity reads would start 25 seconds
+    // into them, past the 20 second budget.
+    const slow = { ...ctx, now: () => new Date(NOW.getTime() + 25_000 * calls.filter((call) => call.url.pathname.endsWith("/pulls")).length) };
     const result = await githubAdapter.sync(syncInput(JSON.stringify(previous)), slow);
 
     expect(names.map((name) => callsTo("GET", api(`/repos/example-org/${name}/pulls`)).length)).toEqual([0, 0, 1]);
@@ -1192,13 +1195,13 @@ describe("sync: timeline activity", () => {
           list === "stargazers/count" ? json({ count: 1 }) : json([]);
       }
     }
-    // Each sync's clock spends the budget after one repository.
+    // Each repository's events feed takes 25 seconds, and every other read none, so each sync's
+    // activity budget is spent after one repository.
     const slowSync = async (cursor: string | undefined, start: Date) => {
-      const { ctx, callsTo } = harness(routes, { now: start });
-      let ticks = 0;
+      const { ctx, calls, callsTo } = harness(routes, { now: start });
       const result = await githubAdapter.sync(syncInput(cursor), {
         ...ctx,
-        now: () => new Date(start.getTime() + 15_000 * ticks++),
+        now: () => new Date(start.getTime() + 25_000 * calls.filter((call) => call.url.pathname.endsWith("/events")).length),
       });
       return {
         cursor: result.cursor,
@@ -1432,6 +1435,156 @@ describe("sync: new stars over one UTC day", () => {
 
   it("reports nothing on a later sync the same day, so the first sync's total stands (boundary: hourly polls)", async () => {
     expect(await gained([{ id: 5000001, name: "api", count: 120 }], { "5000001": baseline("2026-10-31", 90) })).toEqual([]);
+  });
+});
+
+describe("sync: star and fork read budget", () => {
+  // A job starts at most TICK_BUDGET_MS into a tick and holds its claim for TICK_LEASE_SECONDS.
+  const CLAIM_MS = TICK_LEASE_SECONDS * 1000 - TICK_BUDGET_MS;
+  const YESTERDAY = "2026-10-30";
+
+  type BudgetRepo = Readonly<{ id: number; name: string; count: number; forks?: readonly Readonly<{ id: number; created_at: string }>[] }>;
+
+  function routesFor(repos: readonly BudgetRepo[]): Routes {
+    const repositories = repos.map((repo) => ({
+      ...installationRepositories.repositories[0],
+      id: repo.id,
+      name: repo.name,
+      full_name: `example-org/${repo.name}`,
+      html_url: `https://github.com/example-org/${repo.name}`,
+    }));
+    const routes: Routes = { [`GET ${api("/installation/repositories")}`]: json({ total_count: repos.length, repositories }) };
+    for (const repo of repos) {
+      routes[`GET ${api(`/repos/example-org/${repo.name}/stargazers/count`)}`] = json({ count: repo.count });
+      routes[`GET ${api(`/repos/example-org/${repo.name}/forks`)}`] = json(repo.forks ?? []);
+      for (const list of ["pulls", "issues", "events"]) routes[`GET ${api(`/repos/example-org/${repo.name}/${list}`)}`] = json([]);
+    }
+    return routes;
+  }
+
+  /**
+   * One sync from `start` whose clock moves on by what each request it has made so far cost, so a
+   * budget is spent by the reads the sync makes rather than by how often it looks at the clock.
+   */
+  async function timedSync(routes: Routes, cursor: Cursor | undefined, start: Date, costMs: (path: string) => number) {
+    const { ctx, calls, callsTo, warnings } = harness(routes, { now: start });
+    const elapsedMs = () => calls.reduce((sum, call) => sum + costMs(call.url.pathname), 0);
+    const result = await githubAdapter.sync(syncInput(cursor === undefined ? undefined : JSON.stringify(cursor)), {
+      ...ctx,
+      now: () => new Date(start.getTime() + elapsedMs()),
+    });
+    expect(checkSyncResult(githubAdapter, ACCOUNT_ID, result)).toEqual([]);
+    return { result, cursor: CursorSchema.parse(JSON.parse(result.cursor ?? "")), elapsedMs: elapsedMs(), callsTo, warnings };
+  }
+  const forksCost = (forksMs: number) => (path: string) => (path.endsWith("/forks") ? forksMs : 0);
+  const counted = (cursor: Cursor) => Object.keys(cursor.repos).sort();
+
+  it("finishes a sync of 100 busy repositories inside the claim it holds, and the next sync reads the ones left over (boundary: 100 busy repositories)", async () => {
+    const repos = Array.from({ length: 100 }, (_, index) => ({ id: 5200001 + index, name: `busy-${index}`, count: 1000 }));
+    // Measured on #62 against busy public repositories: a first page of forks up to 5.83 s, pull
+    // requests 1.3 s, issues 0.8 s, and the events feed 6.6 s. Every other request is given 1 s.
+    const measured = (path: string) => {
+      if (path.endsWith("/forks")) return 5_830;
+      if (path.endsWith("/pulls")) return 1_300;
+      if (path.endsWith("/issues")) return 800;
+      if (path.endsWith("/events")) return 6_600;
+      return 1_000;
+    };
+    const first = await timedSync(routesFor(repos), undefined, NOW, measured);
+    expect(first.elapsedMs).toBeLessThanOrEqual(CLAIM_MS);
+    expect(first.warnings).toContain("github.sync.stars_deferred");
+    // A read starts at 0, 6.83, and 13.66 seconds; the fourth would start past 20.
+    expect(counted(first.cursor)).toEqual(["5200001", "5200002", "5200003"]);
+
+    const second = await timedSync(routesFor(repos), first.cursor, new Date(NOW.getTime() + 3_600_000), measured);
+    expect(second.elapsedMs).toBeLessThanOrEqual(CLAIM_MS);
+    // Never read goes first, and the first sync's three keep their baselines.
+    expect(counted(second.cursor)).toEqual(["5200001", "5200002", "5200003", "5200004", "5200005", "5200006"]);
+    for (const id of ["5200001", "5200002", "5200003"]) expect(second.cursor.repos[id]).toMatchObject({ day: "2026-10-31", dayCount: 1000 });
+  });
+
+  it.each([
+    { forksMs: 19_999, deferred: false },
+    { forksMs: 20_000, deferred: true },
+  ])("starts the next repository's reads $forksMs ms in only while under 20 seconds: deferred $deferred (boundary: slow clock)", async ({ forksMs, deferred }) => {
+    const repos = [
+      { id: 5000001, name: "api", count: 96 },
+      { id: 5000002, name: "web", count: 44 },
+    ];
+    // web was read longest ago, so it is read first.
+    const apiBefore = { day: "2026-10-31", dayCount: 90, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [], count: 93, readAt: "2026-10-31T11:00:00.000Z" };
+    const webBefore = { day: "2026-10-31", dayCount: 40, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [], count: 42, readAt: "2026-10-31T10:00:00.000Z" };
+    const previous: Cursor = { v: 1, repos: { "5000001": apiBefore, "5000002": webBefore } };
+    const { result, cursor, callsTo, warnings } = await timedSync(routesFor(repos), previous, NOW, forksCost(forksMs));
+
+    expect(callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(1);
+    expect(callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(deferred ? 0 : 1);
+    expect(warnings.includes("github.sync.stars_deferred")).toBe(deferred);
+    // Deferred, api keeps its star and fork state whole (its activity has its own budget), and counts
+    // in the total with its last count.
+    if (deferred) expect(cursor.repos["5000001"]).toMatchObject(apiBefore);
+    else expect(cursor.repos["5000001"]).toMatchObject({ count: 96, readAt: NOW.toISOString() });
+    expect(metric(result.metrics, "github.stars.repo_5000001")).toEqual(deferred ? undefined : expect.objectContaining({ value: 96 }));
+    expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: deferred ? 93 + 44 : 96 + 44 });
+  });
+
+  it("writes no stars total while a deferred repository has no count yet, then writes it once read (boundary: cursor from before the budget)", async () => {
+    const repos = [
+      { id: 5000001, name: "api", count: 96 },
+      { id: 5000002, name: "web", count: 44 },
+    ];
+    const apiBefore = { day: "2026-10-31", dayCount: 90, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [] };
+    const webBefore = { day: "2026-10-31", dayCount: 40, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [] };
+    const previous: Cursor = { v: 1, repos: { "5000001": apiBefore, "5000002": webBefore } };
+    const slow = await timedSync(routesFor(repos), previous, NOW, forksCost(20_000));
+    // A total of api alone would read as 44 stars lost; the previous total stands instead.
+    expect(metric(slow.result.metrics, "github.stars.total")).toBeUndefined();
+    expect(slow.cursor.repos["5000002"]).toMatchObject(webBefore);
+
+    const next = await timedSync(routesFor(repos), slow.cursor, new Date(NOW.getTime() + 3_600_000), forksCost(20_000));
+    expect(next.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(1);
+    expect(metric(next.result.metrics, "github.stars.total")).toMatchObject({ value: 96 + 44 });
+  });
+
+  it("keeps a deferred repository's star and fork baselines, and counts its day and new fork once when it is read later (boundary: deferred, then read)", async () => {
+    const seenFork = { ...forks[0], id: 7100001, created_at: "2026-10-30T09:00:00Z" };
+    const newFork = { ...forks[0], id: 7100002, created_at: "2026-10-31T00:30:00Z" };
+    const baseline = (dayCount: number, readAt: string): Cursor["repos"][string] => ({
+      day: YESTERDAY,
+      dayCount,
+      milestone: 0,
+      forksSeenAt: seenFork.created_at,
+      forkIdsAtSeenAt: [seenFork.id],
+      count: dayCount,
+      readAt,
+    });
+    const repos = [
+      { id: 5000001, name: "api", count: 96, forks: [seenFork] },
+      { id: 5000002, name: "web", count: 44, forks: [newFork, seenFork] },
+    ];
+    const webBefore = baseline(40, "2026-10-30T23:10:00.000Z");
+    const previous: Cursor = { v: 1, repos: { "5000001": baseline(90, "2026-10-30T22:10:00.000Z"), "5000002": webBefore } };
+    const gained = (result: SyncResult) => result.metrics.filter((item) => item.metricKey === starMetricNames.gainedDaily.metricKey);
+    const keys = (result: SyncResult) => result.events.map((event) => event.dedupeKey);
+
+    // 00:10, the day's first sync: api closes 2026-10-30, web is deferred with its baselines whole.
+    const first = await timedSync(routesFor(repos), previous, new Date("2026-10-31T00:10:00Z"), forksCost(20_000));
+    expect(keys(first.result)).toEqual(["github.stars.daily:5000001:2026-10-30"]);
+    expect(gained(first.result)).toMatchObject([{ value: 6 }]);
+    expect(first.cursor.repos["5000002"]).toMatchObject(webBefore);
+
+    // 01:10: web is read first now and closes the same day. The day's reading, stored in the same
+    // daily row, adds its 4 to api's 6 rather than replacing them; the fork after its baseline is new.
+    const second = await timedSync(routesFor(repos), first.cursor, new Date("2026-10-31T01:10:00Z"), forksCost(20_000));
+    expect(second.callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(0);
+    expect(keys(second.result)).toEqual(["github.stars.daily:5000002:2026-10-30", "github.forks.new:5000002:7100002"]);
+    expect(gained(second.result)).toMatchObject([{ value: 10 }]);
+
+    // 02:10, with time for both: nothing is counted twice.
+    const third = await timedSync(routesFor(repos), second.cursor, new Date("2026-10-31T02:10:00Z"), () => 0);
+    expect(third.callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(1);
+    expect(keys(third.result)).toEqual([]);
+    expect(gained(third.result)).toEqual([]);
   });
 });
 
