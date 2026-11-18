@@ -523,6 +523,9 @@ async function recordAnnouncements(page: Page): Promise<() => Promise<string[]>>
 // through `insertUnheard`, so no seed reaches the page after it subscribes (#226) and starts a batch
 // of its own among the test's changes (#508). Realtime reads the slot in commit order, so the
 // earlier seeds are read by then too.
+// The exception is the chip glow test, which seeds "Earlier event" directly: it asserts only glow
+// counts, and it first subscribes on a `?q=Push` view that this seed does not match, so a late seed
+// adds no chip and starts no glow.
 ownerTest.describe("arriving data", () => {
   ownerTest("marks a new timeline event once, announces it, and animates nothing on load", async ({ page }) => {
     const workspace = await createTestWorkspace("Arrival timeline");
