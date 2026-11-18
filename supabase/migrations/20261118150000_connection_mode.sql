@@ -33,20 +33,27 @@
 -- 20261118140000_webhook_targets_simulated.sql; the result gains `mode` as its last column. Adding a
 -- result column changes the return type, which create or replace refuses, so the function is
 -- dropped and created again in this migration's one transaction, as that migration did. Mixed
--- windows, each bounded by the runner and covered by polling: a webhook job that throws is retried
--- while attempts < max_attempts (5) with backoff ceilings of 1, 2, 4, and 8 minutes
--- (src/lib/jobs/backoff.ts), so it is failed for good within about 15 minutes, and the hourly poll
--- of an active or failed connection brings the same events.
+-- windows follow. Window 3 is bounded by the runner and covered by polling: a webhook job that
+-- throws is retried while attempts < max_attempts (5) with backoff ceilings of 1, 2, 4, and 8
+-- minutes (src/lib/jobs/backoff.ts), so it is failed for good within about 15 minutes, and the
+-- hourly poll of an active or failed connection brings the same events. Window 2 has no poll to
+-- cover it.
 -- 1. The build before #481 against this schema. Compatible: its store reads the other columns by
 --    name and ignores `mode`, its completeConnection leaves `mode` null (the contract step's
 --    backfill fills those), and it still ignores test mode Stripe events and applies a live one to
 --    every connection of the account, the fault #481 fixes, until the build from #481 serves.
 -- 2. The build from #481 against the schema before this migration (promoted before
---    `supabase migration up` ran): completeConnection writes a column that does not exist, so every
---    connect and reconnect fails until the migration runs; and rows carry no `mode`, so the store
---    reads every target as having none and a Stripe delivery reaches no connection, is marked
---    processed, and its events come from the next poll instead. Run `supabase migration up` before
---    the build from #481 serves (docs/operations/deploy.md).
+--    `supabase migration up` ran). Every provider fails, not only Stripe, until the migration runs:
+--    completeConnection writes a column that does not exist, so every connect and reconnect fails;
+--    and getConnection (src/lib/jobs/store.ts) selects `mode` by name, so the connection read that
+--    runSyncJob and markConnectionRevoked (src/lib/jobs/sync-connection.ts) start with throws.
+--    Every sync job of every connection is retried and then failed, and the scheduler queues the
+--    next due one, which fails the same way; every uninstall job fails the same way, so an
+--    uninstall received in this window shows only when a sync after the migration finds the grant
+--    gone. Target rows carry no `mode`, so the store reads every target as having none, and a
+--    Stripe delivery reaches no connection and is marked processed. Once the migration runs, syncs
+--    resume. Run `supabase migration up` before the build from #481 serves
+--    (docs/operations/deploy.md).
 -- 3. The build before #481 reading an outcome the build from #481 stored, after an Instant
 --    Rollback (docs/operations/self-hosting.md, Roll back): its strict stored outcome schema
 --    refuses `mode`, loadWebhookDelivery throws, and each Stripe delivery received and not yet
@@ -76,10 +83,11 @@ alter table public.connections add column mode public.connection_mode;
 --   20261118140000_webhook_targets_simulated.sql says how it is read and what the job does with it.
 -- - mode: connections.mode, the connection's live or test mode, or null where none is recorded.
 --   The job keeps the targets of the delivery's mode when it names one. The bound applies before
---   that, so targets of the other mode count toward it; a Stripe account has one connection per
---   workspace and mode at most, so it binds only past 50 workspaces holding the account in both
---   modes. A target of the delivery's mode past the bound gets the events from its next poll and
---   an uninstall when its next sync finds the grant gone.
+--   that and before the kind filter, so it counts every target of the account, of either mode and
+--   either kind (simulated connections included), and binds once 100 connections include the
+--   account: nothing limits how many connections of one workspace include it. A target of the
+--   delivery's mode past the bound gets the events from its next poll and an uninstall when its
+--   next sync finds the grant gone.
 -- Security invoker: only the service role may call it, and it already reads every row it needs.
 
 drop function public.list_webhook_targets(public.provider_id, text, uuid, text);

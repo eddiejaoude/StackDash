@@ -792,9 +792,9 @@ export function createSupabaseJobStore(): JobStore {
         grantedAt: row.granted_at,
         simulated: isSimulatedTarget(row),
         // Null for a connection with no recorded mode (the generated type misses that the column is
-        // nullable), and absent from a database before 20261118150000_connection_mode.sql, whose
-        // header says what a Stripe delivery does then: it reaches no connection, and polling
-        // brings its events.
+        // nullable), and absent from a database before 20261118150000_connection_mode.sql, where a
+        // Stripe delivery then reaches no connection. No poll covers that window: getConnection
+        // selects `mode` too, so every sync fails until the migration runs (its window 2).
         mode: row.mode ?? null,
       }));
     },
