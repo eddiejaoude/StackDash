@@ -384,8 +384,9 @@ export async function collectRepositories(
 
   // Stars of every repository on every sync, from the count the list carries. Its fork and activity
   // state stays as the previous sync left it until a read within the budgets below moves it on. A
-  // repository new to the installation takes this sync's time as its fork baseline, which its first
-  // fork read replaces with the newest fork, this sync or a later one.
+  // repository new to the installation takes this sync's time as its fork baseline. A fork read on
+  // this sync replaces it with the page's newest fork (null when there is none); a later one only
+  // once a fork has been made since.
   const entries: { repo: Repository; previous: RepoState | undefined; state: RepoState }[] = [];
   for (const repo of repositories) {
     const previousRepo = previous?.repos[String(repo.id)];
