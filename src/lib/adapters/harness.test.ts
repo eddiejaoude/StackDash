@@ -575,6 +575,27 @@ describe("checkWebhookOutcome", () => {
     });
   });
 
+  describe("events naming an installation (#497)", () => {
+    const installed = { ...exampleAdapter, installationIdOf: () => "inst-1" };
+    const fromInstallation = (installationId: string): WebhookOutcome => ({ kind: "events", externalAccountId: ACCOUNT, installationId, events: [signup] });
+
+    it("passes from an adapter that declares installationIdOf", () => {
+      expect(checkWebhookOutcome(installed, fromInstallation("inst-1"))).toEqual([]);
+    });
+
+    it.each<[string, ProviderAdapter<string>, WebhookOutcome, string[]]>([
+      [
+        "an adapter without installationIdOf, whose connections never record one, so its events would reach none",
+        exampleAdapter,
+        fromInstallation("inst-1"),
+        ["the events outcome names an installation, but the adapter does not declare installationIdOf"],
+      ],
+      ["a blank installation id (boundary)", installed, fromInstallation(" "), ["the events outcome has no installationId"]],
+    ])("reports %s", (_case, adapter, outcome, problems) => {
+      expect(checkWebhookOutcome(adapter, outcome)).toEqual(problems);
+    });
+  });
+
   it.each<[string, WebhookOutcome, string[]]>([
     ["an ignored delivery without a reason", { kind: "ignored", reason: " " }, ["an ignored delivery has no reason"]],
     ["an uninstall without an account", { kind: "uninstalled", externalAccountId: "", occurredAt: NOW }, ["the uninstalled outcome has no externalAccountId"]],

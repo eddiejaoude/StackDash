@@ -283,9 +283,15 @@ export type WebhookVerification =
  * `source` (events and ignored): the resource the delivery came from, for a provider that declares
  * `sourceNoun` (a GitLab project). The route records it for the setup panel; it is not stored with
  * the outcome.
+ * `installationId` (events): the installation that sent the delivery, for a provider whose accounts
+ * outlive an uninstall (Sentry's projects, #497). The events then reach only connections whose
+ * credential belongs to it (`connections.external_installation_id`), so a connection left needing a
+ * reconnect after an uninstall gets nothing from a later install of the same organization, and a
+ * connection with no recorded installation gets nothing until its next sync records one. Only an
+ * adapter that declares `installationIdOf` may return it.
  */
 export type WebhookOutcome =
-  | Readonly<{ kind: "events"; externalAccountId: string; events: ActivityEvent[]; source?: WebhookSource }>
+  | Readonly<{ kind: "events"; externalAccountId: string; installationId?: string; events: ActivityEvent[]; source?: WebhookSource }>
   | Readonly<{ kind: "uninstalled"; by?: "account"; externalAccountId: string; occurredAt: Date }>
   | Readonly<{ kind: "uninstalled"; by: "installation"; installationId: string; occurredAt: Date }>
   | Readonly<{ kind: "ignored"; reason: string; source?: WebhookSource }>;
@@ -454,7 +460,8 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   listAccounts(credential: OAuthCredential, ctx: OAuthContext): Promise<ExternalAccount[]>;
   // Which provider installation the credential belongs to (Sentry's `installation.uuid`), stored as
   // `connections.external_installation_id` when a grant completes and on the next sync of a
-  // connection that has none, so an `uninstalled` outcome naming the installation finds it (#480).
+  // connection that has none, so an `uninstalled` outcome naming the installation finds it (#480)
+  // and an `events` outcome naming it reaches only that installation's connections (#497).
   // Synchronous and network-free: reads only the credential it is handed. Null when the credential
   // names none. Omitted when the provider's uninstalls name an account.
   installationIdOf?(credential: OAuthCredential): string | null;

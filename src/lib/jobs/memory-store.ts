@@ -626,6 +626,7 @@ export class MemoryJobStore implements JobStore {
   async listWebhookTargets({
     provider,
     externalAccountId,
+    installationId,
     endpointId,
   }: Parameters<JobStore["listWebhookTargets"]>[0]): Promise<WebhookTarget[]> {
     const endpoint = endpointId === null ? null : this.webhookEndpoints.find((row) => row.id === endpointId);
@@ -634,7 +635,9 @@ export class MemoryJobStore implements JobStore {
       .flatMap((account) => {
         if (account.external_id !== externalAccountId || !account.included) return [];
         const connection = this.#connection({ workspaceId: account.workspace_id, connectionId: account.connection_id });
-        return this.#isWebhookTarget(connection, provider, endpoint) ? [{ account, connection }] : [];
+        if (!this.#isWebhookTarget(connection, provider, endpoint)) return [];
+        // Named with the account (#497): only that installation's connections; none recorded is no match.
+        return installationId === null || connection.external_installation_id === installationId ? [{ account, connection }] : [];
       })
       .sort((a, b) => a.account.id.localeCompare(b.account.id))
       .slice(0, WEBHOOK_TARGET_LIMIT)

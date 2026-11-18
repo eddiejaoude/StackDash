@@ -707,7 +707,9 @@ function verifyWebhook({ headers, rawBody }: WebhookRequest, secret: Secret, now
  * for it needs a reconnect, unless granted again after Sentry sent the delivery. `assigned`,
  * `archived`, any other `unresolved`, feedback issues (which the issue search never returns, so
  * polling never reports them either), `installation.created`, and every other resource are
- * ignored. The reasons are fixed text: nothing from the body reaches them.
+ * ignored. The reasons are fixed text: nothing from the body reaches them. An issue delivery names
+ * its project and the installation that sent it (`installation.uuid`), and reaches only connections
+ * of that installation that include the project (#497).
  */
 function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
   const resource = headers.get(SENTRY_WEBHOOK_HEADERS.resource)?.trim();
@@ -733,14 +735,18 @@ function parseWebhook({ headers, rawBody }: WebhookRequest): WebhookOutcome {
 
   const parsed = IssueWebhookSchema.safeParse(raw);
   if (!parsed.success) return { kind: "ignored", reason: "not an issue delivery StackDash reads" };
-  const { action, data } = parsed.data;
+  const { action, data, installation } = parsed.data;
   const { issue } = data;
   const externalAccountId = issue.project.id;
+  // A project outlives an uninstall, so the delivery names its installation too: a connection left
+  // needing a reconnect after an uninstall must not receive what a later install of the same
+  // organization sends (#497).
+  const target = { kind: "events", externalAccountId, installationId: installation.uuid } as const;
   if (issue.issueCategory === "feedback") return { kind: "ignored", reason: "feedback issues are not on the timeline" };
-  if (action === "created") return { kind: "events", externalAccountId, events: [issueCreatedEvent(issue, externalAccountId)] };
+  if (action === "created") return { ...target, events: [issueCreatedEvent(issue, externalAccountId)] };
   const change = action === "resolved" ? "resolved" : action === "unresolved" && issue.substatus === "regressed" ? "regressed" : undefined;
   if (change === undefined) return { kind: "ignored", reason: "issue action is not on the timeline" };
-  return { kind: "events", externalAccountId, events: [issueStatusEvent(change, issue, externalAccountId, sentAt)] };
+  return { ...target, events: [issueStatusEvent(change, issue, externalAccountId, sentAt)] };
 }
 
 export const sentryAdapter: ProviderAdapter = {

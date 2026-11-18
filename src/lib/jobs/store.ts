@@ -223,9 +223,12 @@ export interface JobStore {
    * provider and external id on an active, failed, or needs_attention connection (everything but
    * pending and revoked; failed connections are still polled, so push is the path still working),
    * across workspaces for an app-level URL, and only within the endpoint's own connection when
-   * `endpointId` is set.
+   * `endpointId` is set. With an `installationId` (#497), only on connections whose
+   * `external_installation_id` is that installation: a connection with none recorded is no target.
    */
-  listWebhookTargets(input: Readonly<{ provider: ProviderId; externalAccountId: string; endpointId: string | null }>): Promise<WebhookTarget[]>;
+  listWebhookTargets(
+    input: Readonly<{ provider: ProviderId; externalAccountId: string; installationId: string | null; endpointId: string | null }>,
+  ): Promise<WebhookTarget[]>;
   /**
    * Where an uninstall naming an installation lands (#480): every connection of the provider whose
    * `external_installation_id` is that installation, by the same status and endpoint rules as
@@ -256,11 +259,13 @@ export const WEBHOOK_TARGET_LIMIT = 100;
 
 // webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt and an
 // uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back. An
-// account uninstall stored without `by` (the only shape before #480) still reads back.
+// account uninstall stored without `by` (the only shape before #480) still reads back, and so do
+// events stored without `installationId` (the only shape before #497).
 const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({
     kind: z.literal("events"),
     externalAccountId: z.string().min(1),
+    installationId: z.string().min(1).exactOptional(),
     events: z.array(ActivityEventSchema.extend({ occurredAt: z.iso.datetime().transform((value) => new Date(value)) })),
   }),
   z.strictObject({
@@ -288,6 +293,7 @@ export function webhookOutcomeToJson(outcome: WebhookOutcome): Json {
   return {
     kind: outcome.kind,
     externalAccountId: outcome.externalAccountId,
+    ...(outcome.installationId === undefined ? {} : { installationId: outcome.installationId }),
     events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })),
   };
 }
@@ -708,10 +714,11 @@ export function createSupabaseJobStore(): JobStore {
       return { id: data.id, provider: provider.data, endpointId: data.endpoint_id, outcome };
     },
 
-    async listWebhookTargets({ provider, externalAccountId, endpointId }) {
+    async listWebhookTargets({ provider, externalAccountId, installationId, endpointId }) {
       const { data, error } = await db.rpc("list_webhook_targets", {
         p_provider: provider,
         p_external_id: externalAccountId,
+        ...(installationId === null ? {} : { p_installation_id: installationId }),
         ...(endpointId === null ? {} : { p_endpoint_id: endpointId }),
       });
       if (error) throw failure("list_webhook_targets", error);

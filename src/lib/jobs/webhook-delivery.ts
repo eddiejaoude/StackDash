@@ -51,7 +51,9 @@ async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRec
   if (outcome.by === "installation") {
     return deps.store.listInstallationTargets({ provider, installationId: outcome.installationId, endpointId });
   }
-  return distinctConnections(await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, endpointId }));
+  return distinctConnections(
+    await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, installationId: null, endpointId }),
+  );
 }
 
 /**
@@ -112,9 +114,17 @@ export async function runWebhookJob(
   // Never `ignored`: such a delivery is stored processed and queues no job.
   const { outcome, provider } = delivery;
   if (outcome.kind === "events") {
-    const targets = await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, endpointId: delivery.endpointId });
+    // An installation named with the account (#497) narrows the targets to that installation's
+    // connections, so an uninstalled connection that still includes the account gets nothing.
+    const targets = await deps.store.listWebhookTargets({
+      provider,
+      externalAccountId: outcome.externalAccountId,
+      installationId: outcome.installationId ?? null,
+      endpointId: delivery.endpointId,
+    });
     if (targets.length === 0) {
-      // An account no workspace includes, or whose connection is gone: nothing to apply it to.
+      // An account no workspace includes, or whose connection is gone or belongs to another
+      // installation: nothing to apply it to.
       deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
     } else {
       const inserted = await writeEvents(provider, targets, outcome.events, deps);
