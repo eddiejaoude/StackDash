@@ -1,5 +1,4 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
-import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import type { ProviderId } from "@/lib/adapters/types";
 
 import { toEventRow } from "./ingest";
@@ -58,17 +57,20 @@ async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRec
 }
 
 /**
- * The targets of the kind this process verifies the provider's deliveries for (#495): simulated
- * connections while the provider's adapter is its simulated twin, real ones otherwise. The twin
+ * The targets of the kind that verified the delivery (#495), as the route recorded it: simulated
+ * connections for a delivery the provider's simulated twin verified, real ones otherwise. The twin
  * checks an app-level delivery with STACKDASH_SIMULATED_WEBHOOK_SECRET, a value from .env.local or
  * the synthetic one e2e signs with, so what it accepts must never reach a real connection that
  * includes the same account; and a real delivery has nothing to say to a connection of made-up
- * data. The fake provider has no twin, so its connections, never simulated, are always kept. The
- * rest are logged as a count, never by id.
+ * data. The recorded kind decides, not the simulation flag now: the flag can change between the
+ * route accepting a delivery and a tick, or a retry, applying it. The fake provider has no twin, so
+ * its deliveries and its connections are real. A delivery a build before #495 stored records no
+ * kind (`simulated` null), so nothing says which secret verified it: it reaches no connection.
+ * The rest are logged as a count, never by id.
  */
 function targetsOfDeliveryKind<T extends ConnectionTarget>(targets: readonly T[], job: ClaimedJob, delivery: WebhookDeliveryRecord, deps: SyncDeps): T[] {
-  const simulated = isSimulatedAdapter(deps.getAdapter(delivery.provider));
-  const kept = targets.filter((target) => target.simulated === simulated);
+  const { simulated } = delivery;
+  const kept = simulated === null ? [] : targets.filter((target) => target.simulated === simulated);
   if (kept.length < targets.length) {
     deps.log.info("webhook.targets_dropped", {
       jobId: job.id,

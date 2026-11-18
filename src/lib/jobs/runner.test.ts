@@ -86,7 +86,7 @@ class QueuedOnlyStore extends MemoryJobStore {
 /** Records a delivery for an account no workspace includes, as the route does: one queued webhook job. */
 async function deliver(store: MemoryJobStore, deliveryId: string): Promise<void> {
   const outcome: WebhookOutcome = { kind: "events", externalAccountId: "fake-acct-9", events: [] };
-  expect(await store.recordWebhookDelivery({ provider: "fake", deliveryId, endpointId: null, outcome })).toBe(true);
+  expect(await store.recordWebhookDelivery({ provider: "fake", deliveryId, endpointId: null, outcome, simulated: false })).toBe(true);
 }
 
 /** A connection including fake-acct-1, not due to sync for an hour, so only webhook jobs evaluate it. */
@@ -111,7 +111,7 @@ async function deliverDeployment(store: MemoryJobStore, day: number): Promise<vo
     dedupeKey: `fake.deploy.succeeded:fake-acct-1:2026-10-${String(day).padStart(2, "0")}`,
   };
   const outcome: WebhookOutcome = { kind: "events", externalAccountId: "fake-acct-1", events: [event] };
-  expect(await store.recordWebhookDelivery({ provider: "fake", deliveryId: `delivery-${day}`, endpointId: null, outcome })).toBe(true);
+  expect(await store.recordWebhookDelivery({ provider: "fake", deliveryId: `delivery-${day}`, endpointId: null, outcome, simulated: false })).toBe(true);
 }
 
 describe("runTick", () => {

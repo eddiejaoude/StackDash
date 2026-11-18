@@ -1,13 +1,16 @@
+import { createHmac } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import type { ActivityEvent } from "@/lib/adapters/events";
 import { fakeAdapter } from "@/lib/adapters/fake";
-import { simulatedAdapters } from "@/lib/adapters/simulated";
+import { SIMULATED_WEBHOOK_SECRET_ENV, simulatedAdapters } from "@/lib/adapters/simulated";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret, type OAuthCredential, type ProviderAdapter, type WebhookOutcome } from "@/lib/adapters/types";
 import { vercelAdapter } from "@/lib/adapters/vercel";
 import type { LogFields, Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
+import { receiveWebhook, type ReceiveDeps } from "@/lib/webhooks/receive";
 
 import { MemoryJobStore, type MemoryConnection, type MemoryJob } from "./memory-store";
 import { runTick } from "./runner";
@@ -79,9 +82,9 @@ function setup(options: Readonly<{ adapter?: ProviderAdapter }> = {}) {
     return connection;
   }
 
-  /** Records a delivery as the route does and returns its queued job. */
-  async function deliver(outcome: WebhookOutcome, deliveryId = "delivery-1"): Promise<MemoryJob> {
-    expect(await store.recordWebhookDelivery({ provider: adapter.id, deliveryId, endpointId: null, outcome })).toBe(true);
+  /** Records a delivery as the route does, `simulated` saying whether the simulated twin verified it, and returns its queued job. */
+  async function deliver(outcome: WebhookOutcome, deliveryId = "delivery-1", simulated = false): Promise<MemoryJob> {
+    expect(await store.recordWebhookDelivery({ provider: adapter.id, deliveryId, endpointId: null, outcome, simulated })).toBe(true);
     const job = store.jobs.find((candidate) => candidate.kind === "webhook" && candidate.status === "queued");
     if (job === undefined) throw new Error("No webhook job was queued");
     return job;
@@ -411,6 +414,7 @@ describe("runWebhookJob", () => {
           deliveryId: "delivery-empty",
           endpointId: null,
           outcome: { ...installationUninstall, installationId: "" },
+          simulated: false,
         }),
       ).rejects.toThrow("must name an account or an installation");
     });
@@ -490,25 +494,27 @@ describe("runWebhookJob", () => {
   });
 
   describe("simulated and real connections (#495)", () => {
-    // A twin verifies an app-level delivery with the simulated secret, so with simulation on only
-    // simulated connections may receive it; with it off, only real ones.
-    const modes = [
-      { mode: "simulation on", adapter: simulatedAdapters.vercel, simulated: true },
-      { mode: "simulation off", adapter: vercelAdapter, simulated: false },
+    // A twin verifies an app-level delivery with the simulated secret, so a delivery it verified
+    // reaches simulated connections only, and one the live adapter verified real ones only. The
+    // route records which; each case runs its job after the flag flipped (the other adapter), so
+    // only the recorded kind can decide.
+    const kinds = [
+      { verifiedBy: "the simulated twin, processed with simulation off", simulated: true, jobAdapter: vercelAdapter },
+      { verifiedBy: "the live adapter, processed with simulation on", simulated: false, jobAdapter: simulatedAdapters.vercel },
     ] as const;
     const simulatedConnection = { granted_scopes: [SIMULATED_SCOPE] };
 
-    /** Workspace A's connection of the kind the mode keeps and B's of the other kind, both including the account. */
+    /** Workspace A's connection of the delivery's kind and B's of the other kind, both including the account. */
     function mixed(connect: (workspaceId: string, fields: Partial<MemoryConnection>) => MemoryConnection, simulated: boolean) {
       const kept = connect(WORKSPACE_A, simulated ? simulatedConnection : {});
       const other = connect(WORKSPACE_B, simulated ? {} : simulatedConnection);
       return { kept, other };
     }
 
-    it.each(modes)("writes events to that kind of connection only, from a mixed target list ($mode, boundary: mixed)", async ({ adapter, simulated }) => {
-      const harness = setup({ adapter });
+    it.each(kinds)("writes events to that kind of connection only, from a mixed target list (verified by $verifiedBy, boundary: mixed)", async ({ simulated, jobAdapter }) => {
+      const harness = setup({ adapter: jobAdapter });
       const { kept } = mixed(harness.connect, simulated);
-      const job = await harness.deliver(events([deployment]));
+      const job = await harness.deliver(events([deployment]), "delivery-1", simulated);
 
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
       expect(harness.eventsIn(WORKSPACE_A)).toEqual([expect.objectContaining({ connection_id: kept.id, provider: "vercel" })]);
@@ -520,11 +526,11 @@ describe("runWebhookJob", () => {
       });
     });
 
-    it.each(modes)("asks only that kind of connection to reconnect on an uninstall ($mode, boundary: mixed)", async ({ adapter, simulated }) => {
-      const harness = setup({ adapter });
+    it.each(kinds)("asks only that kind of connection to reconnect on an uninstall (verified by $verifiedBy, boundary: mixed)", async ({ simulated, jobAdapter }) => {
+      const harness = setup({ adapter: jobAdapter });
       const { kept, other } = mixed(harness.connect, simulated);
       const before = { ...other };
-      const job = await harness.deliver(uninstall);
+      const job = await harness.deliver(uninstall, "delivery-1", simulated);
 
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
       expect(kept).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
@@ -536,21 +542,25 @@ describe("runWebhookJob", () => {
       });
     });
 
-    it.each(modes)("asks only that kind of an installation's connections to reconnect ($mode)", async ({ adapter, simulated }) => {
-      const harness = setup({ adapter });
+    it.each(kinds)("asks only that kind of an installation's connections to reconnect (verified by $verifiedBy)", async ({ simulated, jobAdapter }) => {
+      const harness = setup({ adapter: jobAdapter });
       const kept = harness.connect(WORKSPACE_A, { external_installation_id: "vercel-installation-1", ...(simulated ? simulatedConnection : {}) });
       const other = harness.connect(WORKSPACE_B, { external_installation_id: "vercel-installation-1", ...(simulated ? {} : simulatedConnection) });
-      const job = await harness.deliver({ kind: "uninstalled", by: "installation", installationId: "vercel-installation-1", occurredAt: UNINSTALLED_AT });
+      const job = await harness.deliver(
+        { kind: "uninstalled", by: "installation", installationId: "vercel-installation-1", occurredAt: UNINSTALLED_AT },
+        "delivery-1",
+        simulated,
+      );
 
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
       expect(kept).toMatchObject({ status: "needs_attention" });
       expect(other).toMatchObject({ status: "active", last_error_code: null });
     });
 
-    it.each(modes)("writes nothing when every target is of the other kind, and finishes the delivery ($mode, boundary: none kept)", async ({ adapter, simulated }) => {
-      const harness = setup({ adapter });
+    it.each(kinds)("writes nothing when every target is of the other kind, and finishes the delivery (verified by $verifiedBy, boundary: none kept)", async ({ simulated, jobAdapter }) => {
+      const harness = setup({ adapter: jobAdapter });
       const other = harness.connect(WORKSPACE_B, simulated ? {} : simulatedConnection);
-      const job = await harness.deliver(events([deployment]));
+      const job = await harness.deliver(events([deployment]), "delivery-1", simulated);
 
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
       expect(harness.store.events).toEqual([]);
@@ -560,18 +570,44 @@ describe("runWebhookJob", () => {
       expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
     });
 
-    it.each(modes)("drops nothing and logs nothing dropped when every target is of that kind ($mode, boundary: none dropped)", async ({ adapter, simulated }) => {
-      const harness = setup({ adapter });
+    it.each(kinds)("drops nothing and logs nothing dropped when every target is of that kind (verified by $verifiedBy, boundary: none dropped)", async ({ simulated, jobAdapter }) => {
+      const harness = setup({ adapter: jobAdapter });
       harness.connect(WORKSPACE_A, simulated ? simulatedConnection : {});
       harness.connect(WORKSPACE_B, simulated ? simulatedConnection : {});
-      const job = await harness.deliver(events([deployment]));
+      const job = await harness.deliver(events([deployment]), "delivery-1", simulated);
 
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
       expect(harness.store.events).toHaveLength(2);
       expect(harness.infos.map((line) => line.event)).toEqual(["webhook.events_written"]);
     });
 
-    it("keeps the fake provider's connections, which are never simulated, whatever the flag (boundary: no twin)", async () => {
+    it.each([
+      { name: "events", outcome: events([deployment]) },
+      { name: "an uninstall", outcome: uninstall },
+    ])("applies $name stored by a build before #495, which recorded no kind, to no connection (boundary: legacy delivery)", async ({ outcome }) => {
+      const harness = setup({ adapter: simulatedAdapters.vercel });
+      const real = harness.connect(WORKSPACE_A);
+      const simulated = harness.connect(WORKSPACE_B, simulatedConnection);
+      const before = [{ ...real }, { ...simulated }];
+      const job = await harness.deliver(outcome);
+      const [stored] = harness.store.webhookDeliveries;
+      if (stored === undefined) throw new Error("No delivery was stored");
+      stored.simulated = null;
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.store.events).toEqual([]);
+      expect([real, simulated]).toEqual(before);
+      expect(harness.infos).toEqual([
+        {
+          event: "webhook.targets_dropped",
+          fields: { jobId: job.id, provider: "vercel", deliveryRowId: stored.id, kind: outcome.kind, simulated: null, dropped: 2 },
+        },
+        expect.objectContaining({ event: "webhook.no_targets" }),
+      ]);
+      expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
+    });
+
+    it("keeps the fake provider's connections: it has no twin, so its deliveries and connections are real (boundary: no twin)", async () => {
       const harness = setup();
       const connection = harness.connect(WORKSPACE_A);
       const job = await harness.deliver(events([deployment]));
@@ -579,6 +615,76 @@ describe("runWebhookJob", () => {
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
       expect(harness.eventsIn(WORKSPACE_A)).toEqual([expect.objectContaining({ connection_id: connection.id })]);
       expect(harness.infos.map((line) => line.event)).not.toContain("webhook.targets_dropped");
+    });
+
+    describe("from the route to the job, across a flag change", () => {
+      const ROUTE_SECRET = "test-only-vercel-webhook-secret";
+
+      /** The route's deps with `adapter` as the registry answers, storing into the harness's store. */
+      function routeDeps(adapter: ProviderAdapter, harness: Readonly<{ store: MemoryJobStore; deps: SyncDeps }>): ReceiveDeps {
+        return {
+          getAdapter: () => adapter,
+          readEnv: (name) => (name === SIMULATED_WEBHOOK_SECRET_ENV || name === "VERCEL_CLIENT_SECRET" ? ROUTE_SECRET : undefined),
+          loadWebhookEndpoint: async () => null,
+          loadEndpointConnection: async () => ({ accounts: [] }),
+          countEndpointDelivery: async () => 1,
+          recordWebhookDelivery: (input) => harness.store.recordWebhookDelivery(input),
+          recordWebhookSource: async () => true,
+          adapterContext: () => ({ fetch: () => Promise.reject(new Error("no network in tests")), now: harness.deps.now, timeoutMs: 1000, logger: silent }),
+          now: harness.deps.now,
+          log: silent,
+          logError: () => "REF-TEST0000",
+        };
+      }
+
+      /** A Vercel delivery for team fake-acct-1, signed as Vercel signs it. */
+      function vercelDelivery(type: "deployment.succeeded" | "integration-configuration.removed", createdAt: Date): Request {
+        const payload =
+          type === "deployment.succeeded"
+            ? {
+                team: { id: "fake-acct-1" },
+                user: { id: "example-user" },
+                deployment: { id: "dpl_example1", name: "example-app", url: "example-app.vercel.app", meta: {} },
+                links: { deployment: "https://vercel.com/example/example-app/1" },
+                target: "production",
+                project: { id: "prj_example1" },
+              }
+            : { team: { id: "fake-acct-1" }, user: { id: "example-user" }, configuration: { id: "icfg_example1", projects: [] } };
+        const body = JSON.stringify({ id: `evt_${type}`, type, createdAt: createdAt.getTime(), region: "iad1", payload });
+        const signature = createHmac("sha1", ROUTE_SECRET).update(body, "utf8").digest("hex");
+        return new Request("http://localhost/api/webhooks/vercel", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-vercel-signature": signature },
+          body,
+        });
+      }
+
+      it.each([
+        { name: "events verified by the twin, then processed with simulation off", routeAdapter: simulatedAdapters.vercel, jobAdapter: vercelAdapter, simulated: true, type: "deployment.succeeded" },
+        { name: "events verified by the live adapter, then processed with simulation on", routeAdapter: vercelAdapter, jobAdapter: simulatedAdapters.vercel, simulated: false, type: "deployment.succeeded" },
+        { name: "an uninstall verified by the twin, then processed with simulation off", routeAdapter: simulatedAdapters.vercel, jobAdapter: vercelAdapter, simulated: true, type: "integration-configuration.removed" },
+        { name: "an uninstall verified by the live adapter, then processed with simulation on", routeAdapter: vercelAdapter, jobAdapter: simulatedAdapters.vercel, simulated: false, type: "integration-configuration.removed" },
+      ] as const)("reaches only the kind that verified it: $name", async ({ routeAdapter, jobAdapter, simulated, type }) => {
+        const harness = setup({ adapter: jobAdapter });
+        const { kept, other } = mixed(harness.connect, simulated);
+        const before = { ...other };
+
+        const response = await receiveWebhook({ provider: "vercel", endpointId: null, request: vercelDelivery(type, harness.deps.now()) }, routeDeps(routeAdapter, harness));
+        expect(response.status).toBe(202);
+        expect(harness.store.webhookDeliveries.map((delivery) => delivery.simulated)).toEqual([simulated]);
+        const job = harness.store.jobs.find((candidate) => candidate.kind === "webhook");
+        if (job === undefined) throw new Error("No webhook job was queued");
+        expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+
+        expect(other).toEqual(before);
+        if (type === "deployment.succeeded") {
+          expect(harness.eventsIn(WORKSPACE_A)).toEqual([expect.objectContaining({ connection_id: kept.id, provider: "vercel" })]);
+          expect(harness.eventsIn(WORKSPACE_B)).toEqual([]);
+        } else {
+          expect(kept).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+        }
+        expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
+      });
     });
   });
 

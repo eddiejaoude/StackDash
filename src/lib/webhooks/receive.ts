@@ -4,6 +4,7 @@ import { createHmac } from "node:crypto";
 
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
 import { createAdapterContext, getAdapter, isFakeProviderEnabled } from "@/lib/adapters/registry";
+import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import {
   ProviderIdSchema,
   Secret,
@@ -271,7 +272,9 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
     const source = outcome.kind === "uninstalled" ? undefined : outcome.source;
     if (endpointId !== null && source !== undefined) await recordSource(endpointId, source, deps, fields);
 
-    const recorded = await deps.recordWebhookDelivery({ provider, deliveryId, endpointId, outcome });
+    // Whether the simulated twin verified it (#495), stored with it: the job applies it to that
+    // kind of connection only, whatever the simulation flag says when the job runs.
+    const recorded = await deps.recordWebhookDelivery({ provider, deliveryId, endpointId, outcome, simulated: isSimulatedAdapter(adapter) });
     if (!recorded) {
       deps.log.info("webhook.duplicate", { provider, deliveryId });
       return json(200, { status: "duplicate" });

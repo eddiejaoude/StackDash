@@ -345,10 +345,20 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "ignored", reason: "unmapped event" },
   ])("reads back the $kind outcome it stored, event and uninstall dates included", (outcome) => {
-    // jsonb keeps exactly what JSON keeps.
-    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome)));
+    for (const simulated of [true, false]) {
+      // jsonb keeps exactly what JSON keeps.
+      const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome, simulated)));
 
-    expect(webhookOutcomeFromJson(stored)).toEqual(outcome);
+      expect(webhookOutcomeFromJson(stored)).toEqual({ outcome, simulated });
+    }
+  });
+
+  it("reads an outcome stored before #495, with no record of which adapter verified it, as unknown (boundary: legacy)", () => {
+    const stored = { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" };
+    expect(webhookOutcomeFromJson(stored)).toEqual({
+      outcome: { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+      simulated: null,
+    });
   });
 
   it.each<[WebhookOutcome, WebhookOutcome]>([
@@ -361,8 +371,8 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
       { kind: "ignored", reason: "pipeline has not finished" },
     ],
   ])("stores an outcome without the source it names (#428), which the job reads back", (outcome, expected) => {
-    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome)));
-    expect(webhookOutcomeFromJson(stored)).toEqual(expected);
+    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome, false)));
+    expect(webhookOutcomeFromJson(stored)).toEqual({ outcome: expected, simulated: false });
   });
 
   it.each([
@@ -380,6 +390,8 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { name: "events with an empty installation id", value: { kind: "events", externalAccountId: "fake-acct-1", installationId: "", events: [] } },
     { name: "events with a null installation id", value: { kind: "events", externalAccountId: "fake-acct-1", installationId: null, events: [] } },
     { name: "an unknown by", value: { kind: "uninstalled", by: "organization", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "a simulated that is not a boolean", value: { kind: "events", externalAccountId: "fake-acct-1", events: [], simulated: "yes" } },
+    { name: "a null simulated", value: { kind: "events", externalAccountId: "fake-acct-1", events: [], simulated: null } },
   ])("refuses a stored outcome of another shape (boundary: $name)", ({ value }) => {
     expect(webhookOutcomeFromJson(value)).toBeNull();
   });
@@ -524,13 +536,14 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       deliveryId: "delivery-1",
       endpointId: null,
       outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [signup] },
+      simulated: false,
     });
 
     expect(requests.map((request) => request.args)).toEqual([
       {
         p_provider: "fake",
         p_delivery_id: "delivery-1",
-        p_outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...signup, occurredAt: "2026-11-14T09:30:00.000Z" }] },
+        p_outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...signup, occurredAt: "2026-11-14T09:30:00.000Z" }], simulated: false },
       },
     ]);
   });
