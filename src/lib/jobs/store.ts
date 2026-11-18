@@ -267,9 +267,9 @@ function isManualSyncResult(value: unknown): value is ManualSyncResult {
   return MANUAL_SYNC_RESULTS.some((result) => result === value);
 }
 
-// The bound of list_webhook_targets (20261115090200_webhook_delivery_review.sql). One provider account
-// connected to more workspaces than this reaches the first by account id; polling still brings
-// the rest their events.
+// The bound of list_webhook_targets, applied before the webhook job keeps one kind, so targets of
+// the other kind count toward it. 20261118140000_webhook_targets_simulated.sql's header says what a
+// target of the delivery's kind past the bound gets: a real one its next poll, a simulated one nothing.
 export const WEBHOOK_TARGET_LIMIT = 100;
 
 // A row the database does not mark simulated is a real connection's. `simulated` is absent, not
