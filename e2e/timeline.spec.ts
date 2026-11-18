@@ -102,11 +102,10 @@ async function seedTimeline(label: string): Promise<TestWorkspace> {
   const { error: eventsError } = await admin.from("activity_events").insert(events);
   if (eventsError) throw new Error(`Seeding events failed (code ${eventsError.code}).`);
 
-  // The same provider event ingested again, the way the sync store writes it, must be ignored.
+  // The same provider event ingested again, through insert_activity_events as the job store's
+  // insertEvents writes it, must be ignored: it is not new, and it already has its body.
   const repeat = { ...syntheticEvent(workspace, connectionId, accountId, 5), title: "Synthetic event 5" };
-  const { error: repeatError } = await admin
-    .from("activity_events")
-    .upsert(repeat, { onConflict: "workspace_id,dedupe_key", ignoreDuplicates: true });
+  const { error: repeatError } = await admin.rpc("insert_activity_events", { p_rows: [repeat] });
   if (repeatError) throw new Error(`Repeating an event failed (code ${repeatError.code}).`);
   return workspace;
 }
