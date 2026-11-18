@@ -213,6 +213,42 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # Realtime stops a lone node's Postgres Changes replication about every 10 minutes to
+      # rebalance it (#555), and a change written in that gap never reaches the page, with no
+      # error on either side. Only the container log shows when that happened, and stopping
+      # Supabase removes the container, so save the log first, on every run: a green run can
+      # pass a rebalance by luck. The lines are also printed in the job log, because a rerun
+      # uploads a new artifact that replaces this attempt's log, and the job log of each
+      # attempt is kept. Supabase CLI 3.2.0 removes the stall. Keep these two steps through the
+      # CLI pin move (#522): the log of its first CLI 3.2.0 run that lasts 10 minutes or more,
+      # with no Rebalancing line, is the proof #555 needs. Revisit them after that run.
+      - name: Save Realtime container log
+        if: always()
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP}/realtime.log"
+          container=supabase_realtime_stackdash
+          # A missing container means Supabase never started, and that step already failed the
+          # job, so say so and pass. Any other failure, the daemon included, stays loud.
+          if ! err=$(docker container inspect "${container}" 2>&1 > /dev/null); then
+            if [[ "${err}" == *"No such container"* ]]; then
+              echo "No Realtime log saved: container ${container} does not exist (Supabase did not start)." | tee "${log}"
+              exit 0
+            fi
+            echo "${err}" >&2
+            exit 1
+          fi
+          docker logs --timestamps "${container}" > "${log}" 2>&1
+          grep -F 'Rebalancing' "${log}" || echo "No Realtime rebalance in this run."
+
+      - name: Upload Realtime container log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: realtime-log
+          path: ${{ runner.temp }}/realtime.log
+          retention-days: 7
+
       - name: Stop local Supabase
         if: always()
         run: supabase stop
