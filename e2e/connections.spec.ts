@@ -273,7 +273,17 @@ ownerTest.describe("connecting a provider as the owner", () => {
         name: `${PROVIDER_NAME} did not grant every permission StackDash needs`,
       });
       await expect(attention).toContainText("Missing: usage:read");
-      await attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` }).click();
+      await expect(attention).toContainText("cannot sync until you reconnect and approve it.");
+      // The fake provider is on here, so both links lead to its reconnect (#562 hides them while it is off).
+      const reconnectHref = `/w/${workspace.slug}/connections/new/fake?connection=${connectionIdFrom(page)}`;
+      await expect(page.getByRole("region", { name: "Manage" }).getByRole("link", { name: "Reconnect" })).toHaveAttribute(
+        "href",
+        reconnectHref,
+      );
+      await expect(page.getByText("cannot be reconnected")).toHaveCount(0);
+      const attentionLink = attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` });
+      await expect(attentionLink).toHaveAttribute("href", reconnectHref);
+      await attentionLink.click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Reconnect ${PROVIDER_NAME}`);
     } finally {
       await deleteTestWorkspace(workspace);
@@ -413,7 +423,8 @@ ownerTest.describe("connecting a provider as the owner", () => {
       const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText("Deletes the stored credential");
-      await expect(dialog).toContainText("Keeps the history already collected");
+      // The fake provider is on here, so the dialog still offers a reconnect (#562 drops it while it is off).
+      await expect(dialog).toContainText("Keeps the history already collected and marks the connection disconnected. Reconnect at any time.");
 
       // Cancel leaves everything as it was.
       await dialog.getByRole("button", { name: "Cancel" }).click();
