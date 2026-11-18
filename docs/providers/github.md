@@ -160,7 +160,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 ### Forks: `GET /repos/{owner}/{repo}/forks`
 
-`sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync read the first page and stop at the first fork id already seen. Store the fork `id` and `created_at` for de-duplication; do not store owner logins. `forks_count` on the repository is the total.
+`sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync that reaches the repository within the fork budget (see [Time budget](#time-budget)), read the first page and stop at the first fork id already seen. Store the fork `id` and `created_at` for de-duplication; do not store owner logins. `forks_count` on the repository is the total.
 
 ### Merged pull requests: `GET /repos/{owner}/{repo}/pulls`
 
@@ -193,7 +193,7 @@ That leaves about 15 seconds for the installation, token, and repository list re
 
 Each budget reads the repositories read longest ago first, never read first, and leaves the rest for a later sync, logged as `github.sync.forks_deferred` or `github.sync.activity_deferred` with how many were deferred and read. A busy installation therefore catches up over several syncs: the forks of 100 busy repositories in about a day, their activity in about a day and a half.
 
-- Forks are ordered by when they were last read (`forksReadAt`). A repository not reached keeps its newest fork seen, so the sync that reads it reports each fork made since, once. A repository whose forks were never read (new to the installation, and not reached on its first sync) has its star baseline but no fork baseline yet (`forksSeenAt` absent), so its first fork read sets the baseline without reporting the forks already there.
+- Forks are ordered by when they were last read (`forksReadAt`). A repository not reached keeps its newest fork seen, so the sync that reads it reports each fork made since, once. A repository new to the installation and not reached on its first sync takes that sync's time as its fork baseline (`forksSeenAt`), so its first fork read reports every fork made after StackDash first listed it, and none from before. The baseline compares this host's clock with GitHub's `created_at`, so a fork made within the clock difference of that first sync can fall either side.
 - Activity is ordered by when each repository's activity was last attempted (`activityAttemptedAt`), never-attempted first, so a list that is never read (a permission not accepted, a list refused) cannot keep a repository at the front or the back. A repository not reached keeps its read times and is read from where it left off.
 
 ### New stars per day: `github.stars.gained.daily`
