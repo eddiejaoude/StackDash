@@ -4,6 +4,8 @@ import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
 import { z } from "zod";
 
+import type { Database } from "../src/lib/supabase/database.types";
+
 import { openCreateForm } from "./fixtures/alerts";
 import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
@@ -28,7 +30,11 @@ import { tick } from "./fixtures/webhook-ticks";
 
 const run = promisify(execFile);
 const FAILED_DEPLOYMENT = "Production deployment of web failed";
+// What a run of failed deployments with different titles is headed (#253, event-list.tsx).
+const FAILED_DEPLOYMENTS_RUN = "Deployment failed";
 const BUDGET_ALERT = "Budget Vercel monthly passed 90 percent";
+// The command's deployment uid starts `dpl_simevent` (vercelFailedDeployment); the sync's never do.
+const INCIDENT_DEDUPE_KEY_PREFIX = "vercel:dpl_simevent";
 // A day: the command's own syncs schedule the next one this far out, so no tick syncs the
 // connection while the spec runs.
 const COMMAND_ONLY_POLL_INTERVAL_SECONDS = 86_400;
@@ -70,6 +76,47 @@ async function countEvents(workspace: TestWorkspace): Promise<number | null> {
   const { count, error } = await adminClient().from("activity_events").select("id", { count: "exact", head: true }).eq("workspace_id", workspace.id);
   if (error) throw new Error(`Reading the events failed (code ${error.code}).`);
   return count;
+}
+
+type Incident = Pick<
+  Database["public"]["Tables"]["activity_events"]["Row"],
+  "id" | "title" | "occurred_at" | "connection_id" | "external_account_id" | "provider" | "type_id" | "severity"
+>;
+
+/** The newest failed deployment the command wrote, told apart from the sync's by its dedupe key. */
+async function latestIncident(workspace: TestWorkspace): Promise<Incident> {
+  const { data: incident, error } = await adminClient()
+    .from("activity_events")
+    .select("id, title, occurred_at, connection_id, external_account_id, provider, type_id, severity")
+    .eq("workspace_id", workspace.id)
+    .like("dedupe_key", `${INCIDENT_DEDUPE_KEY_PREFIX}%`)
+    .order("occurred_at", { ascending: false })
+    .limit(1)
+    .single();
+  if (error) throw new Error(`Reading the incident failed (code ${error.code}).`);
+  expect(incident.title).toBe(FAILED_DEPLOYMENT);
+  return incident;
+}
+
+/**
+ * A failed production deployment of `api` a millisecond before `incident`, as the command's sync
+ * writes now and then (#576). It shares the incident's provider, type, severity, and account, so
+ * the timeline groups the two into one run headed by the type name rather than the incident's
+ * title. A millisecond leaves no room for another sync deployment to land between them.
+ */
+async function seedSyncFailureBefore(workspace: TestWorkspace, incident: Incident): Promise<void> {
+  const { error } = await adminClient().from("activity_events").insert({
+    workspace_id: workspace.id,
+    connection_id: incident.connection_id,
+    external_account_id: incident.external_account_id,
+    provider: incident.provider,
+    type_id: incident.type_id,
+    severity: incident.severity,
+    title: "Production deployment of api failed",
+    occurred_at: new Date(Date.parse(incident.occurred_at) - 1).toISOString(),
+    dedupe_key: "e2e-demo-event-api-failed",
+  });
+  if (error) throw new Error(`Seeding the sync's failed deployment failed (code ${error.code}).`);
 }
 
 async function addWebhookChannel(page: Page, workspace: TestWorkspace, url: string): Promise<void> {
@@ -143,23 +190,34 @@ ownerTest.describe("demo event", () => {
       expect(refused.stderr).toContain("Demo event refused. Provider simulation is off.");
       expect(await countEvents(workspace)).toBe(before);
 
-      // A first run fills the timeline: the sync's half hour of deployments, then the incident.
+      // A first run fills the timeline: the sync's half hour of deployments, then the incident. The
+      // sync sometimes writes a failed production deployment of another project minutes before it,
+      // and the timeline then groups the two into one run headed "Deployment failed" (#253, #576).
+      // So the spec writes one, making that case the one it always checks, and finds the incident
+      // by its id: a row's heading links its newest event.
       expect((await demoEvent("failed-deployment", workspace)).code).toBe(0);
+      const first = await latestIncident(workspace);
+      await seedSyncFailureBefore(workspace, first);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/timeline`);
       await expectSubscribed(live);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
-      await expect(events.first().getByRole("heading", { name: FAILED_DEPLOYMENT, exact: true })).toBeVisible();
+      const newestLink = events.first().getByRole("heading", { level: 3 }).getByRole("link");
+      await expect(newestLink).toHaveAttribute("href", new RegExp(`[?&]event=${first.id}$`));
+      await expect(newestLink).toHaveText(FAILED_DEPLOYMENTS_RUN);
       await expect(events.first().getByText(/^,?\s*New$/)).toHaveCount(0);
 
       // With the timeline open, the next one arrives without a reload: the newest row, marked new.
-      // When nothing the sync wrote lands between the two incidents, the second joins the first as
-      // one run (#253), and its "New" shows on the row and on the event inside it.
+      // It joins the first row's run when nothing the sync wrote lands between the two incidents,
+      // and its "New" then shows on the row and on the event inside it; otherwise it starts a row
+      // of its own. Either way the newest row links it.
       const deployment = await demoEvent("failed-deployment", workspace);
       expect(deployment.code).toBe(0);
       expect(deployment.stdout).toContain(`A failed production deployment of web is on the timeline of ${workspace.name}`);
-      await expect(events.first().getByText(/^,?\s*New$/).first()).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
-      await expect(events.first().getByRole("heading", { name: FAILED_DEPLOYMENT, exact: true })).toBeVisible();
+      const second = await latestIncident(workspace);
+      expect(second.id).not.toBe(first.id);
+      await expect(newestLink).toHaveAttribute("href", new RegExp(`[?&]event=${second.id}$`), { timeout: LIVE_TIMEOUT_MS });
+      await expect(events.first().getByText(/^,?\s*New$/).first()).toBeVisible();
 
       const crossing = await demoEvent("budget-crossing", workspace);
       expect(crossing.code).toBe(0);
