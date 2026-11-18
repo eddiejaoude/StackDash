@@ -8,7 +8,7 @@ import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { storedCopies, tick, tickUntilConnectionStatus, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
+import { storedCopies, tickUntilConnectionStatus, tickUntilDeliveryProcessed, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Stripe webhooks (#423, #481), end to end against the simulated Stripe provider, which runs the
@@ -140,8 +140,10 @@ ownerTest.describe("Stripe webhooks", () => {
       expect(live.status()).toBe(202);
 
       // Applied on the next tick, which also runs the connection's first sync. The store prefixes an
-      // adapter's dedupe key (the Stripe event id) with the provider.
+      // adapter's dedupe key (the Stripe event id) with the provider. The live delivery has a job of
+      // its own, so its zero is read only once that job has run.
       await tickUntilStored(page, workspace, `stripe:${eventId}`);
+      await tickUntilDeliveryProcessed(page, "stripe", liveId);
       expect(await storedCopies(workspace, `stripe:${liveId}`)).toBe(0);
 
       await page.goto(`/w/${workspace.slug}/timeline?from=${day}&to=${day}&provider=stripe`);
@@ -186,12 +188,7 @@ ownerTest.describe("Stripe webhooks", () => {
       // Live mode: accepted, applied by the next tick, and never reaching this test mode connection.
       const liveId = newEventId();
       expect((await postStripeWebhook(stripe, installDeleted(liveId, accountId, removedSeconds(), true))).status()).toBe(202);
-      await expect(async () => {
-        await tick(page);
-        const { data, error } = await adminClient().from("webhook_deliveries").select("status").eq("provider", "stripe").eq("delivery_id", liveId).single();
-        if (error) throw new Error(`Reading the delivery failed (code ${error.code}).`);
-        expect(data.status).toBe("processed");
-      }).toPass({ timeout: 90_000 });
+      await tickUntilDeliveryProcessed(page, "stripe", liveId);
       expect((await readConnection()).status).toBe("active");
 
       // Test mode: the same account's test mode install removed, which is this connection.
