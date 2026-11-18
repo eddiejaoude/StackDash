@@ -24,6 +24,7 @@ import { ProviderMark } from "@/components/ui/provider-mark";
 import { availableProviders } from "@/lib/adapters/registry";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
+import { reconnectTarget } from "@/lib/connections/reconnect";
 import {
   automaticChoiceCopy,
   automaticSetUpCopy,
@@ -104,7 +105,7 @@ async function ConnectionContent({
   const providerName = PROVIDER_NAMES[connection.provider];
   const simulated = isSimulatedConnection(connection);
   const connectionsPath = workspacePath(workspace.slug, "connections");
-  const reconnectHref = `${connectionsPath}/new/${connection.provider}?${new URLSearchParams({ connection: connection.id }).toString()}`;
+  const reconnect = reconnectTarget({ connectionsPath, connectionId: connection.id, providerName, adapter });
   const lastSynced = connection.last_synced_at === null ? null : new Date(connection.last_synced_at);
   const remaining = cooldownRemainingSeconds(
     connection.last_sync_requested_at === null ? null : new Date(connection.last_sync_requested_at),
@@ -136,7 +137,11 @@ async function ConnectionContent({
             manual: manualChoiceCopy(providerName, webhookSetup, leftoverWriteAccess),
           },
           writeAccess: needsWriteAccess(webhookSetup),
-          leftoverWriteAccess: leftoverWriteAccess ? { note: leftoverWriteAccessCopy(providerName), reconnectHref } : null,
+          // Unreachable without an adapter (webhookSetup is null then), checked so the link never outlives one.
+          leftoverWriteAccess:
+            leftoverWriteAccess && reconnect.kind === "available"
+              ? { note: leftoverWriteAccessCopy(providerName), reconnectHref: reconnect.href }
+              : null,
           secretSource: webhookSetup.secretSource,
           manualSteps: webhookSetup.manualSteps,
           removalSteps: webhookSetup.removalSteps,
@@ -221,13 +226,19 @@ async function ConnectionContent({
           </h2>
           <p className="mt-1 leading-6 text-muted">
             Missing: <span className="font-medium text-foreground">{connection.missing_scopes.join(", ")}</span>. The
-            data that needs it cannot sync until you reconnect and approve it.
+            data that needs it cannot sync
+            {reconnect.kind === "available" ? " until you reconnect and approve it" : null}.
           </p>
-          {canManage ? (
-            <Link href={reconnectHref} className={`mt-3 ${buttonClass("primary")}`}>
+          {!canManage ? null : reconnect.kind === "available" ? (
+            <Link href={reconnect.href} className={`mt-3 ${buttonClass("primary")}`}>
               Reconnect {providerName}
             </Link>
-          ) : null}
+          ) : (
+            <p className="mt-3 flex items-center gap-2 text-muted">
+              <LockIcon className="shrink-0" />
+              <span>{reconnect.reason}</span>
+            </p>
+          )}
         </section>
       ) : null}
 
@@ -317,7 +328,7 @@ async function ConnectionContent({
         {accounts.length === 0 ? (
           <p className="px-6 py-4 text-sm text-muted">
             {providerName} reported no accounts for this grant.{" "}
-            {canManage ? "Reconnect and choose at least one account on the consent screen." : null}
+            {canManage && reconnect.kind === "available" ? "Reconnect and choose at least one account on the consent screen." : null}
           </p>
         ) : (
           <ul aria-label="Accounts" className="divide-y divide-line">
@@ -371,9 +382,11 @@ async function ConnectionContent({
             {revoked ? null : (
               <SyncNowForm workspaceSlug={workspace.slug} connectionIds={[connection.id]} cooldownNotice={cooldownNotice} />
             )}
-            <Link href={reconnectHref} className={buttonClass("outline")}>
-              Reconnect
-            </Link>
+            {reconnect.kind === "available" ? (
+              <Link href={reconnect.href} className={buttonClass("outline")}>
+                Reconnect
+              </Link>
+            ) : null}
             <DisconnectDialog
               workspaceSlug={workspace.slug}
               connectionId={connection.id}
@@ -387,6 +400,12 @@ async function ConnectionContent({
               }
             />
             <DeleteConnectionDialog workspaceSlug={workspace.slug} connectionId={connection.id} providerName={providerName} />
+            {reconnect.kind === "available" ? null : (
+              <p className="flex basis-full items-center gap-2 text-sm text-muted">
+                <LockIcon className="shrink-0" />
+                <span>{reconnect.reason}</span>
+              </p>
+            )}
           </div>
         ) : (
           <p className="mt-3 flex items-center gap-2 text-sm text-muted">

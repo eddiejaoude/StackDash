@@ -273,7 +273,17 @@ ownerTest.describe("connecting a provider as the owner", () => {
         name: `${PROVIDER_NAME} did not grant every permission StackDash needs`,
       });
       await expect(attention).toContainText("Missing: usage:read");
-      await attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` }).click();
+      await expect(attention).toContainText("cannot sync until you reconnect and approve it.");
+      // The fake provider is on here, so both links lead to its reconnect (#562 hides them while it is off).
+      const reconnectHref = `/w/${workspace.slug}/connections/new/fake?connection=${connectionIdFrom(page)}`;
+      await expect(page.getByRole("region", { name: "Manage" }).getByRole("link", { name: "Reconnect" })).toHaveAttribute(
+        "href",
+        reconnectHref,
+      );
+      await expect(page.getByText("cannot be reconnected")).toHaveCount(0);
+      const attentionLink = attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` });
+      await expect(attentionLink).toHaveAttribute("href", reconnectHref);
+      await attentionLink.click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Reconnect ${PROVIDER_NAME}`);
     } finally {
       await deleteTestWorkspace(workspace);

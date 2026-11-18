@@ -19,8 +19,8 @@ const ITEMS = {
   // reconnect address, one that carries `connection`, gets the connection's copy instead
   // (ItemNotFound), whichever check failed: its connection is gone or belongs to another provider,
   // but also an unknown provider, the switched-off fake provider, and the webhook case, which only
-  // the server can tell apart. Only a hand-edited address should reach those; the connection page's
-  // Reconnect link for a fake connection while the fake provider is off is a bug of its own.
+  // the server can tell apart. Only a hand-edited address should reach those: the connection page
+  // links no reconnect for a provider absent from the registry (#562).
   provider: {
     title: "We could not find that provider",
     description:
