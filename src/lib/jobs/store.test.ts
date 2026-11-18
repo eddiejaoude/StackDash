@@ -339,6 +339,7 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
       events: [event, { ...event, body: "Production", url: "https://example.com/deployments/1", dedupeKey: "fake.deploy.succeeded:fake-acct-1:2026-11-15" }],
     },
     { kind: "events", externalAccountId: "fake-acct-1", events: [] },
+    { kind: "events", externalAccountId: "fake-acct-1", installationId: "fake-installation-1", events: [event] },
     { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "uninstalled", by: "account", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
@@ -376,6 +377,8 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { name: "an installation id without by", value: { kind: "uninstalled", installationId: "fake-installation-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
     { name: "by installation naming an account", value: { kind: "uninstalled", by: "installation", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
     { name: "an uninstall naming both", value: { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "events with an empty installation id", value: { kind: "events", externalAccountId: "fake-acct-1", installationId: "", events: [] } },
+    { name: "events with a null installation id", value: { kind: "events", externalAccountId: "fake-acct-1", installationId: null, events: [] } },
     { name: "an unknown by", value: { kind: "uninstalled", by: "organization", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
   ])("refuses a stored outcome of another shape (boundary: $name)", ({ value }) => {
     expect(webhookOutcomeFromJson(value)).toBeNull();
@@ -428,7 +431,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const { store, requests } = storeWith({ list_webhook_targets: () => rows });
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
 
-    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null });
+    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: null });
 
     expect(read).toEqual([
       { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
@@ -441,9 +444,20 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
   it("restricts a per-connection delivery to the endpoint's connection", async () => {
     const { store, requests } = storeWith({ list_webhook_targets: () => targets(1) });
 
-    await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: ENDPOINT_ID });
+    await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: ENDPOINT_ID });
 
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_endpoint_id: ENDPOINT_ID }]);
+  });
+
+  it("keeps a delivery's account to the installation that sent it, when it names one (#497)", async () => {
+    const { store, requests } = storeWith({ list_webhook_targets: () => targets(1) });
+
+    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: "fake-installation-1", endpointId: null });
+
+    expect(read).toEqual([
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+    ]);
+    expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_installation_id: "fake-installation-1" }]);
   });
 
   it("asks for an installation's connections by installation id alone, one target per connection (#480)", async () => {
@@ -467,7 +481,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const { store } = storeWith({ list_webhook_targets: () => targets(count) });
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
 
-    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null });
+    const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: null });
 
     expect(read).toHaveLength(count);
     expect(warn.mock.calls).toEqual(warned ? [["webhook.targets_truncated", { provider: "fake", targets: count }]] : []);

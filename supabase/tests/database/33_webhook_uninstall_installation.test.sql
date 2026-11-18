@@ -1,8 +1,11 @@
 -- A webhook uninstall that names an installation (#480): list_webhook_targets matches
 -- p_installation_id against connections.external_installation_id on live connections of the
 -- provider only, one row per connection with no account, and only the endpoint's own connection for
--- a per-connection URL; exactly one of p_external_id and p_installation_id is required, and a call
--- naming only the parameters code before #480 sends still works; an index serves the lookup;
+-- a per-connection URL; at least one of p_external_id and p_installation_id is required, and a call
+-- naming only the parameters code before #480 sends still works; naming both keeps the account
+-- match to connections of that installation (#497), so a connection left needing a reconnect after
+-- an uninstall gets nothing from a later install, and one with no recorded installation gets
+-- nothing either; an index serves the lookup;
 -- record_webhook_delivery accepts an uninstall naming an account (with or without `by`) or an
 -- installation and refuses one naming neither; members read external_installation_id and nobody
 -- writes it through the Data API; granted_at is the column alone on the installation match too
@@ -12,12 +15,15 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(25);
+select plan(32);
 
 -- Fixtures: workspaces A and B. Installation inst-1 on fake connections: A active (with an
 -- included account), A failed, B needs_attention (no accounts), A pending, A revoked; inst-1 on
 -- a GitHub connection in B; inst-2 on a fake connection in B; a fake connection with no
 -- installation in A. One endpoint on A's active connection.
+-- The reinstall (#497): project proj-1 is included by A's connection of inst-old, left
+-- needs_attention by its uninstall; by B's connection of inst-new, the later install of the same
+-- organization; and by A's connection with no installation.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
   ('c3300001-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -42,13 +48,18 @@ values
   ('c3300003-0000-4000-8000-000000000005', 'c3300002-0000-4000-8000-000000000001', 'fake', 'revoked', 'A revoked', 3600, 'inst-1', null),
   ('c3300003-0000-4000-8000-000000000006', 'c3300002-0000-4000-8000-000000000002', 'github', 'active', 'B GitHub', 3600, 'inst-1', null),
   ('c3300003-0000-4000-8000-000000000007', 'c3300002-0000-4000-8000-000000000002', 'fake', 'active', 'B other installation', 3600, 'inst-2', null),
-  ('c3300003-0000-4000-8000-000000000008', 'c3300002-0000-4000-8000-000000000001', 'fake', 'active', 'A no installation', 3600, null, null);
+  ('c3300003-0000-4000-8000-000000000008', 'c3300002-0000-4000-8000-000000000001', 'fake', 'active', 'A no installation', 3600, null, null),
+  ('c3300003-0000-4000-8000-000000000009', 'c3300002-0000-4000-8000-000000000001', 'fake', 'needs_attention', 'A uninstalled', 3600, 'inst-old', '2026-11-10T08:00:00Z'),
+  ('c3300003-0000-4000-8000-000000000010', 'c3300002-0000-4000-8000-000000000002', 'fake', 'active', 'B reinstalled', 3600, 'inst-new', '2026-11-16T08:00:00Z');
 
 -- An account whose external id equals the installation id: the installation form never reads it.
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind, included)
 values
   ('c3300004-0000-4000-8000-000000000001', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000001', 'acct-1', 'Account', 'team', true),
-  ('c3300004-0000-4000-8000-000000000002', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000008', 'inst-1', 'Lookalike', 'team', true);
+  ('c3300004-0000-4000-8000-000000000002', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000008', 'inst-1', 'Lookalike', 'team', true),
+  ('c3300004-0000-4000-8000-000000000003', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000009', 'proj-1', 'Project', 'team', true),
+  ('c3300004-0000-4000-8000-000000000004', 'c3300002-0000-4000-8000-000000000002', 'c3300003-0000-4000-8000-000000000010', 'proj-1', 'Project', 'team', true),
+  ('c3300004-0000-4000-8000-000000000005', 'c3300002-0000-4000-8000-000000000001', 'c3300003-0000-4000-8000-000000000008', 'proj-1', 'Project', 'team', true);
 
 insert into public.webhook_endpoints (id, workspace_id, connection_id, provider, key_id, iv, ciphertext, auth_tag)
 values
@@ -155,10 +166,40 @@ select throws_ok(
   $$ select * from public.list_webhook_targets('fake') $$,
   '22023'::char(5), null::text,
   'targets: naming neither an account nor an installation is refused (boundary: neither)');
-select throws_ok(
-  $$ select * from public.list_webhook_targets('fake', 'acct-1', p_installation_id => 'inst-1') $$,
-  '22023'::char(5), null::text,
-  'targets: naming both is refused (boundary: both)');
+
+-- ---------------------------------------------------------------------------
+-- list_webhook_targets by account and installation (#497)
+-- ---------------------------------------------------------------------------
+select results_eq(
+  $$ select account_id from public.list_webhook_targets('fake', 'proj-1') order by account_id $$,
+  $$ values ('c3300004-0000-4000-8000-000000000003'::uuid), ('c3300004-0000-4000-8000-000000000004'::uuid),
+            ('c3300004-0000-4000-8000-000000000005'::uuid) $$,
+  'account and installation: the account alone still reaches every connection including it, whatever its installation');
+select results_eq(
+  $$ select account_id from public.list_webhook_targets('fake', 'proj-1', p_installation_id => 'inst-new') $$,
+  $$ values ('c3300004-0000-4000-8000-000000000004'::uuid) $$,
+  'account and installation: a delivery from the reinstall reaches only the new installation''s connection, not the uninstalled one that still includes the project (boundary: reinstall)');
+select results_eq(
+  $$ select account_id from public.list_webhook_targets('fake', 'proj-1', p_installation_id => 'inst-old') $$,
+  $$ values ('c3300004-0000-4000-8000-000000000003'::uuid) $$,
+  'account and installation: a delivery whose installation matches the connection still reaches it');
+select is_empty(
+  $$ select 1 from public.list_webhook_targets('fake', 'proj-1', p_installation_id => 'inst-new')
+     where connection_id = 'c3300003-0000-4000-8000-000000000008' $$,
+  'account and installation: a connection with no recorded installation is no match (boundary: null)');
+select is_empty(
+  $$ select 1 from public.list_webhook_targets('fake', 'proj-1', p_installation_id => 'inst-9') $$,
+  'account and installation: an installation no connection records finds no targets (boundary: unknown installation)');
+select results_eq(
+  $$ select account_id from public.list_webhook_targets('fake', 'acct-1', 'c3300005-0000-4000-8000-000000000001', 'inst-1') $$,
+  $$ values ('c3300004-0000-4000-8000-000000000001'::uuid) $$,
+  'account and installation: a per-connection delivery reaches the endpoint''s own connection of that installation');
+select is_empty(
+  $$ select 1 from public.list_webhook_targets('fake', 'acct-1', 'c3300005-0000-4000-8000-000000000001', 'inst-2') $$,
+  'account and installation: the endpoint''s own connection of another installation is no target (boundary: installation decides)');
+select is_empty(
+  $$ select 1 from public.list_webhook_targets('fake', 'proj-1', 'c3300005-0000-4000-8000-000000000001', 'inst-new') $$,
+  'account and installation: the installation''s connection behind another connection''s endpoint is no target (boundary: endpoint decides)');
 
 -- ---------------------------------------------------------------------------
 -- record_webhook_delivery: what an uninstall must name

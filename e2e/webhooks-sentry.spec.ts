@@ -9,15 +9,17 @@ import { connectSimulated } from "./fixtures/connections";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { tickUntilConnectionStatus, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
+import { storedCopies, tickUntilConnectionStatus, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Sentry webhooks (#421), end to end against simulated Sentry, which runs the real adapter's
  * `verify` and `parse` with the simulated secret (#479).
- * - A signed `issue.created` delivery for one of the connection's projects is accepted, a repeat
- *   of its Request-ID is acknowledged as a duplicate, an unsigned one is refused, and the next tick
- *   puts "New issue" on the timeline once. The issue is dated three weeks back, outside the half
- *   hour simulated Sentry's sync backfills, so only the delivery can have put it there.
+ * - A signed `issue.created` delivery for one of the connection's projects, from the connection's
+ *   installation, is accepted, a repeat of its Request-ID is acknowledged as a duplicate, an
+ *   unsigned one is refused, and the next tick puts "New issue" on the timeline once. The issue is
+ *   dated three weeks back, outside the half hour simulated Sentry's sync backfills, so only the
+ *   delivery can have put it there. The same project's issue from another installation (a later
+ *   install of the same organization, #497) is accepted and processed, and stores nothing.
  * - A signed `installation.deleted` naming the connection's installation (a simulated grant's is
  *   its seed, #480) marks the connection as needing attention on the next tick.
  *
@@ -38,6 +40,55 @@ async function webProjectId(workspace: TestWorkspace): Promise<string> {
     .single();
   if (error) throw new Error(`Reading the Sentry projects failed (code ${error.code}).`);
   return data.external_id;
+}
+
+/** The installation the workspace's Sentry connection recorded when its grant completed: the simulated grant's seed. */
+async function connectionInstallationId(workspace: TestWorkspace): Promise<string> {
+  const { data, error } = await adminClient()
+    .from("connections")
+    .select("external_installation_id")
+    .eq("workspace_id", workspace.id)
+    .eq("provider", "sentry")
+    .single();
+  if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
+  if (data.external_installation_id === null) throw new Error("The Sentry connection recorded no installation.");
+  return data.external_installation_id;
+}
+
+/** Whether Sentry's delivery with `requestId` has been applied by a tick. */
+async function deliveryProcessed(requestId: string): Promise<boolean> {
+  const { data, error } = await adminClient()
+    .from("webhook_deliveries")
+    .select("status")
+    .eq("provider", "sentry")
+    .eq("delivery_id", requestId)
+    .single();
+  if (error) throw new Error(`Reading the delivery failed (code ${error.code}).`);
+  return data.status === "processed";
+}
+
+/** A documented `issue.created` body for a new issue in `projectId`, first seen at noon UTC on `day`, sent by `installationId`. */
+function issueCreatedBody(installationId: string, projectId: string, issueId: string, day: string): string {
+  return JSON.stringify({
+    action: "created",
+    installation: { uuid: installationId },
+    data: {
+      issue: {
+        id: issueId,
+        shortId: `WEB-E2E${issueId}`,
+        title: "Synthetic e2e error",
+        culprit: "e2e",
+        permalink: null,
+        level: "error",
+        status: "unresolved",
+        substatus: "new",
+        project: { id: projectId, name: "web", slug: "web" },
+        firstSeen: `${day}T12:00:00.000000+00:00`,
+        lastSeen: `${day}T12:00:00.000000+00:00`,
+      },
+    },
+    actor: { type: "application", id: "sentry", name: "Sentry" },
+  });
 }
 
 /**
@@ -69,31 +120,25 @@ ownerTest.describe("Sentry webhooks", () => {
     try {
       await connectSimulated(page, workspace.slug, "Sentry");
       const projectId = await webProjectId(workspace);
+      const installationId = await connectionInstallationId(workspace);
 
       const day = new Date(Date.now() - DAYS_BACK * DAY_MS).toISOString().slice(0, 10);
       // Shorter than the simulated issues' ids, which start with the project id, so never one of them.
-      const issueId = String(randomInt(100_000, 999_999));
+      const issueId = String(randomInt(100_000, 999_998));
       const shortId = `WEB-E2E${issueId}`;
-      const body = JSON.stringify({
-        action: "created",
-        installation: { uuid: randomUUID() },
-        data: {
-          issue: {
-            id: issueId,
-            shortId,
-            title: "Synthetic e2e error",
-            culprit: "e2e",
-            permalink: null,
-            level: "error",
-            status: "unresolved",
-            substatus: "new",
-            project: { id: projectId, name: "web", slug: "web" },
-            firstSeen: `${day}T12:00:00.000000+00:00`,
-            lastSeen: `${day}T12:00:00.000000+00:00`,
-          },
-        },
-        actor: { type: "application", id: "sentry", name: "Sentry" },
+      // Another issue of the same project, from another installation.
+      const foreignIssueId = String(Number(issueId) + 1);
+      const foreignShortId = `WEB-E2E${foreignIssueId}`;
+
+      // Posted first, so a tick claims it no later than the delivery below (oldest first).
+      const foreignRequestId = randomUUID().replaceAll("-", "");
+      const foreign = await postSentryWebhook(sentry, issueCreatedBody(randomUUID(), projectId, foreignIssueId, day), {
+        requestId: foreignRequestId,
+        resource: "issue",
       });
+      expect(foreign.status()).toBe(202);
+
+      const body = issueCreatedBody(installationId, projectId, issueId, day);
       const requestId = randomUUID().replaceAll("-", "");
 
       const accepted = await postSentryWebhook(sentry, body, { requestId, resource: "issue" });
@@ -109,10 +154,14 @@ ownerTest.describe("Sentry webhooks", () => {
       expect(await unsigned.json()).toEqual({ error: "unauthorized" });
 
       await tickUntilStored(page, workspace, `sentry:sentry.issue.created:${issueId}`);
+      // Applied, and dropped: the project is the connection's, the installation is not.
+      await expect.poll(() => deliveryProcessed(foreignRequestId)).toBe(true);
+      expect(await storedCopies(workspace, `sentry:sentry.issue.created:${foreignIssueId}`)).toBe(0);
 
       await page.goto(`/w/${workspace.slug}/timeline?from=${day}&to=${day}`);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(events.filter({ hasText: `New issue ${shortId}` })).toHaveCount(1);
+      await expect(events.filter({ hasText: `New issue ${foreignShortId}` })).toHaveCount(0);
       await expect(page.getByText("Synthetic e2e error")).toHaveCount(0);
     } finally {
       await sentry.dispose();

@@ -265,7 +265,7 @@ describe("runWebhookJob", () => {
     await runTick(harness.deps);
     expect(harness.store.savedCredentials).toHaveLength(1);
     // The column alone: the credential's last save no longer stands in for the grant.
-    expect(await harness.store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null })).toEqual([
+    expect(await harness.store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: null })).toEqual([
       expect.objectContaining({ connectionId: connection.id, grantedAt: null }),
     ]);
 
@@ -411,6 +411,79 @@ describe("runWebhookJob", () => {
     });
   });
 
+  describe("events naming the installation that sent them (#497)", () => {
+    const OLD_INSTALLATION = "fake-installation-old";
+    const NEW_INSTALLATION = "fake-installation-new";
+    const fromInstallation = (installationId: string): WebhookOutcome => ({ kind: "events", externalAccountId: "fake-acct-1", installationId, events: [deployment] });
+
+    /** Workspace A's connection, left needing a reconnect by the uninstall of its installation, and B's, made by the reinstall. */
+    function reinstalled(connect: (workspaceId: string, fields: Partial<MemoryConnection>) => MemoryConnection) {
+      const uninstalled = connect(WORKSPACE_A, {
+        external_installation_id: OLD_INSTALLATION,
+        status: "needs_attention",
+        consecutive_failures: 1,
+        last_error_code: "auth_revoked",
+        next_sync_at: null,
+      });
+      const current = connect(WORKSPACE_B, { external_installation_id: NEW_INSTALLATION });
+      return { uninstalled, current };
+    }
+
+    it("reaches only the reinstall's connection, not the uninstalled one that still includes the account (boundary: reinstall)", async () => {
+      const harness = setup();
+      const { uninstalled, current } = reinstalled(harness.connect);
+      const job = await harness.deliver(fromInstallation(NEW_INSTALLATION));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.eventsIn(WORKSPACE_A)).toEqual([]);
+      expect(harness.eventsIn(WORKSPACE_B)).toEqual([expect.objectContaining({ connection_id: current.id, dedupe_key: DEPLOYMENT_ROW_KEY })]);
+      expect([...harness.delivered.keys()]).toEqual([current.id]);
+      expect(uninstalled).toMatchObject({ status: "needs_attention", consecutive_failures: 1 });
+    });
+
+    it("still reaches a connection of the installation that sent it", async () => {
+      const harness = setup();
+      const { uninstalled } = reinstalled(harness.connect);
+      const job = await harness.deliver(fromInstallation(OLD_INSTALLATION));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.eventsIn(WORKSPACE_A)).toEqual([expect.objectContaining({ connection_id: uninstalled.id, dedupe_key: DEPLOYMENT_ROW_KEY })]);
+      expect(harness.eventsIn(WORKSPACE_B)).toEqual([]);
+    });
+
+    it.each([
+      ["no installation recorded yet (boundary: null)", { external_installation_id: null }],
+      ["another installation (boundary: unknown installation)", { external_installation_id: OLD_INSTALLATION }],
+    ])("writes nothing to a connection with %s", async (_case, fields) => {
+      const harness = setup();
+      const connection = harness.connect(WORKSPACE_A, fields);
+      const job = await harness.deliver(fromInstallation(NEW_INSTALLATION));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.store.events).toEqual([]);
+      expect(harness.delivered.size).toBe(0);
+      expect(connection).toMatchObject({ status: "active" });
+      // Says the installation took part, so a mismatch is not read as an account nobody includes.
+      expect(harness.infos).toContainEqual({
+        event: "webhook.no_targets",
+        fields: { jobId: job.id, provider: "fake", deliveryRowId: harness.store.webhookDeliveries[0]?.id, kind: "events", installationNamed: true },
+      });
+      expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
+    });
+
+    it("reaches every connection including the account, whatever its installation, when the delivery names none (boundary: no installation named)", async () => {
+      const harness = setup();
+      reinstalled(harness.connect);
+      harness.connect(WORKSPACE_B, { external_installation_id: null });
+      const job = await harness.deliver(events([deployment]));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.eventsIn(WORKSPACE_A)).toHaveLength(1);
+      expect(harness.eventsIn(WORKSPACE_B)).toHaveLength(1);
+      expect(harness.delivered.size).toBe(3);
+    });
+  });
+
   it("succeeds without writing when the delivery was purged", async () => {
     const harness = setup();
     harness.connect(WORKSPACE_A);
@@ -428,7 +501,10 @@ describe("runWebhookJob", () => {
 
     expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(harness.store.events).toEqual([]);
-    expect(harness.infos.map((line) => line.event)).toContain("webhook.no_targets");
+    expect(harness.infos).toContainEqual({
+      event: "webhook.no_targets",
+      fields: { jobId: job.id, provider: "fake", deliveryRowId: harness.store.webhookDeliveries[0]?.id, kind: "events", installationNamed: false },
+    });
     expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
   });
 

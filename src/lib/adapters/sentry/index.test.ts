@@ -709,6 +709,8 @@ describe("sentryAdapter.webhooks", () => {
     expect(outcome).toEqual({
       kind: "events",
       externalAccountId: PROJECT_ID,
+      // The installation that sent it, which the credential records, so only its connections receive it (#497).
+      installationId: INSTALLATION_ID,
       events: [
         {
           typeId: "sentry.issue.created",
@@ -745,6 +747,7 @@ describe("sentryAdapter.webhooks", () => {
     expect(outcome).toEqual({
       kind: "events",
       externalAccountId: PROJECT_ID,
+      installationId: INSTALLATION_ID,
       events: [{ ...polled, occurredAt: new Date(sentSeconds * 1000) }],
     });
   });
@@ -771,6 +774,7 @@ describe("sentryAdapter.webhooks", () => {
     expect(outcome).toEqual({
       kind: "events",
       externalAccountId: PROJECT_ID,
+      installationId: INSTALLATION_ID,
       events: [{ ...polled, occurredAt: new Date(sentSeconds * 1000) }],
     });
   });
@@ -783,6 +787,23 @@ describe("sentryAdapter.webhooks", () => {
     const request = delivery(JSON.stringify(webhookIssueRegressed), { timestamp: String(at.getTime() / 1000) });
     expect(descriptor().verify(request, WEBHOOK_SECRET, at).ok).toBe(true);
     expect(descriptor().parse(request, harness().ctx)).toMatchObject({ kind: "events", events: [{ dedupeKey, occurredAt: at }] });
+  });
+
+  it("names the installation that sent an issue delivery, whichever it is, so a later install's deliveries reach only its connections (#497)", () => {
+    const reinstalled = "0c6f3a0e-5d1b-4e61-9f7a-2b8d4c1e9a70";
+    const outcome = parsed(JSON.stringify({ ...webhookIssueCreated, installation: { uuid: reinstalled } }));
+    expect(outcome).toMatchObject({ kind: "events", externalAccountId: PROJECT_ID, installationId: reinstalled });
+    expect(checkWebhookOutcome(sentryAdapter, outcome)).toEqual([]);
+    // Not the installation the existing credential was granted for.
+    expect(sentryAdapter.installationIdOf?.(credential)).not.toBe(reinstalled);
+  });
+
+  it.each([
+    ["no installation", (body: Record<string, unknown>) => ({ ...body, installation: undefined })],
+    ["an installation id that could change a path", (body: Record<string, unknown>) => ({ ...body, installation: { uuid: "../7a485448" } })],
+    ["an empty installation id", (body: Record<string, unknown>) => ({ ...body, installation: { uuid: "" } })],
+  ])("ignores an issue delivery with %s, since it cannot say which connections it is for (boundary)", (_case, bend) => {
+    expect(parsed(JSON.stringify(bend(webhookIssueCreated)))).toEqual({ kind: "ignored", reason: "not an issue delivery StackDash reads" });
   });
 
   it("reports installation.deleted as an uninstall of the installation the credential was granted for, dated when sent", () => {

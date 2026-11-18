@@ -51,7 +51,9 @@ async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRec
   if (outcome.by === "installation") {
     return deps.store.listInstallationTargets({ provider, installationId: outcome.installationId, endpointId });
   }
-  return distinctConnections(await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, endpointId }));
+  return distinctConnections(
+    await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, installationId: null, endpointId }),
+  );
 }
 
 /**
@@ -112,10 +114,26 @@ export async function runWebhookJob(
   // Never `ignored`: such a delivery is stored processed and queues no job.
   const { outcome, provider } = delivery;
   if (outcome.kind === "events") {
-    const targets = await deps.store.listWebhookTargets({ provider, externalAccountId: outcome.externalAccountId, endpointId: delivery.endpointId });
+    // An installation named with the account (#497) narrows the targets to that installation's
+    // connections, so an uninstalled connection that still includes the account gets nothing.
+    const targets = await deps.store.listWebhookTargets({
+      provider,
+      externalAccountId: outcome.externalAccountId,
+      installationId: outcome.installationId ?? null,
+      endpointId: delivery.endpointId,
+    });
     if (targets.length === 0) {
-      // An account no workspace includes, or whose connection is gone: nothing to apply it to.
-      deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
+      // An account no workspace includes, or whose connection is gone or belongs to another or no
+      // recorded installation: nothing to apply it to. `installationNamed` (never the id) says
+      // whether the installation took part, so a mismatch that polling would hide is not read as an
+      // account nobody includes.
+      deps.log.info("webhook.no_targets", {
+        jobId: job.id,
+        provider,
+        deliveryRowId: delivery.id,
+        kind: outcome.kind,
+        installationNamed: outcome.installationId !== undefined,
+      });
     } else {
       const inserted = await writeEvents(provider, targets, outcome.events, deps);
       deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
