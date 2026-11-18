@@ -153,6 +153,12 @@ export interface JobStore {
   getConnection(key: ConnectionKey): Promise<SyncConnection | null>;
   listIncludedAccounts(key: ConnectionKey): Promise<SyncAccount[]>;
   updateConnection(key: ConnectionKey, patch: ConnectionPatch): Promise<void>;
+  /**
+   * Applies the patch only while the connection's status is one of `statuses`, in the same
+   * statement, so a status another job wrote since the caller read the row is kept (#487). Returns
+   * whether the patch applied; false also when the connection is not in the workspace.
+   */
+  updateConnectionInStatus(key: ConnectionKey, statuses: readonly SyncConnection["status"][], patch: ConnectionPatch): Promise<boolean>;
   loadCredential(key: ConnectionKey): Promise<OAuthCredential | null>;
   saveCredential(key: ConnectionKey, credential: OAuthCredential): Promise<void>;
   /** The connection's credential refresh lock for `leaseSeconds`: its id, or null while it is held (#496). */
@@ -462,6 +468,18 @@ export function createSupabaseJobStore(): JobStore {
         .eq("id", connectionId)
         .eq("workspace_id", workspaceId);
       if (error) throw failure("connection update", error);
+    },
+
+    async updateConnectionInStatus({ workspaceId, connectionId }, statuses, patch) {
+      const { data, error } = await db
+        .from("connections")
+        .update(patch)
+        .eq("id", connectionId)
+        .eq("workspace_id", workspaceId)
+        .in("status", [...statuses])
+        .select("id");
+      if (error) throw failure("connection update", error);
+      return data.length > 0;
     },
 
     loadCredential(key) {
