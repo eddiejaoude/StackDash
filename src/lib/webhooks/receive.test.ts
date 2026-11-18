@@ -548,6 +548,40 @@ describe("receiveWebhook", () => {
       },
     );
 
+    describe("events naming an installation (#497)", () => {
+      const signup: ActivityEvent = { typeId: "fake.signup", occurredAt: NOW, severity: "info", title: "New signup", externalAccountId: "fake-acct-1", dedupeKey: "k" };
+      const fromInstallation = (installationId: string): WebhookOutcome => ({ kind: "events", externalAccountId: "fake-acct-1", installationId, events: [signup] });
+
+      it("accepts events naming an installation from an adapter that records installations, storing the installation", async () => {
+        const outcome = fromInstallation("fake-installation-1");
+        const { deps, webhookJobs, store } = setup({
+          getAdapter: () => ({ ...withWebhooks({ parse: () => outcome }), installationIdOf: () => "fake-installation-1" }),
+        });
+        const response = await receive(deps, delivery(EVENT_BODY));
+        expect(response.status).toBe(202);
+        expect(webhookJobs()).toHaveLength(1);
+        expect(store.webhookDeliveries.map((row) => row.outcome)).toEqual([outcome]);
+      });
+
+      it.each([
+        { name: "an installation from an adapter that does not declare installationIdOf", installationId: "fake-installation-1", records: false },
+        { name: "a blank installation id", installationId: " ", records: true },
+        { name: "an empty installation id", installationId: "", records: true },
+      ])("answers 422 and logs the issue name only for events with $name (boundary)", async ({ installationId, records }) => {
+        const parse = () => fromInstallation(installationId);
+        const { deps, webhookJobs, lines, store } = setup({
+          getAdapter: () => (records ? { ...withWebhooks({ parse }), installationIdOf: () => "fake-installation-1" } : withWebhooks({ parse })),
+        });
+        const response = await receive(deps, delivery(EVENT_BODY));
+        expect(response.status).toBe(422);
+        expect(await response.json()).toEqual({ error: "invalid_events", referenceId: "REF-TEST0000" });
+        expect(webhookJobs()).toHaveLength(0);
+        expect(store.webhookDeliveries).toEqual([]);
+        expect(lines.map((line) => line.event)).toEqual(["webhook.invalid_events"]);
+        expect(lines[0]?.fields?.issues).toEqual(["installationId"]);
+      });
+    });
+
     it("records a verified delivery the provider does not map as ignored and processed, with 202 and no job", async () => {
       const { deps, webhookJobs, store } = setup();
       const response = await receive(deps, delivery(JSON.stringify({ type: "ping" })));

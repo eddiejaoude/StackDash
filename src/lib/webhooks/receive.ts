@@ -161,6 +161,16 @@ function checkEvents(adapter: ProviderAdapter, externalAccountId: string, candid
 }
 
 /**
+ * Issue names (never values) for an events delivery's installation (#497): a blank id, which the
+ * stored outcome refuses so the job could never run, or an installation named by an adapter that
+ * does not declare `installationIdOf`, so no connection records one and the events reach none.
+ */
+function eventsInstallationIssues(adapter: ProviderAdapter, installationId: string | undefined): string[] {
+  if (installationId === undefined) return [];
+  return installationId.trim() === "" || adapter.installationIdOf === undefined ? ["installationId"] : [];
+}
+
+/**
  * Issue names (never values) that would leave an uninstall's job with nothing to match: a blank
  * account or installation id, a time that is not one, or an installation named by an adapter that
  * does not declare `installationIdOf`, so no connection records one (#480).
@@ -237,10 +247,11 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
     }
     if (outcome.kind === "events") {
       const checked = checkEvents(adapter, outcome.externalAccountId, outcome.events);
-      if (!checked.ok) {
+      const issues = [...eventsInstallationIssues(adapter, outcome.installationId), ...(checked.ok ? [] : checked.issues)];
+      if (!checked.ok || issues.length > 0) {
         const referenceId = deps.logError("webhook.invalid_events", new Error(`${provider} webhook parse returned invalid events`), {
           ...fields,
-          issues: checked.issues,
+          issues,
         });
         return json(422, { error: "invalid_events", referenceId });
       }
