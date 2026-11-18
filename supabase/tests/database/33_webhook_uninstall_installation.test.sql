@@ -5,8 +5,8 @@
 -- naming only the parameters code before #480 sends still works; an index serves the lookup;
 -- record_webhook_delivery accepts an uninstall naming an account (with or without `by`) or an
 -- installation and refuses one naming neither; members read external_installation_id and nobody
--- writes it through the Data API; granted_at falls back to the credential's last save on the
--- installation match too.
+-- writes it through the Data API; granted_at is the column alone on the installation match too
+-- (#502).
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
@@ -132,8 +132,8 @@ select results_eq(
 select is(
   (select granted_at from public.list_webhook_targets('fake', p_installation_id => 'inst-1')
    where connection_id = 'c3300003-0000-4000-8000-000000000002'),
-  '2026-11-12T10:00:00Z'::timestamptz,
-  'installation: a live connection with no recorded grant falls back to its credential''s last save (boundary: unstamped)');
+  null::timestamptz,
+  'installation: a live connection with no recorded grant has no grant time, though it has a credential (boundary: fallback gone, #502)');
 select is(
   (select granted_at from public.list_webhook_targets('fake', p_installation_id => 'inst-1')
    where connection_id = 'c3300003-0000-4000-8000-000000000003'),
