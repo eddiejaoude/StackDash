@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -36,7 +37,9 @@ import {
  * `useModalDialog` gives the handle a trigger opens it with; `ModalDialog` renders it. Inside,
  * `DialogCloseButton` dismisses it and, unless told otherwise, takes focus when it opens, so Enter
  * right after opening a destructive confirmation cancels rather than confirms. `lightDismiss` also
- * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose.
+ * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose. Every
+ * dialog ignores the later clicks of the double-click that opened it (#506), so no dialog may
+ * depend on a second click at the same point within the system's double-click time of its opening.
  */
 
 export type ModalDialogHandle = Readonly<{
@@ -173,6 +176,24 @@ export function ModalDialog({
   const { ref, openCount } = dialog;
   // Where the last press on the dialog or its backdrop started, for `dismissedByClick`.
   const pressedAt = useRef<Point | null>(null);
+  // Whether a press counted 1 has reached the dialog since it opened (#506). Until one has, a
+  // press or click the browser counts 2 or more continues the double-click whose first click opened
+  // the dialog, as on an event row, and lands on whatever the dialog now shows under the pointer:
+  // its backdrop, a word, a link, a button. It is not for the dialog, so it does nothing. A
+  // deliberate double-click inside starts with a press counted 1, and keyboard activation has no
+  // count at all.
+  const pressedSinceOpen = useRef(false);
+  // In the capture phase, so nothing inside sees any of its events: the press, the release, the
+  // click, or the `dblclick`. Preventing the press's default keeps it from selecting a word and
+  // from moving focus off the control the open focused onto the dialog itself; preventing the
+  // click's keeps a link from being followed.
+  const ignoreOpeningRepeat = (event: MouseEvent<HTMLDialogElement>) => {
+    if (event.type === "mousedown" && event.detail <= 1) pressedSinceOpen.current = true;
+    else if (event.detail > 1 && !pressedSinceOpen.current) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
 
   // After each open commits, so content mounted by this open is there to focus.
   useEffect(() => {
@@ -199,20 +220,31 @@ export function ModalDialog({
         ref={ref}
         aria-labelledby={titleId}
         aria-describedby={description === undefined ? describedBy : descriptionId}
-        onClose={(event) =>
+        onClose={(event) => {
+          // React delivers a nested dialog's `close` here too, as the Share dialog inside the event
+          // details closes, and that resets the rule as well, on purpose: the second click of a
+          // double-click on the nested dialog's Close lands on this dialog and must not act on it.
+          // The cost: open the nested dialog with a click, close it with Escape, and clicks at the
+          // same point within the double-click time are counted 2 or more and do nothing until a
+          // pause or a move lets the browser count one as 1 again.
+          pressedSinceOpen.current = false;
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
             onClose,
             otherModalOpen: () => document.querySelector("dialog[open]") !== null,
-          })
-        }
+          });
+        }}
         onKeyDown={keepTabInside}
         onPointerDown={lightDismiss ? (event) => { pressedAt.current = { x: event.clientX, y: event.clientY }; } : undefined}
+        onMouseDownCapture={ignoreOpeningRepeat}
+        onMouseUpCapture={ignoreOpeningRepeat}
+        onClickCapture={ignoreOpeningRepeat}
+        onDoubleClickCapture={ignoreOpeningRepeat}
         onClick={lightDismiss ? (event) => {
           const pressed = pressedAt.current;
           pressedAt.current = null;
           const released = { x: event.clientX, y: event.clientY };
-          if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released)) {
+          if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released, event.detail)) {
             dialog.close("dismissed");
           }
         } : undefined}

@@ -1197,14 +1197,44 @@ ownerTest.describe("timeline active filters", () => {
 
 const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
 
+type Point = { x: number; y: number };
+
+async function boxCenter(locator: Locator): Promise<Point> {
+  const box = await locator.boundingBox();
+  if (box === null) throw new Error("The element is not rendered.");
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
 /**
  * The middle of the page's "Timeline" heading: on the dimmed page beside the open details panel or
  * the command palette at 1280px, and over no row. Read it before a dialog opens.
  */
-async function headingCenter(page: Page): Promise<{ x: number; y: number }> {
-  const box = await page.getByRole("heading", { level: 1, name: "Timeline", exact: true }).boundingBox();
-  if (box === null) throw new Error("The timeline heading is not rendered.");
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+async function headingCenter(page: Page): Promise<Point> {
+  return boxCenter(page.getByRole("heading", { level: 1, name: "Timeline", exact: true }));
+}
+
+/** The text of the link a click at `at` reaches, if any. */
+async function linkTextAt(page: Page, at: Point): Promise<string | null | undefined> {
+  return page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("a")?.textContent, at);
+}
+
+/**
+ * A point on `trigger`'s row that lies on `control` once that row's details are open, where a
+ * double-click on the part of the row the panel covers lands its second click (#506). Opens the
+ * details from the keyboard to measure them, closes them, then scrolls the row level with the control.
+ */
+async function rowPointUnder(page: Page, trigger: Locator, control: Locator): Promise<Point> {
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(control).toBeVisible();
+  const target = await boxCenter(control);
+  await page.keyboard.press("Escape");
+  await expect(control).toBeHidden();
+  const row = eventItems(page).filter({ has: trigger }).getByRole("article");
+  const before = await boxCenter(row);
+  await page.evaluate((by) => window.scrollBy(0, by), before.y - target.y);
+  await expect.poll(async () => Math.abs((await boxCenter(row)).y - target.y)).toBeLessThanOrEqual(1);
+  return target;
 }
 
 const MOTION = z.array(z.object({ moved: z.string(), durationMs: z.number(), loops: z.boolean() }));
@@ -1517,6 +1547,112 @@ ownerTest.describe("timeline event inspector", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  // #506: a double-click on a row opens the details with its first click, and at a person's pace
+  // (about 150ms) its second click lands on the open dialog: on its backdrop beside the panel, or,
+  // on the part of the row the panel covers (every row below 640px, where it fills the screen), on
+  // whatever the panel shows there. The browser counts that click as the double-click's second
+  // (`detail` 2, from the system's double-click time), so it does nothing. A separate click, the
+  // same press counted 1, does what a click does: beside the panel it closes them (#407), and on a
+  // link in them it follows the link.
+  const AROUND = "Show events around this time";
+  for (const { name, width, under, secondClickCount, evidence } of [
+    { name: "keeps the details open on a double-click on a row beside the panel", width: 1280, under: null, secondClickCount: 2, evidence: "double-click-beside" },
+    { name: "closes the details on two separate clicks on a row beside the panel", width: 1280, under: null, secondClickCount: 1, evidence: null },
+    { name: "keeps the details open on a double-click on the part of a row under the panel", width: 1280, under: AROUND, secondClickCount: 2, evidence: "double-click-under" },
+    { name: "follows a link in the details on two separate clicks on a row under the panel", width: 1280, under: AROUND, secondClickCount: 1, evidence: null },
+    { name: "keeps the details open on a double-click on a row under the full-width panel", width: 375, under: AROUND, secondClickCount: 2, evidence: "double-click-375" },
+  ] as const) {
+    inspectorEvidenceTest(`${name} at ${width}px`, async ({ page }) => {
+      const workspace = await seedTimeline(`Inspector clicks ${width} ${under === null ? "beside" : "under"} ${secondClickCount}`);
+      try {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        await expectHydrated(page);
+        const timeline = `/w/${workspace.slug}/timeline`;
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const close = inspector.getByRole("button", { name: "Close event" });
+        const control = under === null ? null : inspector.getByRole("link", { name: under, exact: true });
+        const at = control === null ? await boxCenter(trigger) : await rowPointUnder(page, trigger, control);
+        expect(await linkTextAt(page, at)).toBe("Synthetic event 1");
+
+        await page.mouse.click(at.x, at.y);
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await expect(close).toBeFocused();
+        const opened = page.url();
+        if (control === null) {
+          const panel = await inspector.boundingBox();
+          if (panel === null) throw new Error("The inspector is not rendered.");
+          expect(at.x).toBeLessThan(panel.x);
+        } else {
+          expect(await linkTextAt(page, at)).toBe(under);
+        }
+        const href = control === null ? null : await control.getAttribute("href");
+        const renders: string[] = [];
+        page.on("request", (request) => {
+          if (isRenderRequest(request, timeline)) renders.push(request.url());
+        });
+        await page.mouse.down({ clickCount: secondClickCount });
+        await page.mouse.up({ clickCount: secondClickCount });
+        if (evidence !== null && process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/after/inspector-${evidence}.png` });
+        }
+
+        if (secondClickCount === 1) {
+          await expect(inspector).toBeHidden();
+          if (href === null) {
+            await expect(trigger).toBeFocused();
+            await expect(page).toHaveURL(timeline);
+          } else {
+            await expect(page).toHaveURL(href);
+          }
+          return;
+        }
+        await expect(inspector).toHaveJSProperty("open", true);
+        await expect(page).toHaveURL(opened);
+        // The second press's default is prevented, so it selects no word in the details and leaves
+        // focus where the open put it rather than on the dialog.
+        await expect(close).toBeFocused();
+        expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await expectNoAxeViolations(page);
+        // By now a followed link would have asked for the page it leads to.
+        expect(renders, "the second click followed a link in the details").toEqual([]);
+        await expect(inspector).toHaveJSProperty("open", true);
+        await expect(page).toHaveURL(opened);
+        if (control === null) {
+          // The rule ends at the first press counted 1 inside: a deliberate double-click on a word in
+          // the details selects it.
+          const body = inspector.getByText("Synthetic body 1", { exact: true });
+          const bodyBox = await body.boundingBox();
+          if (bodyBox === null) throw new Error("The event's details are not rendered.");
+          await body.dblclick({ position: { x: 4, y: bodyBox.height / 2 } });
+          expect((await page.evaluate(() => window.getSelection()?.toString()))?.trim()).toBe("Synthetic");
+          // And it starts again at each open: a click beside the panel closes it (#407), and a
+          // double-click on the row then opens it and keeps it open again.
+          await page.mouse.click(at.x, at.y);
+          await expect(inspector).toBeHidden();
+          await expect(page).toHaveURL(timeline);
+          await page.mouse.click(at.x, at.y);
+          await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+          await page.mouse.down({ clickCount: 2 });
+          await page.mouse.up({ clickCount: 2 });
+          await expect(inspector).toHaveJSProperty("open", true);
+          await expect(close).toBeFocused();
+          expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+        }
+        // Still usable from the keyboard: Escape closes the details and focus returns to the row.
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(timeline);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   // #407: light dismiss is the details panel's alone. Every other dialog, the command palette
   // among them, stays open on a click outside it, so a click never discards what someone typed.
