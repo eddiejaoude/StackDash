@@ -3,8 +3,9 @@
 -- together, true exactly when the connection's granted_scopes holds 'simulated:read'
 -- (SIMULATED_SCOPE), whatever other scopes it holds; it returns every target of either kind, real
 -- and simulated alike, and leaves keeping one kind to the webhook job. The change is expand only:
--- the first four result columns keep their names and types, the new column comes last, a call
--- naming the older parameters returns the same rows, and the grants are unchanged.
+-- the four columns callers before #495 read keep their names and types beside the new one (a later
+-- expand may add more), a call naming the older parameters returns the same rows, and the grants
+-- are unchanged.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
@@ -47,10 +48,14 @@ values
 -- ---------------------------------------------------------------------------
 -- The result, the grants, and the callers before #495
 -- ---------------------------------------------------------------------------
-select is(
-  pg_catalog.pg_get_function_result('public.list_webhook_targets(public.provider_id, text, uuid, text)'::regprocedure),
-  'TABLE(workspace_id uuid, connection_id uuid, account_id uuid, granted_at timestamp with time zone, simulated boolean)',
-  'list_webhook_targets: the four columns callers before #495 read keep their names, types, and order, and `simulated` comes last');
+select set_has(
+  $$ select a.name, a.type::regtype::text
+     from pg_catalog.pg_proc p,
+       unnest(p.proargnames, p.proallargtypes, p.proargmodes::text[]) as a(name, type, mode)
+     where p.oid = 'public.list_webhook_targets(public.provider_id, text, uuid, text)'::regprocedure and a.mode = 't' $$,
+  $$ values ('workspace_id', 'uuid'), ('connection_id', 'uuid'), ('account_id', 'uuid'),
+            ('granted_at', 'timestamp with time zone'), ('simulated', 'boolean') $$,
+  'list_webhook_targets: the result keeps the four columns callers before #495 read, by name and type, and has `simulated` boolean');
 select is(
   (select count(*)::int from pg_catalog.pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'list_webhook_targets'),
   1,

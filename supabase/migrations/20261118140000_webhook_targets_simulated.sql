@@ -3,26 +3,34 @@
 -- is checked with STACKDASH_SIMULATED_WEBHOOK_SECRET, a value from the developer's .env.local or
 -- the synthetic constant e2e signs with (e2e/fixtures/simulated-webhook.ts). The webhook job
 -- applied a delivery to every target this function returned, so with provider simulation on, a
--- delivery signed with that secret reached a real connection that includes the same account. Each
--- row now says whether its connection is simulated, and the job keeps only the targets of the
--- kind its adapter verifies: simulated ones while the provider is simulated, real ones otherwise
--- (runWebhookJob, src/lib/jobs/webhook-delivery.ts).
+-- delivery signed with that secret reached a real connection that includes the same account. The
+-- route now records with each delivery whether the provider's simulated twin verified it (inside
+-- the stored outcome's JSON, src/lib/jobs/store.ts), each row here says whether its connection is
+-- simulated, and the job keeps only the targets of the recorded kind (runWebhookJob,
+-- src/lib/jobs/webhook-delivery.ts), whatever the simulation flag says when it runs.
 --
 -- Expand only: the parameters, the grants, the matching, the order, the bound, and the first four
 -- result columns are those of 20261118130000_webhook_targets_installation_match.sql; the result
 -- gains `simulated` as its last column. Adding a result column changes the return type, which
 -- create or replace refuses, so the function is dropped and created again in this migration's one
 -- transaction, as 20261118090000_contract_webhook_targets.sql did. Two mixed windows:
--- 1. The build before #495 against this function: its store reads workspace_id, connection_id,
---    account_id, and granted_at by name from each returned row and ignores the rest, and its calls
---    (named p_provider, p_external_id, p_installation_id, p_endpoint_id) resolve as before, so it
---    behaves exactly as it did.
+-- 1. The build before #495 against this function. Compatible: its store reads workspace_id,
+--    connection_id, account_id, and granted_at by name and ignores the rest, and its calls resolve
+--    as before. Not isolated: it still applies a delivery to every target, simulated or real, which
+--    is the leak #495 fixes, until the build from #495 serves. The deliveries it stores record no
+--    kind, and the build from #495 applies those to no connection (fail closed: nothing says which
+--    secret verified them). A real connection still gets their events from its next poll, and a
+--    real uninstall shows when the next sync finds the grant gone; a simulated one gets neither.
 -- 2. The build from #495 against the function before this one (promoted before
---    `supabase migration up` ran): rows carry no `simulated`, and the store reads a target the
---    database does not mark simulated as real. With simulation off, which a production deployment
---    always is (isProviderSimulationEnabled refuses it there), every target is kept, as before.
---    With simulation on, a local or e2e instance, deliveries reach no simulated connection until
---    the migration runs, and polling brings the same events meanwhile.
+--    `supabase migration up` ran): rows carry no `simulated`, and the store reads every target as
+--    real. A real delivery is applied as before. A simulated delivery reaches no connection, is
+--    marked processed, and its outcome is cleared, so it is lost for good: the simulator's sync
+--    makes up its own events (profile.eventsInSlot, src/lib/adapters/simulated/index.ts) and never
+--    replays a posted delivery, events or uninstall. Applying this migration afterwards classifies
+--    the deliveries processed after it and recovers none processed before it; post a lost one again
+--    under a new delivery id. Simulation is refused on a Vercel production deployment only
+--    (isProviderSimulationEnabled reads VERCEL_ENV), so a self-hosted instance that runs with it on
+--    is in this case too. Run `supabase migration up` before the build from #495 serves.
 
 -- ── list_webhook_targets ────────────────────────────────────────────────────────
 -- p_external_id, p_installation_id, or both name what the delivery is about.
@@ -43,8 +51,9 @@
 --   'simulated:read' (SIMULATED_SCOPE, src/lib/adapters/simulated/marker.ts, the marker
 --   isSimulatedConnection reads). A property of the connection recorded when it is granted, never
 --   of the process flag. The bound applies before the job keeps one kind, so targets of the other
---   kind count toward it; a target of the kept kind past the bound gets its events from polling,
---   as any target past it does.
+--   kind count toward it. A target of the delivery's kind past the bound gets nothing from it: a
+--   real one gets the events from its next poll and an uninstall when its next sync finds the
+--   grant gone; a simulated one never gets them, since the simulator's sync makes up its own.
 -- Security invoker: only the service role may call it, and it already reads every row it needs.
 
 drop function public.list_webhook_targets(public.provider_id, text, uuid, text);
