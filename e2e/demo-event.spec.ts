@@ -165,7 +165,8 @@ ownerTest.describe("demo event", () => {
       expect(crossing.code).toBe(0);
       expect(crossing.stdout).toContain("rose to at least $540.00 this month, 90 percent of the Vercel monthly budget of $600.00");
       expect(crossing.stdout).toContain("1 alert triggered");
-      // Delivery first, then the render, so a failure says which half broke.
+      // Delivery first, then the render, so a failure says which half broke. A delivery lost while
+      // the page stays subscribed has so far been the stack's 10 minute replication rebalance (#555).
       await expect
         .poll(() => deliveredEvent(live, BUDGET_ALERT), { timeout: LIVE_TIMEOUT_MS, message: "Realtime never delivered the budget alert event" })
         .toBe(true);
