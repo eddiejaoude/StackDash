@@ -164,7 +164,11 @@ export interface JobStore {
   latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>>;
   /** Upserts on (external_account_id, metric_key, snapshot_date). */
   upsertSnapshots(rows: readonly SnapshotRow[]): Promise<void>;
-  /** Inserts, skipping rows whose (workspace_id, dedupe_key) already exists. Returns how many were new. */
+  /**
+   * Inserts rows whose (workspace_id, dedupe_key) is new; for one already stored, only sets a null
+   * body to the row's non-null body (insert_activity_events, #499). Within one call the first row
+   * of a key is the one written. Returns how many were new.
+   */
   insertEvents(rows: readonly EventRow[]): Promise<number>;
   setCursor(workspaceId: string, externalAccountId: string, cursor: string | null): Promise<void>;
 
@@ -500,13 +504,9 @@ export function createSupabaseJobStore(): JobStore {
 
     async insertEvents(rows) {
       if (rows.length === 0) return 0;
-      // With ignoreDuplicates only the rows actually inserted come back.
-      const { data, error } = await db
-        .from("activity_events")
-        .upsert([...rows], { onConflict: "workspace_id,dedupe_key", ignoreDuplicates: true })
-        .select("id");
-      if (error) throw failure("event insert", error);
-      return data.length;
+      const { data, error } = await db.rpc("insert_activity_events", { p_rows: [...rows] });
+      if (error) throw failure("insert_activity_events", error);
+      return data;
     },
 
     async setCursor(workspaceId, externalAccountId, cursor) {
