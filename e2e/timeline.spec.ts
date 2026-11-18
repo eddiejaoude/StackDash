@@ -1217,6 +1217,58 @@ async function linkTextAt(page: Page, at: Point): Promise<string | null | undefi
   return page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("a")?.textContent, at);
 }
 
+/** The text of the button a click at `at` reaches, if any. */
+async function buttonTextAt(page: Page, at: Point): Promise<string | null | undefined> {
+  return page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest("button")?.textContent, at);
+}
+
+/** A box on the screen, as `Locator.boundingBox` measures one. */
+type Box = { x: number; y: number; width: number; height: number };
+
+/** The middle of where two boxes overlap on the screen; fails when they do not. */
+function overlapCenter(a: Box | null, b: Box | null): Point {
+  if (a === null || b === null) throw new Error("The element is not rendered.");
+  const left = Math.max(a.x, b.x);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const top = Math.max(a.y, b.y);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  if (left >= right || top >= bottom) throw new Error("The boxes do not overlap.");
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
+}
+
+const SIGN_OUT_STAND_IN = "Sign out was submitted";
+
+/**
+ * Intercepts the header's "Sign out", a form POST to /auth/sign-out, and answers it with a page
+ * headed `SIGN_OUT_STAND_IN`, so no session ends (#563). Call once the page has loaded. `requests`
+ * lists the methods that reached the route, and `submitted` reads what the page submitted there:
+ * a click submits its form before the release that made it returns, so that list is complete at
+ * once, while the request reaches the route a moment later.
+ */
+async function interceptSignOut(page: Page) {
+  const requests: string[] = [];
+  await page.route("**/auth/sign-out", async (route) => {
+    requests.push(route.request().method());
+    await route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>${SIGN_OUT_STAND_IN}</title><h1>${SIGN_OUT_STAND_IN}</h1><p>The test intercepted POST /auth/sign-out and answered with this page, so no session ended.</p>`,
+    });
+  });
+  await page.evaluate(() => {
+    const submitted: string[] = [];
+    Reflect.set(window, "__signOutSubmissions", submitted);
+    document.addEventListener("submit", (event) => {
+      if (event.target instanceof HTMLFormElement && new URL(event.target.action).pathname === "/auth/sign-out") {
+        submitted.push(event.target.method);
+      }
+    }, true);
+  });
+  return {
+    requests,
+    submitted: async () => z.array(z.string()).parse(await page.evaluate(() => Reflect.get(window, "__signOutSubmissions"))),
+  };
+}
+
 /**
  * A point on `trigger`'s row that lies on `control` once that row's details are open, where a
  * double-click on the part of the row the panel covers lands its second click (#506). Opens the
@@ -1647,6 +1699,77 @@ ownerTest.describe("timeline event inspector", () => {
         await expect(inspector).toBeHidden();
         await expect(trigger).toBeFocused();
         await expect(page).toHaveURL(timeline);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  // #563: a double-click on "Close event" closes the details with its first click, and its second
+  // click lands where the button was. The closing panel takes no pointer input (#399), so at both
+  // widths that is the header's "Sign out", a form POST to /auth/sign-out. The browser counts that
+  // click 2, the rest of the double-click whose first click closed the details, so it does nothing:
+  // it submits nothing and takes no focus. A separate click there is counted 1 and signs out as
+  // ever, and a close from the keyboard is no click, so nothing after it is ignored.
+  for (const { name, width, closeWith, nextClickCount, signsOut, evidence } of [
+    { name: "closes the details on a double-click on Close event without signing out", width: 375, closeWith: "click", nextClickCount: 2, signsOut: false, evidence: "close-double-click-375" },
+    { name: "closes the details on a double-click on Close event without signing out", width: 1280, closeWith: "click", nextClickCount: 2, signsOut: false, evidence: "close-double-click-1280" },
+    { name: "signs out on a separate click where Close event was", width: 375, closeWith: "click", nextClickCount: 1, signsOut: true, evidence: null },
+    { name: "signs out on a click counted 2 where Close event was after Enter closed the details", width: 1280, closeWith: "Enter", nextClickCount: 2, signsOut: true, evidence: null },
+  ] as const) {
+    inspectorEvidenceTest(`${name} at ${width}px`, async ({ page }) => {
+      const workspace = await seedTimeline(`Inspector close ${width} ${closeWith} ${nextClickCount}`);
+      try {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const timeline = `/w/${workspace.slug}/timeline`;
+        await page.goto(timeline);
+        await expectHydrated(page);
+        const signOut = await interceptSignOut(page);
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const close = inspector.getByRole("button", { name: "Close event" });
+        // A point on "Close event" with "Sign out" under it once the details close: Close event
+        // measured open, from the keyboard, and Sign out once they are closed again. At 375px Sign
+        // out lies under most of Close event, at 1280px under its left end only.
+        await trigger.focus();
+        await page.keyboard.press("Enter");
+        await expect(close).toBeFocused();
+        const closeBox = await close.boundingBox();
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        const signOutBox = await page.getByRole("banner").getByRole("button", { name: "Sign out", exact: true }).boundingBox();
+        const at = overlapCenter(closeBox, signOutBox);
+        expect(await buttonTextAt(page, at)).toBe("Sign out");
+        await page.keyboard.press("Enter");
+        await expect(close).toBeFocused();
+        expect(await buttonTextAt(page, at)).toBe("Close event");
+        if (closeWith === "Enter") {
+          await page.keyboard.press("Enter");
+          await page.mouse.move(at.x, at.y);
+        } else {
+          await page.mouse.click(at.x, at.y);
+        }
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(timeline);
+        await page.mouse.down({ clickCount: nextClickCount });
+        await page.mouse.up({ clickCount: nextClickCount });
+
+        if (signsOut) {
+          await expect(page.getByRole("heading", { name: SIGN_OUT_STAND_IN, exact: true })).toBeVisible();
+          expect(signOut.requests).toEqual(["POST"]);
+          return;
+        }
+        expect(await signOut.submitted(), "the second click submitted the sign-out form").toEqual([]);
+        // The press's default is prevented too, so it moved focus nowhere.
+        await expect(trigger).toBeFocused();
+        await expect(inspector).toBeHidden();
+        await expect(page).toHaveURL(timeline);
+        if (evidence !== null && process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/after/inspector-${evidence}.png` });
+        }
+        expect(signOut.requests).toEqual([]);
       } finally {
         await deleteTestWorkspace(workspace);
       }

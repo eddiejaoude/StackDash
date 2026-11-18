@@ -38,8 +38,10 @@ import {
  * `DialogCloseButton` dismisses it and, unless told otherwise, takes focus when it opens, so Enter
  * right after opening a destructive confirmation cancels rather than confirms. `lightDismiss` also
  * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose. Every
- * dialog ignores the later clicks of the double-click that opened it (#506), so no dialog may
- * depend on a second click at the same point within the system's double-click time of its opening.
+ * dialog ignores the later clicks of the double-click that opened it (#506), and once a click has
+ * closed it, the page ignores the rest of that click's double-click (#563). So no dialog, and
+ * nothing under one, may depend on a second click at the same point within the system's
+ * double-click time of a click that opened or closed it.
  */
 
 export type ModalDialogHandle = Readonly<{
@@ -116,6 +118,40 @@ function keepTabInside(event: KeyboardEvent<HTMLDialogElement>): void {
     event.preventDefault();
     first.focus();
   }
+}
+
+/** A press, its release, its click, and a double-click's `dblclick`. */
+const PRESS_EVENTS = ["mousedown", "mouseup", "click", "dblclick"] as const;
+
+/**
+ * The closing side of #506 (#563). A closing dialog takes no pointer input (`panel-slide` in
+ * globals.css, #399), so once a click has closed one, the rest of that click's double-click lands
+ * on whatever the dialog covered: under the event details' "Close event", the header's "Sign out".
+ * Until a press counted 1 reaches `target`, this stops every press, release, click, and `dblclick`
+ * the browser counts 2 or more in the capture phase and prevents its default, so nothing acts on
+ * it, takes focus, or selects a word, as `ignoreOpeningRepeat` does inside a dialog it opened. The
+ * press counted 1 (or 0, from a script) starts a click of its own: it passes and removes the
+ * listeners. A click counted 0, a key's, passes and leaves them. Returns what removes them sooner;
+ * calling it again does nothing.
+ *
+ * The rule depends on the browser counting the later press of a double-click or double-tap as
+ * `detail` 2. That was measured only in Chromium, including its touch emulation (`hasTouch`, two
+ * taps at one point counted 1 then 2). A browser that counts each tap as 1 lets the second through
+ * to the page, as before #563; #578 measures WebKit (iOS Safari) and Firefox.
+ */
+export function ignoreClosingRepeat(target: Pick<Window, "addEventListener" | "removeEventListener">): () => void {
+  function ignore(event: globalThis.MouseEvent): void {
+    if (event.type === "mousedown" && event.detail <= 1) end();
+    else if (event.detail > 1) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+  function end(): void {
+    for (const type of PRESS_EVENTS) target.removeEventListener(type, ignore, { capture: true });
+  }
+  for (const type of PRESS_EVENTS) target.addEventListener(type, ignore, { capture: true });
+  return end;
 }
 
 const FRAME = "rounded-xl border bg-panel text-foreground backdrop:bg-black/60";
@@ -195,6 +231,11 @@ export function ModalDialog({
     }
   };
 
+  // Removes what `ignoreClosingRepeat` put in place when a click last closed this dialog, unless a
+  // press counted 1 already has: before the next such close puts its own, and on unmount.
+  const endClosingRepeat = useRef<(() => void) | null>(null);
+  useEffect(() => () => endClosingRepeat.current?.(), []);
+
   // After each open commits, so content mounted by this open is there to focus.
   useEffect(() => {
     const element = ref.current;
@@ -222,11 +263,13 @@ export function ModalDialog({
         aria-describedby={description === undefined ? describedBy : descriptionId}
         onClose={(event) => {
           // React delivers a nested dialog's `close` here too, as the Share dialog inside the event
-          // details closes, and that resets the rule as well, on purpose: the second click of a
-          // double-click on the nested dialog's Close lands on this dialog and must not act on it.
-          // The cost: open the nested dialog with a click, close it with Escape, and clicks at the
-          // same point within the double-click time are counted 2 or more and do nothing until a
-          // pause or a move lets the browser count one as 1 again.
+          // details closes, and that resets the rule as well. #558 kept that so the second click of a
+          // double-click on the nested dialog's Close would do nothing here; the closing rule (#563,
+          // `ignoreClosingRepeat`) now stops that click at `window` before it arrives, so the reset
+          // keeps only its cost: open the nested dialog with a click, close it with Escape, and
+          // clicks at the same point within the double-click time are counted 2 or more and do
+          // nothing until a pause or a move lets the browser count one as 1 again. #577 tracks
+          // resetting only on this dialog's own close.
           pressedSinceOpen.current = false;
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
@@ -240,14 +283,26 @@ export function ModalDialog({
         onMouseUpCapture={ignoreOpeningRepeat}
         onClickCapture={ignoreOpeningRepeat}
         onDoubleClickCapture={ignoreOpeningRepeat}
-        onClick={lightDismiss ? (event) => {
-          const pressed = pressedAt.current;
-          pressedAt.current = null;
-          const released = { x: event.clientX, y: event.clientY };
-          if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released, event.detail)) {
-            dialog.close("dismissed");
+        onClick={(event) => {
+          if (lightDismiss) {
+            const pressed = pressedAt.current;
+            pressedAt.current = null;
+            const released = { x: event.clientX, y: event.clientY };
+            if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released, event.detail)) {
+              dialog.close("dismissed");
+            }
           }
-        } : undefined}
+          // React runs this after every click handler inside the dialog, so it sees the dialog as
+          // the click left it. A pointer's click (counted 1 or more; a key's is 0) that closed it
+          // may be the first of a double-click, and its rest lands on the page under it (#563).
+          // The listeners go on `window`, the first stop of an event's capture path: React listens
+          // on the document (`appElement = document` in next/dist/client/app-index.js) from before
+          // they exist, and a node runs its listeners in the order they were added.
+          if (event.detail > 0 && !event.currentTarget.open) {
+            endClosingRepeat.current?.();
+            endClosingRepeat.current = ignoreClosingRepeat(window);
+          }
+        }}
         className={SIZES[size]}
       >
         {titleAction === undefined ? (
