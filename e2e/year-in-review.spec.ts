@@ -150,7 +150,7 @@ ownerTest.describe("year in review", () => {
       expect(stranger.headers()["location"]).toMatch(/\/sign-in\?next=/);
       expect((await page.request.get(`/w/${workspace.slug}/year/${year}/totals.png`)).status()).toBe(404);
       expect((await page.request.get(`/w/${workspace.slug}/year/${year + 1}/card.png`)).status()).toBe(404);
-      // Like a missing project, a year that has not started renders the workspace's not-found page.
+      // A year that has not started still renders the workspace's not-found page (#559).
       await page.goto(`/w/${workspace.slug}/year/${year + 1}`);
       await expect(page.getByRole("heading", { name: "We could not find that workspace" })).toBeVisible();
     } finally {
