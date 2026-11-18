@@ -463,9 +463,10 @@ describe("runWebhookJob", () => {
       expect(harness.store.events).toEqual([]);
       expect(harness.delivered.size).toBe(0);
       expect(connection).toMatchObject({ status: "active" });
+      // Says the installation took part, so a mismatch is not read as an account nobody includes.
       expect(harness.infos).toContainEqual({
         event: "webhook.no_targets",
-        fields: { jobId: job.id, provider: "fake", deliveryRowId: harness.store.webhookDeliveries[0]?.id, kind: "events" },
+        fields: { jobId: job.id, provider: "fake", deliveryRowId: harness.store.webhookDeliveries[0]?.id, kind: "events", installationNamed: true },
       });
       expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
     });
@@ -500,7 +501,10 @@ describe("runWebhookJob", () => {
 
     expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
     expect(harness.store.events).toEqual([]);
-    expect(harness.infos.map((line) => line.event)).toContain("webhook.no_targets");
+    expect(harness.infos).toContainEqual({
+      event: "webhook.no_targets",
+      fields: { jobId: job.id, provider: "fake", deliveryRowId: harness.store.webhookDeliveries[0]?.id, kind: "events", installationNamed: false },
+    });
     expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
   });
 

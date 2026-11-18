@@ -123,9 +123,17 @@ export async function runWebhookJob(
       endpointId: delivery.endpointId,
     });
     if (targets.length === 0) {
-      // An account no workspace includes, or whose connection is gone or belongs to another
-      // installation: nothing to apply it to.
-      deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind });
+      // An account no workspace includes, or whose connection is gone or belongs to another or no
+      // recorded installation: nothing to apply it to. `installationNamed` (never the id) says
+      // whether the installation took part, so a mismatch that polling would hide is not read as an
+      // account nobody includes.
+      deps.log.info("webhook.no_targets", {
+        jobId: job.id,
+        provider,
+        deliveryRowId: delivery.id,
+        kind: outcome.kind,
+        installationNamed: outcome.installationId !== undefined,
+      });
     } else {
       const inserted = await writeEvents(provider, targets, outcome.events, deps);
       deps.log.info("webhook.events_written", { jobId: job.id, provider, targets: targets.length, inserted });
