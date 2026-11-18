@@ -72,12 +72,14 @@ export const InstallationRepositoriesSchema = z.object({
       full_name: z.string().min(1),
       owner: z.object({ login: z.string().min(1) }),
       html_url: z.url({ protocol: /^https$/ }),
+      // Required on each repository in GitHub's "List repositories accessible to the app
+      // installation" response, and the number of users who starred it ("REST API endpoints for
+      // starring"), so the sync reads every star count without a request per repository.
+      stargazers_count: z.int().nonnegative(),
     }),
   ),
 });
 export type Repository = z.infer<typeof InstallationRepositoriesSchema>["repositories"][number];
-
-export const StargazersCountSchema = z.object({ count: z.int().nonnegative() });
 
 // `GET /repos/{owner}/{repo}/forks`. Only the fork id and creation time are read: the fork's
 // name and owner are another person's account, and StackDash stores no personal data.
