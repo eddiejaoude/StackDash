@@ -64,6 +64,7 @@ async function seedAccount(
       provider: seed.provider,
       status: "active",
       granted_at: new Date().toISOString(),
+      ...(seed.provider === "stripe" ? { mode: "live" as const } : {}),
       display_name: seed.connectionName,
       poll_interval_seconds: 3600,
     })
