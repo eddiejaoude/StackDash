@@ -9,7 +9,7 @@ import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { fakeEmails } from "./fixtures/fake-resend";
-import { expectSubscribed, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
+import { deliveredEvent, expectSubscribed, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
 import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
 import { tick } from "./fixtures/webhook-ticks";
 
@@ -165,6 +165,10 @@ ownerTest.describe("demo event", () => {
       expect(crossing.code).toBe(0);
       expect(crossing.stdout).toContain("rose to at least $540.00 this month, 90 percent of the Vercel monthly budget of $600.00");
       expect(crossing.stdout).toContain("1 alert triggered");
+      // Delivery first, then the render, so a failure says which half broke.
+      await expect
+        .poll(() => deliveredEvent(live, BUDGET_ALERT), { timeout: LIVE_TIMEOUT_MS, message: "Realtime never delivered the budget alert event" })
+        .toBe(true);
       const alert = events.filter({ has: page.getByRole("heading", { name: BUDGET_ALERT, exact: true }) });
       await expect(alert).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(alert.getByText(/^,?\s*New$/)).toBeVisible();
