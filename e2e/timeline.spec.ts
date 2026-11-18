@@ -1622,6 +1622,27 @@ ownerTest.describe("timeline event inspector", () => {
         expect(renders, "the second click followed a link in the details").toEqual([]);
         await expect(inspector).toHaveJSProperty("open", true);
         await expect(page).toHaveURL(opened);
+        if (control === null) {
+          // The rule ends at the first press counted 1 inside: a deliberate double-click on a word in
+          // the details selects it.
+          const body = inspector.getByText("Synthetic body 1", { exact: true });
+          const bodyBox = await body.boundingBox();
+          if (bodyBox === null) throw new Error("The event's details are not rendered.");
+          await body.dblclick({ position: { x: 4, y: bodyBox.height / 2 } });
+          expect((await page.evaluate(() => window.getSelection()?.toString()))?.trim()).toBe("Synthetic");
+          // And it starts again at each open: a click beside the panel closes it (#407), and a
+          // double-click on the row then opens it and keeps it open again.
+          await page.mouse.click(at.x, at.y);
+          await expect(inspector).toBeHidden();
+          await expect(page).toHaveURL(timeline);
+          await page.mouse.click(at.x, at.y);
+          await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+          await page.mouse.down({ clickCount: 2 });
+          await page.mouse.up({ clickCount: 2 });
+          await expect(inspector).toHaveJSProperty("open", true);
+          await expect(close).toBeFocused();
+          expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+        }
         // Still usable from the keyboard: Escape closes the details and focus returns to the row.
         await page.keyboard.press("Escape");
         await expect(inspector).toBeHidden();

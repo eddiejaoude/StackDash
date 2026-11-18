@@ -37,7 +37,9 @@ import {
  * `useModalDialog` gives the handle a trigger opens it with; `ModalDialog` renders it. Inside,
  * `DialogCloseButton` dismisses it and, unless told otherwise, takes focus when it opens, so Enter
  * right after opening a destructive confirmation cancels rather than confirms. `lightDismiss` also
- * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose.
+ * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose. Every
+ * dialog ignores the later clicks of the double-click that opened it (#506), so no dialog may
+ * depend on a second click at the same point within the system's double-click time of its opening.
  */
 
 export type ModalDialogHandle = Readonly<{
@@ -181,9 +183,10 @@ export function ModalDialog({
   // deliberate double-click inside starts with a press counted 1, and keyboard activation has no
   // count at all.
   const pressedSinceOpen = useRef(false);
-  // In the capture phase, so nothing inside sees it. Preventing the press's default keeps it from
-  // selecting a word and from moving focus off the control the open focused onto the dialog itself;
-  // preventing the click's keeps a link from being followed.
+  // In the capture phase, so nothing inside sees any of its events: the press, the release, the
+  // click, or the `dblclick`. Preventing the press's default keeps it from selecting a word and
+  // from moving focus off the control the open focused onto the dialog itself; preventing the
+  // click's keeps a link from being followed.
   const ignoreOpeningRepeat = (event: MouseEvent<HTMLDialogElement>) => {
     if (event.type === "mousedown" && event.detail <= 1) pressedSinceOpen.current = true;
     else if (event.detail > 1 && !pressedSinceOpen.current) {
@@ -218,6 +221,12 @@ export function ModalDialog({
         aria-labelledby={titleId}
         aria-describedby={description === undefined ? describedBy : descriptionId}
         onClose={(event) => {
+          // React delivers a nested dialog's `close` here too, as the Share dialog inside the event
+          // details closes, and that resets the rule as well, on purpose: the second click of a
+          // double-click on the nested dialog's Close lands on this dialog and must not act on it.
+          // The cost: open the nested dialog with a click, close it with Escape, and clicks at the
+          // same point within the double-click time are counted 2 or more and do nothing until a
+          // pause or a move lets the browser count one as 1 again.
           pressedSinceOpen.current = false;
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
@@ -228,7 +237,9 @@ export function ModalDialog({
         onKeyDown={keepTabInside}
         onPointerDown={lightDismiss ? (event) => { pressedAt.current = { x: event.clientX, y: event.clientY }; } : undefined}
         onMouseDownCapture={ignoreOpeningRepeat}
+        onMouseUpCapture={ignoreOpeningRepeat}
         onClickCapture={ignoreOpeningRepeat}
+        onDoubleClickCapture={ignoreOpeningRepeat}
         onClick={lightDismiss ? (event) => {
           const pressed = pressedAt.current;
           pressedAt.current = null;
