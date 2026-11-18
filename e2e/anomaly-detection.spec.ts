@@ -24,6 +24,7 @@ async function seedAnomaly(workspace: TestWorkspace): Promise<void> {
       workspace_id: workspace.id,
       provider: "fake",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: now.toISOString(),

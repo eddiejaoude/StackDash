@@ -61,12 +61,14 @@ insert into public.projects (id, workspace_id, name, created_by, updated_by) val
   ('30000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'Acme web',
    '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001');
 
+-- Inserted as live, so it carries its grant time as completeConnection would stamp it: the seed runs
+-- after every migration, so no backfill fills it, and without one every uninstall revokes it (#502).
 insert into public.connections (
   id, workspace_id, provider, status, display_name, authorized_account_label,
-  granted_scopes, poll_interval_seconds, next_sync_at, last_synced_at, created_by, updated_by
+  granted_scopes, poll_interval_seconds, next_sync_at, last_synced_at, granted_at, created_by, updated_by
 ) values (
   '40000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'fake', 'active',
-  'Fake provider', 'acme-team', '{read}', 3600, now() + interval '50 minutes', now() - interval '10 minutes',
+  'Fake provider', 'acme-team', '{read}', 3600, now() + interval '50 minutes', now() - interval '10 minutes', now(),
   '10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001'
 );
 
