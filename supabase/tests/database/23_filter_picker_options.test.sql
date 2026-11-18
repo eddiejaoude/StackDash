@@ -40,11 +40,11 @@ values
   ('d31900e0-0000-4000-8000-000000000000', 'd3190001-0000-4000-8000-000000000000', 'owner'),
   ('d31900e0-0000-4000-8000-000000000000', 'd3190002-0000-4000-8000-000000000000', 'viewer');
 
-insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds)
+insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds, mode)
 values
-  ('d31900a1-0000-4000-8000-000000000000', 'd31900a0-0000-4000-8000-000000000000', 'fake', 'active', 'Fake picker', 3600),
-  ('d31900b1-0000-4000-8000-000000000000', 'd31900a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub picker', 3600),
-  ('d31900c1-0000-4000-8000-000000000000', 'd31900c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe picker', 3600);
+  ('d31900a1-0000-4000-8000-000000000000', 'd31900a0-0000-4000-8000-000000000000', 'fake', 'active', 'Fake picker', 3600, null),
+  ('d31900b1-0000-4000-8000-000000000000', 'd31900a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub picker', 3600, null),
+  ('d31900c1-0000-4000-8000-000000000000', 'd31900c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe picker', 3600, 'live');
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind)
 values

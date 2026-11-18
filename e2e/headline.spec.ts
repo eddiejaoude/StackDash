@@ -42,6 +42,7 @@ async function seedHeadline(workspace: TestWorkspace): Promise<Seeded> {
         provider,
         status: "active" as const,
         granted_at: new Date().toISOString(),
+        ...(provider === "stripe" ? { mode: "live" as const } : {}),
         display_name: `${provider} headline connection`,
         poll_interval_seconds: 3_600,
         last_synced_at: syncedAt,

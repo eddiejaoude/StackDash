@@ -920,9 +920,6 @@ isOneToOne: false
 "backfill_connection_granted_at":
 { Args: { "p_limit": number }; Returns: number
                            },
-"backfill_connection_mode":
-{ Args: { "p_limit": number }; Returns: number
-                           },
 "bump_public_rate_limit":
 { Args: { "p_ip_hash": string }; Returns: number
                            },

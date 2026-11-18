@@ -77,7 +77,7 @@ Providers that push events deliver them to `https://<production-host>/api/webhoo
 
 StackDash has no tagged releases yet. Upgrading means moving your fork to a newer commit of the main repository's `main` branch. Versioned releases, with tags and release notes, will come later; until they do, `main` is what you upgrade to, and the commit history is the change log.
 
-Upgrade often. Migrations follow expand then contract: a change adds the new structure first and removes the old one in a later migration, so the build you are running keeps working while its newer migrations are applied. A jump across many commits can apply both halves at once. The build you are running may then fail from the moment the migrations are applied until the new deployment is live, so keep that gap to minutes and check the app as soon as the deployment is promoted.
+Upgrade often. Migrations follow expand then contract: a change adds the new structure first and removes the old one in a later migration, so the build you are running keeps working while its newer migrations are applied. A jump across many commits can apply both halves at once. The build you are running may then fail from the moment the migrations are applied until the new deployment is live, so keep that gap to minutes and check the app as soon as the deployment is promoted. For example, from `20261118150200_contract_connection_mode.sql` on, the database requires a live or test mode on every connected Stripe connection, so a build that does not record one (a commit without `supabase/migrations/20261118150000_connection_mode.sql`) cannot connect Stripe until the new deployment is live. Reconnecting an existing Stripe connection and every other provider keep working.
 
 ### Before you upgrade
 
@@ -117,6 +117,31 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
    `--linked` targets the project you linked with `supabase link`. Per the [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-migration-up), `--linked` works on CLI 2 and CLI 3 for both `migration list` and `migration up`; CLI 3 deprecates it in favor of `--remote`, and CLI 4 removes it.
 4. **Deploy**: push `main` to your fork. Vercel builds and promotes the new production deployment.
 5. **Follow any step the changes ask for** that a deployment does not do on its own, such as a new OAuth app setting or a changed `pg_cron` job. The scheduler itself carries over unchanged.
+
+### A migration stops at Stripe connections with no mode
+
+`supabase migration up` stops at `20261118150300_contract_connection_mode_validate.sql` with `<n> Stripe connections have no mode (live or test)` while a Stripe connection that is not pending has no recorded mode. StackDash records the mode whenever Stripe is connected or reconnected, and the migrations before this one fill it in for older connections from the account name StackDash stored with them, so a connection still without one was written some other way, such as by hand. The migrations before it stay applied, the one that stopped changed nothing, and the later ones wait for it.
+
+1. List those connections:
+
+   ```sql
+   select id, workspace_id, status, display_name, authorized_account_label
+   from public.connections
+   where provider = 'stripe' and status <> 'pending' and mode is null;
+   ```
+
+2. For each one, do one of these, in this order:
+   - **Reconnect it** from its page in StackDash. The new grant tells StackDash the mode, so the recorded value is always right. This needs a deployment that records modes, one whose commit includes `supabase/migrations/20261118150000_connection_mode.sql`. The upgrade steps apply the migrations (step 3) before they deploy (step 4), so the deployment serving now is usually the one you are upgrading from, and if it does not record modes, the database refuses its reconnect. Then use one of these orders:
+     - **Deploy first**, when `supabase migration list --linked` shows no migration after `20261118150300_contract_connection_mode_validate.sql` still missing: do step 4 now. The new build runs against the database as it stands, because this migration only drops a function and validates a constraint, and nothing reads either. Reconnect each connection, then come back to step 3 below. Until then `/app/admin` shows the database migrations as **Behind**.
+     - **Record the mode by SQL now**, as the next item describes, and reconnect each connection once the upgrade is done, so the mode then comes from Stripe. Use this order when later migrations are missing too, because the new build may need them.
+   - **Record its mode by SQL**, only if you know whether the Stripe account was connected in live mode or in test mode: `update public.connections set mode = 'live' where id = '<id>';`, or `'test'`. Nothing checks the value. A wrong one sends the other mode's payments and uninstalls to this connection: live payments onto a test mode connection, or the reverse. How long a wrong value lasts depends on the status from step 1:
+     - `active` or `failed`: its next sync on the new deployment reads the mode from the stored credential and corrects it, within the hour.
+     - `needs_attention`: it still receives Stripe's deliveries but is never synced, so a wrong mode stays until someone reconnects it.
+     - `revoked`: harmless. It receives no deliveries, and a reconnect records the mode again.
+   - **Delete it** from its page in StackDash. Its history is deleted with it.
+
+   Until one of these is done the connection cannot be used, because the database refuses every change to it that does not record its mode. **Sync now** fails, a sync cannot record its result, and disconnecting fails too: StackDash deletes its credential first, and the database then refuses to mark it disconnected, so do not disconnect one in the meantime. These errors have this same cause, not a second fault.
+3. Run `supabase migration up --linked` again.
 
 ### Check the upgrade
 

@@ -35,11 +35,11 @@ values
   ('d41400c0-0000-4000-8000-000000000000', 'd4140004-0000-4000-8000-000000000000', 'owner'),
   ('d41400c0-0000-4000-8000-000000000000', 'd4140003-0000-4000-8000-000000000000', 'viewer');
 
-insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds)
+insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds, mode)
 values
-  ('d41400a1-0000-4000-8000-000000000000', 'd41400a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel heatmap', 3600),
-  ('d41400b1-0000-4000-8000-000000000000', 'd41400a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub heatmap', 3600),
-  ('d41400c1-0000-4000-8000-000000000000', 'd41400c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe heatmap', 3600);
+  ('d41400a1-0000-4000-8000-000000000000', 'd41400a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel heatmap', 3600, null),
+  ('d41400b1-0000-4000-8000-000000000000', 'd41400a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub heatmap', 3600, null),
+  ('d41400c1-0000-4000-8000-000000000000', 'd41400c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe heatmap', 3600, 'live');
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind)
 values

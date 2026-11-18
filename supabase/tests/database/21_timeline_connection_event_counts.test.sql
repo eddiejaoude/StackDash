@@ -32,11 +32,11 @@ values
   ('d24500c0-0000-4000-8000-000000000000', 'd2450003-0000-4000-8000-000000000000', 'owner'),
   ('d24500c0-0000-4000-8000-000000000000', 'd2450002-0000-4000-8000-000000000000', 'viewer');
 
-insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds)
+insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds, mode)
 values
-  ('d24500a1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel badge', 3600),
-  ('d24500b1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub badge', 3600),
-  ('d24500c1-0000-4000-8000-000000000000', 'd24500c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe badge', 3600);
+  ('d24500a1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel badge', 3600, null),
+  ('d24500b1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub badge', 3600, null),
+  ('d24500c1-0000-4000-8000-000000000000', 'd24500c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe badge', 3600, 'live');
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind)
 values
