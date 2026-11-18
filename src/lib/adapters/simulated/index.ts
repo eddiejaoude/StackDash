@@ -112,7 +112,9 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  * registration keeps the secret stored for its connection, and its automatic setup is simulated
  * (`simulatedConnectionSetup`), so the twin never calls the provider. The webhook job applies what
  * a twin verified to simulated connections only (#495), so a delivery signed with the simulated
- * secret never reaches a real connection that includes the same account.
+ * secret never reaches a real connection that includes the same account. A live adapter's test
+ * mode secret (`testModeSecretEnv`, Stripe's, #481) is dropped: the one simulated secret verifies
+ * deliveries of either mode, and the mode the outcome names still decides which connections get it.
  */
 function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId, profile: SimulatedProfile): WebhookDescriptor {
   if (real.registration.kind === "app") return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };
@@ -229,6 +231,11 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     ...(real.installationIdOf === undefined
       ? {}
       : { installationIdOf: (credential: OAuthCredential) => (isSimulatedCredential(credential) ? (credential.metadata?.seed ?? null) : null) }),
+    // A live adapter whose accounts have a live and a test mode under one id (Stripe, #481): every
+    // simulated grant is a test mode one, as its account's name says ("Example Stripe account (test
+    // mode)", src/lib/adapters/simulated/stripe.ts), so a signed test mode delivery reaches the
+    // connection and a live one is accepted and stores nothing.
+    ...(real.modeOf === undefined ? {} : { modeOf: (credential: OAuthCredential) => (isSimulatedCredential(credential) ? ("test" as const) : null) }),
 
     async sync({ credential, externalAccountId, cursor }: SyncInput, ctx): Promise<SyncResult> {
       const accounts = profile.accounts(seedOf(credential, provider));

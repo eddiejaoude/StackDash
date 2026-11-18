@@ -640,7 +640,7 @@ describe("stripeAdapter declarations", () => {
   });
 });
 
-describe("stripeAdapter webhooks (#423)", () => {
+describe("stripeAdapter webhooks (#423, #481)", () => {
   // Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
   const WEBHOOK_SECRET = ["whsec", "fixture", "endpoint"].join("_");
   const CHARGE_BODY = JSON.stringify(webhookChargeSucceededFixture);
@@ -679,9 +679,9 @@ describe("stripeAdapter webhooks (#423)", () => {
     return value;
   }
 
-  it("declares an app-level endpoint with one secret, the polled events, and both uninstall events", () => {
+  it("declares an app-level endpoint with a live and a test mode secret, the polled events, and both uninstall events", () => {
     expect(checkAdapterDeclaration(stripeAdapter)).toEqual([]);
-    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: "STRIPE_WEBHOOK_SECRET" });
+    expect(descriptor().registration).toEqual({ kind: "app", secretEnv: "STRIPE_WEBHOOK_SECRET", testModeSecretEnv: "STRIPE_WEBHOOK_TEST_SECRET" });
     expect(descriptor().subscriptions).toEqual([
       "charge.succeeded",
       "charge.failed",
@@ -705,7 +705,13 @@ describe("stripeAdapter webhooks (#423)", () => {
     const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
     const polled = result.events.find((event) => event.dedupeKey === "evt_fixture_charge_succeeded");
     expect(polled).toBeDefined();
-    expect(outcome).toEqual({ kind: "events", externalAccountId: accountId, events: [polled] });
+    expect(outcome).toEqual({ kind: "events", externalAccountId: accountId, mode: "live", events: [polled] });
+  });
+
+  it("names test mode on a test mode event, with the same event polling with the test key stores (#481)", () => {
+    const outcome = parsed(JSON.stringify({ ...webhookChargeSucceededFixture, livemode: false }));
+    expect(outcome).toMatchObject({ kind: "events", externalAccountId: accountId, mode: "test", events: [{ dedupeKey: "evt_fixture_charge_succeeded" }] });
+    expect(checkWebhookOutcome(stripeAdapter, outcome)).toEqual([]);
   });
 
   it("keeps no personal data from the delivered object (privacy)", () => {
@@ -723,9 +729,18 @@ describe("stripeAdapter webhooks (#423)", () => {
     ["account.application.deauthorized", webhookApplicationDeauthorizedFixture],
     // The name Stripe uses on endpoints pinned to an API version before 2026-09-30.
     ["app.install.deleted (older API versions)", { ...webhookInstallDeletedFixture, type: "app.install.deleted" }],
-  ])("reports %s as an uninstall of the account, at the event's time", (_case, fixture) => {
+  ])("reports %s as an uninstall of the account, at the event's time, in live mode", (_case, fixture) => {
     const outcome = parsed(JSON.stringify(fixture));
-    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: accountId, occurredAt: new Date(1794308400 * 1000) });
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: accountId, mode: "live", occurredAt: new Date(1794308400 * 1000) });
+    expect(checkWebhookOutcome(stripeAdapter, outcome)).toEqual([]);
+  });
+
+  it.each([
+    ["apps.install.deleted", webhookInstallDeletedFixture],
+    ["account.application.deauthorized", webhookApplicationDeauthorizedFixture],
+  ])("reports a test mode %s as an uninstall in test mode, so it never revokes a live connection (#481)", (_case, fixture) => {
+    const outcome = parsed(JSON.stringify({ ...fixture, livemode: false }));
+    expect(outcome).toEqual({ kind: "uninstalled", externalAccountId: accountId, mode: "test", occurredAt: new Date(1794308400 * 1000) });
     expect(checkWebhookOutcome(stripeAdapter, outcome)).toEqual([]);
   });
 
@@ -769,8 +784,6 @@ describe("stripeAdapter webhooks (#423)", () => {
   });
 
   it.each([
-    ["a test mode event (decided on #423: test mode connections are polled)", { ...webhookChargeSucceededFixture, livemode: false }],
-    ["a test mode uninstall, which must never revoke a live connection", { ...webhookInstallDeletedFixture, livemode: false }],
     ["an event on the app owner's own account (no account)", { ...webhookChargeSucceededFixture, account: undefined }],
     ["an event type the timeline does not show", { ...webhookChargeSucceededFixture, type: "payout.paid" }],
     ["an event with no livemode", { ...webhookChargeSucceededFixture, livemode: undefined }],
@@ -788,5 +801,16 @@ describe("stripeAdapter webhooks (#423)", () => {
     expect(descriptor().parse(webhookRequest, ctx)).toMatchObject({ kind: "ignored" });
     expect(logger.warn).toHaveBeenCalledWith("stripe.webhook.object_rejected", { eventType: "charge.succeeded" });
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain("Jane Doe");
+  });
+});
+
+describe("stripeAdapter.modeOf (#481)", () => {
+  it.each([
+    { name: "a live mode grant", metadata: { stripeUserId: accountId, livemode: "true" }, mode: "live" },
+    { name: "a test mode grant", metadata: { stripeUserId: accountId, livemode: "false" }, mode: "test" },
+    { name: "a grant without livemode (boundary: missing)", metadata: { stripeUserId: accountId }, mode: null },
+    { name: "a livemode that is not a boolean (boundary: drifted)", metadata: { stripeUserId: accountId, livemode: "TRUE" }, mode: null },
+  ])("reads $name as $mode", ({ metadata, mode }) => {
+    expect(stripeAdapter.modeOf?.(credential(true, metadata))).toBe(mode);
   });
 });
