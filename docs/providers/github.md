@@ -97,7 +97,7 @@ Organization owners approve "Administration: read" at install time. On a persona
 
 ### Which repositories
 
-`GET /installation/repositories` (installation token, `per_page=100`, paginate). Returns the repositories the owner granted. Respect `repository_selection`: a "selected" install only shows chosen repositories. Re-read every sync because users add and remove repositories.
+`GET /installation/repositories` (installation token, `per_page=100`, paginate). Returns the repositories the owner granted. Respect `repository_selection`: a "selected" install only shows chosen repositories. Re-read every sync because users add and remove repositories. Each repository carries `stargazers_count`, a required integer in GitHub's reference for this endpoint ([List repositories accessible to the app installation](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-app-installation)) and the number of users who starred it ([REST API endpoints for starring](https://docs.github.com/en/rest/activity/starring)). It is StackDash's star count for every repository, with no request per repository.
 
 ### Billing usage, organization: `GET /organizations/{org}/settings/billing/usage`
 
@@ -148,7 +148,7 @@ Installation tokens do **not** work on these. They only cover usage billed to th
 
 ### Star count: `GET /repos/{owner}/{repo}/stargazers/count`
 
-Returns `{ "count": 42 }`. Current stars; users who unstarred are not included. Cheapest call for milestones.
+Returns `{ "count": 42 }`. Current stars; users who unstarred are not included. StackDash does not call it: the repository list already carries each repository's count (`stargazers_count`, see Which repositories), so a request per repository would only slow the sync.
 
 ### Star history: `GET /repos/{owner}/{repo}/stargazers/history`
 
@@ -160,7 +160,7 @@ Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, s
 
 ### Forks: `GET /repos/{owner}/{repo}/forks`
 
-`sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync read the first page and stop at the first fork id already seen. Store the fork `id` and `created_at` for de-duplication; do not store owner logins. `forks_count` on the repository is the total.
+`sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync that reaches the repository within the fork budget (see [Time budget](#time-budget)), read the first page and stop at the first fork id already seen. Store the fork `id` and `created_at` for de-duplication; do not store owner logins. `forks_count` on the repository is the total.
 
 ### Merged pull requests: `GET /repos/{owner}/{repo}/pulls`
 
@@ -180,11 +180,25 @@ GitHub's events documentation says the feed "is not built to serve real-time use
 
 The pull request and issue lists are the backfill for the webhooks: they catch a delivery that was missed. The events feed is the only source of releases. Each sync reads one page of each list per repository (the feed up to three), each list from its own previous read less one poll interval (so an item GitHub listed late is still caught; the dedupe key absorbs the overlap), and at most 7 days back on a first sync, after a long gap, or once a list's permission is granted. The events feed reads 6 hours further back, as above. Each repository's read times are kept per list in the cursor (`activity`), and a list's time moves on only when it was read, not when its permission is missing or GitHub refused it. A full page whose last item is still inside the window is logged as `github.sync.activity_truncated` with its page size, by path template only. For the events feed, the signal is three pages that did not reach back to the feed's own previous read (or the backfill start on a first read): events may have been missed between two reads. Three pages that reach back that far but not through the 6 hour allowance are normal on a busy repository and are not logged. A `403` on a list becomes a partial error naming its permission, and a `404` or `410` (the repository went away, or issues are turned off) gives that repository no events for the list; neither stops the rest of the sync.
 
-The activity reads have a time budget: no repository's reads start more than 20 seconds into them, so the activity reads add at most about 20 seconds to a sync, plus the reads of the repository in progress. The star count and fork reads that run before them have no budget yet. The repositories left over keep their read times, are logged as `github.sync.activity_deferred` with how many were deferred, and are read first on the next sync: the order is by when each repository's activity was last attempted (`activityAttemptedAt`), never-attempted first, so a list that is never read (a permission not accepted, a list refused) cannot keep a repository at the front or the back.
+The activity reads run within their own time budget; see [Time budget](#time-budget).
+
+### Time budget
+
+A sync has about 70 seconds: a job starts at most 50 seconds into a tick (`TICK_BUDGET_MS`) and holds its claim for 120 (`TICK_LEASE_SECONDS`, `src/lib/jobs/runner.ts`). A sync still running after that is cut off by a hosted function's time limit, losing everything it read, or, self-hosted, overlaps the next tick's run of the same connection. Star counts need no time of their own: they come with the repository list, so every repository's star count, baseline, milestones, and day close run on every sync. The per-repository reads run within two 20 second budgets, both kept by one mechanism (`readWithinBudget` in `src/lib/adapters/github/repositories.ts`):
+
+- Forks (`FORKS_BUDGET_MS`): no repository's fork read starts more than 20 seconds into them. A busy repository's first page of forks took 1.1 to 5.8 s (`supabase/supabase` 1.11 s, `vercel/next.js` 5.83 s, measured on 2026-11-16), so the fork reads take at most about 26 seconds with the repository in progress, and reach about 4 busy repositories a sync.
+- Activity (`ACTIVITY_BUDGET_MS`): no repository's reads start more than 20 seconds into them, so they take at most about 29 seconds with the repository in progress (a busy repository's activity is about 6 to 8 s, see Rate limits).
+
+That leaves about 15 seconds for the installation, token, and repository list reads before them and the billing reads after. With every request taking the measured times (and 1 s for the others), a sync of 100 busy repositories takes about 55 seconds, inside its claim; reading every repository's star count and forks with no budget took over 700. The unit tests in `src/lib/adapters/github/index.test.ts` ("sync: fork read budget") model it with a clock moved on by each request.
+
+Each budget reads the repositories read longest ago first, never read first, and leaves the rest for a later sync, logged as `github.sync.forks_deferred` or `github.sync.activity_deferred` with how many were deferred and read. A busy installation therefore catches up over several syncs: the forks of 100 busy repositories in about a day, their activity in about a day and a half.
+
+- Forks are ordered by when they were last read (`forksReadAt`). A repository not reached keeps its newest fork seen, so the sync that reads it reports each fork made since, once. A repository new to the installation and not reached on its first sync takes that sync's time as its fork baseline (`forksSeenAt`), so its first fork read reports every fork made after StackDash first listed it, and none from before. The baseline compares this host's clock with GitHub's `created_at`, so a fork made within the clock difference of that first sync can fall either side.
+- Activity is ordered by when each repository's activity was last attempted (`activityAttemptedAt`), never-attempted first, so a list that is never read (a permission not accepted, a list refused) cannot keep a repository at the front or the back. A repository not reached keeps its read times and is read from where it left off.
 
 ### New stars per day: `github.stars.gained.daily`
 
-A usage metric StackDash derives from the `/stargazers/count` snapshots, declared in the adapter's `dailyTotals`. Each repository keeps a baseline: its star count at the first sync of a UTC day. The first sync of the next day closes that day, and the reading is the sum of each repository's net change over it, counting a repository that lost stars as 0, so an unstar never cancels another repository's new stars. Its timeframe is the closed day (00:00 to 00:00 UTC), and it is stored in that sync's daily row.
+A usage metric StackDash derives from the star count snapshots (`stargazers_count` on the repository list), declared in the adapter's `dailyTotals`. Each repository keeps a baseline: its star count at the first sync of a UTC day. The first sync of the next day closes that day, and the reading is the sum of each repository's net change over it, counting a repository that lost stars as 0, so an unstar never cancels another repository's new stars. Its timeframe is the closed day (00:00 to 00:00 UTC), and it is stored in that sync's daily row.
 
 - A repository on its first sync, including one just added to the installation, only sets its baseline: its existing stars are never counted as new.
 - A repository whose baseline is older than yesterday (syncs were missed) adds nothing, because its change spans several days.
@@ -206,8 +220,8 @@ Pull requests, issues, and single stars arrive by webhook within a minute; the p
 
 | Event | Source | Rule |
 |---|---|---|
-| New stars | Daily snapshot of `/stargazers/count` | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross. Only when the first sync of the next day runs by 02:00 UTC: a later close would report up to two days as one, so that day gets no event. Its stars still show in the star counts (`github.stars.total` and each repository's) |
-| Star milestone | `/stargazers/count` | When the count first reaches 100, 500, 1,000, then every further 1,000. Fire once per milestone per repository, even if the count dips and rises again. Polled only: only the cursor knows which milestones already fired |
+| New stars | Daily snapshot of `stargazers_count` | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross. Only when the first sync of the next day runs by 02:00 UTC: a later close would report up to two days as one, so that day gets no event. Its stars still show in the star counts (`github.stars.total` and each repository's) |
+| Star milestone | `stargazers_count` | When the count first reaches 100, 500, 1,000, then every further 1,000. Fire once per milestone per repository, even if the count dips and rises again. Polled only: only the cursor knows which milestones already fired |
 | Repository starred | `star` webhook, `created` | One event per star, at `starred_at`, keyed by repository and `starred_at`. Who starred is never read. Webhook only: the stargazer list that could backfill it is restricted and personal (see [Stargazer list](#stargazer-list-avoid)), so a missed delivery shows only in the daily net and the counts. An unstar (`deleted`) is ignored: the daily net counts it |
 | New fork | `/forks` (newest first) | One event per new fork id, at its `created_at`. Summarize per day if there are many |
 | Pull request merged | `pull_request` webhook (`closed` with `merged: true`), then `/pulls` | One event per merge, at `merged_at`, keyed `github.pull_request.merged:<repository id>:<number>`. Only the number and the repository |
@@ -267,7 +281,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Secondary limits: at most 100 concurrent requests, 900 points per minute for REST (`GET` costs 1), 90 seconds of CPU per minute, and 2,000 OAuth token requests per hour per app. Some endpoints cost more, undisclosed.
 - Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions; use them for pacing, not exact counting.
 - Exceeded: `403` or `429`. If `retry-after` is present, wait that many seconds. If `x-ratelimit-remaining` is `0`, wait until `x-ratelimit-reset`. Otherwise wait at least one minute, then back off exponentially and give up after a fixed number of tries. Continuing while limited can get the app banned.
-- Budget: per repository per sync 2 requests for stars and forks, plus the activity reads within their 20 second budget: one page each of pull requests and issues and one to three pages of the events feed. About 4 billing calls per account. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Webhook deliveries cost no requests. Run requests serially per installation.
+- Budget: per repository per sync 1 request for forks within their 20 second budget (star counts come with the repository list), plus the activity reads within theirs (see [Time budget](#time-budget)): one page each of pull requests and issues and one to three pages of the events feed. About 4 billing calls per account. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Its first page of forks took 1.1 to 5.8 s, so the fork budget reads about 4 busy repositories a sync. Webhook deliveries cost no requests. Run requests serially per installation.
 
 ## Webhooks
 
@@ -325,6 +339,7 @@ Disclose these on the connect screen before redirecting:
 - The stargazer list is restricted; StackDash never knows who starred.
 - Single star events come only by webhook. A missed `star` delivery shows in the daily net and the star counts, not as its own event.
 - Activity is read one page per list per repository per sync (the events feed up to three), within a 20 second budget. A repository with more than 30 merges or 100 new issues since its list was last read, and a missed webhook among them, can miss some; the truncation is logged. A repository the budget defers is read first on the next sync, from where it left off.
+- Forks are read within a 20 second budget too. In an installation with more busy repositories than one sync reaches, each repository's forks are read every several hours rather than every hour: a new fork is reported that much later, and when more than 100 forks are made between two of its reads, the oldest of them are not reported.
 - Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags. A repository with more than 300 events since its feed was last read (the feed's cap) can miss a release, and that is logged as `github.sync.activity_truncated`. On an hourly read that takes more than 300 events an hour. A repository the budget defers is read less often, so in an installation with more busy repositories than one sync reaches, releases published between two of its turns can be missed, and each such turn logs it.
 - One installation per account. A user with a personal account and two organizations installs three times and gets three connections.
 - Enterprise accounts are out of scope.

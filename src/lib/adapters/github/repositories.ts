@@ -16,7 +16,6 @@ import { getJson, getRepositoryJson, grantsRead } from "./api";
 import {
   ForksSchema,
   InstallationRepositoriesSchema,
-  StargazersCountSchema,
   type Fork,
   type Installation,
   type Repository,
@@ -26,11 +25,12 @@ import {
  * Stars, forks, and activity of the installation's repositories, per docs/providers/github.md
  * ("Which repositories", "Star count", "Forks", "Timeline events").
  *
- * Bounded: one page of 100 repositories per sync, one page of forks per repository, and one page
- * each of pull requests and issues and up to three of the events feed (./activity.ts), read within
- * ACTIVITY_BUDGET_MS. State between polls (daily star baseline, highest milestone fired, newest
- * fork seen, when each activity list was last read, when activity was last attempted) lives in the
- * cursor, so a re-poll with the same cursor and responses yields the same dedupe keys.
+ * Bounded: one page of 100 repositories per sync, which carries each repository's star count, one
+ * page of forks per repository within FORKS_BUDGET_MS, and one page each of pull requests and issues
+ * and up to three of the events feed (./activity.ts) within ACTIVITY_BUDGET_MS (`readWithinBudget`).
+ * State between polls (daily star baseline, highest milestone fired, newest fork seen and when the
+ * forks were last read, when each activity list was last read, when activity was last attempted)
+ * lives in the cursor, so a re-poll with the same cursor and responses yields the same dedupe keys.
  */
 
 export const MAX_REPOSITORIES = 100;
@@ -41,12 +41,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // that list's previous read less one poll interval, so an item GitHub listed late is still caught;
 // the dedupe key absorbs the overlap.
 const ACTIVITY_BACKFILL_MS = 7 * DAY_MS;
-// No repository's activity read starts after this much of the activity reads has passed. A job may
-// start up to 50 seconds into a tick (`TICK_BUDGET_MS`) and keeps its claim for 120 seconds
-// (`TICK_LEASE_SECONDS`, src/lib/jobs/runner.ts), so a sync has about 70 seconds; the activity reads
-// get under a third of it, leaving the star, fork, and billing reads and one request's 15 second
-// timeout the rest. The repositories left over are read first on the next sync, from their own last
-// read, so a busy installation catches up over several syncs.
+// No repository's fork read starts after FORKS_BUDGET_MS of the fork reads has passed, and no
+// repository's activity reads after ACTIVITY_BUDGET_MS of those. A job may start up to 50 seconds
+// into a tick (`TICK_BUDGET_MS`) and keeps its claim for 120 seconds (`TICK_LEASE_SECONDS`,
+// src/lib/jobs/runner.ts), so a sync has about 70 seconds. The two budgets take 40 of them; the other
+// 30 cover the repository in progress when each budget runs out (a busy repository's first page of
+// forks took up to 5.8 s and its activity about 6 to 8 s, measured on #62), the installation, token,
+// and repository list reads before them, and the billing reads after. Star counts come with the
+// repository list, so they need no budget. The repositories left over are read first on the next
+// sync, from their own last read, so a busy installation catches up over several syncs.
+const FORKS_BUDGET_MS = 20_000;
 const ACTIVITY_BUDGET_MS = 20_000;
 /** How often GitHub is polled: the adapter's `pollIntervalSeconds`. */
 export const POLL_INTERVAL_SECONDS = 3600;
@@ -129,9 +133,15 @@ const RepoStateSchema = z.object({
   dayCount: z.int().nonnegative(),
   // Highest milestone already fired (0 when none), so a dip and recovery never fires it again.
   milestone: z.int().nonnegative(),
-  // Creation time of the newest fork seen, and the fork ids created at exactly that time.
+  // Creation time of the newest fork seen (null when there were none), and the fork ids created at
+  // exactly that time. A repository's first sync sets it: from its first page of forks when the fork
+  // budget reaches them, otherwise to that sync's time, so its first fork read reports every fork
+  // made after StackDash first listed it, and none from before.
   forksSeenAt: z.iso.datetime({ offset: true }).nullable(),
   forkIdsAtSeenAt: z.array(z.int().positive()),
+  // When the forks were last read, so the fork budget reads the repository read longest ago first.
+  // Absent before #504 and until the first fork read.
+  forksReadAt: z.iso.datetime({ offset: true }).optional(),
   // Absent before #62 and for a repository whose activity was never read.
   activity: ActivityReadTimesSchema.optional(),
   // When this repository's activity reads last ran, whether or not every list was read, so a list
@@ -196,14 +206,12 @@ export function activitySince(previousReadAt: string | undefined, now: Date): Da
 
 type RepoContext = Readonly<{
   repo: Repository;
-  count: number;
-  forks: readonly Fork[];
   previous: RepoState | undefined;
   externalAccountId: string;
   now: Date;
 }>;
 
-function starEvents({ repo, count, previous, externalAccountId, now }: RepoContext): {
+function starEvents({ repo, previous, externalAccountId, now }: RepoContext, count: number): {
   events: ActivityEvent[];
   state: Pick<RepoState, "day" | "dayCount" | "milestone">;
   // The repository's new stars over yesterday (UTC): its net change from the baseline taken
@@ -264,7 +272,7 @@ function starEvents({ repo, count, previous, externalAccountId, now }: RepoConte
   return { events, state, yesterdayGain };
 }
 
-function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): {
+function forkEvents({ repo, previous, externalAccountId }: RepoContext, forks: readonly Fork[]): {
   events: ActivityEvent[];
   state: Pick<RepoState, "forksSeenAt" | "forkIdsAtSeenAt">;
 } {
@@ -286,7 +294,8 @@ function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): 
   const seenAt = previous.forksSeenAt === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.forksSeenAt);
   const seenIds = new Set(previous.forkIdsAtSeenAt);
   if (newestAt !== undefined && newestAt < seenAt) {
-    // Newest fork older than the baseline (forks deleted): keep the baseline.
+    // Newest fork older than the baseline (forks deleted, or none made since a baseline taken at the
+    // repository's first sync): keep the baseline.
     return { events: [], state: { forksSeenAt: previous.forksSeenAt, forkIdsAtSeenAt: previous.forkIdsAtSeenAt } };
   }
   const events = forks
@@ -307,6 +316,36 @@ function forkEvents({ repo, forks, previous, externalAccountId }: RepoContext): 
       }),
     );
   return { events, state };
+}
+
+/**
+ * Runs `read` on each item, the one read longest ago first (never read first), until `budgetMs` has
+ * passed on the sync's clock. No read starts once the budget is spent, so the reads take at most
+ * `budgetMs` plus the item in progress. An item not reached keeps its state from the previous sync,
+ * so the next sync reads it first and from where it left off. The items not reached are logged as
+ * `event`, with how many were deferred and how many read.
+ */
+async function readWithinBudget<T>(
+  ctx: OAuthContext,
+  budget: Readonly<{
+    event: string;
+    budgetMs: number;
+    items: readonly T[];
+    lastReadAt: (item: T) => string | undefined;
+    read: (item: T) => Promise<void>;
+  }>,
+): Promise<void> {
+  const order = (item: T) => {
+    const at = budget.lastReadAt(item);
+    return at === undefined ? 0 : Date.parse(at);
+  };
+  const startedAt = ctx.now().getTime();
+  let deferred = 0;
+  for (const item of [...budget.items].sort((a, b) => order(a) - order(b))) {
+    if (ctx.now().getTime() - startedAt >= budget.budgetMs) deferred += 1;
+    else await budget.read(item);
+  }
+  if (deferred > 0) ctx.logger.warn(budget.event, { deferred, read: budget.items.length - deferred });
 }
 
 export async function collectRepositories(
@@ -330,7 +369,6 @@ export async function collectRepositories(
   const now = ctx.now();
   const metrics: AdapterMetric[] = [];
   const events: ActivityEvent[] = [];
-  const repos: Cursor["repos"] = {};
   let totalStars = 0;
   // Yesterday's new stars across the repositories whose baseline from yesterday this sync closed
   // soon after midnight; undefined when none did (nothing to report, so no reading is written).
@@ -344,24 +382,19 @@ export async function collectRepositories(
   }
   const repositories = page.repositories.slice(0, MAX_REPOSITORIES);
 
+  // Stars of every repository on every sync, from the count the list carries. Its fork and activity
+  // state stays as the previous sync left it until a read within the budgets below moves it on. A
+  // repository new to the installation takes this sync's time as its fork baseline. A fork read on
+  // this sync replaces it with the page's newest fork (null when there is none); a later one only
+  // once a fork has been made since.
+  const entries: { repo: Repository; previous: RepoState | undefined; state: RepoState }[] = [];
   for (const repo of repositories) {
-    const { count } = await getRepositoryJson(ctx, repo, "/stargazers/count", installationToken, StargazersCountSchema);
-    const forks = await getRepositoryJson(ctx, repo, "/forks", installationToken, ForksSchema, {
-      sort: "newest",
-      per_page: String(FORKS_PAGE_SIZE),
-    });
-    const repoContext: RepoContext = {
-      repo,
-      count,
-      forks,
-      previous: previous?.repos[String(repo.id)],
-      externalAccountId,
-      now,
-    };
-    const stars = starEvents(repoContext);
-    const forked = forkEvents(repoContext);
-    events.push(...stars.events, ...forked.events);
-    repos[String(repo.id)] = { ...stars.state, ...forked.state };
+    const previousRepo = previous?.repos[String(repo.id)];
+    const count = repo.stargazers_count;
+    const stars = starEvents({ repo, previous: previousRepo, externalAccountId, now }, count);
+    events.push(...stars.events);
+    const kept = previousRepo ?? { forksSeenAt: now.toISOString(), forkIdsAtSeenAt: [] };
+    entries.push({ repo, previous: previousRepo, state: { ...kept, ...stars.state } });
     totalStars += count;
     if (stars.yesterdayGain !== undefined) starsGainedYesterday = (starsGainedYesterday ?? 0) + stars.yesterdayGain;
 
@@ -373,54 +406,52 @@ export async function collectRepositories(
       timeframe: { type: "point", at: now },
       externalAccountId,
       retrievedAt: now,
-      provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
+      provenance: { source: "provider_api", endpoint: "/installation/repositories" },
     });
   }
 
-  // Activity, the repositories attempted longest ago first (never attempted first), until the
-  // budget is spent. A repository not reached keeps its times, so the next sync reads it first and
-  // from where it left off.
-  const readTimes = (repo: Repository): ActivityReadTimes => previous?.repos[String(repo.id)]?.activity ?? {};
-  const attemptedAt = (repo: Repository) => {
-    const at = previous?.repos[String(repo.id)]?.activityAttemptedAt;
-    return at === undefined ? 0 : Date.parse(at);
-  };
-  const activityStartedAt = ctx.now().getTime();
-  let deferred = 0;
-  for (const repo of [...repositories].sort((a, b) => attemptedAt(a) - attemptedAt(b))) {
-    const id = String(repo.id);
-    const state = repos[id];
-    if (state === undefined) continue;
-    const times = readTimes(repo);
-    if (ctx.now().getTime() - activityStartedAt >= ACTIVITY_BUDGET_MS) {
-      deferred += 1;
-      const attempted = previous?.repos[id]?.activityAttemptedAt;
-      repos[id] = {
-        ...state,
-        activity: times,
-        ...(attempted === undefined ? {} : { activityAttemptedAt: attempted }),
+  // Forks, the repositories read longest ago first, until the budget is spent. A repository not
+  // reached keeps its fork baseline, so the sync that reads it reports each new fork once.
+  await readWithinBudget(ctx, {
+    event: "github.sync.forks_deferred",
+    budgetMs: FORKS_BUDGET_MS,
+    items: entries,
+    lastReadAt: (entry) => entry.previous?.forksReadAt,
+    read: async (entry) => {
+      const forks = await getRepositoryJson(ctx, entry.repo, "/forks", installationToken, ForksSchema, {
+        sort: "newest",
+        per_page: String(FORKS_PAGE_SIZE),
+      });
+      const forked = forkEvents({ repo: entry.repo, previous: entry.previous, externalAccountId, now }, forks);
+      events.push(...forked.events);
+      entry.state = { ...entry.state, ...forked.state, forksReadAt: now.toISOString() };
+    },
+  });
+
+  // Activity, the repositories attempted longest ago first, until the budget is spent. A repository
+  // not reached keeps its read times.
+  await readWithinBudget(ctx, {
+    event: "github.sync.activity_deferred",
+    budgetMs: ACTIVITY_BUDGET_MS,
+    items: entries,
+    lastReadAt: (entry) => entry.previous?.activityAttemptedAt,
+    read: async (entry) => {
+      const times: ActivityReadTimes = entry.previous?.activity ?? {};
+      const since: Record<ActivityList, Date> = {
+        pullRequests: activitySince(times.pullRequests, now),
+        issues: activitySince(times.issues, now),
+        releases: activitySince(times.releases, now),
       };
-      continue;
-    }
-    const since: Record<ActivityList, Date> = {
-      pullRequests: activitySince(times.pullRequests, now),
-      issues: activitySince(times.issues, now),
-      releases: activitySince(times.releases, now),
-    };
-    // The feed counts as cut short only if it did not reach back to its own previous read.
-    const feedReadBefore = times.releases === undefined ? since.releases : new Date(times.releases);
-    const activity = await collectActivity(ctx, installationToken, repo, since, feedReadBefore, granted, externalAccountId);
-    events.push(...activity.events);
-    for (const [permission, error] of activity.refused) if (!partialErrors.has(permission)) partialErrors.set(permission, error);
-    const readAt: ActivityReadTimes = { ...times };
-    for (const list of activity.read) readAt[list] = now.toISOString();
-    repos[id] = {
-      ...state,
-      activity: readAt,
-      activityAttemptedAt: now.toISOString(),
-    };
-  }
-  if (deferred > 0) ctx.logger.warn("github.sync.activity_deferred", { deferred, read: repositories.length - deferred });
+      // The feed counts as cut short only if it did not reach back to its own previous read.
+      const feedReadBefore = times.releases === undefined ? since.releases : new Date(times.releases);
+      const activity = await collectActivity(ctx, installationToken, entry.repo, since, feedReadBefore, granted, externalAccountId);
+      events.push(...activity.events);
+      for (const [permission, error] of activity.refused) if (!partialErrors.has(permission)) partialErrors.set(permission, error);
+      const readAt: ActivityReadTimes = { ...times };
+      for (const list of activity.read) readAt[list] = now.toISOString();
+      entry.state = { ...entry.state, activity: readAt, activityAttemptedAt: now.toISOString() };
+    },
+  });
 
   metrics.push({
     kind: "usage",
@@ -430,7 +461,7 @@ export async function collectRepositories(
     timeframe: { type: "point", at: now },
     externalAccountId,
     retrievedAt: now,
-    provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
+    provenance: { source: "provider_api", endpoint: "/installation/repositories" },
   });
 
   if (starsGainedYesterday !== undefined) {
@@ -446,14 +477,14 @@ export async function collectRepositories(
       timeframe: { type: "period", start: new Date(dayStart), end: new Date(dayStart + DAY_MS) },
       externalAccountId,
       retrievedAt: now,
-      provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
+      provenance: { source: "provider_api", endpoint: "/installation/repositories" },
     });
   }
 
   return {
     metrics,
     events,
-    cursor: { v: 1, repos },
+    cursor: { v: 1, repos: Object.fromEntries(entries.map((entry) => [String(entry.repo.id), entry.state])) },
     partialErrors: [...partialErrors.values()],
   };
 }
