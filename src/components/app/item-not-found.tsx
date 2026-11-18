@@ -44,7 +44,7 @@ const LISTED_ITEMS = {
 // no list to link to, so the link opens the newest year in review instead.
 const YEAR = {
   title: "We could not find that year",
-  description: "The link may be mistyped, or the year may not have started yet. A year in review opens on 1 January of its year.",
+  description: "The link may be mistyped, or the year may not have started yet. A year in review opens when its year starts.",
   label: "Open the latest year in review",
 } as const satisfies ItemCopy;
 
