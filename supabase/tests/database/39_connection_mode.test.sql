@@ -4,8 +4,9 @@
 -- of its result, on the account match, the installation match, and both, null where none is
 -- recorded, beside every column callers before #481 read, with the parameters and grants unchanged;
 -- backfill_connection_mode fills a Stripe connection's mode from its authorized account label,
--- batched and re-runnable, and never overwrites a recorded mode or touches another provider, a
--- pending connection, or one with no label.
+-- batched and re-runnable, reading only the label shapes the adapters write, and never overwrites a
+-- recorded mode or touches another provider, a pending connection, one with no label, or one whose
+-- label it does not recognize.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
@@ -20,7 +21,8 @@ update public.connections set mode = 'live' where provider = 'stripe' and mode i
 -- Fixtures: one workspace. Stripe account acct_1 is included by a live and a test mode connection
 -- of installation inst-1, and by a connection with no recorded mode. The backfill rows below have
 -- no mode yet: a live label, a test mode label, the simulated test mode label, a label recorded
--- already (live), no label, a pending one, and a GitHub one with a test mode looking label.
+-- already (live), no label, a pending one, a GitHub one with a test mode looking label, and one
+-- whose label no adapter writes.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
   ('c3900001-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -46,7 +48,9 @@ values
   ('c3900003-0000-4000-8000-000000000016', 'c3900002-0000-4000-8000-000000000001', 'stripe', 'pending', 'Pending', 3600, null, null,
    'Stripe account acct_4 (test mode)'),
   ('c3900003-0000-4000-8000-000000000017', 'c3900002-0000-4000-8000-000000000001', 'github', 'active', 'Other provider', 3600, null, null,
-   'octo (test mode)');
+   'octo (test mode)'),
+  ('c3900003-0000-4000-8000-000000000018', 'c3900002-0000-4000-8000-000000000001', 'stripe', 'active', 'Unrecognized', 3600, null, null,
+   'Acme payments');
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind, included)
 values
@@ -131,12 +135,13 @@ select results_eq(
             ('c3900003-0000-4000-8000-000000000012'::uuid, 'test'::public.connection_mode),
             ('c3900003-0000-4000-8000-000000000013'::uuid, 'test'::public.connection_mode),
             ('c3900003-0000-4000-8000-000000000014'::uuid, 'live'::public.connection_mode) $$,
-  'backfill_connection_mode: a test mode label is test and any other is live; a recorded mode is never overwritten');
+  'backfill_connection_mode: each test mode label the adapters write is test and the live one is live; a recorded mode is never overwritten');
 select is_empty(
   $$ select id from public.connections
-     where id in ('c3900003-0000-4000-8000-000000000015', 'c3900003-0000-4000-8000-000000000016', 'c3900003-0000-4000-8000-000000000017')
+     where id in ('c3900003-0000-4000-8000-000000000015', 'c3900003-0000-4000-8000-000000000016', 'c3900003-0000-4000-8000-000000000017',
+                  'c3900003-0000-4000-8000-000000000018')
        and mode is not null $$,
-  'backfill_connection_mode: leaves a connection with no label, a pending one, and another provider''s null (boundary)');
+  'backfill_connection_mode: leaves a connection with no label, a pending one, another provider''s, and an unrecognized label null (boundary: fails closed)');
 
 select * from finish();
 

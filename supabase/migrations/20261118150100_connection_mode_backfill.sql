@@ -9,19 +9,23 @@
 -- `livemode` (src/lib/adapters/stripe/index.ts), and the simulated Stripe account is
 -- `Example Stripe account (test mode)` (src/lib/adapters/simulated/stripe.ts), the mode the twin's
 -- modeOf gives. Only the service role writes the label: authenticated may update display_name and
--- last_sync_requested_at and nothing else, so the user-editable display_name is not read. A label
--- ending in ` (test mode)` is test, any other label is live, and a connection with no label
--- (a grant that listed no account) keeps null, which its next sync fills from the credential.
+-- last_sync_requested_at and nothing else, so the user-editable display_name is not read. The guess
+-- fails closed, because a wrong `live` is the fault #481 fixes (that connection would get the
+-- account's live payments and live uninstalls, and a needs_attention one keeps it until the user
+-- reconnects): only the shapes the adapters write are read. `Stripe account <id> (test mode)` and
+-- `Example Stripe account (test mode)` are test, `Stripe account <id>` is live, and any other
+-- label, or none (a grant that listed no account), keeps null. A null mode gets no delivery that
+-- names a mode, and an active or failed connection's next sync fills it from the credential.
 -- That sync also corrects a mode that disagrees with the credential (src/lib/jobs/sync-connection.ts),
 -- so the credential stays the source of truth and this backfill only bridges the hour until then.
 --
 -- Batched and re-runnable: backfill_connection_mode fills at most p_limit non-pending Stripe
--- connections that still have no mode, in id order, and returns how many it filled, so the loop
--- below stops at zero and running it again changes nothing. A connection the app granted meanwhile
--- already has its exact mode and is never overwritten: the update repeats `mode is null`, so a row
--- whose grant commits after the batch was read is rechecked against its new version and skipped
--- (read committed rechecks the update's own conditions, not the batch's), as
--- 20261116090400_backfill_granted_at_guard.sql does for granted_at.
+-- connections that still have no mode and have a label of one of those shapes, in id order, and
+-- returns how many it filled, so the loop below stops at zero and running it again changes nothing.
+-- A connection the app granted meanwhile already has its exact mode and is never overwritten: the
+-- update repeats `mode is null`, so a row whose grant commits after the batch was read is rechecked
+-- against its new version and skipped (read committed rechecks the update's own conditions, not
+-- the batch's), as 20261116090400_backfill_granted_at_guard.sql does for granted_at.
 --
 -- The limit bounds what one call locks only when each call commits on its own. The loop below runs
 -- in this migration's single transaction, so it holds every filled row's lock until the migration
@@ -54,13 +58,17 @@ begin
     where c.provider = 'stripe'
       and c.mode is null
       and c.status <> 'pending'
-      and c.authorized_account_label is not null
+      and (
+        c.authorized_account_label like 'Stripe account %'
+        or c.authorized_account_label = 'Example Stripe account (test mode)'
+      )
     order by c.id
     limit p_limit
   )
   update public.connections c
   set mode = case
-    when c.authorized_account_label like '% (test mode)' then 'test'::public.connection_mode
+    when c.authorized_account_label like 'Stripe account % (test mode)'
+      or c.authorized_account_label = 'Example Stripe account (test mode)' then 'test'::public.connection_mode
     else 'live'::public.connection_mode
   end
   from batch
