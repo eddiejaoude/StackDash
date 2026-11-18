@@ -8,7 +8,8 @@ import { adminClient, cronSecret, type TestWorkspace } from "./db";
  * Applying a webhook delivery in end-to-end runs (#28, #479): the route only records a delivery,
  * and the next job tick writes its events. Shared by every `webhooks*.spec.ts`, which run the
  * instance-wide tick and so live in the `instance-wide` Playwright project (playwright.config.ts).
- * Other instance-wide specs import `tick` from here rather than keep a copy of it.
+ * `tick` is exported for the other instance-wide specs: e2e/demo-event.spec.ts imports it, and a
+ * new spec should too, rather than post to the route itself.
  */
 
 /** How many copies of the event with `dedupeKey` the workspace holds. */
