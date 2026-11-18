@@ -93,9 +93,8 @@ type PublishedTable = "activity_events" | "usage_snapshots" | "connections" | "t
  * not found. Or until the test counts arrivals: that refresh is a batch of its own, which can land
  * among the test's changes and split them into two batches (#508). Seed a row in a published table
  * that the test deletes behind an open page, or the last seed before a test that counts arrivals,
- * through this; the arrival tests in e2e/realtime.spec.ts that still seed directly are #556. A row
- * in any other table never reaches a page, needs nothing, and could never be awaited here, so
- * `table` admits only the published ones.
+ * through this. A row in any other table never reaches a page, needs nothing, and could never be
+ * awaited here, so `table` admits only the published ones.
  *
  * A service role channel subscribes before the insert, which makes its delivery certain; once it
  * has arrived there, Realtime has read it, and a later subscription is never matched against it.
