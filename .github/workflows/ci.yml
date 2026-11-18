@@ -213,6 +213,28 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # Realtime stops a lone node's Postgres Changes replication about every 10 minutes to
+      # rebalance it (#555), and a change written in that gap never reaches the page, with no
+      # error on either side. Only the container log shows when that happened, and stopping
+      # Supabase removes the container, so save the log first, on every run: a green run can
+      # pass a rebalance by luck.
+      - name: Save Realtime container log
+        if: always()
+        run: |
+          set -euo pipefail
+          log="${RUNNER_TEMP}/realtime.log"
+          docker logs --timestamps supabase_realtime_stackdash > "${log}" 2>&1
+          # Also printed here, because the job log is kept longer than the artifact.
+          grep -F 'Rebalancing' "${log}" || echo "No Realtime rebalance in this run."
+
+      - name: Upload Realtime container log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: realtime-log
+          path: ${{ runner.temp }}/realtime.log
+          retention-days: 7
+
       - name: Stop local Supabase
         if: always()
         run: supabase stop
