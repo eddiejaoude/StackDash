@@ -86,8 +86,9 @@ alter table public.connections add column mode public.connection_mode;
 --   that and before the kind filter, so it counts every target of the account, of either mode and
 --   either kind (simulated connections included), and binds once 100 connections include the
 --   account: nothing limits how many connections of one workspace include it. A target of the
---   delivery's mode past the bound gets the events from its next poll and an uninstall when its
---   next sync finds the grant gone.
+--   delivery's kind and mode past the bound gets nothing from it: a real one gets the events from
+--   its next poll and an uninstall when its next sync finds the grant gone; a simulated one never
+--   gets them, since the simulator's sync makes up its own.
 -- Security invoker: only the service role may call it, and it already reads every row it needs.
 
 drop function public.list_webhook_targets(public.provider_id, text, uuid, text);
