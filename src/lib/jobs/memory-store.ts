@@ -339,6 +339,17 @@ export class MemoryJobStore implements JobStore {
     Object.assign(row, patch, { updated_at: this.#nowIso() });
   }
 
+  async updateConnectionInStatus(
+    key: ConnectionKey,
+    statuses: readonly MemoryConnection["status"][],
+    patch: ConnectionPatch,
+  ): Promise<boolean> {
+    const row = this.#connection(key);
+    if (row === undefined || !statuses.includes(row.status)) return false;
+    Object.assign(row, patch, { updated_at: this.#nowIso() });
+    return true;
+  }
+
   async loadCredential({ connectionId }: ConnectionKey): Promise<OAuthCredential | null> {
     return this.credentials.get(connectionId) ?? null;
   }
