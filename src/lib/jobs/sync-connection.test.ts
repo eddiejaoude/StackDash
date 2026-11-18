@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { fakeAdapter, type FakeMode } from "@/lib/adapters/fake";
 import { gitlabAdapter } from "@/lib/adapters/gitlab";
@@ -671,10 +671,20 @@ describe("sync job: an uninstall applied while the sync runs (#487)", () => {
       return fakeAdapter.sync(input, ctx);
     },
   };
+  // A hook armed but never reached does not fire in the next test.
+  afterEach(() => {
+    beforeNextSync = null;
+  });
 
-  /** Arms the uninstall for the next sync call; resolves to the connection as the uninstall left it. */
-  function uninstallDuringNextSync(harness: Harness): Promise<MemoryConnection> {
-    const { promise, resolve } = Promise.withResolvers<MemoryConnection>();
+  type Uninstalled = { result: "marked" | "skipped"; connection: MemoryConnection };
+
+  /**
+   * Arms the uninstall for the next sync call; resolves to its result and the connection as it left
+   * it. Asserted by the caller: the hook runs inside the sync, whose failure handling would turn a
+   * failed assertion here into a sync error.
+   */
+  function uninstallDuringNextSync(harness: Harness): Promise<Uninstalled> {
+    const { promise, resolve } = Promise.withResolvers<Uninstalled>();
     beforeNextSync = async () => {
       // The delivery's job is queued after the sync's, so its failure episode starts later.
       harness.advance(1000);
@@ -695,10 +705,17 @@ describe("sync job: an uninstall applied while the sync runs (#487)", () => {
         reason: "fake reported that StackDash was removed from the account",
         deps: harness.deps,
       });
-      expect(result).toBe("marked");
-      resolve({ ...connectionOf(harness) });
+      resolve({ result, connection: { ...connectionOf(harness) } });
     };
     return promise;
+  }
+
+  /** The connection as the uninstall marked it, after checking the uninstall applied. */
+  async function markedBy(uninstalled: Promise<Uninstalled>): Promise<MemoryConnection> {
+    const { result, connection } = await uninstalled;
+    expect(result).toBe("marked");
+    expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", next_sync_at: null });
+    return connection;
   }
 
   it("leaves the connection as the uninstall marked it when the sync then succeeds (boundary: revoke between read and write)", async () => {
@@ -707,9 +724,7 @@ describe("sync job: an uninstall applied while the sync runs (#487)", () => {
 
     await harness.tick();
 
-    const marked = await uninstalled;
-    expect(marked).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", next_sync_at: null });
-    expect(connectionOf(harness)).toEqual(marked);
+    expect(connectionOf(harness)).toEqual(await markedBy(uninstalled));
     expect(lastSyncJob(harness).status).toBe("succeeded");
     expect(harness.failureEvents()).toHaveLength(1);
     expect(harness.failureEvents()[0]?.severity).toBe("critical");
@@ -734,9 +749,7 @@ describe("sync job: an uninstall applied while the sync runs (#487)", () => {
 
     await harness.tick();
 
-    const marked = await uninstalled;
-    expect(marked).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", next_sync_at: null });
-    expect(connectionOf(harness)).toEqual(marked);
+    expect(connectionOf(harness)).toEqual(await markedBy(uninstalled));
     // The job ends: a connection waiting for a reconnect is not retried.
     const job = lastSyncJob(harness);
     expect(job).toMatchObject({ status: "failed", attempts: attemptsBefore + 1 });
@@ -744,7 +757,26 @@ describe("sync job: an uninstall applied while the sync runs (#487)", () => {
     // Only the uninstall's event: the sync's own would say it keeps retrying, or repeat the reconnect.
     expect(harness.failureEvents()).toHaveLength(1);
     expect(harness.failureEvents()[0]?.severity).toBe("critical");
-    expect(harness.infos.filter((line) => line.event === "sync.superseded")).toHaveLength(1);
+    const superseded = harness.infos.filter((line) => line.event === "sync.superseded");
+    expect(superseded.map((line) => line.fields?.outcome)).toEqual(["failed"]);
+  });
+
+  it("leaves it as the uninstall marked it when a sync of an already failed connection then fails (boundary: no status re-read)", async () => {
+    const harness = setup({ adapter: interleaved, accounts: 1, mode: "rate_limited" });
+    // A failed connection gets one attempt per run, so its failure goes straight to the final write,
+    // and its episode's event is already written: the status filter is the only guard.
+    Object.assign(connectionOf(harness), { status: "failed", consecutive_failures: 5, last_error_code: "rate_limited" });
+    await harness.store.enqueueSync({ workspaceId: WORKSPACE_ID, connectionId: harness.connectionId });
+    const uninstalled = uninstallDuringNextSync(harness);
+
+    await harness.tick();
+
+    expect(connectionOf(harness)).toEqual(await markedBy(uninstalled));
+    expect(lastSyncJob(harness)).toMatchObject({ status: "failed", attempts: 1 });
+    // Neither writer starts an episode for a connection that was already failed.
+    expect(harness.failureEvents()).toHaveLength(0);
+    const superseded = harness.infos.filter((line) => line.event === "sync.superseded");
+    expect(superseded.map((line) => line.fields?.outcome)).toEqual(["failed"]);
   });
 
   it("still recovers a failed connection with no uninstall: active, failures reset, next poll scheduled (happy path)", async () => {

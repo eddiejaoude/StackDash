@@ -352,8 +352,9 @@ async function handleFailure(input: {
       last_error_code: errorCode,
       last_error_reference: errorReference,
     };
-    // Out of service since the sync started (#487): a retry would only skip it, so the job ends.
-    if (!(await writeConnection({ source, outcome: "retry", job, key, patch, deps }))) {
+    // Out of service since the sync started (#487): a retry would only skip it, so the job ends,
+    // and `sync.superseded` says so with the outcome the job ends with.
+    if (!(await writeConnection({ source, outcome: "failed", job, key, patch, deps }))) {
       return { status: "failed", errorCode, errorReference };
     }
     return { status: "retry", runAfter: addMs(now, delay), errorCode, errorReference };
@@ -362,7 +363,10 @@ async function handleFailure(input: {
   const status: "needs_attention" | "failed" = permanent ? "needs_attention" : "failed";
   if (connection.status === "active") {
     // A sync reads the status again first (#487): an uninstall applied while it ran has written
-    // its own event for the episode, and this sync's status write would not apply.
+    // its own event for the episode, and this sync's status write would not apply. This narrows
+    // the race to the time between this read and the insert below; it cannot close it, because
+    // the event has to be written before the status (see syncFailedEvent), so an uninstall landing
+    // in between still gets this sync's event too, and only the status write is skipped.
     if (source === "sync") {
       const current = await deps.store.getConnection(key);
       if (current === null || !SYNCABLE_STATUSES.has(current.status)) {
