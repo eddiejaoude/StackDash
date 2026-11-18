@@ -266,6 +266,9 @@ export type WebhookVerification =
  * What a verified delivery means for StackDash.
  * - `events`: timeline events for one external account. Each event's `dedupeKey` is the one
  *   `sync` produces for the same provider event, so a delivery and a later poll store it once.
+ *   The first write decides the stored event, except that a later write can add a `body` the first
+ *   one lacked (insert_activity_events, #499). So a delivery that cannot build the body `sync`
+ *   builds leaves `body` out rather than sending a shorter one, which would then be final.
  * - `uninstalled`: the provider removed StackDash; the connections it was removed from need a
  *   reconnect at once instead of on the next failed sync. It names what was removed:
  *   - an account (`by` omitted or `account`, `externalAccountId`): every connection that includes

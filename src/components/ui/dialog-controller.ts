@@ -42,10 +42,14 @@ export type Box = Readonly<{ left: number; top: number; right: number; bottom: n
  * the box's edge is inside, so the dialog's own padding and border never close it. A press inside
  * released outside is a text selection or a drag, not a dismissal, and a click with no press
  * (`pressedAt` null: a keyboard activation) is never one either.
+ *
+ * `clickCount` is the click event's `detail`, counted by the browser from the system's
+ * double-click time. Only a click of its own (1) dismisses: a later click of a double-click
+ * belongs to it, not to the backdrop (#506).
  */
-export function dismissedByClick(box: Box, pressedAt: Point | null, releasedAt: Point): boolean {
+export function dismissedByClick(box: Box, pressedAt: Point | null, releasedAt: Point, clickCount: number): boolean {
   const outside = ({ x, y }: Point) => x < box.left || x > box.right || y < box.top || y > box.bottom;
-  return pressedAt !== null && outside(pressedAt) && outside(releasedAt);
+  return clickCount === 1 && pressedAt !== null && outside(pressedAt) && outside(releasedAt);
 }
 
 export type DialogController = Readonly<{

@@ -7,10 +7,11 @@ import { z } from "zod";
 import { openCreateForm } from "./fixtures/alerts";
 import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { fakeEmails } from "./fixtures/fake-resend";
-import { expectSubscribed, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
+import { deliveredEvent, expectSubscribed, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
 import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
+import { tick } from "./fixtures/webhook-ticks";
 
 /*
  * `npm run demo:event` (#256), end to end: with the timeline open, the command makes a failed
@@ -20,12 +21,17 @@ import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
  *
  * The command targets this spec's own workspace with `--workspace`, never the demo workspace a
  * person may be presenting from. Delivery runs the job tick, which is instance-wide, so this spec
- * lives in the `instance-wide` Playwright project (playwright.config.ts).
+ * lives in the `instance-wide` Playwright project (playwright.config.ts). The other worker's
+ * instance-wide specs tick while it runs, so it settles its workspace before counting anything
+ * (`settleWorkspace`).
  */
 
 const run = promisify(execFile);
 const FAILED_DEPLOYMENT = "Production deployment of web failed";
 const BUDGET_ALERT = "Budget Vercel monthly passed 90 percent";
+// A day: the command's own syncs schedule the next one this far out, so no tick syncs the
+// connection while the spec runs.
+const COMMAND_ONLY_POLL_INTERVAL_SECONDS = 86_400;
 
 const FAILED_RUN = z.object({ code: z.number(), stdout: z.string(), stderr: z.string() });
 
@@ -76,12 +82,42 @@ async function addWebhookChannel(page: Page, workspace: TestWorkspace, url: stri
   await expect(form.getByRole("status")).toContainText("Channel added.");
 }
 
+/**
+ * Leaves the command as the only writer to the workspace before the spec counts its events or
+ * reads its alerts (#505). Another worker's instance-wide spec ticks at any moment, and two jobs
+ * would otherwise land here mid-assertion: a sync of the simulated Vercel connection, due on
+ * connect and a minute after every sync (SIMULATED_POLL_INTERVAL_SECONDS), which writes
+ * deployments and, during a budget crossing, checks the alert before the command does or puts the
+ * usual spend back first; and the workspace's daily summary (src/lib/jobs/schedule.ts), one
+ * `stackdash.daily_summary` event. So the connection polls once a day, which the command's own
+ * syncs keep, and the spec ticks until the summary has run and no job of the workspace is queued
+ * or running, such as a sync queued before the schedule moved.
+ */
+async function settleWorkspace(page: Page, workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const { data: connections, error } = await admin
+    .from("connections")
+    .update({
+      poll_interval_seconds: COMMAND_ONLY_POLL_INTERVAL_SECONDS,
+      next_sync_at: new Date(Date.now() + COMMAND_ONLY_POLL_INTERVAL_SECONDS * 1000).toISOString(),
+    })
+    .eq("workspace_id", workspace.id)
+    .select("id");
+  if (error) throw new Error(`Rescheduling the connection failed (code ${error.code}).`);
+  expect(connections).toHaveLength(1);
+  await expect(async () => {
+    await tick(page);
+    const { data, error: jobsError } = await admin.from("sync_jobs").select("kind, status").eq("workspace_id", workspace.id).limit(100);
+    if (jobsError) throw new Error(`Reading the jobs failed (code ${jobsError.code}).`);
+    expect(data.filter((job) => job.status === "queued" || job.status === "running")).toEqual([]);
+    expect(data.filter((job) => job.kind === "daily_summary").map((job) => job.status)).toEqual(["succeeded"]);
+  }).toPass({ timeout: 90_000 });
+}
+
 /** Ticks until every alert in the workspace is dispatched; other workspaces' jobs may share a tick. */
 async function tickUntilDispatched(page: Page, workspace: TestWorkspace): Promise<void> {
-  const authorization = `Bearer ${cronSecret()}`;
   await expect(async () => {
-    const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-    expect(response.status()).toBe(200);
+    await tick(page);
     const { data, error } = await adminClient().from("triggered_alerts").select("dispatched_at").eq("workspace_id", workspace.id).limit(10);
     if (error) throw new Error(`Reading the alerts failed (code ${error.code}).`);
     expect(data).toHaveLength(1);
@@ -98,6 +134,7 @@ ownerTest.describe("demo event", () => {
       await connectSimulated(page, workspace.slug, "Vercel");
       await seedBudgetAlert(workspace);
       await addWebhookChannel(page, workspace, receiver.url);
+      await settleWorkspace(page, workspace);
 
       // Simulation off: refused before anything is read or written.
       const before = await countEvents(workspace);
@@ -128,6 +165,11 @@ ownerTest.describe("demo event", () => {
       expect(crossing.code).toBe(0);
       expect(crossing.stdout).toContain("rose to at least $540.00 this month, 90 percent of the Vercel monthly budget of $600.00");
       expect(crossing.stdout).toContain("1 alert triggered");
+      // Delivery first, then the render, so a failure says which half broke. A delivery lost while
+      // the page stays subscribed has so far been the stack's 10 minute replication rebalance (#555).
+      await expect
+        .poll(() => deliveredEvent(live, BUDGET_ALERT), { timeout: LIVE_TIMEOUT_MS, message: "Realtime never delivered the budget alert event" })
+        .toBe(true);
       const alert = events.filter({ has: page.getByRole("heading", { name: BUDGET_ALERT, exact: true }) });
       await expect(alert).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(alert.getByText(/^,?\s*New$/)).toBeVisible();

@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { cache } from "react";
 
-import { requireUser, type SessionUser } from "@/lib/auth/session";
+import { getCurrentUser, requireUser, type SessionUser } from "@/lib/auth/session";
 import { getWorkspaceMembership, type WorkspaceRef } from "@/lib/data/workspaces";
 import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 import {
@@ -46,6 +46,19 @@ export const requireWorkspace = cache(
     return { user, workspace: membership.workspace, role: membership.role };
   },
 );
+
+/**
+ * Whether the signed-in user belongs to the workspace with `slug`, for wording a not-found page
+ * only: it never redirects or throws `notFound()`, so a signed-out user, an invalid slug, and a
+ * non-member are all `false`. It reads through the same request caches as `requireWorkspace`, so
+ * beside a page that calls that it queries nothing again.
+ */
+export async function isWorkspaceMember(slug: string): Promise<boolean> {
+  if (!isWorkspaceSlug(slug)) return false;
+  const user = await getCurrentUser();
+  if (user === null) return false;
+  return (await getWorkspaceMembership(user.id, slug)) !== null;
+}
 
 /** `requireWorkspace` for a specific matrix action, for Server Actions and Route Handlers. */
 export async function requireWorkspaceAction(

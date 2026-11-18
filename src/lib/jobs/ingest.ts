@@ -12,7 +12,9 @@ import type { EventRow, JobStore, SnapshotRow, SyncAccount, SyncConnection } fro
  * Idempotent by construction, so a retried or repeated sync never duplicates data:
  * - Snapshots upsert on (external_account_id, metric_key, snapshot_date). The latest row per
  *   (external_account_id, metric_key) is the current value; older rows are the daily history.
- * - Events insert on conflict (workspace_id, dedupe_key) do nothing.
+ * - Events insert on (workspace_id, dedupe_key). An event already stored only gains a body it was
+ *   stored without (#499): a webhook delivery that lacks a detail the poll reads, such as Vercel's
+ *   error code, gets it from the next poll. Nothing else of a stored event ever changes.
  * - The cursor is stored last, so a crash before it only makes the next sync re-read events that
  *   the dedupe key then skips.
  */

@@ -1037,6 +1037,9 @@ isOneToOne: false
 "hook_before_user_created":
 { Args: { "event": Json }; Returns: Json
                            },
+"insert_activity_events":
+{ Args: { "p_rows": Json }; Returns: number
+                           },
 "latest_usage_resets":
 { Args: { "p_external_account_id": string,"p_workspace_id": string }; Returns: {
               "metric_key": string,"resets_at": string

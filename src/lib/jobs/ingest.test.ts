@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 
+import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 
-import { adapterEventDedupeKey, allowanceResetEvents, toSnapshotRow, utcDate } from "./ingest";
+import {
+  adapterEventDedupeKey,
+  allowanceResetEvents,
+  ingestSyncResult,
+  toEventRow,
+  toSnapshotRow,
+  utcDate,
+} from "./ingest";
+import { MemoryJobStore } from "./memory-store";
 
 const connection = { id: "conn-1", workspace_id: "ws-1" };
 const account = { id: "acct-row-1", display_name: "Example team" };
@@ -176,5 +185,78 @@ describe("allowanceResetEvents", () => {
 describe("adapterEventDedupeKey", () => {
   it("prefixes the provider so adapters cannot collide", () => {
     expect(adapterEventDedupeKey("fake", "fake.signup:a:2026-11-01")).toBe("fake:fake.signup:a:2026-11-01");
+  });
+});
+
+describe("ingestSyncResult events", () => {
+  const syncAccount = { id: account.id, external_id: "fake-acct-1", display_name: account.display_name, sync_cursor: null };
+
+  function failure(body: string | undefined, overrides: Partial<ActivityEvent> = {}): ActivityEvent {
+    return {
+      typeId: "fake.deployment.failed",
+      occurredAt: new Date("2026-11-01T10:00:00.000Z"),
+      severity: "critical",
+      title: "Production deployment of web failed",
+      externalAccountId: "fake-acct-1",
+      dedupeKey: "deployment:1:failed",
+      url: "https://example.com/deployments/1",
+      ...(body === undefined ? {} : { body }),
+      ...overrides,
+    };
+  }
+
+  // What the later write disagrees on besides its body: none of it may reach the stored event.
+  const later: Partial<ActivityEvent> = {
+    occurredAt: new Date("2026-11-01T10:05:00.000Z"),
+    severity: "warning",
+    title: "Preview deployment of web failed",
+    url: "https://example.com/deployments/1/inspect",
+  };
+
+  function ingest(store: MemoryJobStore, events: readonly ActivityEvent[], target = connection): Promise<void> {
+    return ingestSyncResult({ store, provider: "fake", connection: target, account: syncAccount, metrics: [], events, cursor: undefined });
+  }
+
+  it.each([
+    ["null to value: a stored event without a body takes the later one", undefined, "Error code: BUILD_FAILED", "Error code: BUILD_FAILED"],
+    ["value to other value: a stored body is never replaced", "Error code: BUILD_FAILED", "Error code: OTHER", "Error code: BUILD_FAILED"],
+    ["value to null: a stored body is never cleared", "Error code: BUILD_FAILED", undefined, "Error code: BUILD_FAILED"],
+    ["null to null: a stored event without a body keeps none", undefined, undefined, null],
+  ])("%s, and no other column changes (boundary)", async (_case, first, second, stored) => {
+    const store = new MemoryJobStore(() => retrievedAt);
+    await ingest(store, [failure(first)]);
+    // A copy: the store fills its row in place.
+    const written = { ...store.events[0] };
+    await ingest(store, [failure(second, later)]);
+
+    expect(store.events).toEqual([{ ...written, body: stored }]);
+  });
+
+  it("counts a filled in event as nothing new", async () => {
+    const store = new MemoryJobStore(() => retrievedAt);
+    expect(await store.insertEvents([toEventRow(failure(undefined), "fake", connection, account)])).toBe(1);
+    expect(await store.insertEvents([toEventRow(failure("Error code: BUILD_FAILED"), "fake", connection, account)])).toBe(0);
+    expect(store.events.map((event) => event.body)).toEqual(["Error code: BUILD_FAILED"]);
+  });
+
+  it("writes the first row of a key named twice in one batch, body included (boundary)", async () => {
+    const store = new MemoryJobStore(() => retrievedAt);
+    await ingest(store, [failure(undefined), failure("Error code: BUILD_FAILED", later)]);
+
+    expect(store.events).toHaveLength(1);
+    expect(store.events[0]).toMatchObject({ title: "Production deployment of web failed", body: null });
+  });
+
+  it("fills in only the workspace whose event is written (boundary)", async () => {
+    const store = new MemoryJobStore(() => retrievedAt);
+    const other = { id: "conn-2", workspace_id: "ws-2" };
+    await ingest(store, [failure(undefined)]);
+    await ingest(store, [failure(undefined)], other);
+    await ingest(store, [failure("Error code: BUILD_FAILED")]);
+
+    expect(store.events.map((event) => [event.workspace_id, event.body])).toEqual([
+      ["ws-1", "Error code: BUILD_FAILED"],
+      ["ws-2", null],
+    ]);
   });
 });

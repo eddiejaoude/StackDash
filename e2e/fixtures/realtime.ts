@@ -90,12 +90,17 @@ type PublishedTable = "activity_events" | "usage_snapshots" | "connections" | "t
  * just before a page opens can still reach that page once it subscribes, and LiveRefresh renders
  * the route again `REFRESH_DEBOUNCE_MS` later (src/lib/realtime/refresh-scheduler.ts). That is
  * harmless until the test deletes the row: the refresh then renders the page after the delete, as
- * not found. Seed a row in a published table that the test deletes behind an open page through
- * this. A row in any other table never reaches a page, needs nothing, and could never be awaited
- * here, so `table` admits only the published ones.
+ * not found. Or until the test counts arrivals: that refresh is a batch of its own, which can land
+ * among the test's changes and split them into two batches (#508). Seed a row in a published table
+ * that the test deletes behind an open page, or the last seed before a test that counts arrivals,
+ * through this; the arrival tests in e2e/realtime.spec.ts that still seed directly are #556. A row
+ * in any other table never reaches a page, needs nothing, and could never be awaited here, so
+ * `table` admits only the published ones.
  *
  * A service role channel subscribes before the insert, which makes its delivery certain; once it
  * has arrived there, Realtime has read it, and a later subscription is never matched against it.
+ * Realtime reads the slot in commit order (`pg_logical_slot_get_changes` in the database's
+ * `realtime.list_changes`), so every write committed before the insert has been read by then too.
  */
 export async function insertUnheard(
   table: PublishedTable,
