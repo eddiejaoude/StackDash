@@ -777,8 +777,9 @@ function parseStripeWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): W
   // the app is not sandbox compatible (docs/providers/stripe.md, Test mode, live mode, and
   // sandboxes), so a non-live event here is from the test mode sandbox. Stripe sends one to the
   // test mode endpoint, and to the live one too for an account that installed the app in both modes
-  // (https://docs.stripe.com/stripe-apps/handling-modes#webhooks); both copies carry the same event
-  // id, so the second is acknowledged as a duplicate.
+  // (https://docs.stripe.com/stripe-apps/handling-modes#webhooks). The two copies are expected to
+  // share an event id, which makes the second a duplicate, but no Stripe page says so: Unverified
+  // item 13 in docs/providers/stripe.md says what happens if they do not.
   const mode = event.livemode ? "live" : "test";
   if (UNINSTALL_EVENTS[event.type] === true) {
     return { kind: "uninstalled", externalAccountId: event.account, mode, occurredAt: new Date(event.created * 1000) };
