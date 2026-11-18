@@ -175,9 +175,10 @@ async function syncConnection(
   }
   // The mode is in the sealed credential too (#481). The backfill read it from the account label,
   // so the first sync after it, and every later one, checks it against the credential before any
-  // provider call: a null fills, and a mode that disagrees is corrected, since the credential is
-  // what the grant was. A refresh keeps the mode (Stripe refuses one for the other), so this writes
-  // only once per connection.
+  // provider call: a mode that disagrees is corrected, since the credential is what the grant was,
+  // and a null fills (only on a database before 20261118150200_contract_connection_mode.sql, which
+  // refuses a Stripe connection past pending without a mode). A refresh keeps the mode (Stripe
+  // refuses one for the other), so this writes only once per connection.
   const mode = adapter.modeOf?.(credential) ?? null;
   if (mode !== null && connection.mode !== mode) await deps.store.updateConnection(key, { mode });
 

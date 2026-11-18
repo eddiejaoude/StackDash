@@ -315,8 +315,8 @@ export type WebhookVerification =
  * keeps live and test data apart under one account id (Stripe's `livemode`, #481). The delivery
  * then reaches only connections of that mode (`connections.mode`), so a live payment never lands
  * on a test mode connection of the same account and a test mode uninstall never revokes a live
- * one. A connection with no recorded mode gets nothing from it: an active or failed one until its
- * next sync records the mode, and a needs_attention one until the user reconnects it. Only an
+ * one. Every connection it can reach has a mode: the grant records it, and the database refuses a
+ * Stripe connection past pending without one (`connections_stripe_mode_required`, #567). Only an
  * adapter that declares `modeOf` may return it; the webhook route refuses it otherwise, and refuses
  * any value but a `ConnectionMode`.
  */
@@ -503,7 +503,7 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   // names none. Omitted when the provider's uninstalls name an account.
   installationIdOf?(credential: OAuthCredential): string | null;
   // Which environment the credential's grant belongs to (Stripe's `livemode`, #481), stored as
-  // `connections.mode` when a grant completes and on the next sync of a connection that has none,
+  // `connections.mode` when a grant completes and corrected by a sync when the two disagree,
   // so an outcome naming a mode reaches only connections of that mode. Synchronous and
   // network-free: reads only the credential it is handed. Null when the credential names none.
   // Omitted when the provider has one environment per account id.

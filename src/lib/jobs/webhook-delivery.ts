@@ -99,9 +99,11 @@ function targetsOfDeliveryKind<T extends ConnectionTarget>(targets: readonly T[]
  * test mode ones for a test mode delivery. A Stripe account id is the same in both modes, so
  * without this a live payment lands on a test mode connection of the account (its timeline and its
  * achievements), and a test mode uninstall revokes the live connection. A target with no recorded
- * mode is kept from it too: nothing says which mode it is, and its next sync records one. A
- * delivery naming no mode (every provider but Stripe, and a Stripe delivery stored before #481)
- * keeps every target. The rest are logged as a count, never by id.
+ * mode is kept from it too, since nothing says which mode it is. That happens only on a database
+ * without 20261118150200_contract_connection_mode.sql, from which on every Stripe connection past
+ * pending has a mode (before 20261118150000_connection_mode.sql, store.ts reads the missing column
+ * as null). A delivery naming no mode (every provider but Stripe, and a Stripe delivery stored
+ * before #481) keeps every target. The rest are logged as a count, never by id.
  */
 function targetsOfDeliveryMode<T extends ConnectionTarget>(targets: readonly T[], job: ClaimedJob, delivery: WebhookDeliveryRecord, deps: SyncDeps): T[] {
   const { mode } = delivery.outcome;
