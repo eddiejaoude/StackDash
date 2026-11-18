@@ -136,9 +136,9 @@ select is(
   (select granted_at from public.list_webhook_targets('fake', 'unstamped-acct')),
   '2026-11-10T12:00:00Z'::timestamptz,
   'targets: a connection the backfill filled carries its credential''s last save, as the contract migration''s second backfill leaves it');
-select is(
-  pg_catalog.pg_get_function_result('public.list_webhook_targets(public.provider_id, text, uuid, text)'::regprocedure),
-  'TABLE(workspace_id uuid, connection_id uuid, account_id uuid, granted_at timestamp with time zone)',
+select throws_ok(
+  $$ select credential_updated_at from public.list_webhook_targets('fake', 'granted-acct') $$,
+  '42703'::char(5), null::text,
   'targets: credential_updated_at is no longer returned (contract, #502)');
 
 -- ---------------------------------------------------------------------------
