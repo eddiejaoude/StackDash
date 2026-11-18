@@ -393,6 +393,7 @@ async function ConnectionContent({
               providerName={providerName}
               canRevoke={adapter?.revoke !== undefined}
               revoked={revoked}
+              canReconnect={reconnect.kind === "available"}
               webhook={
                 webhook === null || webhookSetup === null
                   ? null

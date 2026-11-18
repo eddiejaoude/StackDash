@@ -303,6 +303,7 @@ export function DisconnectDialog({
   providerName,
   canRevoke,
   revoked,
+  canReconnect,
   webhook,
 }: {
   workspaceSlug: string;
@@ -311,6 +312,8 @@ export function DisconnectDialog({
   canRevoke: boolean;
   // Already disconnected: nothing to confirm, but the last result stays readable.
   revoked: boolean;
+  // False when the provider is absent from the registry (#562): the page offers no reconnect then.
+  canReconnect: boolean;
   // The connection's webhook (#426), with the steps that remove one added by hand; null when none.
   // `perSource`: automatic setup added one webhook per project (#428), so they are spoken of in the plural.
   webhook: Readonly<{ mode: "automatic" | "manual"; perSource: boolean; removalSteps: string }> | null;
@@ -346,7 +349,10 @@ export function DisconnectDialog({
             settings afterwards.
           </li>
         )}
-        <li>Keeps the history already collected and marks the connection disconnected. Reconnect at any time.</li>
+        <li>
+          Keeps the history already collected and marks the connection disconnected.
+          {canReconnect ? " Reconnect at any time." : null}
+        </li>
       </ul>
     </ConfirmDialog>
   );

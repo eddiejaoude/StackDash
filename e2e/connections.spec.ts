@@ -423,7 +423,8 @@ ownerTest.describe("connecting a provider as the owner", () => {
       const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText("Deletes the stored credential");
-      await expect(dialog).toContainText("Keeps the history already collected");
+      // The fake provider is on here, so the dialog still offers a reconnect (#562 drops it while it is off).
+      await expect(dialog).toContainText("Keeps the history already collected and marks the connection disconnected. Reconnect at any time.");
 
       // Cancel leaves everything as it was.
       await dialog.getByRole("button", { name: "Cancel" }).click();
