@@ -119,13 +119,13 @@ describe("dismissedByClick", () => {
     expect(dismissedByClick(panel, pressedAt, releasedAt, 1)).toBe(closes);
   });
 
-  it("never closes on a click with no press, as a keyboard activation fires", () => {
-    expect(dismissedByClick(panel, null, beside, 0)).toBe(false);
+  it("never closes on a click with no press recorded on the dialog", () => {
+    expect(dismissedByClick(panel, null, beside, 1)).toBe(false);
   });
 
-  // #506: a double-click on an event row opens the panel with its first click, and its second
-  // lands beside the open panel.
+  // #506: only a click of its own dismisses, never a later click of a double-click.
   it.each([
+    ["a click counted 0, as a keyboard activation fires", 0, false],
     ["a single click", 1, true],
     ["the second click of a double-click", 2, false],
     ["the third click of a triple-click", 3, false],
