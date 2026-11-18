@@ -20,6 +20,7 @@ ownerTest.describe("real connection while simulating", () => {
           workspace_id: workspace.id,
           provider: "vercel",
           status: "active",
+          granted_at: new Date().toISOString(),
           display_name: "Vercel (Real team)",
           poll_interval_seconds: 3600,
         })

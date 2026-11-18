@@ -74,7 +74,14 @@ async function seedRealConnection(workspace: TestWorkspace): Promise<void> {
   const admin = adminClient();
   const { data: connection, error: connectionError } = await admin
     .from("connections")
-    .insert({ workspace_id: workspace.id, provider: "vercel", status: "active", display_name: REAL_CONNECTION, poll_interval_seconds: 3600 })
+    .insert({
+      workspace_id: workspace.id,
+      provider: "vercel",
+      status: "active",
+      granted_at: new Date().toISOString(),
+      display_name: REAL_CONNECTION,
+      poll_interval_seconds: 3600,
+    })
     .select("id")
     .single();
   if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
