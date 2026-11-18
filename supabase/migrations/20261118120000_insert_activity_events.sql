@@ -20,6 +20,13 @@
 -- writers filling the same events queue instead of deadlocking (the rollup triggers on
 -- activity_events lock in key order for the same reason, #236).
 --
+-- The update fires activity_events_count_update, a statement-level trigger that runs even when no
+-- row matches, so it runs only when the call has a body to fill in. A fill-in takes each filled
+-- event's activity_event_daily_counts row through the trigger's update path (lock, decrement,
+-- delete if that reached zero, increment again) and leaves the counts as they were, since no
+-- counted column changes; that is a second round of rollup row locks after the insert's, taken in
+-- the rollup's own key order as every rollup writer takes them.
+--
 -- Expand only: a new function, so code that does not call it keeps working.
 
 create function public.insert_activity_events(p_rows jsonb)
@@ -57,18 +64,27 @@ begin
 
   get diagnostics v_inserted = row_count;
 
-  update public.activity_events e
-  set body = f.body
-  from (
-    select e2.id, i.body
+  -- Probed first: the update's statement-level rollup trigger would otherwise run on every call.
+  -- The update's own row locks and `e.body is null` still decide under concurrency.
+  if exists (
+    select 1
     from unnest(v_rows) as i
-    join public.activity_events e2 on e2.workspace_id = i.workspace_id and e2.dedupe_key = i.dedupe_key
-    where e2.body is null and i.body is not null
-    order by e2.workspace_id, e2.dedupe_key
-    for update of e2
-  ) f
-  where e.id = f.id
-    and e.body is null;
+    join public.activity_events e on e.workspace_id = i.workspace_id and e.dedupe_key = i.dedupe_key
+    where e.body is null and i.body is not null
+  ) then
+    update public.activity_events e
+    set body = f.body
+    from (
+      select e2.id, i.body
+      from unnest(v_rows) as i
+      join public.activity_events e2 on e2.workspace_id = i.workspace_id and e2.dedupe_key = i.dedupe_key
+      where e2.body is null and i.body is not null
+      order by e2.workspace_id, e2.dedupe_key
+      for update of e2
+    ) f
+    where e.id = f.id
+      and e.body is null;
+  end if;
 
   return v_inserted;
 end;
