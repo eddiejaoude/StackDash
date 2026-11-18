@@ -395,6 +395,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       connection_id: uuid(28002, index),
       account_id: uuid(28003, index),
       granted_at: "2026-11-15T09:00:00.123456+00:00",
+      simulated: false,
     }));
   }
 
@@ -434,8 +435,8 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null, simulated: false },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1" }]);
     expect(warn).not.toHaveBeenCalled();
@@ -455,7 +456,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: "fake-installation-1", endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_installation_id: "fake-installation-1" }]);
   });
@@ -468,10 +469,30 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listInstallationTargets({ provider: "fake", installationId: "fake-installation-1", endpointId: ENDPOINT_ID });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_installation_id: "fake-installation-1", p_endpoint_id: ENDPOINT_ID }]);
+  });
+
+  it("says which targets are simulated, on the account and the installation match (#495)", async () => {
+    const rows = [...targets(1), { ...targets(2)[1], simulated: true }];
+    const { store } = storeWith({ list_webhook_targets: () => rows });
+
+    const byAccount = await store.listWebhookTargets({ provider: "github", externalAccountId: "github-acct-1", installationId: null, endpointId: null });
+    const byInstallation = await store.listInstallationTargets({ provider: "github", installationId: "github-installation-1", endpointId: null });
+
+    for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.simulated)).toEqual([false, true]);
+  });
+
+  it("reads a target without `simulated` as real, as a database before the migration returns it (boundary: mixed deploy, #495)", async () => {
+    const rows = targets(1).map(({ simulated: _simulated, ...row }) => row);
+    const { store } = storeWith({ list_webhook_targets: () => rows });
+
+    const byAccount = await store.listWebhookTargets({ provider: "github", externalAccountId: "github-acct-1", installationId: null, endpointId: null });
+    const byInstallation = await store.listInstallationTargets({ provider: "github", installationId: "github-installation-1", endpointId: null });
+
+    for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.simulated)).toEqual([false]);
   });
 
   it.each([

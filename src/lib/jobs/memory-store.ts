@@ -654,6 +654,7 @@ export class MemoryJobStore implements JobStore {
         connectionId: account.connection_id,
         accountId: account.id,
         grantedAt: connection.granted_at,
+        simulated: isSimulatedConnection(connection),
       }));
   }
 
@@ -672,6 +673,7 @@ export class MemoryJobStore implements JobStore {
         workspaceId: connection.workspace_id,
         connectionId: connection.id,
         grantedAt: connection.granted_at,
+        simulated: isSimulatedConnection(connection),
       }));
   }
 

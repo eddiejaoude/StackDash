@@ -106,9 +106,11 @@ export type WebhookDeliveryRecord = Readonly<{
  * connect or a reconnect (ISO), and null for a live connection with no recorded grant (#502;
  * docs/operations/jobs.md, Uninstalled, says which those are). A token refresh does not move it,
  * so an uninstall older than a reconnect is left to the next sync while one older than only a
- * refresh is applied.
+ * refresh is applied. `simulated` is whether the provider simulator made the connection (its
+ * granted scopes hold SIMULATED_SCOPE, as `isSimulatedConnection` reads them), so the webhook job
+ * keeps only the kind its adapter verifies (#495).
  */
-export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null }>;
+export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null; simulated: boolean }>;
 
 /** An included external account of a live connection that a delivery's account maps to. */
 export type WebhookTarget = ConnectionTarget & Readonly<{ accountId: string }>;
@@ -260,6 +262,14 @@ function isManualSyncResult(value: unknown): value is ManualSyncResult {
 // connected to more workspaces than this reaches the first by account id; polling still brings
 // the rest their events.
 export const WEBHOOK_TARGET_LIMIT = 100;
+
+// A row the database does not mark simulated is a real connection's. `simulated` is absent, not
+// false, from a database before 20261118140000_webhook_targets_simulated.sql (a build promoted
+// before the migration ran), so every target reads as real there: with simulation off, which a
+// production deployment always is, the job then keeps every target, as it did before #495.
+function isSimulatedTarget(row: Readonly<{ simulated: boolean | undefined }>): boolean {
+  return row.simulated === true;
+}
 
 // webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt and an
 // uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back. An
@@ -732,6 +742,7 @@ export function createSupabaseJobStore(): JobStore {
         connectionId: row.connection_id,
         accountId: row.account_id,
         grantedAt: row.granted_at,
+        simulated: isSimulatedTarget(row),
       }));
     },
 
@@ -744,7 +755,12 @@ export function createSupabaseJobStore(): JobStore {
       if (error) throw failure("list_webhook_targets", error);
       if (data.length >= WEBHOOK_TARGET_LIMIT) log.warn("webhook.targets_truncated", { provider, targets: data.length });
       // One row per connection, with no account: an uninstall acts on connections.
-      return data.map((row) => ({ workspaceId: row.workspace_id, connectionId: row.connection_id, grantedAt: row.granted_at }));
+      return data.map((row) => ({
+        workspaceId: row.workspace_id,
+        connectionId: row.connection_id,
+        grantedAt: row.granted_at,
+        simulated: isSimulatedTarget(row),
+      }));
     },
 
     async finishWebhookDelivery(deliveryRowId, finishedAt) {
