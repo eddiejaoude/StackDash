@@ -309,8 +309,11 @@ secret, so simulation never needs one; unset, the URL answers `503`. A provider 
 connection keeps that connection's stored secret. The webhook job does not yet tell simulated
 connections from real ones: a delivery to the shared URL reaches every connection that includes
 its account, so its events land on a real connection too, and an uninstall asks a real connection
-to reconnect. A delivery to a per-connection URL reaches that connection only. Nothing sends
-deliveries on its own: post one signed the way the provider signs, as the
+to reconnect. Events that also name an installation (Sentry's issue deliveries) reach only the
+connections whose recorded installation is that one, and a simulated grant's installation is its
+seed, so post `installation.uuid` as the connection's `external_installation_id`: any other gets
+`202` and nothing on the timeline. A delivery to a per-connection URL reaches that connection only.
+Nothing sends deliveries on its own: post one signed the way the provider signs, as the
 `e2e/webhooks-<provider>.spec.ts` specs do.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to

@@ -260,7 +260,11 @@ export const WEBHOOK_TARGET_LIMIT = 100;
 // webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt and an
 // uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back. An
 // account uninstall stored without `by` (the only shape before #480) still reads back, and so do
-// events stored without `installationId` (the only shape before #497).
+// events stored without `installationId` (the only shape before #497). The other direction does
+// not hold: a build before #497 refuses events stored with `installationId`, so after an Instant
+// Rollback each Sentry issue delivery received and not yet applied fails its job for good within
+// about 15 minutes (5 attempts), and polling brings the same events
+// (20261118130000_webhook_targets_installation_match.sql names both mixed windows).
 const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({
     kind: z.literal("events"),

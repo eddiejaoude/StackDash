@@ -223,7 +223,9 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     },
 
     // A live adapter whose uninstalls name an installation (Sentry, #480): the simulated grant's
-    // installation is its seed, so a signed `installation.deleted` naming it finds the connection.
+    // installation is its seed, so a signed `installation.deleted` naming it finds the connection,
+    // and an issue delivery reaches the connection only when its `installation.uuid` is that seed
+    // (#497): any other is accepted and stores nothing.
     ...(real.installationIdOf === undefined
       ? {}
       : { installationIdOf: (credential: OAuthCredential) => (isSimulatedCredential(credential) ? (credential.metadata?.seed ?? null) : null) }),

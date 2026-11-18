@@ -286,9 +286,11 @@ export type WebhookVerification =
  * `installationId` (events): the installation that sent the delivery, for a provider whose accounts
  * outlive an uninstall (Sentry's projects, #497). The events then reach only connections whose
  * credential belongs to it (`connections.external_installation_id`), so a connection left needing a
- * reconnect after an uninstall gets nothing from a later install of the same organization, and a
- * connection with no recorded installation gets nothing until its next sync records one. Only an
- * adapter that declares `installationIdOf` may return it.
+ * reconnect after an uninstall gets nothing from a later install of the same organization. A
+ * connection with no recorded installation gets nothing either: an active or failed one until its
+ * next sync records one, within the hour, and a needs_attention one, which is not synced, until the
+ * user reconnects it. Only an adapter that declares `installationIdOf` may return it; the webhook
+ * route refuses it otherwise, and refuses a blank one.
  */
 export type WebhookOutcome =
   | Readonly<{ kind: "events"; externalAccountId: string; installationId?: string; events: ActivityEvent[]; source?: WebhookSource }>

@@ -9,6 +9,19 @@
 -- 20261118090000_contract_webhook_targets.sql are unchanged. A call naming one of p_external_id
 -- and p_installation_id, which is every call the code before #497 makes, returns what it returned
 -- before. Naming both, which that function refused, now narrows the account match.
+--
+-- Two mixed windows, each bounded by the runner and covered by polling. A webhook job that throws
+-- is retried while attempts < max_attempts (5, 20261031090300_jobs_and_invites.sql) with backoff
+-- ceilings of 1, 2, 4, and 8 minutes (src/lib/jobs/backoff.ts), so within about 15 minutes it is
+-- failed for good, and the hourly poll of an active or failed connection brings the same events:
+-- 1. The build from #497 against a database without this migration (promoted before
+--    `supabase migration up` ran): the function before this one answers 22023 for every Sentry
+--    issue delivery, which names both, and each such job fails that way.
+-- 2. The build before #497 reading an outcome the build from #497 stored, after an Instant
+--    Rollback (docs/operations/self-hosting.md, Roll back): its strict stored outcome schema
+--    refuses installationId, loadWebhookDelivery throws, and each Sentry issue delivery received
+--    and not yet applied fails that way. A forward deploy does not reach this: promotion moves the
+--    route and the tick together.
 
 -- ── list_webhook_targets ────────────────────────────────────────────────────────
 -- p_external_id, p_installation_id, or both name what the delivery is about.
@@ -18,8 +31,11 @@
 --   account), ordered by connection id.
 -- - both: the p_external_id match, kept to connections whose external_installation_id is
 --   p_installation_id (#497). A connection with no recorded installation is no match: nothing
---   says it belongs to the installation that sent the delivery, and its next sync records one
---   (installationIdOf, src/lib/adapters/types.ts) while polling still brings it its events.
+--   says it belongs to the installation that sent the delivery. An active or failed one records
+--   its installation on its next sync, within the hour (installationIdOf,
+--   src/lib/adapters/types.ts), and polling brings it the same events meanwhile. A needs_attention
+--   one is not synced, so it gets no such delivery and no polling until the user reconnects it,
+--   which records the installation.
 -- All only on connections of p_provider that are active, failed, or needs_attention, only on the
 -- endpoint's own connection when p_endpoint_id is set, and bounded at 100.
 -- Each row carries:
