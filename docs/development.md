@@ -543,12 +543,15 @@ docker logs --timestamps supabase_realtime_stackdash 2>&1 | grep 'Rebalancing Po
 
 Match the line "Rebalancing Postgres Changes replication for a closer region". The timestamp
 `--timestamps` adds at the start of each line is in UTC, so convert the failure time to UTC before
-comparing. The rebalance caused the failure when that line falls between the spec writing its change
-and the assertion timing out, which is a window of a few seconds just before the failure time
-Playwright reports. Rebalances come about 10 minutes apart. If one falls in that window, rerun the
-spec. CI saves the same log as the `realtime-log` artifact on every end-to-end run and prints the
-rebalance lines in the job log. Realtime has fixed the stall upstream, and the planned move of this
-repository and CI to Supabase CLI 3.2.0 removes it; that move should rewrite this note.
+comparing. Channels subscribe again a few seconds after that line, so the change lost is one the
+spec wrote in those few seconds. The assertion then waits `LIVE_TIMEOUT_MS` (15 seconds, set in
+`e2e/fixtures/realtime.ts`) before it fails, so a rebalance caused the failure when its line comes
+between `LIVE_TIMEOUT_MS` and `LIVE_TIMEOUT_MS` plus a few seconds before the failure time
+Playwright reports: about 15 to 20 seconds. Rebalances come about 10 minutes apart. If one falls in
+that window, rerun the spec. CI saves the same log as the `realtime-log` artifact on every
+end-to-end run and prints the rebalance lines in the job log. Realtime has fixed the stall upstream,
+and the planned move of this repository and CI to Supabase CLI 3.2.0 removes it; that move should
+rewrite this note.
 
 ## Project layout
 
