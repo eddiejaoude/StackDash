@@ -20,12 +20,17 @@ import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
  *
  * The command targets this spec's own workspace with `--workspace`, never the demo workspace a
  * person may be presenting from. Delivery runs the job tick, which is instance-wide, so this spec
- * lives in the `instance-wide` Playwright project (playwright.config.ts).
+ * lives in the `instance-wide` Playwright project (playwright.config.ts). The other worker's
+ * instance-wide specs tick while it runs, so it settles its workspace before counting anything
+ * (`settleWorkspace`).
  */
 
 const run = promisify(execFile);
 const FAILED_DEPLOYMENT = "Production deployment of web failed";
 const BUDGET_ALERT = "Budget Vercel monthly passed 90 percent";
+// A day: the command's own syncs schedule the next one this far out, so no tick syncs the
+// connection while the spec runs.
+const COMMAND_ONLY_POLL_INTERVAL_SECONDS = 86_400;
 
 const FAILED_RUN = z.object({ code: z.number(), stdout: z.string(), stderr: z.string() });
 
@@ -76,12 +81,48 @@ async function addWebhookChannel(page: Page, workspace: TestWorkspace, url: stri
   await expect(form.getByRole("status")).toContainText("Channel added.");
 }
 
+/** Runs one instance-wide job tick, as the scheduler does. */
+async function tick(page: Page): Promise<void> {
+  const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
+  expect(response.status()).toBe(200);
+}
+
+/**
+ * Leaves the command as the only writer to the workspace before the spec counts its events or
+ * reads its alerts (#505). Another worker's instance-wide spec ticks at any moment, and two jobs
+ * would otherwise land here mid-assertion: a sync of the simulated Vercel connection, due on
+ * connect and a minute after every sync (SIMULATED_POLL_INTERVAL_SECONDS), which writes
+ * deployments and, during a budget crossing, checks the alert before the command does or puts the
+ * usual spend back first; and the workspace's daily summary (src/lib/jobs/schedule.ts), one
+ * `stackdash.daily_summary` event. So the connection polls once a day, which the command's own
+ * syncs keep, and the spec ticks until the summary has run and no job of the workspace is queued
+ * or running, such as a sync queued before the schedule moved.
+ */
+async function settleWorkspace(page: Page, workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const { data: connections, error } = await admin
+    .from("connections")
+    .update({
+      poll_interval_seconds: COMMAND_ONLY_POLL_INTERVAL_SECONDS,
+      next_sync_at: new Date(Date.now() + COMMAND_ONLY_POLL_INTERVAL_SECONDS * 1000).toISOString(),
+    })
+    .eq("workspace_id", workspace.id)
+    .select("id");
+  if (error) throw new Error(`Rescheduling the connection failed (code ${error.code}).`);
+  expect(connections).toHaveLength(1);
+  await expect(async () => {
+    await tick(page);
+    const { data, error: jobsError } = await admin.from("sync_jobs").select("kind, status").eq("workspace_id", workspace.id).limit(100);
+    if (jobsError) throw new Error(`Reading the jobs failed (code ${jobsError.code}).`);
+    expect(data.filter((job) => job.status === "queued" || job.status === "running")).toEqual([]);
+    expect(data.filter((job) => job.kind === "daily_summary").map((job) => job.status)).toEqual(["succeeded"]);
+  }).toPass({ timeout: 90_000 });
+}
+
 /** Ticks until every alert in the workspace is dispatched; other workspaces' jobs may share a tick. */
 async function tickUntilDispatched(page: Page, workspace: TestWorkspace): Promise<void> {
-  const authorization = `Bearer ${cronSecret()}`;
   await expect(async () => {
-    const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-    expect(response.status()).toBe(200);
+    await tick(page);
     const { data, error } = await adminClient().from("triggered_alerts").select("dispatched_at").eq("workspace_id", workspace.id).limit(10);
     if (error) throw new Error(`Reading the alerts failed (code ${error.code}).`);
     expect(data).toHaveLength(1);
@@ -98,6 +139,7 @@ ownerTest.describe("demo event", () => {
       await connectSimulated(page, workspace.slug, "Vercel");
       await seedBudgetAlert(workspace);
       await addWebhookChannel(page, workspace, receiver.url);
+      await settleWorkspace(page, workspace);
 
       // Simulation off: refused before anything is read or written.
       const before = await countEvents(workspace);
