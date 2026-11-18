@@ -225,7 +225,8 @@ describe("ingestSyncResult events", () => {
   ])("%s, and no other column changes (boundary)", async (_case, first, second, stored) => {
     const store = new MemoryJobStore(() => retrievedAt);
     await ingest(store, [failure(first)]);
-    const [written] = store.events;
+    // A copy: the store fills its row in place.
+    const written = { ...store.events[0] };
     await ingest(store, [failure(second, later)]);
 
     expect(store.events).toEqual([{ ...written, body: stored }]);

@@ -712,7 +712,8 @@ describe("vercelAdapter webhooks", () => {
     if (outcome.kind !== "events") throw new Error("the delivery maps to no events");
     // Written as the webhook job writes a delivery's events (src/lib/jobs/webhook-delivery.ts).
     expect(await store.insertEvents(outcome.events.map((event) => toEventRow(event, "vercel", connection, account)))).toBe(1);
-    const [delivered] = store.events;
+    // A copy: the store fills its row in place.
+    const delivered = { ...store.events[0] };
     expect(delivered).toMatchObject({ body: null, title: "Production deployment of web failed" });
 
     const polled = await vercelAdapter.sync(teamSync, makeCtx(fakeVercel().fetch).ctx);
