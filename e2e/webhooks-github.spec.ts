@@ -131,9 +131,8 @@ ownerTest.describe("GitHub webhooks", () => {
       await expect(events.getByRole("heading", { name: "Pull request #4242 merged in example-org/e2e-repo", exact: true })).toHaveCount(1);
       await expect(page.getByText("Synthetic title StackDash never stores")).toHaveCount(0);
 
-      // The uninstall waits for the connection's first sync to finish, so it is the last write the
-      // spec observes: before #487 was fixed, a sync finishing after the uninstall's job set the
-      // connection back to active.
+      // The uninstall waits for the connection's first sync to finish, so it is applied to an idle
+      // connection (#487: the concurrent case is in src/lib/jobs/sync-connection.test.ts).
       await tickUntilFirstSync(page, workspace, "github");
 
       // The app was uninstalled from the account: the connection asks for a reconnect at once.

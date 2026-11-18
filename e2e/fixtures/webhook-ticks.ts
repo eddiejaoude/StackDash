@@ -38,8 +38,8 @@ export async function tickUntilStored(page: Page, workspace: TestWorkspace, dedu
 /**
  * Ticks until the workspace's one connection of `provider` has finished its first sync
  * (`last_synced_at` is set). Every spec that posts an uninstall waits for this first, so the
- * uninstall is the last write to the connection the spec observes: before #487 was fixed, a sync
- * that finished after the uninstall's job set the connection back to `active`.
+ * uninstall is applied to an idle connection, as a real one is between its syncs. An uninstall
+ * landing while a sync runs is covered in src/lib/jobs/sync-connection.test.ts (#487), not here.
  */
 export async function tickUntilFirstSync(
   page: Page,
@@ -57,11 +57,12 @@ export async function tickUntilFirstSync(
 
 /**
  * Ticks until the workspace's one connection of `provider` has `status`, for an uninstall delivery
- * (`needs_attention`). Post the uninstall while no sync of the connection is running or due: after
- * its first sync has finished (`tickUntilFirstSync`) and before the next one is due,
- * SIMULATED_POLL_INTERVAL_SECONDS later for a simulated connection. Then the uninstall is the last
- * write the spec observes; before #487 was fixed, a sync finishing after the uninstall's job set
- * the connection back to `active`.
+ * (`needs_attention`). The specs post the uninstall while no sync of the connection is running or
+ * due: after its first sync has finished (`tickUntilFirstSync`) and before the next one is due,
+ * SIMULATED_POLL_INTERVAL_SECONDS later for a simulated connection. That is the scenario they
+ * cover, an uninstall of an idle connection, not a requirement: since #487 was fixed, a sync
+ * finishing after the uninstall's job leaves `needs_attention` in place, which
+ * src/lib/jobs/sync-connection.test.ts covers.
  */
 export async function tickUntilConnectionStatus(
   page: Page,

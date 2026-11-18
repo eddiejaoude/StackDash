@@ -141,9 +141,8 @@ ownerTest.describe("Sentry webhooks", () => {
       };
 
       // The first sync runs before the uninstall is posted, so the delivery finds the connection
-      // idle, as a real one is between its hourly syncs, and the uninstall is the last write the
-      // spec observes. Before #487 was fixed, a sync already running when the uninstall was applied
-      // wrote the connection back to active as it finished.
+      // idle, as a real one is between its hourly syncs (#487: the concurrent case is in
+      // src/lib/jobs/sync-connection.test.ts).
       await tickUntilFirstSync(page, workspace, "sentry");
 
       const connected = await readConnection();
