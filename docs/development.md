@@ -544,9 +544,9 @@ docker logs supabase_realtime_stackdash 2>&1 | grep Rebalancing
 Each rebalance logs "Rebalancing Postgres Changes replication for a closer region" and "Rebalancing
 Tenant database connection for a closer region", about 10 minutes after the one before. A line at
 the time of the failure means the stall caused it, so rerun the spec. CI saves the same log as the
-`realtime-log` artifact on every end-to-end run and prints these lines in the job log. Realtime
-fixed the stall upstream, and the move to Supabase CLI 3.2.0 in
-[#522](https://github.com/eddiejaoude/StackDash/issues/522) removes it.
+`realtime-log` artifact on every end-to-end run and prints these lines in the job log. Realtime has
+fixed the stall upstream, and the planned move of this repository and CI to Supabase CLI 3.2.0
+removes it.
 
 ## Project layout
 
