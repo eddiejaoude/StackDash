@@ -530,6 +530,24 @@ A file filter does not narrow the `chromium` dependency: it still runs in full. 
 always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
 include them.
 
+On Supabase CLI 2.120.0, the version CI pins, the local Realtime container stops its Postgres
+Changes replication roughly every 10 minutes to rebalance it to a closer region. A change written in
+that gap never reaches the page, and neither the app nor Realtime reports an error. In a test run it
+looks like a live assertion that times out with no fault in the app: a spec waits for a change to
+appear without a reload, and it never does. To check whether a rebalance caused a failure, list
+the container's rebalance lines and compare their times with the failure:
+
+```bash
+docker logs supabase_realtime_stackdash 2>&1 | grep Rebalancing
+```
+
+Each rebalance logs "Rebalancing Postgres Changes replication for a closer region" and "Rebalancing
+Tenant database connection for a closer region", about 10 minutes after the one before. A line at
+the time of the failure means the stall caused it, so rerun the spec. CI saves the same log as the
+`realtime-log` artifact on every end-to-end run and prints these lines in the job log. Realtime
+fixed the stall upstream, and the move to Supabase CLI 3.2.0 in
+[#522](https://github.com/eddiejaoude/StackDash/issues/522) removes it.
+
 ## Project layout
 
 ```text
