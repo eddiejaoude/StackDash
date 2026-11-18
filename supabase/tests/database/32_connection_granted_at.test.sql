@@ -2,16 +2,16 @@
 -- members read and nobody writes through the Data API; the backfill fills a connection with no
 -- grant time from its credential's last save, else from when it was created, leaves pending
 -- connections and connections that already have one alone, works in batches, and is re-runnable;
--- list_webhook_targets returns granted_at, falling back to the credential's last save for a live
--- connection with no recorded grant, and still returns credential_updated_at for code deployed
--- before it.
+-- list_webhook_targets returns granted_at, the column alone (#502): a live connection with no
+-- recorded grant has none, whatever its credential, until the backfill fills it; and it no longer
+-- returns credential_updated_at.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS); anon and authenticated
 -- are impersonated through the same role and JWT claims PostgREST uses.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(22);
+select plan(23);
 
 -- Every other connection in the local database already has its grant time inside this rolled-back
 -- transaction, so the backfill below sees only this file's fixtures.
@@ -78,8 +78,8 @@ select ok(
 -- ---------------------------------------------------------------------------
 select is(
   (select granted_at from public.list_webhook_targets('fake', 'unstamped-acct')),
-  '2026-11-10T12:00:00Z'::timestamptz,
-  'targets: a live connection with no recorded grant falls back to its credential''s last save, as before granted_at (boundary: unstamped)');
+  null::timestamptz,
+  'targets: a live connection with no recorded grant has no grant time, though it has a credential (boundary: fallback gone, #502)');
 select results_eq(
   $$ select granted_at from public.list_webhook_targets('fake', 'bare-acct') $$,
   $$ values (null::timestamptz) $$,
@@ -133,9 +133,13 @@ select is(
   '2026-11-16T08:00:00Z'::timestamptz,
   'targets: a target carries when its connection was last granted, not when its credential was last saved');
 select is(
-  (select credential_updated_at from public.list_webhook_targets('fake', 'granted-acct')),
-  '2026-11-16T09:00:00Z'::timestamptz,
-  'targets: credential_updated_at is still returned for code deployed before granted_at (expand then contract)');
+  (select granted_at from public.list_webhook_targets('fake', 'unstamped-acct')),
+  '2026-11-10T12:00:00Z'::timestamptz,
+  'targets: a connection the backfill filled carries its credential''s last save, as the contract migration''s second backfill leaves it');
+select is(
+  pg_catalog.pg_get_function_result('public.list_webhook_targets(public.provider_id, text, uuid, text)'::regprocedure),
+  'TABLE(workspace_id uuid, connection_id uuid, account_id uuid, granted_at timestamp with time zone)',
+  'targets: credential_updated_at is no longer returned (contract, #502)');
 
 -- ---------------------------------------------------------------------------
 -- The Data API: a signed in owner cannot set the grant time

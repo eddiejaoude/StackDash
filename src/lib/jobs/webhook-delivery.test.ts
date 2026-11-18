@@ -243,7 +243,7 @@ describe("runWebhookJob", () => {
   });
 
   it.each([
-    ["with neither a recorded grant nor a credential save", null],
+    ["with no recorded grant (boundary: null)", null],
     ["granted one millisecond before the uninstall (boundary)", new Date(UNINSTALLED_AT.getTime() - 1).toISOString()],
     ["granted at the instant of the uninstall (boundary)", UNINSTALLED_AT.toISOString()],
   ])("revokes a connection %s", async (_case, grantedAt) => {
@@ -255,22 +255,26 @@ describe("runWebhookJob", () => {
     expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
   });
 
-  it.each([
-    ["after the uninstall: skipped, as before #476", UNINSTALLED_AT.getTime() + 1, "active"],
-    ["before the uninstall: revoked", UNINSTALLED_AT.getTime() - 1, "needs_attention"],
-  ])(
-    "falls back to the credential's last save for a live connection with no recorded grant, saved %s (boundary: unstamped)",
-    async (_case, savedAtMs, status) => {
-      const harness = setup();
-      // Made by the previous deployment after the backfill, or inserted as live: no grant stamp.
-      const connection = harness.connect(WORKSPACE_A, { granted_at: null });
-      harness.store.credentialUpdatedAt.set(connection.id, new Date(savedAtMs).toISOString());
-      const job = await harness.deliver(uninstall);
+  it("revokes a live connection with no recorded grant whose token was refreshed after the removal (boundary: unstamped, #502)", async () => {
+    const harness = setup();
+    // Inserted as live, with no grant stamp, and a token that expires now, so the sync below saves
+    // its credential after the removal.
+    const connection = harness.connect(WORKSPACE_A, { granted_at: null });
+    harness.store.credentials.set(connection.id, { ...credential, expiresAt: new Date(START) });
+    connection.next_sync_at = null;
+    await runTick(harness.deps);
+    expect(harness.store.savedCredentials).toHaveLength(1);
+    // The column alone: the credential's last save no longer stands in for the grant.
+    expect(await harness.store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", endpointId: null })).toEqual([
+      expect.objectContaining({ connectionId: connection.id, grantedAt: null }),
+    ]);
 
-      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
-      expect(connection).toMatchObject({ status });
-    },
-  );
+    const job = await harness.deliver(uninstall);
+
+    expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+    expect(connection).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+    expect(harness.infos.map((line) => line.event)).not.toContain("webhook.uninstall_stale");
+  });
 
   it("revokes a connection whose token was refreshed after the removal (boundary: refresh after removal, #476)", async () => {
     const harness = setup();
@@ -369,15 +373,19 @@ describe("runWebhookJob", () => {
       expect(harness.infos.map((line) => line.event)).toContain("webhook.uninstall_stale");
     });
 
-    it("falls back to the credential's last save for an installation's connection with no recorded grant (boundary: unstamped)", async () => {
+    it("revokes an installation's connection with no recorded grant whose credential was saved after the removal (boundary: unstamped, #502)", async () => {
       const harness = setup();
       const unstamped = harness.connect(WORKSPACE_A, { external_installation_id: INSTALLATION, granted_at: null });
-      harness.store.credentialUpdatedAt.set(unstamped.id, new Date(UNINSTALLED_AT.getTime() + 1).toISOString());
+      // The harness clock is past the removal, so this save is after it.
+      await harness.store.saveCredential({ workspaceId: WORKSPACE_A, connectionId: unstamped.id }, credential);
+      expect(await harness.store.listInstallationTargets({ provider: "fake", installationId: INSTALLATION, endpointId: null })).toEqual([
+        { workspaceId: WORKSPACE_A, connectionId: unstamped.id, grantedAt: null },
+      ]);
       const job = await harness.deliver(installationUninstall);
 
       expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
-      expect(unstamped).toMatchObject({ status: "active" });
-      expect(harness.infos.map((line) => line.event)).toContain("webhook.uninstall_stale");
+      expect(unstamped).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+      expect(harness.infos.map((line) => line.event)).not.toContain("webhook.uninstall_stale");
     });
 
     it("does not match an account whose external id equals the installation id (boundary: the forms stay apart)", async () => {
