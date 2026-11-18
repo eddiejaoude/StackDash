@@ -133,6 +133,11 @@ const PRESS_EVENTS = ["mousedown", "mouseup", "click", "dblclick"] as const;
  * press counted 1 (or 0, from a script) starts a click of its own: it passes and removes the
  * listeners. A click counted 0, a key's, passes and leaves them. Returns what removes them sooner;
  * calling it again does nothing.
+ *
+ * The rule depends on the browser counting the later press of a double-click or double-tap as
+ * `detail` 2. That was measured only in Chromium, including its touch emulation (`hasTouch`, two
+ * taps at one point counted 1 then 2). A browser that counts each tap as 1 lets the second through
+ * to the page, as before #563; #578 measures WebKit (iOS Safari) and Firefox.
  */
 export function ignoreClosingRepeat(target: Pick<Window, "addEventListener" | "removeEventListener">): () => void {
   function ignore(event: globalThis.MouseEvent): void {
