@@ -31,7 +31,6 @@ import pulls from "./fixtures/pulls.json";
 // Shaped like "GitHub event types" (common properties, `ReleaseEvent` with the release object),
 // with synthetic ids and people.
 import repositoryEvents from "./fixtures/repository-events.json";
-import stargazersCount from "./fixtures/stargazers-count.json";
 import userInstallations from "./fixtures/user-installations.json";
 import userToken from "./fixtures/user-token.json";
 // Webhook bodies: GitHub's documented example payloads (docs.github.com, "Webhook events and
@@ -70,13 +69,19 @@ const feedPages = (...pages: readonly unknown[][]): Handler => (call) =>
 
 const orgBilling = "/organizations/example-org/settings/billing";
 const repoPath = "/repos/example-org/example-repo";
+// The installation's one repository, listed with `count` stars.
+const listWithStars = (count: number): Routes => ({
+  [`GET ${api("/installation/repositories")}`]: json({
+    ...installationRepositories,
+    repositories: [{ ...installationRepositories.repositories[0], stargazers_count: count }],
+  }),
+});
 
 function orgRoutes(): Routes {
   return {
     [`GET ${api(`/app/installations/${INSTALLATION_ID}`)}`]: json(installation),
     [`POST ${api(`/app/installations/${INSTALLATION_ID}/access_tokens`)}`]: json(installationToken, { status: 201 }),
     [`GET ${api("/installation/repositories")}`]: json(installationRepositories),
-    [`GET ${api(`${repoPath}/stargazers/count`)}`]: json(stargazersCount),
     [`GET ${api(`${repoPath}/forks`)}`]: json(forks),
     // Activity lists are empty by default, so the star, fork, and billing cases see only their own
     // events; "sync: timeline activity" below reads the recorded lists.
@@ -529,8 +534,7 @@ describe("sync", () => {
       milestone: 0,
       forksSeenAt: "2026-10-30T09:00:00.000Z",
       forkIdsAtSeenAt: [7000002],
-      count: 95,
-      readAt: NOW.toISOString(),
+      forksReadAt: NOW.toISOString(),
       activity: { pullRequests: NOW.toISOString(), issues: NOW.toISOString(), releases: NOW.toISOString() },
       activityAttemptedAt: NOW.toISOString(),
     });
@@ -568,7 +572,7 @@ describe("sync", () => {
       },
     };
     // Closed at 00:10, within the bound a day's star event needs (`DAY_CLOSE_MAX_DELAY_MS`).
-    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 105 }) }, { now: new Date("2026-10-31T00:10:00Z") });
+    const { ctx } = harness(listWithStars(105), { now: new Date("2026-10-31T00:10:00Z") });
     const result = await githubAdapter.sync(syncInput(JSON.stringify(previous)), ctx);
 
     expect(validateAdapterEvents(githubAdapter.eventTypes, result.events).ok).toBe(true);
@@ -596,7 +600,7 @@ describe("sync", () => {
         "5000001": { day: "2026-10-30", dayCount: 90, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [] },
       },
     };
-    const overrides = { [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 105 }) };
+    const overrides = listWithStars(105);
     const first = await githubAdapter.sync(syncInput(JSON.stringify(previous)), harness(overrides).ctx);
     const again = await githubAdapter.sync(syncInput(JSON.stringify(previous)), harness(overrides).ctx);
     expect(again.events.map((event) => event.dedupeKey)).toEqual(first.events.map((event) => event.dedupeKey));
@@ -614,7 +618,7 @@ describe("sync", () => {
       },
     };
     const { ctx } = harness({
-      [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 100 }),
+      ...listWithStars(100),
       [`GET ${api(`${repoPath}/forks`)}`]: json([]),
     });
     const result = await githubAdapter.sync(syncInput(JSON.stringify(previous)), ctx);
@@ -761,7 +765,7 @@ describe("sync", () => {
     const [listCall] = callsTo("GET", api("/installation/repositories"));
     expect(listCall?.url.searchParams.get("per_page")).toBe("100");
     expect(callsTo("GET", api("/installation/repositories"))).toHaveLength(1);
-    expect(callsTo("GET", api(`${repoPath}/stargazers/count`))).toHaveLength(100);
+    expect(callsTo("GET", api(`${repoPath}/forks`))).toHaveLength(100);
     expect(Object.keys((JSON.parse(result.cursor ?? "{}") as Cursor).repos)).toHaveLength(100);
     expect(warnings).toContain("github.sync.repositories_truncated");
   });
@@ -1139,9 +1143,7 @@ describe("sync: timeline activity", () => {
     const repositories = names.map((name, index) => ({ ...installationRepositories.repositories[0], id: 5100001 + index, name, full_name: `example-org/${name}` }));
     const routes: Routes = { [`GET ${api("/installation/repositories")}`]: json({ total_count: names.length, repositories }) };
     for (const name of names) {
-      for (const list of ["stargazers/count", "forks", "pulls", "issues", "events"]) {
-        routes[`GET ${api(`/repos/example-org/${name}/${list}`)}`] = list === "stargazers/count" ? json({ count: 1 }) : json([]);
-      }
+      for (const list of ["forks", "pulls", "issues", "events"]) routes[`GET ${api(`/repos/example-org/${name}/${list}`)}`] = json([]);
     }
     // repo-c was never attempted, repo-b longest ago, repo-a most recently: c, then b, then a.
     const previous: Cursor = {
@@ -1190,9 +1192,8 @@ describe("sync: timeline activity", () => {
       }),
     };
     for (const name of names) {
-      for (const list of ["stargazers/count", "forks", "events"]) {
-        routes[`GET ${api(`/repos/example-org/${name}/${list}`)}`] =
-          list === "stargazers/count" ? json({ count: 1 }) : json([]);
+      for (const list of ["forks", "events"]) {
+        routes[`GET ${api(`/repos/example-org/${name}/${list}`)}`] = json([]);
       }
     }
     // Each repository's events feed takes 25 seconds, and every other read none, so each sync's
@@ -1257,8 +1258,8 @@ describe("sync: timeline activity", () => {
     expect(failure?.status).toBe(502);
   });
 
-  it("names the template when a star count read fails too (boundary: private repository in an error)", async () => {
-    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ message: "Not Found" }, { status: 404 }) });
+  it("names the template when a fork read fails too (boundary: private repository in an error)", async () => {
+    const { ctx } = harness({ [`GET ${api(`${repoPath}/forks`)}`]: json({ message: "Not Found" }, { status: 404 }) });
     const error = await githubAdapter.sync(syncInput(), ctx).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(InvalidResponseError);
     expect(JSON.stringify({ message: error instanceof Error ? error.message : "", endpoint: error instanceof InvalidResponseError ? error.endpoint : "" })).not.toContain("example-repo");
@@ -1310,10 +1311,10 @@ describe("sync: new stars over one UTC day", () => {
       name: repo.name,
       full_name: `example-org/${repo.name}`,
       html_url: `https://github.com/example-org/${repo.name}`,
+      stargazers_count: repo.count,
     }));
     const routes: Routes = { [`GET ${api("/installation/repositories")}`]: json({ total_count: repos.length, repositories }) };
     for (const repo of repos) {
-      routes[`GET ${api(`/repos/example-org/${repo.name}/stargazers/count`)}`] = json({ count: repo.count });
       routes[`GET ${api(`/repos/example-org/${repo.name}/forks`)}`] = json([]);
       for (const list of ["pulls", "issues", "events"]) routes[`GET ${api(`/repos/example-org/${repo.name}/${list}`)}`] = json([]);
     }
@@ -1347,7 +1348,7 @@ describe("sync: new stars over one UTC day", () => {
         timeframe: { type: "period", start: new Date("2026-10-30T00:00:00Z"), end: new Date("2026-10-31T00:00:00Z") },
         externalAccountId: ACCOUNT_ID,
         retrievedAt: CLOSED_AT,
-        provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
+        provenance: { source: "provider_api", endpoint: "/installation/repositories" },
       },
     ]);
 
@@ -1438,10 +1439,12 @@ describe("sync: new stars over one UTC day", () => {
   });
 });
 
-describe("sync: star and fork read budget", () => {
+describe("sync: fork read budget", () => {
   // A job starts at most TICK_BUDGET_MS into a tick and holds its claim for TICK_LEASE_SECONDS.
   const CLAIM_MS = TICK_LEASE_SECONDS * 1000 - TICK_BUDGET_MS;
   const YESTERDAY = "2026-10-30";
+  const seenFork = { ...forks[0], id: 7100001, created_at: "2026-10-30T09:00:00Z" };
+  const newFork = { ...forks[0], id: 7100002, created_at: "2026-10-31T00:30:00Z" };
 
   type BudgetRepo = Readonly<{ id: number; name: string; count: number; forks?: readonly Readonly<{ id: number; created_at: string }>[] }>;
 
@@ -1452,10 +1455,10 @@ describe("sync: star and fork read budget", () => {
       name: repo.name,
       full_name: `example-org/${repo.name}`,
       html_url: `https://github.com/example-org/${repo.name}`,
+      stargazers_count: repo.count,
     }));
     const routes: Routes = { [`GET ${api("/installation/repositories")}`]: json({ total_count: repos.length, repositories }) };
     for (const repo of repos) {
-      routes[`GET ${api(`/repos/example-org/${repo.name}/stargazers/count`)}`] = json({ count: repo.count });
       routes[`GET ${api(`/repos/example-org/${repo.name}/forks`)}`] = json(repo.forks ?? []);
       for (const list of ["pulls", "issues", "events"]) routes[`GET ${api(`/repos/example-org/${repo.name}/${list}`)}`] = json([]);
     }
@@ -1477,9 +1480,14 @@ describe("sync: star and fork read budget", () => {
     return { result, cursor: CursorSchema.parse(JSON.parse(result.cursor ?? "")), elapsedMs: elapsedMs(), callsTo, warnings };
   }
   const forksCost = (forksMs: number) => (path: string) => (path.endsWith("/forks") ? forksMs : 0);
-  const counted = (cursor: Cursor) => Object.keys(cursor.repos).sort();
+  const forksRead = (cursor: Cursor) =>
+    Object.entries(cursor.repos)
+      .filter(([, state]) => state.forksReadAt !== undefined)
+      .map(([id]) => id)
+      .sort();
+  const keys = (result: SyncResult) => result.events.map((event) => event.dedupeKey);
 
-  it("finishes a sync of 100 busy repositories inside the claim it holds, and the next sync reads the ones left over (boundary: 100 busy repositories)", async () => {
+  it("finishes a sync of 100 busy repositories inside the claim it holds, with every star count, and the next sync reads the forks left over (boundary: 100 busy repositories)", async () => {
     const repos = Array.from({ length: 100 }, (_, index) => ({ id: 5200001 + index, name: `busy-${index}`, count: 1000 }));
     // Measured on #62 against busy public repositories: a first page of forks up to 5.83 s, pull
     // requests 1.3 s, issues 0.8 s, and the events feed 6.6 s. Every other request is given 1 s.
@@ -1492,71 +1500,73 @@ describe("sync: star and fork read budget", () => {
     };
     const first = await timedSync(routesFor(repos), undefined, NOW, measured);
     expect(first.elapsedMs).toBeLessThanOrEqual(CLAIM_MS);
-    expect(first.warnings).toContain("github.sync.stars_deferred");
-    // A read starts at 0, 6.83, and 13.66 seconds; the fourth would start past 20.
-    expect(counted(first.cursor)).toEqual(["5200001", "5200002", "5200003"]);
+    expect(first.warnings).toContain("github.sync.forks_deferred");
+    // A fork read starts at 0, 5.83, 11.66, and 17.49 seconds; the fifth would start past 20.
+    expect(forksRead(first.cursor)).toEqual(["5200001", "5200002", "5200003", "5200004"]);
+    // Every repository's star count and baseline, whether or not its forks were read.
+    expect(Object.keys(first.cursor.repos)).toHaveLength(100);
+    expect(first.result.metrics.filter((item) => item.metricKey.startsWith("github.stars.repo_"))).toHaveLength(100);
+    expect(metric(first.result.metrics, "github.stars.total")).toMatchObject({ value: 100 * 1000 });
 
     const second = await timedSync(routesFor(repos), first.cursor, new Date(NOW.getTime() + 3_600_000), measured);
     expect(second.elapsedMs).toBeLessThanOrEqual(CLAIM_MS);
-    // Never read goes first, and the first sync's three keep their baselines.
-    expect(counted(second.cursor)).toEqual(["5200001", "5200002", "5200003", "5200004", "5200005", "5200006"]);
-    for (const id of ["5200001", "5200002", "5200003"]) expect(second.cursor.repos[id]).toMatchObject({ day: "2026-10-31", dayCount: 1000 });
+    // Never read goes first.
+    expect(forksRead(second.cursor)).toEqual(["5200001", "5200002", "5200003", "5200004", "5200005", "5200006", "5200007", "5200008"]);
   });
 
   it.each([
     { forksMs: 19_999, deferred: false },
     { forksMs: 20_000, deferred: true },
-  ])("starts the next repository's reads $forksMs ms in only while under 20 seconds: deferred $deferred (boundary: slow clock)", async ({ forksMs, deferred }) => {
+  ])("starts the next repository's fork read $forksMs ms in only while under 20 seconds: deferred $deferred (boundary: slow clock)", async ({ forksMs, deferred }) => {
     const repos = [
       { id: 5000001, name: "api", count: 96 },
       { id: 5000002, name: "web", count: 44 },
     ];
-    // web was read longest ago, so it is read first.
-    const apiBefore = { day: "2026-10-31", dayCount: 90, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [], count: 93, readAt: "2026-10-31T11:00:00.000Z" };
-    const webBefore = { day: "2026-10-31", dayCount: 40, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [], count: 42, readAt: "2026-10-31T10:00:00.000Z" };
+    // web's forks were read longest ago, so they are read first.
+    const apiBefore = { day: "2026-10-31", dayCount: 90, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [], forksReadAt: "2026-10-31T11:00:00.000Z" };
+    const webBefore = { day: "2026-10-31", dayCount: 40, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [], forksReadAt: "2026-10-31T10:00:00.000Z" };
     const previous: Cursor = { v: 1, repos: { "5000001": apiBefore, "5000002": webBefore } };
     const { result, cursor, callsTo, warnings } = await timedSync(routesFor(repos), previous, NOW, forksCost(forksMs));
 
     expect(callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(1);
     expect(callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(deferred ? 0 : 1);
-    expect(warnings.includes("github.sync.stars_deferred")).toBe(deferred);
-    // Deferred, api keeps its star and fork state whole (its activity has its own budget), and counts
-    // in the total with its last count.
-    if (deferred) expect(cursor.repos["5000001"]).toMatchObject(apiBefore);
-    else expect(cursor.repos["5000001"]).toMatchObject({ count: 96, readAt: NOW.toISOString() });
-    expect(metric(result.metrics, "github.stars.repo_5000001")).toEqual(deferred ? undefined : expect.objectContaining({ value: 96 }));
-    expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: deferred ? 93 + 44 : 96 + 44 });
+    expect(warnings.includes("github.sync.forks_deferred")).toBe(deferred);
+    // Deferred, api keeps its fork baseline and read time; its star count is read either way.
+    expect(cursor.repos["5000001"]).toMatchObject({ forksSeenAt: null, forkIdsAtSeenAt: [], forksReadAt: deferred ? apiBefore.forksReadAt : NOW.toISOString() });
+    expect(metric(result.metrics, "github.stars.repo_5000001")).toMatchObject({ value: 96 });
+    expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 96 + 44 });
   });
 
-  it("writes no stars total while a deferred repository has no count yet, then writes it once read (boundary: cursor from before the budget)", async () => {
-    const repos = [
+  it("sets the fork baseline on the first fork read without reporting old forks, after a first sync that did not reach them (boundary: forks never read)", async () => {
+    const repos = (webForks: NonNullable<BudgetRepo["forks"]>) => [
       { id: 5000001, name: "api", count: 96 },
-      { id: 5000002, name: "web", count: 44 },
+      { id: 5000002, name: "web", count: 44, forks: webForks },
     ];
-    const apiBefore = { day: "2026-10-31", dayCount: 90, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [] };
-    const webBefore = { day: "2026-10-31", dayCount: 40, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [] };
-    const previous: Cursor = { v: 1, repos: { "5000001": apiBefore, "5000002": webBefore } };
-    const slow = await timedSync(routesFor(repos), previous, NOW, forksCost(20_000));
-    // A total of api alone would read as 44 stars lost; the previous total stands instead.
-    expect(metric(slow.result.metrics, "github.stars.total")).toBeUndefined();
-    expect(slow.cursor.repos["5000002"]).toMatchObject(webBefore);
+    // First sync: api's forks are read, web's are not reached, but web has its star baseline.
+    const first = await timedSync(routesFor(repos([seenFork])), undefined, NOW, forksCost(20_000));
+    expect(first.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(0);
+    expect(first.cursor.repos["5000002"]).toMatchObject({ day: "2026-10-31", dayCount: 44, forkIdsAtSeenAt: [] });
+    expect(first.cursor.repos["5000002"]?.forksSeenAt).toBeUndefined();
 
-    const next = await timedSync(routesFor(repos), slow.cursor, new Date(NOW.getTime() + 3_600_000), forksCost(20_000));
-    expect(next.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(1);
-    expect(metric(next.result.metrics, "github.stars.total")).toMatchObject({ value: 96 + 44 });
+    // The next sync reads web's forks first: a fork made before StackDash saw them is the baseline, not news.
+    const second = await timedSync(routesFor(repos([seenFork])), first.cursor, new Date(NOW.getTime() + 3_600_000), forksCost(20_000));
+    expect(second.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(1);
+    expect(keys(second.result)).toEqual([]);
+    expect(second.cursor.repos["5000002"]).toMatchObject({ forksSeenAt: "2026-10-30T09:00:00.000Z", forkIdsAtSeenAt: [7100001] });
+
+    // A fork made after that baseline is reported, once.
+    const third = await timedSync(routesFor(repos([newFork, seenFork])), second.cursor, new Date(NOW.getTime() + 7_200_000), () => 0);
+    expect(keys(third.result)).toEqual(["github.forks.new:5000002:7100002"]);
   });
 
-  it("keeps a deferred repository's star and fork baselines, and counts its day and new fork once when it is read later (boundary: deferred, then read)", async () => {
-    const seenFork = { ...forks[0], id: 7100001, created_at: "2026-10-30T09:00:00Z" };
-    const newFork = { ...forks[0], id: 7100002, created_at: "2026-10-31T00:30:00Z" };
-    const baseline = (dayCount: number, readAt: string): Cursor["repos"][string] => ({
+  it("closes every repository's day on time and reports a deferred repository's new fork once, on the sync that reads it (boundary: deferred, then read)", async () => {
+    const baseline = (dayCount: number, forksReadAt: string): Cursor["repos"][string] => ({
       day: YESTERDAY,
       dayCount,
       milestone: 0,
       forksSeenAt: seenFork.created_at,
       forkIdsAtSeenAt: [seenFork.id],
-      count: dayCount,
-      readAt,
+      forksReadAt,
     });
     const repos = [
       { id: 5000001, name: "api", count: 96, forks: [seenFork] },
@@ -1565,26 +1575,32 @@ describe("sync: star and fork read budget", () => {
     const webBefore = baseline(40, "2026-10-30T23:10:00.000Z");
     const previous: Cursor = { v: 1, repos: { "5000001": baseline(90, "2026-10-30T22:10:00.000Z"), "5000002": webBefore } };
     const gained = (result: SyncResult) => result.metrics.filter((item) => item.metricKey === starMetricNames.gainedDaily.metricKey);
-    const keys = (result: SyncResult) => result.events.map((event) => event.dedupeKey);
 
-    // 00:10, the day's first sync: api closes 2026-10-30, web is deferred with its baselines whole.
+    // 00:10, the day's first sync: both repositories close 2026-10-30 from their listed counts, and
+    // web's forks, not reached, keep their baseline.
     const first = await timedSync(routesFor(repos), previous, new Date("2026-10-31T00:10:00Z"), forksCost(20_000));
-    expect(keys(first.result)).toEqual(["github.stars.daily:5000001:2026-10-30"]);
-    expect(gained(first.result)).toMatchObject([{ value: 6 }]);
-    expect(first.cursor.repos["5000002"]).toMatchObject(webBefore);
+    expect(keys(first.result)).toEqual(["github.stars.daily:5000001:2026-10-30", "github.stars.daily:5000002:2026-10-30"]);
+    expect(gained(first.result)).toMatchObject([{ value: 6 + 4 }]);
+    expect(first.callsTo("GET", api("/repos/example-org/web/forks"))).toHaveLength(0);
+    expect(first.cursor.repos["5000002"]).toMatchObject({ forksSeenAt: webBefore.forksSeenAt, forkIdsAtSeenAt: webBefore.forkIdsAtSeenAt, forksReadAt: webBefore.forksReadAt });
 
-    // 01:10: web is read first now and closes the same day. The day's reading, stored in the same
-    // daily row, adds its 4 to api's 6 rather than replacing them; the fork after its baseline is new.
+    // 01:10: web's forks are read first now, and the fork after its baseline is new.
     const second = await timedSync(routesFor(repos), first.cursor, new Date("2026-10-31T01:10:00Z"), forksCost(20_000));
     expect(second.callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(0);
-    expect(keys(second.result)).toEqual(["github.stars.daily:5000002:2026-10-30", "github.forks.new:5000002:7100002"]);
-    expect(gained(second.result)).toMatchObject([{ value: 10 }]);
+    expect(keys(second.result)).toEqual(["github.forks.new:5000002:7100002"]);
+    expect(gained(second.result)).toEqual([]);
 
-    // 02:10, with time for both: nothing is counted twice.
+    // 02:10, with time for both: nothing is reported twice.
     const third = await timedSync(routesFor(repos), second.cursor, new Date("2026-10-31T02:10:00Z"), () => 0);
     expect(third.callsTo("GET", api("/repos/example-org/api/forks"))).toHaveLength(1);
     expect(keys(third.result)).toEqual([]);
-    expect(gained(third.result)).toEqual([]);
+  });
+
+  it("fails with invalid_response when the repository list drifts and loses its star counts (boundary: schema drift)", async () => {
+    // An undefined field is left out of the JSON body.
+    const repositories = installationRepositories.repositories.map((repo) => ({ ...repo, stargazers_count: undefined }));
+    const { ctx } = harness({ [`GET ${api("/installation/repositories")}`]: json({ ...installationRepositories, repositories }) });
+    await expect(githubAdapter.sync(syncInput(), ctx)).rejects.toBeInstanceOf(InvalidResponseError);
   });
 });
 

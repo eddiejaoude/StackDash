@@ -123,7 +123,7 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
     },
   ];
 
-  const stars = { ...common, kind: "usage", unit: "stars", timeframe: { type: "point", at }, provenance: { source: "provider_api", endpoint: simulatedEndpoint("github", "/repos/{owner}/{repo}/stargazers/count") } } as const;
+  const stars = { ...common, kind: "usage", unit: "stars", timeframe: { type: "point", at }, provenance: { source: "provider_api", endpoint: simulatedEndpoint("github", "/installation/repositories") } } as const;
   let total = 0;
   let gainedYesterday = 0;
   for (const repo of repositories(accountId)) {
