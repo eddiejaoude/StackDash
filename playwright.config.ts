@@ -59,6 +59,10 @@ export default defineConfig({
   // that runs the tick must live in `instance-wide`, which waits for every `chromium` spec to
   // finish. A dependency always runs in full (a file filter on the command line does not narrow
   // it), and when a `chromium` test fails, Playwright skips the `instance-wide` specs.
+  // The `instance-wide` specs run beside each other (`fullyParallel`, two workers in CI), so each
+  // one's ticks sync, summarize, and dispatch in the other's workspaces too (#505). A spec there
+  // counts only what no other tick can add to (by dedupe key, type, provider, or a day long past),
+  // or settles its workspace first, as e2e/demo-event.spec.ts does (`settleWorkspace`).
   projects: [
     {
       name: "chromium",
