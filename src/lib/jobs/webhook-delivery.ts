@@ -63,10 +63,20 @@ async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRec
  * the synthetic one e2e signs with, so what it accepts must never reach a real connection that
  * includes the same account; and a real delivery has nothing to say to a connection of made-up
  * data. The recorded kind decides, not the simulation flag now: the flag can change between the
- * route accepting a delivery and a tick, or a retry, applying it. The fake provider has no twin, so
- * its deliveries and its connections are real. A delivery a build before #495 stored records no
- * kind (`simulated` null), so nothing says which secret verified it: it reaches no connection.
- * The rest are logged as a count, never by id.
+ * route accepting a delivery and a tick, or a retry, applying it. A per-connection delivery
+ * (`endpointId` set: GitLab, Polar, Resend) follows the same rule on purpose, although both the
+ * twin and the live adapter verify it with its endpoint's stored secret and the endpoint names its
+ * one connection: the kinds match unless the flag changed since the connection was made, and a
+ * connection in that state already refuses to sync, so one rule keeps a real delivery off made-up
+ * data and the twin's off real data. What it drops: an authentic delivery to a real connection's URL
+ * while simulation is on, a delivery to a simulated connection's URL while it is off, and a
+ * per-connection delivery in flight across the deploy of #495 (no recorded kind, below). A real
+ * connection's next successful sync brings those events (once simulation is off, as the twin
+ * refuses its credential), and an uninstall shows when that sync finds the grant gone; a simulated
+ * connection loses only made-up data. The fake provider has no twin, so its deliveries and its
+ * connections are real. A delivery a build before #495 stored records no kind (`simulated` null),
+ * so nothing says which secret verified it: it reaches no connection. The rest are logged as a
+ * count, never by id.
  */
 function targetsOfDeliveryKind<T extends ConnectionTarget>(targets: readonly T[], job: ClaimedJob, delivery: WebhookDeliveryRecord, deps: SyncDeps): T[] {
   const { simulated } = delivery;
