@@ -14,11 +14,13 @@ const ITEMS = {
     section: "connections",
     label: "Open all connections",
   },
-  // The connect page's not-found also answers the fake provider while it is switched off
-  // (connections/new/[provider]/page.tsx:50) and an automatic webhook choice the provider cannot
-  // use (page.tsx:64). A reconnect address, one that carries `connection`, gets the connection's
-  // copy instead (ItemNotFound): its connection is gone or belongs to another provider (page.tsx:59),
-  // or, rarely, it is also the webhook case, which the address cannot tell apart.
+  // The connect page (connections/new/[provider]/page.tsx) also answers here for the fake provider
+  // while it is switched off and for an automatic webhook choice the provider cannot use. A
+  // reconnect address, one that carries `connection`, gets the connection's copy instead
+  // (ItemNotFound), whichever check failed: its connection is gone or belongs to another provider,
+  // but also an unknown provider, the switched-off fake provider, and the webhook case, which only
+  // the server can tell apart. Only a hand-edited address should reach those; the connection page's
+  // Reconnect link for a fake connection while the fake provider is off is a bug of its own.
   provider: {
     title: "We could not find that provider",
     description:

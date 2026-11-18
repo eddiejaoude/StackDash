@@ -51,9 +51,10 @@ ownerTest.describe("not found inside a workspace", () => {
     }
   });
 
-  // The way #484 was found: a link to a connection that was deleted after the page rendered. The
-  // client navigates without a page load, so the segment's layout, and the membership its not-found
-  // page reads, come through the router rather than a fresh document.
+  // #484 was found on a client-side render: a live refresh (`router.refresh()`) behind an open
+  // connection page whose row had been deleted (#448). A stale link gives the same kind of render
+  // without racing Realtime: the client navigates without a page load, so the segment's layout, and
+  // the membership its not-found page reads, come through the router rather than a fresh document.
   ownerTest("a stale link to a deleted connection says so on a client navigation", async ({ page }) => {
     const workspace = await createTestWorkspace("Deleted connection");
     try {
