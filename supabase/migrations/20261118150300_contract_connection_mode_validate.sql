@@ -14,8 +14,8 @@
 --    and the remedy. Every Stripe connection the app makes has a label the backfill reads, and
 --    disconnecting keeps it, so one left here was written another way: by hand, by a script, or
 --    by a test fixture. The transaction rolls back whole, so nothing here changes, the earlier
---    migrations stay applied, and the later ones wait until each such connection is given its
---    mode, reconnected, or deleted (docs/operations/self-hosting.md, "A migration stops at Stripe
+--    migrations stay applied, and the later ones wait until each such connection is reconnected,
+--    given its mode, or deleted (docs/operations/self-hosting.md, "A migration stops at Stripe
 --    connections with no mode"). Until then the constraint refuses every write to one that does
 --    not record a mode.
 -- 4. The constraint is validated. VALIDATE CONSTRAINT reads every row under a share update
@@ -43,7 +43,7 @@ begin
       errcode = 'check_violation',
       message = format(
         '%s Stripe %s no mode (live or test), so connections_stripe_mode_required cannot be validated. '
-        'Give each one its mode, reconnect it, or delete it, then run supabase migration up again: '
+        'Reconnect each one, give it its mode, or delete it, then run supabase migration up again: '
         'docs/operations/self-hosting.md, "A migration stops at Stripe connections with no mode", '
         'lists them and says how.',
         v_missing,

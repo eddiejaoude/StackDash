@@ -130,12 +130,17 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
    where provider = 'stripe' and status <> 'pending' and mode is null;
    ```
 
-2. For each one, do one of these:
-   - If you know whether the Stripe account was connected in live mode or in test mode, record it: `update public.connections set mode = 'live' where id = '<id>';`, or `'test'`.
-   - Reconnect it from its page in StackDash, which records the mode of the new grant. The deployment you run must already record modes: its commit includes `supabase/migrations/20261118150000_connection_mode.sql`.
-   - Delete it from its page in StackDash. Its history is deleted with it.
+2. For each one, do one of these, in this order:
+   - **Reconnect it** from its page in StackDash. The new grant tells StackDash the mode, so the recorded value is always right. This needs a deployment that records modes, one whose commit includes `supabase/migrations/20261118150000_connection_mode.sql`. The upgrade steps apply the migrations (step 3) before they deploy (step 4), so the deployment serving now is usually the one you are upgrading from, and if it does not record modes, the database refuses its reconnect. Then use one of these orders:
+     - **Deploy first**, when `supabase migration list --linked` shows no migration after `20261118150300_contract_connection_mode_validate.sql` still missing: do step 4 now. The new build runs against the database as it stands, because this migration only drops a function and validates a constraint, and nothing reads either. Reconnect each connection, then come back to step 3 below. Until then `/app/admin` shows the database migrations as **Behind**.
+     - **Record the mode by SQL now**, as the next item describes, and reconnect each connection once the upgrade is done, so the mode then comes from Stripe. Use this order when later migrations are missing too, because the new build may need them.
+   - **Record its mode by SQL**, only if you know whether the Stripe account was connected in live mode or in test mode: `update public.connections set mode = 'live' where id = '<id>';`, or `'test'`. Nothing checks the value. A wrong one sends the other mode's payments and uninstalls to this connection: live payments onto a test mode connection, or the reverse. How long a wrong value lasts depends on the status from step 1:
+     - `active` or `failed`: its next sync on the new deployment reads the mode from the stored credential and corrects it, within the hour.
+     - `needs_attention`: it still receives Stripe's deliveries but is never synced, so a wrong mode stays until someone reconnects it.
+     - `revoked`: harmless. It receives no deliveries, and a reconnect records the mode again.
+   - **Delete it** from its page in StackDash. Its history is deleted with it.
 
-   Do not disconnect one in the meantime: StackDash deletes its credential first, and the database then refuses to mark it disconnected.
+   Until one of these is done the connection cannot be used, because the database refuses every change to it that does not record its mode. **Sync now** fails, a sync cannot record its result, and disconnecting fails too: StackDash deletes its credential first, and the database then refuses to mark it disconnected, so do not disconnect one in the meantime. These errors have this same cause, not a second fault.
 3. Run `supabase migration up --linked` again.
 
 ### Check the upgrade
