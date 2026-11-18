@@ -43,6 +43,8 @@ For each included external account of the connection:
 3. Store the result: one `usage_snapshots` row per account, metric, and UTC day (upserted, so the latest row is the current value), events inserted once per `dedupe_key`, then the new cursor. A billing period rollover writes one `stackdash.allowance_reset` event.
 4. On success: `consecutive_failures = 0`, `last_synced_at = now`, `next_sync_at = now + poll_interval_seconds`. Parts the grant could not reach are recorded in `missing_scopes`; the connection stays `active`.
 
+The sync writes its result to the connection, success or failure, only while the connection is still `active` or `failed`, checked in the same statement as the write. An uninstall delivery (see [A webhook job](#a-webhook-job)) applied while the sync ran has already marked the connection `needs_attention`, and that stays: the sync logs `sync.superseded`, keeps the data it stored, adds no `stackdash.sync_failed` event of its own, creates no webhook for new sources, and ends without a retry.
+
 ### A webhook job
 
 Providers that push signed events (see [Webhooks](../adapters.md#webhooks)) deliver them to `POST /api/webhooks/<provider>`, one URL on StackDash's own app registration, or to `POST /api/webhooks/<provider>/<endpoint id>`, one URL per connection. The route never writes events. It verifies the delivery against its raw body, stores it in `webhook_deliveries` with one queued `webhook` job in a single transaction, and answers at once. A delivery StackDash does not map is stored already processed, with no job.

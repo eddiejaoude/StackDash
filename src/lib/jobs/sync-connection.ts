@@ -102,10 +102,12 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
     return { status: "succeeded" };
   }
 
+  let applied: boolean;
   try {
-    await syncConnection(deps.getAdapter(connection.provider), connection, key, deps);
+    const recovery = await syncConnection(deps.getAdapter(connection.provider), connection, key, deps);
+    applied = await writeConnection({ source: "sync", outcome: "succeeded", job, key, patch: recovery, deps });
   } catch (error) {
-    return handleFailure({ error, job, connection, key, deps });
+    return handleFailure({ error, source: "sync", job, connection, key, deps });
   }
 
   // Thresholds (#65) are checked against the fresh snapshots. A failure here is logged and does
@@ -126,6 +128,9 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
       connectionId: key.connectionId,
     });
   }
+  // An uninstall took the connection out of service while it synced (#487): it waits for a
+  // reconnect, so no webhook is created for it.
+  if (!applied) return { status: "succeeded" };
   // A source added since the last sync gets its webhook (#428). Likewise never fails the sync: the
   // next sync tries again, and polling brings the source's events meanwhile.
   try {
@@ -140,12 +145,13 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
   return { status: "succeeded" };
 }
 
+/** Reads and stores every included account; returns the connection's recovery patch for the caller to write. */
 async function syncConnection(
   adapter: ProviderAdapter,
   connection: SyncConnection,
   key: ConnectionKey,
   deps: SyncDeps,
-): Promise<void> {
+): Promise<ConnectionPatch> {
   let credential = await deps.store.loadCredential(key);
   if (credential === null) throw new SyncSetupError("credential_missing", "Connection has no stored credential");
   // A credential the simulator minted (#131) is made up: it is never handed to a real adapter,
@@ -226,7 +232,7 @@ async function syncConnection(
 
   // Recovery: a success ends any failure episode, so the next failure starts a new one.
   const now = deps.now();
-  await deps.store.updateConnection(key, {
+  return {
     status: "active",
     consecutive_failures: 0,
     last_error_code: null,
@@ -234,7 +240,41 @@ async function syncConnection(
     last_synced_at: now.toISOString(),
     next_sync_at: addMs(now, connection.poll_interval_seconds * 1000).toISOString(),
     missing_scopes: [...missingScopes],
-  });
+  };
+}
+
+/**
+ * Who writes a connection's failure or recovery: its own sync, or an uninstall delivery (#28)
+ * through markConnectionRevoked.
+ */
+type ConnectionWriter = "sync" | "uninstall";
+
+/**
+ * A sync's own write applies only while the connection is still one a sync may change (#487): an
+ * uninstall that took it out of service while the sync ran is the newer truth, and the later write
+ * would otherwise undo it. The uninstall's own write always applies. Returns whether it applied,
+ * logging `sync.superseded` when it did not.
+ */
+async function writeConnection(input: {
+  source: ConnectionWriter;
+  outcome: JobOutcome["status"];
+  job: ClaimedJob;
+  key: ConnectionKey;
+  patch: ConnectionPatch;
+  deps: SyncDeps;
+}): Promise<boolean> {
+  const { source, job, key, patch, deps } = input;
+  if (source === "uninstall") {
+    await deps.store.updateConnection(key, patch);
+    return true;
+  }
+  const applied = await deps.store.updateConnectionInStatus(key, SYNCABLE_CONNECTION_STATUSES, patch);
+  if (!applied) logSuperseded(job, key, input.outcome, deps);
+  return applied;
+}
+
+function logSuperseded(job: ClaimedJob, key: ConnectionKey, outcome: JobOutcome["status"], deps: SyncDeps): void {
+  deps.log.info("sync.superseded", { jobId: job.id, connectionId: key.connectionId, outcome });
 }
 
 function syncFailedEvent(input: {
@@ -279,12 +319,13 @@ function syncFailedEvent(input: {
 
 async function handleFailure(input: {
   error: unknown;
+  source: ConnectionWriter;
   job: ClaimedJob;
   connection: SyncConnection;
   key: ConnectionKey;
   deps: SyncDeps;
 }): Promise<JobOutcome> {
-  const { error, job, connection, key, deps } = input;
+  const { error, source, job, connection, key, deps } = input;
   const errorCode = error instanceof AdapterError || error instanceof SyncSetupError ? error.code : "internal_error";
   const errorReference = deps.logError("sync.failed", error, {
     jobId: job.id,
@@ -306,16 +347,29 @@ async function handleFailure(input: {
       error instanceof RateLimitedError
         ? rateLimitDelayMs(error.retryAfterMs, job.attempts, deps.random)
         : backoffDelayMs(job.attempts, deps.random);
-    await deps.store.updateConnection(key, {
+    const patch: ConnectionPatch = {
       consecutive_failures: consecutiveFailures,
       last_error_code: errorCode,
       last_error_reference: errorReference,
-    });
+    };
+    // Out of service since the sync started (#487): a retry would only skip it, so the job ends.
+    if (!(await writeConnection({ source, outcome: "retry", job, key, patch, deps }))) {
+      return { status: "failed", errorCode, errorReference };
+    }
     return { status: "retry", runAfter: addMs(now, delay), errorCode, errorReference };
   }
 
   const status: "needs_attention" | "failed" = permanent ? "needs_attention" : "failed";
   if (connection.status === "active") {
+    // A sync reads the status again first (#487): an uninstall applied while it ran has written
+    // its own event for the episode, and this sync's status write would not apply.
+    if (source === "sync") {
+      const current = await deps.store.getConnection(key);
+      if (current === null || !SYNCABLE_STATUSES.has(current.status)) {
+        logSuperseded(job, key, "failed", deps);
+        return { status: "failed", errorCode, errorReference };
+      }
+    }
     // Written before the status change, see syncFailedEvent.
     await deps.store.insertEvents([
       syncFailedEvent({
@@ -340,7 +394,7 @@ async function handleFailure(input: {
   if (error instanceof PermissionMissingError && error.missingScopes.length > 0) {
     patch.missing_scopes = [...new Set([...connection.missing_scopes, ...error.missingScopes])];
   }
-  await deps.store.updateConnection(key, patch);
+  await writeConnection({ source, outcome: "failed", job, key, patch, deps });
   return { status: "failed", errorCode, errorReference };
 }
 
@@ -360,6 +414,6 @@ export async function markConnectionRevoked(input: {
   const { job, key, deps } = input;
   const connection = await deps.store.getConnection(key);
   if (connection === null || !SYNCABLE_STATUSES.has(connection.status)) return "skipped";
-  await handleFailure({ error: new AuthRevokedError(input.reason), job, connection, key, deps });
+  await handleFailure({ error: new AuthRevokedError(input.reason), source: "uninstall", job, connection, key, deps });
   return "marked";
 }

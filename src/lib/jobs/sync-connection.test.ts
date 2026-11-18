@@ -6,14 +6,15 @@ import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import { TOKEN_REFRESH_SKEW_MS } from "@/lib/connections/credential-refresh";
-import type { Logger } from "@/lib/log/logger";
+import type { LogFields, Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { BACKOFF_CAP_MS, backoffCeilingMs } from "./backoff";
 import { ALLOWANCE_RESET_TYPE_ID } from "./ingest";
-import { MemoryJobStore, type MemoryEvent } from "./memory-store";
+import { MemoryJobStore, type MemoryConnection, type MemoryEvent } from "./memory-store";
 import { runTick, type TickResult } from "./runner";
-import { SYNC_FAILED_TYPE_ID, type SyncDeps } from "./sync-connection";
+import type { ClaimedJob } from "./store";
+import { markConnectionRevoked, SYNC_FAILED_TYPE_ID, type SyncDeps } from "./sync-connection";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} };
@@ -46,6 +47,8 @@ type Harness = {
   achievementCalls: Array<{ workspaceId: string; connectionId: string; now: string; storedEvents: number }>;
   // Each request to give the connection's new sources their webhooks (#428).
   sourceWebhookCalls: Array<{ workspaceId: string; connectionId: string }>;
+  // Every info line the job logged, in order.
+  infos: Array<{ event: string; fields: LogFields | undefined }>;
 };
 
 function setup(
@@ -78,6 +81,7 @@ function setup(
   const alertCalls: Harness["alertCalls"] = [];
   const achievementCalls: Harness["achievementCalls"] = [];
   const sourceWebhookCalls: Harness["sourceWebhookCalls"] = [];
+  const infos: Harness["infos"] = [];
   const adapter = options.adapter ?? fakeAdapter;
   const deps: SyncDeps = {
     store,
@@ -97,7 +101,7 @@ function setup(
       references.push(reference);
       return reference;
     },
-    log: silent,
+    log: { ...silent, info: (event, fields) => infos.push({ event, fields }) },
     evaluateAlerts: async (workspaceId, at) => {
       alertCalls.push({ workspaceId, now: at.toISOString() });
       if (options.alertsFail === true) throw new Error("alert evaluation failed");
@@ -133,6 +137,7 @@ function setup(
     alertCalls,
     achievementCalls,
     sourceWebhookCalls,
+    infos,
   };
 }
 
@@ -649,5 +654,115 @@ describe("sync job: installation id of a connection made before #480", () => {
 
     expect(lastSyncJob(harness).status).toBe("succeeded");
     expect(connectionOf(harness).external_installation_id).toBeNull();
+  });
+});
+
+describe("sync job: an uninstall applied while the sync runs (#487)", () => {
+  // The fake adapter, except that one sync call can be preceded by a webhook job marking the
+  // connection revoked (#28): the uninstall lands between the sync's read of the connection and its
+  // final write, as when both run in the same tick.
+  let beforeNextSync: (() => Promise<void>) | null = null;
+  const interleaved: ProviderAdapter = {
+    ...fakeAdapter,
+    sync: async (input, ctx) => {
+      const hook = beforeNextSync;
+      beforeNextSync = null;
+      await hook?.();
+      return fakeAdapter.sync(input, ctx);
+    },
+  };
+
+  /** Arms the uninstall for the next sync call; resolves to the connection as the uninstall left it. */
+  function uninstallDuringNextSync(harness: Harness): Promise<MemoryConnection> {
+    const { promise, resolve } = Promise.withResolvers<MemoryConnection>();
+    beforeNextSync = async () => {
+      // The delivery's job is queued after the sync's, so its failure episode starts later.
+      harness.advance(1000);
+      const job: ClaimedJob = {
+        id: crypto.randomUUID(),
+        workspace_id: null,
+        connection_id: null,
+        kind: "webhook",
+        attempts: 1,
+        max_attempts: 5,
+        created_at: harness.now().toISOString(),
+        dedupe_key: null,
+        webhook_delivery_id: crypto.randomUUID(),
+      };
+      const result = await markConnectionRevoked({
+        job,
+        key: { workspaceId: WORKSPACE_ID, connectionId: harness.connectionId },
+        reason: "fake reported that StackDash was removed from the account",
+        deps: harness.deps,
+      });
+      expect(result).toBe("marked");
+      resolve({ ...connectionOf(harness) });
+    };
+    return promise;
+  }
+
+  it("leaves the connection as the uninstall marked it when the sync then succeeds (boundary: revoke between read and write)", async () => {
+    const harness = setup({ adapter: interleaved, accounts: 1 });
+    const uninstalled = uninstallDuringNextSync(harness);
+
+    await harness.tick();
+
+    const marked = await uninstalled;
+    expect(marked).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", next_sync_at: null });
+    expect(connectionOf(harness)).toEqual(marked);
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(harness.failureEvents()).toHaveLength(1);
+    expect(harness.failureEvents()[0]?.severity).toBe("critical");
+    expect(harness.infos.filter((line) => line.event === "sync.superseded")).toHaveLength(1);
+    // The data the sync read is kept, but no webhook is created on a connection that was removed.
+    expect(harness.store.snapshots.length).toBeGreaterThan(0);
+    expect(harness.sourceWebhookCalls).toHaveLength(0);
+  });
+
+  it.each([
+    { name: "a retryable error (boundary: retry path)", mode: "rate_limited" as const, attemptsBefore: 0 },
+    { name: "a retryable error on the last attempt (boundary: failure path)", mode: "rate_limited" as const, attemptsBefore: 4 },
+    { name: "a revoked credential (boundary: permanent failure)", mode: "revoked" as const, attemptsBefore: 0 },
+  ])("leaves it as the uninstall marked it when the sync then fails with $name", async ({ mode, attemptsBefore }) => {
+    const harness = setup({ adapter: interleaved, accounts: 1, mode });
+    for (let attempt = 1; attempt <= attemptsBefore; attempt += 1) {
+      await harness.tick();
+      harness.advance(1000);
+    }
+    expect(connectionOf(harness).status).toBe("active");
+    const uninstalled = uninstallDuringNextSync(harness);
+
+    await harness.tick();
+
+    const marked = await uninstalled;
+    expect(marked).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked", next_sync_at: null });
+    expect(connectionOf(harness)).toEqual(marked);
+    // The job ends: a connection waiting for a reconnect is not retried.
+    const job = lastSyncJob(harness);
+    expect(job).toMatchObject({ status: "failed", attempts: attemptsBefore + 1 });
+    expect(syncJobs(harness)).toHaveLength(1);
+    // Only the uninstall's event: the sync's own would say it keeps retrying, or repeat the reconnect.
+    expect(harness.failureEvents()).toHaveLength(1);
+    expect(harness.failureEvents()[0]?.severity).toBe("critical");
+    expect(harness.infos.filter((line) => line.event === "sync.superseded")).toHaveLength(1);
+  });
+
+  it("still recovers a failed connection with no uninstall: active, failures reset, next poll scheduled (happy path)", async () => {
+    const harness = setup({ adapter: interleaved, accounts: 1 });
+    Object.assign(connectionOf(harness), { status: "failed", consecutive_failures: 5, last_error_code: "rate_limited" });
+    await harness.store.enqueueSync({ workspaceId: WORKSPACE_ID, connectionId: harness.connectionId });
+
+    await harness.tick();
+
+    expect(connectionOf(harness)).toMatchObject({
+      status: "active",
+      consecutive_failures: 0,
+      last_error_code: null,
+      last_error_reference: null,
+      last_synced_at: "2026-10-14T10:00:00.000Z",
+      next_sync_at: "2026-10-14T11:00:00.000Z",
+    });
+    expect(harness.infos.filter((line) => line.event === "sync.superseded")).toHaveLength(0);
+    expect(harness.sourceWebhookCalls).toHaveLength(1);
   });
 });
