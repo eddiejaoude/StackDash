@@ -85,6 +85,32 @@ function targetsOfDeliveryKind<T extends ConnectionTarget>(targets: readonly T[]
 }
 
 /**
+ * The targets of the mode the delivery names (#481): live connections for a live mode delivery,
+ * test mode ones for a test mode delivery. A Stripe account id is the same in both modes, so
+ * without this a live payment lands on a test mode connection of the account (its timeline and its
+ * achievements), and a test mode uninstall revokes the live connection. A target with no recorded
+ * mode is kept from it too: nothing says which mode it is, and its next sync records one. A
+ * delivery naming no mode (every provider but Stripe, and a Stripe delivery stored before #481)
+ * keeps every target. The rest are logged as a count, never by id.
+ */
+function targetsOfDeliveryMode<T extends ConnectionTarget>(targets: readonly T[], job: ClaimedJob, delivery: WebhookDeliveryRecord, deps: SyncDeps): T[] {
+  const { mode } = delivery.outcome;
+  if (mode === undefined) return [...targets];
+  const kept = targets.filter((target) => target.mode === mode);
+  if (kept.length < targets.length) {
+    deps.log.info("webhook.targets_other_mode", {
+      jobId: job.id,
+      provider: delivery.provider,
+      deliveryRowId: delivery.id,
+      kind: delivery.outcome.kind,
+      mode,
+      dropped: targets.length - kept.length,
+    });
+  }
+  return kept;
+}
+
+/**
  * Achievements (#413) can be earned by an event (a first deployment), so once a tick's webhook jobs
  * are done (src/lib/jobs/runner.ts) the connections they stored a new event for are evaluated
  * rather than left to their next poll, as `runSyncJob` does after a sync. Once per connection, not
@@ -144,23 +170,19 @@ export async function runWebhookJob(
   if (outcome.kind === "events") {
     // An installation named with the account (#497) narrows the targets to that installation's
     // connections, so an uninstalled connection that still includes the account gets nothing.
-    const targets = targetsOfDeliveryKind(
-      await deps.store.listWebhookTargets({
-        provider,
-        externalAccountId: outcome.externalAccountId,
-        installationId: outcome.installationId ?? null,
-        endpointId: delivery.endpointId,
-      }),
-      job,
-      delivery,
-      deps,
-    );
+    const listed = await deps.store.listWebhookTargets({
+      provider,
+      externalAccountId: outcome.externalAccountId,
+      installationId: outcome.installationId ?? null,
+      endpointId: delivery.endpointId,
+    });
+    const targets = targetsOfDeliveryMode(targetsOfDeliveryKind(listed, job, delivery, deps), job, delivery, deps);
     if (targets.length === 0) {
       // An account no workspace includes, or whose connection is gone or belongs to another or no
-      // recorded installation, or only connections of the other kind (logged just above as
-      // `webhook.targets_dropped`): nothing to apply it to. `installationNamed` (never the id) says
-      // whether the installation took part, so a mismatch that polling would hide is not read as an
-      // account nobody includes.
+      // recorded installation, or only connections of the other kind or mode (logged just above as
+      // `webhook.targets_dropped` or `webhook.targets_other_mode`): nothing to apply it to.
+      // `installationNamed` (never the id) says whether the installation took part, so a mismatch
+      // that polling would hide is not read as an account nobody includes.
       deps.log.info("webhook.no_targets", {
         jobId: job.id,
         provider,
@@ -177,9 +199,10 @@ export async function runWebhookJob(
     }
   } else {
     const by = outcome.by ?? "account";
-    const targets = targetsOfDeliveryKind(await uninstallTargets(outcome, delivery, deps), job, delivery, deps);
+    const listed = await uninstallTargets(outcome, delivery, deps);
+    const targets = targetsOfDeliveryMode(targetsOfDeliveryKind(listed, job, delivery, deps), job, delivery, deps);
     if (targets.length === 0) {
-      // An account or installation no live connection of this kind has: nothing to apply it to.
+      // An account or installation no live connection of this kind and mode has: nothing to apply it to.
       deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind, by });
     }
     for (const target of targets) {

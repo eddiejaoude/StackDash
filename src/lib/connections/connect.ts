@@ -96,6 +96,9 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
     // The installation this grant belongs to, for an uninstall that names only the installation
     // (#480). A reconnect may land on another installation, so it is written every time.
     external_installation_id: credentialInstallationId(adapter, credential),
+    // The grant's live or test mode, so a delivery naming a mode reaches only connections of it
+    // (#481). Written every time: a reconnect may grant the other mode.
+    mode: adapter.modeOf?.(credential) ?? null,
     poll_interval_seconds: adapter.pollIntervalSeconds,
     next_sync_at: now,
     consecutive_failures: 0,

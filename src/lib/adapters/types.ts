@@ -131,15 +131,32 @@ export type AdapterCapabilities = Readonly<{
 }>;
 
 /**
+ * The environment a connection's grant belongs to, for a provider that keeps live and test data
+ * apart under one account id (Stripe's live mode and test mode, #481). Stored as
+ * `connections.mode` (the `connection_mode` enum; src/lib/jobs/store.test.ts keeps the two equal)
+ * and named by a delivery's outcome, so a delivery reaches only connections of its mode.
+ */
+export const connectionModes = ["live", "test"] as const;
+export type ConnectionMode = (typeof connectionModes)[number];
+
+/**
  * Where a provider sends its deliveries and where the verifying secret lives (#28, #424).
  * - `app`: one URL on StackDash's own app registration (`/api/webhooks/<provider>`). The secret is
  *   an instance setting, named (never valued) by `secretEnv`, and deliveries for every connection
- *   arrive at that one URL.
+ *   arrive at that one URL. `testModeSecretEnv` (#481) names a second one, the signing secret of
+ *   the provider's test mode endpoint at the same URL, for a provider that sends test mode
+ *   deliveries from an endpoint of their own (Stripe). The route tries each one that is set. A
+ *   delivery only the test mode secret verifies must be a test mode one: its outcome is `ignored`
+ *   or names `mode: "test"`, or the route refuses it, so that secret, which a developer keeps
+ *   beside test keys, can never reach a live connection. Only an adapter that declares `modeOf`
+ *   may name one.
  * - `connection`: one URL per connection (`/api/webhooks/<provider>/<endpointId>`), created
  *   through the provider's API or added by the user (#426), as `setup` declares. The secret is
  *   stored per connection, encrypted like other credentials (#35).
  */
-export type WebhookRegistration = Readonly<{ kind: "app"; secretEnv: string } | { kind: "connection"; setup: ConnectionWebhookSetup }>;
+export type WebhookRegistration = Readonly<
+  { kind: "app"; secretEnv: string; testModeSecretEnv?: string } | { kind: "connection"; setup: ConnectionWebhookSetup }
+>;
 
 /** A permission that can change the account, not only read it. */
 export type FullAccessPermission = Extract<Permission, { access: "full" }>;
@@ -294,11 +311,26 @@ export type WebhookVerification =
  * next sync records one, within the hour, and a needs_attention one, which is not synced, until the
  * user reconnects it. Only an adapter that declares `installationIdOf` may return it; the webhook
  * route refuses it otherwise, and refuses a blank one.
+ * `mode` (events and uninstalled): the environment the delivery belongs to, for a provider that
+ * keeps live and test data apart under one account id (Stripe's `livemode`, #481). The delivery
+ * then reaches only connections of that mode (`connections.mode`), so a live payment never lands
+ * on a test mode connection of the same account and a test mode uninstall never revokes a live
+ * one. A connection with no recorded mode gets nothing from it: an active or failed one until its
+ * next sync records the mode, and a needs_attention one until the user reconnects it. Only an
+ * adapter that declares `modeOf` may return it; the webhook route refuses it otherwise, and refuses
+ * any value but a `ConnectionMode`.
  */
 export type WebhookOutcome =
-  | Readonly<{ kind: "events"; externalAccountId: string; installationId?: string; events: ActivityEvent[]; source?: WebhookSource }>
-  | Readonly<{ kind: "uninstalled"; by?: "account"; externalAccountId: string; occurredAt: Date }>
-  | Readonly<{ kind: "uninstalled"; by: "installation"; installationId: string; occurredAt: Date }>
+  | Readonly<{
+      kind: "events";
+      externalAccountId: string;
+      installationId?: string;
+      mode?: ConnectionMode;
+      events: ActivityEvent[];
+      source?: WebhookSource;
+    }>
+  | Readonly<{ kind: "uninstalled"; by?: "account"; externalAccountId: string; mode?: ConnectionMode; occurredAt: Date }>
+  | Readonly<{ kind: "uninstalled"; by: "installation"; installationId: string; mode?: ConnectionMode; occurredAt: Date }>
   | Readonly<{ kind: "ignored"; reason: string; source?: WebhookSource }>;
 
 /**
@@ -470,6 +502,12 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   // Synchronous and network-free: reads only the credential it is handed. Null when the credential
   // names none. Omitted when the provider's uninstalls name an account.
   installationIdOf?(credential: OAuthCredential): string | null;
+  // Which environment the credential's grant belongs to (Stripe's `livemode`, #481), stored as
+  // `connections.mode` when a grant completes and on the next sync of a connection that has none,
+  // so an outcome naming a mode reaches only connections of that mode. Synchronous and
+  // network-free: reads only the credential it is handed. Null when the credential names none.
+  // Omitted when the provider has one environment per account id.
+  modeOf?(credential: OAuthCredential): ConnectionMode | null;
   /** Requested scopes absent from the grant. Empty means nothing is missing. */
   detectMissingPermissions(grant: OAuthGrant): string[];
   sync(input: SyncInput, ctx: OAuthContext): Promise<SyncResult>;

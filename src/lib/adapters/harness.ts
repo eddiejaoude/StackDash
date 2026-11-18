@@ -258,7 +258,13 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
 
   const { clientIdEnv, clientSecretEnv, extraEnv = {}, optionalExtraKeys = [] } = adapter.oauth;
   const registration = adapter.webhooks?.registration;
-  const webhookSecretEnv = registration?.kind === "app" ? [registration.secretEnv] : [];
+  const webhookSecretEnv =
+    registration?.kind === "app" ? [registration.secretEnv, ...(registration.testModeSecretEnv === undefined ? [] : [registration.testModeSecretEnv])] : [];
+  // A delivery only the test mode secret verifies must name test mode (#481), which only an adapter
+  // that records a connection's mode can do.
+  if (registration?.kind === "app" && registration.testModeSecretEnv !== undefined && adapter.modeOf === undefined) {
+    problems.push("webhooks.registration names a testModeSecretEnv, but the adapter does not declare modeOf");
+  }
   for (const name of [clientIdEnv, clientSecretEnv, ...Object.values(extraEnv), ...webhookSecretEnv]) {
     if (!ENV_NAME.test(name)) problems.push(`environment variable name ${name} must be UPPER_SNAKE_CASE`);
     if (name.startsWith("NEXT_PUBLIC_")) problems.push(`${name} would be sent to the browser; drop NEXT_PUBLIC_`);
@@ -442,6 +448,9 @@ export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: W
       problems.push(`the ${outcome.kind} outcome names an installation, but the adapter does not declare installationIdOf`);
     }
   };
+  if (outcome.mode !== undefined && adapter.modeOf === undefined) {
+    problems.push(`the ${outcome.kind} outcome names a mode, but the adapter does not declare modeOf`);
+  }
   if (outcome.kind === "uninstalled") {
     if (outcome.by === "installation") {
       checkInstallation(outcome.installationId);
