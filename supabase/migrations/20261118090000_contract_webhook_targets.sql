@@ -20,9 +20,18 @@
 --    (20261116090000 explains the cost).
 -- 2. list_webhook_targets without credential_updated_at, and with granted_at the column alone.
 --
--- After this, a live connection with no grant time is one inserted as live after the migrations
--- ran (supabase/seed.sql and test fixtures set granted_at for that reason): every uninstall
--- revokes it, because nothing is known to be newer than the removal.
+-- After this, a live connection with no grant time is one of two kinds, and every uninstall
+-- revokes it, however late, because nothing is known to be newer than the removal:
+-- - one inserted as live after the migrations ran. The seed and the e2e fixtures set granted_at
+--   for that reason; pgTAP fixtures outside 31 to 33 and MemoryJobStore.addConnection leave it
+--   null on purpose.
+-- - one a build from before #476 made while it served after this migration ran: a self-hosted
+--   upgrade that applies 20261116090000 through this file in one `supabase migration up` and
+--   promotes afterwards (docs/operations/self-hosting.md: "A jump across many commits can apply
+--   both halves at once"), or an Instant Rollback to such a build. Its completeConnection does not
+--   write granted_at. Remedy, once the current build serves again: run
+--   `public.backfill_connection_granted_at(1000)` until it returns 0 (service role; it never
+--   overwrites a recorded grant).
 
 do $$
 begin
