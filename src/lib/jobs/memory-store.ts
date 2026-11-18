@@ -59,8 +59,6 @@ export class MemoryJobStore implements JobStore {
   rateLimitCounters: MemoryRateLimitCounter[] = [];
   metricViews: MemoryMetricView[] = [];
   credentials = new Map<string, OAuthCredential>();
-  /** connection id -> connection_credentials.updated_at (ISO). saveCredential stamps it; tests may set it. */
-  credentialUpdatedAt = new Map<string, string>();
   savedCredentials: OAuthCredential[] = [];
   /** connection id -> credential_refresh_locks row, as acquire_credential_refresh_lock keeps it (#496). */
   refreshLocks = new Map<string, { lockId: string; lockedUntil: Date }>();
@@ -339,13 +337,23 @@ export class MemoryJobStore implements JobStore {
     Object.assign(row, patch, { updated_at: this.#nowIso() });
   }
 
+  async updateConnectionInStatus(
+    key: ConnectionKey,
+    statuses: readonly MemoryConnection["status"][],
+    patch: ConnectionPatch,
+  ): Promise<boolean> {
+    const row = this.#connection(key);
+    if (row === undefined || !statuses.includes(row.status)) return false;
+    Object.assign(row, patch, { updated_at: this.#nowIso() });
+    return true;
+  }
+
   async loadCredential({ connectionId }: ConnectionKey): Promise<OAuthCredential | null> {
     return this.credentials.get(connectionId) ?? null;
   }
 
   async saveCredential({ connectionId }: ConnectionKey, credential: OAuthCredential): Promise<void> {
     this.credentials.set(connectionId, credential);
-    this.credentialUpdatedAt.set(connectionId, this.#nowIso());
     this.savedCredentials.push(credential);
   }
 
@@ -642,8 +650,7 @@ export class MemoryJobStore implements JobStore {
         workspaceId: account.workspace_id,
         connectionId: account.connection_id,
         accountId: account.id,
-        // list_webhook_targets: the recorded grant, else the credential's last save.
-        grantedAt: connection.granted_at ?? this.credentialUpdatedAt.get(connection.id) ?? null,
+        grantedAt: connection.granted_at,
       }));
   }
 
@@ -661,7 +668,7 @@ export class MemoryJobStore implements JobStore {
       .map((connection) => ({
         workspaceId: connection.workspace_id,
         connectionId: connection.id,
-        grantedAt: connection.granted_at ?? this.credentialUpdatedAt.get(connection.id) ?? null,
+        grantedAt: connection.granted_at,
       }));
   }
 

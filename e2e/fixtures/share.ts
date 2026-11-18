@@ -64,6 +64,7 @@ export async function seedShareProject(workspace: TestWorkspace, name = "Acme we
           workspace_id: workspace.id,
           provider,
           status: "active",
+          granted_at: new Date().toISOString(),
           display_name: provider,
           poll_interval_seconds: 3600,
           // Far in the future, so no tick another spec runs ever syncs this credential-less row.
