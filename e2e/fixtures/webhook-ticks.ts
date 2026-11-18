@@ -8,6 +8,7 @@ import { adminClient, cronSecret, type TestWorkspace } from "./db";
  * Applying a webhook delivery in end-to-end runs (#28, #479): the route only records a delivery,
  * and the next job tick writes its events. Shared by every `webhooks*.spec.ts`, which run the
  * instance-wide tick and so live in the `instance-wide` Playwright project (playwright.config.ts).
+ * Other instance-wide specs import `tick` from here rather than keep a copy of it.
  */
 
 /** How many copies of the event with `dedupeKey` the workspace holds. */
@@ -22,7 +23,7 @@ export async function storedCopies(workspace: TestWorkspace, dedupeKey: string):
 }
 
 /** Runs one instance-wide job tick, as the scheduler does. */
-async function tick(page: Page): Promise<void> {
+export async function tick(page: Page): Promise<void> {
   const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
   expect(response.status()).toBe(200);
 }

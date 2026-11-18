@@ -7,10 +7,11 @@ import { z } from "zod";
 import { openCreateForm } from "./fixtures/alerts";
 import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { fakeEmails } from "./fixtures/fake-resend";
 import { expectSubscribed, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
 import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
+import { tick } from "./fixtures/webhook-ticks";
 
 /*
  * `npm run demo:event` (#256), end to end: with the timeline open, the command makes a failed
@@ -79,12 +80,6 @@ async function addWebhookChannel(page: Page, workspace: TestWorkspace, url: stri
   await form.getByLabel("Webhook URL").fill(url);
   await form.getByRole("button", { name: "Add channel" }).click();
   await expect(form.getByRole("status")).toContainText("Channel added.");
-}
-
-/** Runs one instance-wide job tick, as the scheduler does. */
-async function tick(page: Page): Promise<void> {
-  const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
-  expect(response.status()).toBe(200);
 }
 
 /**
