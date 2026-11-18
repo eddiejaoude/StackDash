@@ -15,7 +15,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(30);
+select plan(32);
 
 -- Fixtures: workspaces A and B. Installation inst-1 on fake connections: A active (with an
 -- included account), A failed, B needs_attention (no accounts), A pending, A revoked; inst-1 on
@@ -194,6 +194,12 @@ select results_eq(
   $$ select account_id from public.list_webhook_targets('fake', 'acct-1', 'c3300005-0000-4000-8000-000000000001', 'inst-1') $$,
   $$ values ('c3300004-0000-4000-8000-000000000001'::uuid) $$,
   'account and installation: a per-connection delivery reaches the endpoint''s own connection of that installation');
+select is_empty(
+  $$ select 1 from public.list_webhook_targets('fake', 'acct-1', 'c3300005-0000-4000-8000-000000000001', 'inst-2') $$,
+  'account and installation: the endpoint''s own connection of another installation is no target (boundary: installation decides)');
+select is_empty(
+  $$ select 1 from public.list_webhook_targets('fake', 'proj-1', 'c3300005-0000-4000-8000-000000000001', 'inst-new') $$,
+  'account and installation: the installation''s connection behind another connection''s endpoint is no target (boundary: endpoint decides)');
 
 -- ---------------------------------------------------------------------------
 -- record_webhook_delivery: what an uninstall must name
