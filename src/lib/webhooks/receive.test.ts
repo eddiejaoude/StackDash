@@ -348,6 +348,22 @@ describe("receiveWebhook", () => {
     });
 
     it.each([
+      { name: "the test mode endpoint's copy first", first: TEST_MODE_SECRET, second: SECRET },
+      { name: "the live mode endpoint's copy first", first: SECRET, second: TEST_MODE_SECRET },
+    ])(
+      "answers the second copy of one test mode event, signed with the other secret, as a duplicate and queues one job ($name)",
+      async ({ first, second }) => {
+        // An account installed in both modes: Stripe sends its test mode event to both endpoints.
+        const { deps, webhookJobs } = twoSecrets(eventsIn("test"));
+        expect((await receive(deps, delivery(EVENT_BODY, { deliveryId: "delivery-both-modes", secret: first }))).status).toBe(202);
+        const repeat = await receive(deps, delivery(EVENT_BODY, { deliveryId: "delivery-both-modes", secret: second }));
+        expect(repeat.status).toBe(200);
+        expect(await repeat.json()).toEqual({ status: "duplicate" });
+        expect(webhookJobs()).toHaveLength(1);
+      },
+    );
+
+    it.each([
       { name: "events naming live mode", outcome: eventsIn("live"), error: "invalid_events", event: "webhook.invalid_events" },
       { name: "events naming no mode", outcome: eventsIn(undefined), error: "invalid_events", event: "webhook.invalid_events" },
       { name: "an uninstall naming live mode", outcome: uninstallIn("live"), error: "invalid_uninstall", event: "webhook.invalid_uninstall" },
