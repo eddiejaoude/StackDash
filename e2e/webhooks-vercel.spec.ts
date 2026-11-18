@@ -4,10 +4,10 @@ import type { APIRequestContext, APIResponse } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, cronSecret, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { tickUntilConnectionStatus, tickUntilStored } from "./fixtures/webhook-ticks";
+import { tickUntilConnectionStatus, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Vercel webhooks (#422), end to end against the simulated Vercel provider, which runs the real
@@ -55,13 +55,7 @@ ownerTest.describe("Vercel webhooks", () => {
 
       // The first sync runs before any delivery is posted, so the uninstall below never races it:
       // a sync finishing after the uninstall's job writes the connection back to active (#487).
-      await expect(async () => {
-        const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: `Bearer ${cronSecret()}` }, timeout: 120_000 });
-        expect(response.status()).toBe(200);
-        const { data, error } = await adminClient().from("connections").select("last_synced_at").eq("workspace_id", workspace.id).eq("provider", "vercel");
-        if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
-        expect(data[0]?.last_synced_at ?? null).not.toBeNull();
-      }).toPass({ timeout: 90_000 });
+      await tickUntilFirstSync(page, workspace, "vercel");
 
       const suffix = randomUUID().slice(0, 8);
       const deploymentId = `dpl_e2e${suffix}`;

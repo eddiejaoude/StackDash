@@ -6,10 +6,10 @@ import { SENTRY_WEBHOOK_HEADERS, sentryWebhookSignature } from "../src/lib/adapt
 import { Secret } from "../src/lib/adapters/types";
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, CONNECTION_URL, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { tickUntilConnectionStatus, tickUntilStored } from "./fixtures/webhook-ticks";
+import { tickUntilConnectionStatus, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * Sentry webhooks (#421), end to end against simulated Sentry, which runs the real adapter's
@@ -132,26 +132,18 @@ ownerTest.describe("Sentry webhooks", () => {
       const readConnection = async () => {
         const { data, error } = await adminClient()
           .from("connections")
-          .select("status, external_installation_id, granted_at, last_synced_at")
+          .select("status, external_installation_id, granted_at")
           .eq("workspace_id", workspace.id)
           .eq("provider", "sentry")
           .single();
         if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
         return data;
       };
-      const authorization = `Bearer ${cronSecret()}`;
-      const tick = async () => {
-        const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-        expect(response.status()).toBe(200);
-      };
 
       // The first sync runs before the uninstall is posted. A sync already running when the uninstall
       // is applied writes the connection back to active as it finishes (#487), so the delivery waits
       // for the connection to be idle, as a real one is between its hourly syncs.
-      await expect(async () => {
-        await tick();
-        expect((await readConnection()).last_synced_at).not.toBeNull();
-      }).toPass({ timeout: 90_000 });
+      await tickUntilFirstSync(page, workspace, "sentry");
 
       const connected = await readConnection();
       expect(connected.status).toBe("active");

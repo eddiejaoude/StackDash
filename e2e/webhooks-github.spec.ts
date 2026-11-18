@@ -4,10 +4,10 @@ import type { APIRequestContext, APIResponse } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import { SIMULATED_WEBHOOK_E2E_SECRET } from "./fixtures/simulated-webhook";
-import { tickUntilConnectionStatus, tickUntilStored } from "./fixtures/webhook-ticks";
+import { tickUntilConnectionStatus, tickUntilFirstSync, tickUntilStored } from "./fixtures/webhook-ticks";
 
 /*
  * GitHub webhooks (#62), end to end against the simulated GitHub provider, which carries the real
@@ -60,12 +60,6 @@ async function connectedAccountId(workspace: TestWorkspace): Promise<number> {
   const externalId = data[0]?.external_id ?? "";
   expect(externalId).toMatch(/^\d+$/);
   return Number(externalId);
-}
-
-async function lastSyncedAt(workspace: TestWorkspace): Promise<string | null> {
-  const { data, error } = await adminClient().from("connections").select("last_synced_at").eq("workspace_id", workspace.id).limit(1);
-  if (error) throw new Error(`Reading the connection failed (code ${error.code}).`);
-  return data[0]?.last_synced_at ?? null;
 }
 
 ownerTest.describe("GitHub webhooks", () => {
@@ -139,12 +133,7 @@ ownerTest.describe("GitHub webhooks", () => {
 
       // The uninstall waits for the connection's first sync to finish: a sync that finishes after
       // the uninstall's job sets the connection back to active (#487).
-      const authorization = `Bearer ${cronSecret()}`;
-      await expect(async () => {
-        const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-        expect(response.status()).toBe(200);
-        expect(await lastSyncedAt(workspace)).not.toBeNull();
-      }).toPass({ timeout: 90_000 });
+      await tickUntilFirstSync(page, workspace, "github");
 
       // The app was uninstalled from the account: the connection asks for a reconnect at once.
       const uninstalled = await postGitHubWebhook(
