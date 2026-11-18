@@ -21,6 +21,7 @@ async function seedPaletteWorkspace(label: string): Promise<TestWorkspace> {
       workspace_id: workspace.id,
       provider: "vercel",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "Vercel palette team",
       poll_interval_seconds: 3600,
     })
@@ -488,6 +489,7 @@ ownerTest.describe("command palette as the owner", () => {
         workspace_id: workspace.id,
         provider: "stripe",
         status: "active",
+        granted_at: new Date().toISOString(),
         display_name: "Stripe palette account",
         poll_interval_seconds: 3600,
       });

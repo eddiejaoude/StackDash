@@ -18,6 +18,7 @@ async function seedAccount(workspace: TestWorkspace, projectId: string, provider
       workspace_id: workspace.id,
       provider,
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: provider === "github" ? "GitHub" : "Vercel",
       poll_interval_seconds: 3600,
       // Far in the future, so no tick another spec runs ever syncs this credential-less row.
@@ -113,6 +114,7 @@ export async function seedIncludedAccounts(workspace: TestWorkspace, projectId: 
       workspace_id: workspace.id,
       provider: "github",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "GitHub organizations",
       poll_interval_seconds: 3600,
       // Far in the future, so no tick another spec runs ever syncs this credential-less row.

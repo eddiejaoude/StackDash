@@ -52,6 +52,7 @@ export async function seedStaleWorkspace(workspace: TestWorkspace, staleDays = 3
         workspace_id: workspace.id,
         provider,
         status: "active" as const,
+        granted_at: new Date().toISOString(),
         display_name: `${provider} stale connection`,
         poll_interval_seconds: 3_600,
         // Far in the future, so no tick another spec runs ever syncs this credential-less row.
