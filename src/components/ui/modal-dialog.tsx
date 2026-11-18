@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -19,7 +20,6 @@ import { buttonClass } from "./button";
 import {
   createDialogController,
   dismissedByClick,
-  onBackdrop,
   type ClosedDialog,
   type CloseReason,
   type DialogController,
@@ -174,6 +174,23 @@ export function ModalDialog({
   const { ref, openCount } = dialog;
   // Where the last press on the dialog or its backdrop started, for `dismissedByClick`.
   const pressedAt = useRef<Point | null>(null);
+  // Whether a press counted 1 has reached the dialog since it opened (#506). Until one has, a
+  // press or click the browser counts 2 or more continues the double-click whose first click opened
+  // the dialog, as on an event row, and lands on whatever the dialog now shows under the pointer:
+  // its backdrop, a word, a link, a button. It is not for the dialog, so it does nothing. A
+  // deliberate double-click inside starts with a press counted 1, and keyboard activation has no
+  // count at all.
+  const pressedSinceOpen = useRef(false);
+  // In the capture phase, so nothing inside sees it. Preventing the press's default keeps it from
+  // selecting a word and from moving focus off the control the open focused onto the dialog itself;
+  // preventing the click's keeps a link from being followed.
+  const ignoreOpeningRepeat = (event: MouseEvent<HTMLDialogElement>) => {
+    if (event.type === "mousedown" && event.detail <= 1) pressedSinceOpen.current = true;
+    else if (event.detail > 1 && !pressedSinceOpen.current) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
 
   // After each open commits, so content mounted by this open is there to focus.
   useEffect(() => {
@@ -200,22 +217,18 @@ export function ModalDialog({
         ref={ref}
         aria-labelledby={titleId}
         aria-describedby={description === undefined ? describedBy : descriptionId}
-        onClose={(event) =>
+        onClose={(event) => {
+          pressedSinceOpen.current = false;
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
             onClose,
             otherModalOpen: () => document.querySelector("dialog[open]") !== null,
-          })
-        }
+          });
+        }}
         onKeyDown={keepTabInside}
         onPointerDown={lightDismiss ? (event) => { pressedAt.current = { x: event.clientX, y: event.clientY }; } : undefined}
-        // The second press of a double-click that opened the dialog lands on its backdrop (#506),
-        // where Chromium would select the nearest word in the dialog, often in its title.
-        onMouseDown={lightDismiss ? (event) => {
-          if (event.detail > 1 && event.target === event.currentTarget && onBackdrop(event.currentTarget.getBoundingClientRect(), { x: event.clientX, y: event.clientY })) {
-            event.preventDefault();
-          }
-        } : undefined}
+        onMouseDownCapture={ignoreOpeningRepeat}
+        onClickCapture={ignoreOpeningRepeat}
         onClick={lightDismiss ? (event) => {
           const pressed = pressedAt.current;
           pressedAt.current = null;
