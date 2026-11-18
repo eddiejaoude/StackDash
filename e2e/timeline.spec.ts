@@ -1557,6 +1557,8 @@ ownerTest.describe("timeline event inspector", () => {
         }
         await expect(inspector).toHaveJSProperty("open", true);
         await expect(page).toHaveURL(opened);
+        // Nor does the second press select a word in the details, as it would by default.
+        expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
         await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
         await expectNoAxeViolations(page);
         // Still usable from the keyboard: Escape closes the details and focus returns to the row.

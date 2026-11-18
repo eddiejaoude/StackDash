@@ -19,6 +19,7 @@ import { buttonClass } from "./button";
 import {
   createDialogController,
   dismissedByClick,
+  onBackdrop,
   type ClosedDialog,
   type CloseReason,
   type DialogController,
@@ -208,6 +209,13 @@ export function ModalDialog({
         }
         onKeyDown={keepTabInside}
         onPointerDown={lightDismiss ? (event) => { pressedAt.current = { x: event.clientX, y: event.clientY }; } : undefined}
+        // The second press of a double-click that opened the dialog lands on its backdrop (#506),
+        // where Chromium would select the nearest word in the dialog, often in its title.
+        onMouseDown={lightDismiss ? (event) => {
+          if (event.detail > 1 && event.target === event.currentTarget && onBackdrop(event.currentTarget.getBoundingClientRect(), { x: event.clientX, y: event.clientY })) {
+            event.preventDefault();
+          }
+        } : undefined}
         onClick={lightDismiss ? (event) => {
           const pressed = pressedAt.current;
           pressedAt.current = null;

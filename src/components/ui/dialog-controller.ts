@@ -34,14 +34,21 @@ export function focusAfterClose(
 }
 
 export type Point = Readonly<{ x: number; y: number }>;
-/** A `DOMRect`, as far as `dismissedByClick` needs one. */
+/** A `DOMRect`, as far as `onBackdrop` needs one. */
 export type Box = Readonly<{ left: number; top: number; right: number; bottom: number }>;
 
 /**
- * True when a click both started and ended outside the dialog's box, on its backdrop. A point on
- * the box's edge is inside, so the dialog's own padding and border never close it. A press inside
- * released outside is a text selection or a drag, not a dismissal, and a click with no press
- * (`pressedAt` null: a keyboard activation) is never one either.
+ * True when a point is outside the dialog's box, on its backdrop. A point on the box's edge is
+ * inside, so the dialog's own padding and border are never backdrop.
+ */
+export function onBackdrop(box: Box, { x, y }: Point): boolean {
+  return x < box.left || x > box.right || y < box.top || y > box.bottom;
+}
+
+/**
+ * True when a click both started and ended on the dialog's backdrop. A press inside released
+ * outside is a text selection or a drag, not a dismissal, and a click with no press (`pressedAt`
+ * null: a keyboard activation) is never one either.
  *
  * `clickCount` is the click event's `detail`. Only a click of its own (1) dismisses: the second
  * click of a double-click whose first click opened the dialog lands on its backdrop, as a
@@ -49,8 +56,7 @@ export type Box = Readonly<{ left: number; top: number; right: number; bottom: n
  * apart from a deliberate second click.
  */
 export function dismissedByClick(box: Box, pressedAt: Point | null, releasedAt: Point, clickCount: number): boolean {
-  const outside = ({ x, y }: Point) => x < box.left || x > box.right || y < box.top || y > box.bottom;
-  return clickCount === 1 && pressedAt !== null && outside(pressedAt) && outside(releasedAt);
+  return clickCount === 1 && pressedAt !== null && onBackdrop(box, pressedAt) && onBackdrop(box, releasedAt);
 }
 
 export type DialogController = Readonly<{
