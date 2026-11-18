@@ -24,6 +24,7 @@ import {
   deliveredEvent,
   expectSubscribed,
   FrameSchema,
+  insertUnheard,
   isRenderRequest,
   LiveChangeSchema,
   LIVE_TIMEOUT_MS,
@@ -78,26 +79,32 @@ async function seedConnection(workspace: TestWorkspace): Promise<SeededConnectio
 }
 
 /**
- * One synced event, dated now. Each event gets a type of its own unless `typeId` is given, so
- * events written seconds apart stay separate timeline rows instead of collapsing into a run (#253).
+ * One synced event, dated now; returns the row id. Each event gets a type of its own unless
+ * `typeId` is given, so events written seconds apart stay separate timeline rows instead of
+ * collapsing into a run (#253).
  */
 async function insertEvent(
   seeded: SeededConnection,
   title: string,
   typeId = `fake.e2e_${randomUUID().slice(0, 8)}`,
-): Promise<void> {
-  const { error } = await adminClient().from("activity_events").insert({
-    workspace_id: seeded.workspaceId,
-    connection_id: seeded.connectionId,
-    external_account_id: seeded.accountId,
-    provider: "fake",
-    type_id: typeId,
-    severity: "info",
-    title,
-    occurred_at: new Date().toISOString(),
-    dedupe_key: `e2e-live-${randomUUID()}`,
-  });
+): Promise<string> {
+  const { data, error } = await adminClient()
+    .from("activity_events")
+    .insert({
+      workspace_id: seeded.workspaceId,
+      connection_id: seeded.connectionId,
+      external_account_id: seeded.accountId,
+      provider: "fake",
+      type_id: typeId,
+      severity: "info",
+      title,
+      occurred_at: new Date().toISOString(),
+      dedupe_key: `e2e-live-${randomUUID()}`,
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
+  return data.id;
 }
 
 type MoneyMetric = Readonly<{ kind: "verified_spend" | "recurring_revenue"; metricKey: string; label: string }>;
@@ -777,7 +784,12 @@ ownerTest.describe("arriving data", () => {
     try {
       const seeded = await seedConnection(workspace);
       const snapshotId = await insertMoneySnapshot(seeded, 4_321);
-      await insertEvent(seeded, "Earlier event");
+      // Every seed here is in a published table, and one Realtime reads after the page subscribes
+      // (#226) refreshes the page on its own. In #508 that refresh rendered the sync written on the
+      // timeline before the sync's own changes arrived, so they came as a second batch after the
+      // return and the live indicator's ripple ran there. The event is written last, and Realtime
+      // reads the slot in commit order, so once it is unheard the earlier seeds are too.
+      await insertUnheard("activity_events", workspace.id, () => insertEvent(seeded, "Earlier event"));
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
