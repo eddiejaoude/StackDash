@@ -519,12 +519,16 @@ async function recordAnnouncements(page: Page): Promise<() => Promise<string[]>>
   return async () => z.array(z.string()).parse(await page.evaluate(() => Reflect.get(window, "__announcements")));
 }
 
+// Every test here that asserts the list of arrival animations writes its last published seed
+// through `insertUnheard`, so no seed reaches the page after it subscribes (#226) and starts a batch
+// of its own among the test's changes (#508). Realtime reads the slot in commit order, so the
+// earlier seeds are read by then too.
 ownerTest.describe("arriving data", () => {
   ownerTest("marks a new timeline event once, announces it, and animates nothing on load", async ({ page }) => {
     const workspace = await createTestWorkspace("Arrival timeline");
     try {
       const seeded = await seedConnection(workspace);
-      await insertEvent(seeded, "Earlier event");
+      await insertUnheard("activity_events", workspace.id, () => insertEvent(seeded, "Earlier event"));
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/timeline`);
@@ -671,7 +675,7 @@ ownerTest.describe("arriving data", () => {
     const workspace = await createTestWorkspace("Arrival dashboard");
     try {
       const seeded = await seedConnection(workspace);
-      const snapshotId = await insertMoneySnapshot(seeded, 4_321);
+      const snapshotId = await insertUnheard("usage_snapshots", workspace.id, () => insertMoneySnapshot(seeded, 4_321));
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
@@ -709,7 +713,9 @@ ownerTest.describe("arriving data", () => {
     try {
       const seeded = await seedConnection(workspace);
       const snapshotId = await insertMoneySnapshot(seeded, 4_321);
-      await insertEvent(seeded, "Deployed before the page opened", "fake.deploy.succeeded");
+      await insertUnheard("activity_events", workspace.id, () =>
+        insertEvent(seeded, "Deployed before the page opened", "fake.deploy.succeeded"),
+      );
       const today = new Date().toISOString().slice(0, 10);
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
@@ -750,11 +756,13 @@ ownerTest.describe("arriving data", () => {
         metricKey: "fake.mrr",
         label: "Monthly recurring revenue",
       });
-      const annualId = await insertMoneySnapshot(seeded, 12_000, {
-        kind: "recurring_revenue",
-        metricKey: "fake.arr",
-        label: "Annual recurring revenue",
-      });
+      const annualId = await insertUnheard("usage_snapshots", workspace.id, () =>
+        insertMoneySnapshot(seeded, 12_000, {
+          kind: "recurring_revenue",
+          metricKey: "fake.arr",
+          label: "Annual recurring revenue",
+        }),
+      );
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
@@ -876,7 +884,7 @@ ownerTest.describe("arriving data", () => {
     const workspace = await createTestWorkspace("Arrival reduced motion");
     try {
       const seeded = await seedConnection(workspace);
-      const snapshotId = await insertMoneySnapshot(seeded, 4_321);
+      const snapshotId = await insertUnheard("usage_snapshots", workspace.id, () => insertMoneySnapshot(seeded, 4_321));
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
@@ -1016,7 +1024,7 @@ ownerTest.describe("arriving data", () => {
     const workspace = await createTestWorkspace("Arrival provider chips reduced");
     try {
       const example = await seedConnection(workspace);
-      await insertEvent(example, "Earlier event");
+      await insertUnheard("activity_events", workspace.id, () => insertEvent(example, "Earlier event"));
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/timeline`);
