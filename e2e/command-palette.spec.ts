@@ -490,6 +490,7 @@ ownerTest.describe("command palette as the owner", () => {
         provider: "stripe",
         status: "active",
         granted_at: new Date().toISOString(),
+        mode: "live",
         display_name: "Stripe palette account",
         poll_interval_seconds: 3600,
       });

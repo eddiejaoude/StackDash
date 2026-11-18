@@ -26,10 +26,10 @@ values
   ('e26200a0-0000-4000-8000-000000000000', 'e2620001-0000-4000-8000-000000000000', 'owner'),
   ('e26200a0-0000-4000-8000-000000000000', 'e2620002-0000-4000-8000-000000000000', 'viewer');
 
-insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds)
+insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds, mode)
 values
-  ('e26200a1-0000-4000-8000-000000000000', 'e26200a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel review', 3600),
-  ('e26200b1-0000-4000-8000-000000000000', 'e26200a0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe review', 3600);
+  ('e26200a1-0000-4000-8000-000000000000', 'e26200a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel review', 3600, null),
+  ('e26200b1-0000-4000-8000-000000000000', 'e26200a0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe review', 3600, 'live');
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind)
 values

@@ -1063,6 +1063,7 @@ ownerTest.describe("arriving data", () => {
             provider,
             status,
             display_name,
+            ...(provider === "stripe" ? { mode: "live" as const } : {}),
             poll_interval_seconds: 3_600,
             created_at: new Date(connectedFrom + index * 60_000).toISOString(),
             granted_at: new Date(connectedFrom + index * 60_000).toISOString(),
