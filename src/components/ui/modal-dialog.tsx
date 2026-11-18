@@ -212,7 +212,7 @@ export function ModalDialog({
           const pressed = pressedAt.current;
           pressedAt.current = null;
           const released = { x: event.clientX, y: event.clientY };
-          if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released)) {
+          if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released, event.detail)) {
             dialog.close("dismissed");
           }
         } : undefined}

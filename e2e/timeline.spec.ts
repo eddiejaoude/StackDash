@@ -1516,6 +1516,60 @@ ownerTest.describe("timeline event inspector", () => {
     }
   });
 
+  // #506: a double-click on a row opens the details with its first click, and at a person's pace
+  // (about 150ms) its second click lands beside the open panel, on its backdrop. The browser counts
+  // that click as the double-click's second (`detail` 2, from the system's double-click time), so
+  // it keeps the details open. A separate click there, the same press counted 1, closes them (#407).
+  for (const { clicks, secondClickCount, staysOpen } of [
+    { clicks: "a double-click", secondClickCount: 2, staysOpen: true },
+    { clicks: "two separate clicks", secondClickCount: 1, staysOpen: false },
+  ] as const) {
+    inspectorEvidenceTest(`${staysOpen ? "keeps" : "closes"} the details on ${clicks} on a row at 1280px`, async ({ page }) => {
+      const workspace = await seedTimeline(`Inspector ${clicks}`);
+      try {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        await expectHydrated(page);
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const row = await trigger.boundingBox();
+        if (row === null) throw new Error("The event row is not rendered.");
+        const at = { x: row.x + row.width / 2, y: row.y + row.height / 2 };
+
+        await page.mouse.click(at.x, at.y);
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        const opened = page.url();
+        const panel = await inspector.boundingBox();
+        if (panel === null) throw new Error("The inspector is not rendered.");
+        expect(at.x).toBeLessThan(panel.x);
+        await page.mouse.down({ clickCount: secondClickCount });
+        await page.mouse.up({ clickCount: secondClickCount });
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/inspector-${staysOpen ? "double-click" : "separate-clicks"}.png` });
+        }
+
+        if (!staysOpen) {
+          await expect(inspector).toBeHidden();
+          await expect(trigger).toBeFocused();
+          await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+          return;
+        }
+        await expect(inspector).toHaveJSProperty("open", true);
+        await expect(page).toHaveURL(opened);
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await expectNoAxeViolations(page);
+        // Still usable from the keyboard: Escape closes the details and focus returns to the row.
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
   // #407: light dismiss is the details panel's alone. Every other dialog, the command palette
   // among them, stays open on a click outside it, so a click never discards what someone typed.
   ownerTest("keeps the command palette open on a click outside it", async ({ page }) => {

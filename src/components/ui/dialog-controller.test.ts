@@ -116,11 +116,21 @@ describe("dismissedByClick", () => {
     ["pressed inside and released beside, selecting text", false, inside, beside],
     ["pressed beside and released inside", false, beside, inside],
   ] as const)("%s: closes %s", (_case, closes, pressedAt, releasedAt) => {
-    expect(dismissedByClick(panel, pressedAt, releasedAt)).toBe(closes);
+    expect(dismissedByClick(panel, pressedAt, releasedAt, 1)).toBe(closes);
   });
 
   it("never closes on a click with no press, as a keyboard activation fires", () => {
-    expect(dismissedByClick(panel, null, beside)).toBe(false);
+    expect(dismissedByClick(panel, null, beside, 0)).toBe(false);
+  });
+
+  // #506: a double-click on an event row opens the panel with its first click, and its second
+  // lands beside the open panel.
+  it.each([
+    ["a single click", 1, true],
+    ["the second click of a double-click", 2, false],
+    ["the third click of a triple-click", 3, false],
+  ] as const)("%s beside the panel: closes %s", (_case, clickCount, closes) => {
+    expect(dismissedByClick(panel, beside, beside, clickCount)).toBe(closes);
   });
 });
 
