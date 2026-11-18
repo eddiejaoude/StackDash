@@ -530,23 +530,25 @@ A file filter does not narrow the `chromium` dependency: it still runs in full. 
 always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
 include them.
 
-On Supabase CLI 2.120.0, the version CI pins, the local Realtime container stops its Postgres
-Changes replication roughly every 10 minutes to rebalance it to a closer region. A change written in
-that gap never reaches the page, and neither the app nor Realtime reports an error. In a test run it
-looks like a live assertion that times out with no fault in the app: a spec waits for a change to
-appear without a reload, and it never does. To check whether a rebalance caused a failure, list
-the container's rebalance lines and compare their times with the failure:
+On Supabase CLI before 2.122.0, which includes 2.120.0, the version CI pins, the local Realtime
+container stops its Postgres Changes replication roughly every 10 minutes to rebalance it to a
+closer region. A change written in that gap never reaches the page, and neither the app nor
+Realtime reports an error. In a test run it looks like a live assertion that times out with no
+fault in the app: a spec waits for a change to appear without a reload, and it never does. To check
+whether a rebalance caused a failure, list the container's rebalance lines with their times:
 
 ```bash
-docker logs supabase_realtime_stackdash 2>&1 | grep Rebalancing
+docker logs --timestamps supabase_realtime_stackdash 2>&1 | grep 'Rebalancing Postgres Changes'
 ```
 
-Each rebalance logs "Rebalancing Postgres Changes replication for a closer region" and "Rebalancing
-Tenant database connection for a closer region", about 10 minutes after the one before. A line at
-the time of the failure means the stall caused it, so rerun the spec. CI saves the same log as the
-`realtime-log` artifact on every end-to-end run and prints these lines in the job log. Realtime has
-fixed the stall upstream, and the planned move of this repository and CI to Supabase CLI 3.2.0
-removes it.
+Match the line "Rebalancing Postgres Changes replication for a closer region". The timestamp
+`--timestamps` adds at the start of each line is in UTC, so convert the failure time to UTC before
+comparing. The rebalance caused the failure when that line falls between the spec writing its change
+and the assertion timing out, which is a window of a few seconds just before the failure time
+Playwright reports. Rebalances come about 10 minutes apart. If one falls in that window, rerun the
+spec. CI saves the same log as the `realtime-log` artifact on every end-to-end run and prints the
+rebalance lines in the job log. Realtime has fixed the stall upstream, and the planned move of this
+repository and CI to Supabase CLI 3.2.0 removes it; that move should rewrite this note.
 
 ## Project layout
 
