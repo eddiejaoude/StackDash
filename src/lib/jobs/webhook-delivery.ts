@@ -57,6 +57,44 @@ async function uninstallTargets(outcome: Uninstall, delivery: WebhookDeliveryRec
 }
 
 /**
+ * The targets of the kind that verified the delivery (#495), as the route recorded it: simulated
+ * connections for a delivery the provider's simulated twin verified, real ones otherwise. The twin
+ * checks an app-level delivery with STACKDASH_SIMULATED_WEBHOOK_SECRET, a value from .env.local or
+ * the synthetic one e2e signs with, so what it accepts must never reach a real connection that
+ * includes the same account; and a real delivery has nothing to say to a connection of made-up
+ * data. The recorded kind decides, not the simulation flag now: the flag can change between the
+ * route accepting a delivery and a tick, or a retry, applying it. A per-connection delivery
+ * (`endpointId` set: GitLab, Polar, Resend) follows the same rule on purpose, although both the
+ * twin and the live adapter verify it with its endpoint's stored secret and the endpoint names its
+ * one connection: the kinds match unless the flag changed since the connection was made, and a
+ * connection in that state already refuses to sync, so one rule keeps a real delivery off made-up
+ * data and the twin's off real data. What it drops: an authentic delivery to a real connection's URL
+ * while simulation is on, a delivery to a simulated connection's URL while it is off, and a
+ * per-connection delivery in flight across the deploy of #495 (no recorded kind, below). A real
+ * connection's next successful sync brings those events (once simulation is off, as the twin
+ * refuses its credential), and an uninstall shows when that sync finds the grant gone; a simulated
+ * connection loses only made-up data. The fake provider has no twin, so its deliveries and its
+ * connections are real. A delivery a build before #495 stored records no kind (`simulated` null),
+ * so nothing says which secret verified it: it reaches no connection. The rest are logged as a
+ * count, never by id.
+ */
+function targetsOfDeliveryKind<T extends ConnectionTarget>(targets: readonly T[], job: ClaimedJob, delivery: WebhookDeliveryRecord, deps: SyncDeps): T[] {
+  const { simulated } = delivery;
+  const kept = simulated === null ? [] : targets.filter((target) => target.simulated === simulated);
+  if (kept.length < targets.length) {
+    deps.log.info("webhook.targets_dropped", {
+      jobId: job.id,
+      provider: delivery.provider,
+      deliveryRowId: delivery.id,
+      kind: delivery.outcome.kind,
+      simulated,
+      dropped: targets.length - kept.length,
+    });
+  }
+  return kept;
+}
+
+/**
  * Achievements (#413) can be earned by an event (a first deployment), so once a tick's webhook jobs
  * are done (src/lib/jobs/runner.ts) the connections they stored a new event for are evaluated
  * rather than left to their next poll, as `runSyncJob` does after a sync. Once per connection, not
@@ -116,15 +154,21 @@ export async function runWebhookJob(
   if (outcome.kind === "events") {
     // An installation named with the account (#497) narrows the targets to that installation's
     // connections, so an uninstalled connection that still includes the account gets nothing.
-    const targets = await deps.store.listWebhookTargets({
-      provider,
-      externalAccountId: outcome.externalAccountId,
-      installationId: outcome.installationId ?? null,
-      endpointId: delivery.endpointId,
-    });
+    const targets = targetsOfDeliveryKind(
+      await deps.store.listWebhookTargets({
+        provider,
+        externalAccountId: outcome.externalAccountId,
+        installationId: outcome.installationId ?? null,
+        endpointId: delivery.endpointId,
+      }),
+      job,
+      delivery,
+      deps,
+    );
     if (targets.length === 0) {
       // An account no workspace includes, or whose connection is gone or belongs to another or no
-      // recorded installation: nothing to apply it to. `installationNamed` (never the id) says
+      // recorded installation, or only connections of the other kind (logged just above as
+      // `webhook.targets_dropped`): nothing to apply it to. `installationNamed` (never the id) says
       // whether the installation took part, so a mismatch that polling would hide is not read as an
       // account nobody includes.
       deps.log.info("webhook.no_targets", {
@@ -143,9 +187,9 @@ export async function runWebhookJob(
     }
   } else {
     const by = outcome.by ?? "account";
-    const targets = await uninstallTargets(outcome, delivery, deps);
+    const targets = targetsOfDeliveryKind(await uninstallTargets(outcome, delivery, deps), job, delivery, deps);
     if (targets.length === 0) {
-      // An account or installation no live connection has: nothing to apply it to.
+      // An account or installation no live connection of this kind has: nothing to apply it to.
       deps.log.info("webhook.no_targets", { jobId: job.id, provider, deliveryRowId: delivery.id, kind: outcome.kind, by });
     }
     for (const target of targets) {

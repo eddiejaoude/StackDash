@@ -7,7 +7,11 @@ import type { OAuthCredential } from "@/lib/adapters/types";
  * Dependency free, so pure reductions and pages can import it without the simulator itself.
  */
 
-/** The only scope a simulated grant has; `completeConnection` stores it in `granted_scopes`. */
+/**
+ * The only scope a simulated grant has; `completeConnection` stores it in `granted_scopes`.
+ * list_webhook_targets (20261118140000_webhook_targets_simulated.sql) repeats the literal, since
+ * SQL cannot import it: change both together.
+ */
 export const SIMULATED_SCOPE = "simulated:read";
 
 // Credential metadata key the simulator sets to "1" on every credential it mints.

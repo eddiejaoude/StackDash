@@ -110,9 +110,9 @@ export const SIMULATED_WEBHOOK_SECRET_ENV = "STACKDASH_SIMULATED_WEBHOOK_SECRET"
  * instead of the provider's own variable: simulation never reads a real provider secret, and one
  * synthetic value signs every simulated provider's deliveries, locally and in e2e. A per-connection
  * registration keeps the secret stored for its connection, and its automatic setup is simulated
- * (`simulatedConnectionSetup`), so the twin never calls the provider. The webhook job does not yet
- * tell simulated connections from real ones (#495): an app-level delivery reaches every connection
- * that includes its account, real ones too.
+ * (`simulatedConnectionSetup`), so the twin never calls the provider. The webhook job applies what
+ * a twin verified to simulated connections only (#495), so a delivery signed with the simulated
+ * secret never reaches a real connection that includes the same account.
  */
 function simulatedWebhooks(real: WebhookDescriptor, provider: LiveProviderId, profile: SimulatedProfile): WebhookDescriptor {
   if (real.registration.kind === "app") return { ...real, registration: { kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV } };

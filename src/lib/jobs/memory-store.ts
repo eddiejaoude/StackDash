@@ -42,8 +42,12 @@ export type MemoryRateLimitCounter = Tables<"public_rate_limit_counters">;
 export type MemoryMetricView = Tables<"published_metric_views">;
 export type MemoryWebhookEndpoint = Pick<Tables<"webhook_endpoints">, "id" | "workspace_id" | "connection_id" | "provider">;
 // The outcome is kept as the object the route stored; the Supabase store's JSON round trip is
-// covered by store.test.ts.
-export type MemoryWebhookDelivery = Omit<Tables<"webhook_deliveries">, "outcome"> & { outcome: StoredWebhookOutcome | null };
+// covered by store.test.ts. `simulated` is the provenance Postgres keeps inside the outcome's JSON
+// (#495); a test sets it to null for a delivery a build before #495 stored.
+export type MemoryWebhookDelivery = Omit<Tables<"webhook_deliveries">, "outcome"> & {
+  outcome: StoredWebhookOutcome | null;
+  simulated: boolean | null;
+};
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
   return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
@@ -579,7 +583,7 @@ export class MemoryJobStore implements JobStore {
       .map((row) => this.#toSnapshotInput(row));
   }
 
-  async recordWebhookDelivery({ provider, deliveryId, endpointId, outcome }: RecordWebhookDeliveryInput): Promise<boolean> {
+  async recordWebhookDelivery({ provider, deliveryId, endpointId, outcome, simulated }: RecordWebhookDeliveryInput): Promise<boolean> {
     // webhook_deliveries_delivery_id_length counts characters, not UTF-16 code units.
     const length = [...deliveryId].length;
     if (length < 1 || length > 200) throw new Error("violates check constraint webhook_deliveries_delivery_id_length");
@@ -604,6 +608,7 @@ export class MemoryJobStore implements JobStore {
       endpoint_id: endpointId,
       status: ignored ? "processed" : "received",
       outcome: ignored ? null : outcome,
+      simulated,
       received_at: this.#nowIso(),
       processed_at: ignored ? this.#nowIso() : null,
     });
@@ -614,7 +619,7 @@ export class MemoryJobStore implements JobStore {
   async loadWebhookDelivery(deliveryRowId: string): Promise<WebhookDeliveryRecord | null> {
     const row = this.webhookDeliveries.find((delivery) => delivery.id === deliveryRowId && delivery.status === "received");
     if (row === undefined || row.outcome === null) return null;
-    return { id: row.id, provider: row.provider, endpointId: row.endpoint_id, outcome: row.outcome };
+    return { id: row.id, provider: row.provider, endpointId: row.endpoint_id, outcome: row.outcome, simulated: row.simulated };
   }
 
   /** list_webhook_targets' connection rules: the provider, a live status, and the endpoint's own connection when one is given. */
@@ -654,6 +659,7 @@ export class MemoryJobStore implements JobStore {
         connectionId: account.connection_id,
         accountId: account.id,
         grantedAt: connection.granted_at,
+        simulated: isSimulatedConnection(connection),
       }));
   }
 
@@ -672,6 +678,7 @@ export class MemoryJobStore implements JobStore {
         workspaceId: connection.workspace_id,
         connectionId: connection.id,
         grantedAt: connection.granted_at,
+        simulated: isSimulatedConnection(connection),
       }));
   }
 

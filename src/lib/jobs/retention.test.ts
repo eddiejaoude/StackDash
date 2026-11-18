@@ -108,9 +108,9 @@ describe("retention (#37)", () => {
     const store = new MemoryJobStore(() => clock);
     // An ignored delivery queues no job, so this one is an uninstall: the purge must take its job too.
     const outcome = { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: cutoff } as const;
-    await store.recordWebhookDelivery({ provider: "fake", deliveryId: "old", endpointId: null, outcome });
+    await store.recordWebhookDelivery({ provider: "fake", deliveryId: "old", endpointId: null, outcome, simulated: false });
     clock = cutoff;
-    await store.recordWebhookDelivery({ provider: "fake", deliveryId: "kept-exact", endpointId: null, outcome });
+    await store.recordWebhookDelivery({ provider: "fake", deliveryId: "kept-exact", endpointId: null, outcome, simulated: false });
 
     const result = await runRetention(store, NOW, () => true);
 
@@ -125,7 +125,7 @@ describe("retention (#37)", () => {
   ])("recognizes a provider retry after retention as a repeat only inside the window (boundary: $name)", async ({ daysLate, repeat }) => {
     let clock = new Date(NOW.getTime() - daysLate * 86_400_000);
     const store = new MemoryJobStore(() => clock);
-    const delivery = { provider: "fake", deliveryId: "evt_1", endpointId: null, outcome: { kind: "ignored", reason: "test" } } as const;
+    const delivery = { provider: "fake", deliveryId: "evt_1", endpointId: null, outcome: { kind: "ignored", reason: "test" }, simulated: false } as const;
     await store.recordWebhookDelivery(delivery);
 
     clock = NOW;

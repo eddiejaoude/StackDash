@@ -165,6 +165,8 @@ describe("receiveWebhook", () => {
             }),
           ],
         },
+        // The fake provider has no simulated twin, so its deliveries are always real (#495).
+        simulated: false,
       },
     ]);
   });

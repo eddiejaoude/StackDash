@@ -345,10 +345,20 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "ignored", reason: "unmapped event" },
   ])("reads back the $kind outcome it stored, event and uninstall dates included", (outcome) => {
-    // jsonb keeps exactly what JSON keeps.
-    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome)));
+    for (const simulated of [true, false]) {
+      // jsonb keeps exactly what JSON keeps.
+      const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome, simulated)));
 
-    expect(webhookOutcomeFromJson(stored)).toEqual(outcome);
+      expect(webhookOutcomeFromJson(stored)).toEqual({ outcome, simulated });
+    }
+  });
+
+  it("reads an outcome stored before #495, with no record of which adapter verified it, as unknown (boundary: legacy)", () => {
+    const stored = { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" };
+    expect(webhookOutcomeFromJson(stored)).toEqual({
+      outcome: { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+      simulated: null,
+    });
   });
 
   it.each<[WebhookOutcome, WebhookOutcome]>([
@@ -361,8 +371,8 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
       { kind: "ignored", reason: "pipeline has not finished" },
     ],
   ])("stores an outcome without the source it names (#428), which the job reads back", (outcome, expected) => {
-    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome)));
-    expect(webhookOutcomeFromJson(stored)).toEqual(expected);
+    const stored: unknown = JSON.parse(JSON.stringify(webhookOutcomeToJson(outcome, false)));
+    expect(webhookOutcomeFromJson(stored)).toEqual({ outcome: expected, simulated: false });
   });
 
   it.each([
@@ -380,6 +390,8 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { name: "events with an empty installation id", value: { kind: "events", externalAccountId: "fake-acct-1", installationId: "", events: [] } },
     { name: "events with a null installation id", value: { kind: "events", externalAccountId: "fake-acct-1", installationId: null, events: [] } },
     { name: "an unknown by", value: { kind: "uninstalled", by: "organization", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "a simulated that is not a boolean", value: { kind: "events", externalAccountId: "fake-acct-1", events: [], simulated: "yes" } },
+    { name: "a null simulated", value: { kind: "events", externalAccountId: "fake-acct-1", events: [], simulated: null } },
   ])("refuses a stored outcome of another shape (boundary: $name)", ({ value }) => {
     expect(webhookOutcomeFromJson(value)).toBeNull();
   });
@@ -395,6 +407,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       connection_id: uuid(28002, index),
       account_id: uuid(28003, index),
       granted_at: "2026-11-15T09:00:00.123456+00:00",
+      simulated: false,
     }));
   }
 
@@ -434,8 +447,8 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null, simulated: false },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1" }]);
     expect(warn).not.toHaveBeenCalled();
@@ -455,7 +468,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: "fake-installation-1", endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_installation_id: "fake-installation-1" }]);
   });
@@ -468,10 +481,30 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listInstallationTargets({ provider: "fake", installationId: "fake-installation-1", endpointId: ENDPOINT_ID });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00" },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_installation_id: "fake-installation-1", p_endpoint_id: ENDPOINT_ID }]);
+  });
+
+  it("says which targets are simulated, on the account and the installation match (#495)", async () => {
+    const rows = [...targets(1), { ...targets(2)[1], simulated: true }];
+    const { store } = storeWith({ list_webhook_targets: () => rows });
+
+    const byAccount = await store.listWebhookTargets({ provider: "github", externalAccountId: "github-acct-1", installationId: null, endpointId: null });
+    const byInstallation = await store.listInstallationTargets({ provider: "github", installationId: "github-installation-1", endpointId: null });
+
+    for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.simulated)).toEqual([false, true]);
+  });
+
+  it("reads a target without `simulated` as real, as a database before the migration returns it (boundary: mixed deploy, #495)", async () => {
+    const rows = targets(1).map(({ simulated: _simulated, ...row }) => row);
+    const { store } = storeWith({ list_webhook_targets: () => rows });
+
+    const byAccount = await store.listWebhookTargets({ provider: "github", externalAccountId: "github-acct-1", installationId: null, endpointId: null });
+    const byInstallation = await store.listInstallationTargets({ provider: "github", installationId: "github-installation-1", endpointId: null });
+
+    for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.simulated)).toEqual([false]);
   });
 
   it.each([
@@ -503,13 +536,14 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       deliveryId: "delivery-1",
       endpointId: null,
       outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [signup] },
+      simulated: false,
     });
 
     expect(requests.map((request) => request.args)).toEqual([
       {
         p_provider: "fake",
         p_delivery_id: "delivery-1",
-        p_outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...signup, occurredAt: "2026-11-14T09:30:00.000Z" }] },
+        p_outcome: { kind: "events", externalAccountId: "fake-acct-1", events: [{ ...signup, occurredAt: "2026-11-14T09:30:00.000Z" }], simulated: false },
       },
     ]);
   });

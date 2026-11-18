@@ -93,12 +93,19 @@ export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string
  */
 export type StoredWebhookOutcome = Exclude<WebhookOutcome, { kind: "ignored" }>;
 
-/** A verified delivery as the webhook job reads it back (#28). `endpointId` is null for an app-level URL. */
+/**
+ * A verified delivery as the webhook job reads it back (#28). `endpointId` is null for an app-level
+ * URL. `simulated` is whether the provider's simulated twin verified it, recorded when the route
+ * accepted it (#495), so the job applies it to the matching kind of connection whatever the
+ * simulation flag says when the job runs. Null for a delivery a build before #495 stored, which
+ * recorded no such thing.
+ */
 export type WebhookDeliveryRecord = Readonly<{
   id: string;
   provider: ProviderId;
   endpointId: string | null;
   outcome: StoredWebhookOutcome;
+  simulated: boolean | null;
 }>;
 
 /**
@@ -106,18 +113,22 @@ export type WebhookDeliveryRecord = Readonly<{
  * connect or a reconnect (ISO), and null for a live connection with no recorded grant (#502;
  * docs/operations/jobs.md, Uninstalled, says which those are). A token refresh does not move it,
  * so an uninstall older than a reconnect is left to the next sync while one older than only a
- * refresh is applied.
+ * refresh is applied. `simulated` is whether the provider simulator made the connection (its
+ * granted scopes hold SIMULATED_SCOPE, as `isSimulatedConnection` reads them), so the webhook job
+ * keeps only the kind that verified the delivery (#495).
  */
-export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null }>;
+export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null; simulated: boolean }>;
 
 /** An included external account of a live connection that a delivery's account maps to. */
 export type WebhookTarget = ConnectionTarget & Readonly<{ accountId: string }>;
 
+/** `simulated`: whether the provider's simulated twin verified the delivery (#495). */
 export type RecordWebhookDeliveryInput = Readonly<{
   provider: ProviderId;
   deliveryId: string;
   endpointId: string | null;
   outcome: WebhookOutcome;
+  simulated: boolean;
 }>;
 
 export interface JobStore {
@@ -256,10 +267,19 @@ function isManualSyncResult(value: unknown): value is ManualSyncResult {
   return MANUAL_SYNC_RESULTS.some((result) => result === value);
 }
 
-// The bound of list_webhook_targets (20261115090200_webhook_delivery_review.sql). One provider account
-// connected to more workspaces than this reaches the first by account id; polling still brings
-// the rest their events.
+// The bound of list_webhook_targets, applied before the webhook job keeps one kind, so targets of
+// the other kind count toward it. 20261118140000_webhook_targets_simulated.sql's header says what a
+// target of the delivery's kind past the bound gets: a real one its next poll, a simulated one nothing.
 export const WEBHOOK_TARGET_LIMIT = 100;
+
+// A row the database does not mark simulated is a real connection's. `simulated` is absent, not
+// false, from a database before 20261118140000_webhook_targets_simulated.sql (a build promoted
+// before the migration ran), so every target reads as real there. A real delivery is then applied
+// as before #495, and a simulated one reaches no connection and is lost for good: that migration's
+// header says why nothing replays it.
+function isSimulatedTarget(row: Readonly<{ simulated: boolean | undefined }>): boolean {
+  return row.simulated === true;
+}
 
 // webhook_deliveries.outcome holds a WebhookOutcome as JSON: an event's occurredAt and an
 // uninstall's occurredAt travel as ISO text and are Dates again once the job reads them back. An
@@ -269,47 +289,64 @@ export const WEBHOOK_TARGET_LIMIT = 100;
 // Rollback each Sentry issue delivery received and not yet applied fails its job for good within
 // about 15 minutes (5 attempts), and polling brings the same events
 // (20261118130000_webhook_targets_installation_match.sql names both mixed windows).
+// Beside the outcome, `simulated` records whether the provider's simulated twin verified the
+// delivery (#495). It lives in the outcome's JSON, which record_webhook_delivery stores as given
+// and the job clears once the delivery is processed, so it needs no column. A delivery stored
+// before #495 has none and reads back as null. A build before #495 refuses every outcome stored
+// with it, so after an Instant Rollback to such a build each delivery received and not yet applied
+// fails its job for good within about 15 minutes: polling brings a real connection the same
+// events, and a real uninstall shows at its next sync, which finds the grant gone.
 const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({
     kind: z.literal("events"),
     externalAccountId: z.string().min(1),
     installationId: z.string().min(1).exactOptional(),
     events: z.array(ActivityEventSchema.extend({ occurredAt: z.iso.datetime().transform((value) => new Date(value)) })),
+    simulated: z.boolean().exactOptional(),
   }),
   z.strictObject({
     kind: z.literal("uninstalled"),
     by: z.literal("account").exactOptional(),
     externalAccountId: z.string().min(1),
     occurredAt: z.iso.datetime().transform((value) => new Date(value)),
+    simulated: z.boolean().exactOptional(),
   }),
   z.strictObject({
     kind: z.literal("uninstalled"),
     by: z.literal("installation"),
     installationId: z.string().min(1),
     occurredAt: z.iso.datetime().transform((value) => new Date(value)),
+    simulated: z.boolean().exactOptional(),
   }),
-  z.strictObject({ kind: z.literal("ignored"), reason: z.string() }),
+  z.strictObject({ kind: z.literal("ignored"), reason: z.string(), simulated: z.boolean().exactOptional() }),
 ]);
 
 /**
- * A delivery's outcome as record_webhook_delivery stores it. A `source` (#428) is left out: the
- * route records it for the setup panel, and the job has no use for it.
+ * A delivery's outcome as record_webhook_delivery stores it, with whether the provider's simulated
+ * twin verified it. A `source` (#428) is left out: the route records it for the setup panel, and
+ * the job has no use for it.
  */
-export function webhookOutcomeToJson(outcome: WebhookOutcome): Json {
-  if (outcome.kind === "uninstalled") return { ...outcome, occurredAt: outcome.occurredAt.toISOString() };
-  if (outcome.kind === "ignored") return { kind: outcome.kind, reason: outcome.reason };
+export function webhookOutcomeToJson(outcome: WebhookOutcome, simulated: boolean): Json {
+  if (outcome.kind === "uninstalled") return { ...outcome, occurredAt: outcome.occurredAt.toISOString(), simulated };
+  if (outcome.kind === "ignored") return { kind: outcome.kind, reason: outcome.reason, simulated };
   return {
     kind: outcome.kind,
     externalAccountId: outcome.externalAccountId,
     ...(outcome.installationId === undefined ? {} : { installationId: outcome.installationId }),
     events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })),
+    simulated,
   };
 }
 
-/** A stored outcome read back, or null when it is not the shape webhookOutcomeToJson writes. */
-export function webhookOutcomeFromJson(value: unknown): WebhookOutcome | null {
+/**
+ * A stored outcome read back with its `simulated` (null when stored before #495), or null when it
+ * is not the shape webhookOutcomeToJson writes.
+ */
+export function webhookOutcomeFromJson(value: unknown): Readonly<{ outcome: WebhookOutcome; simulated: boolean | null }> | null {
   const parsed = StoredWebhookOutcomeSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  const { simulated, ...outcome } = parsed.data;
+  return { outcome, simulated: simulated ?? null };
 }
 
 export function createSupabaseJobStore(): JobStore {
@@ -688,11 +725,11 @@ export function createSupabaseJobStore(): JobStore {
       return rows.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     },
 
-    async recordWebhookDelivery({ provider, deliveryId, endpointId, outcome }) {
+    async recordWebhookDelivery({ provider, deliveryId, endpointId, outcome, simulated }) {
       const { data, error } = await db.rpc("record_webhook_delivery", {
         p_provider: provider,
         p_delivery_id: deliveryId,
-        p_outcome: webhookOutcomeToJson(outcome),
+        p_outcome: webhookOutcomeToJson(outcome, simulated),
         ...(endpointId === null ? {} : { p_endpoint_id: endpointId }),
       });
       if (error) throw failure("record_webhook_delivery", error);
@@ -709,13 +746,13 @@ export function createSupabaseJobStore(): JobStore {
       if (error) throw failure("webhook delivery read", error);
       if (data === null) return null;
       const provider = ProviderIdSchema.safeParse(data.provider);
-      const outcome = webhookOutcomeFromJson(data.outcome);
+      const stored = webhookOutcomeFromJson(data.outcome);
       // Only that the shape is wrong: zod issues would echo the stored values. A received delivery
       // is never ignored: record_webhook_delivery stores those processed.
-      if (!provider.success || outcome === null || outcome.kind === "ignored") {
+      if (!provider.success || stored === null || stored.outcome.kind === "ignored") {
         throw new Error("Job store webhook delivery has an unexpected shape.");
       }
-      return { id: data.id, provider: provider.data, endpointId: data.endpoint_id, outcome };
+      return { id: data.id, provider: provider.data, endpointId: data.endpoint_id, outcome: stored.outcome, simulated: stored.simulated };
     },
 
     async listWebhookTargets({ provider, externalAccountId, installationId, endpointId }) {
@@ -732,6 +769,7 @@ export function createSupabaseJobStore(): JobStore {
         connectionId: row.connection_id,
         accountId: row.account_id,
         grantedAt: row.granted_at,
+        simulated: isSimulatedTarget(row),
       }));
     },
 
@@ -744,7 +782,12 @@ export function createSupabaseJobStore(): JobStore {
       if (error) throw failure("list_webhook_targets", error);
       if (data.length >= WEBHOOK_TARGET_LIMIT) log.warn("webhook.targets_truncated", { provider, targets: data.length });
       // One row per connection, with no account: an uninstall acts on connections.
-      return data.map((row) => ({ workspaceId: row.workspace_id, connectionId: row.connection_id, grantedAt: row.granted_at }));
+      return data.map((row) => ({
+        workspaceId: row.workspace_id,
+        connectionId: row.connection_id,
+        grantedAt: row.granted_at,
+        simulated: isSimulatedTarget(row),
+      }));
     },
 
     async finishWebhookDelivery(deliveryRowId, finishedAt) {
