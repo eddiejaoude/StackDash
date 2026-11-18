@@ -103,9 +103,10 @@ export type WebhookDeliveryRecord = Readonly<{
 
 /**
  * A live connection a delivery acts on. `grantedAt` is when the connection was last granted, by a
- * connect or a reconnect (ISO), and null only for a live connection inserted without one (#502). A
- * token refresh does not move it, so an uninstall older than a reconnect is left to the next sync
- * while one older than only a refresh is applied.
+ * connect or a reconnect (ISO), and null for a live connection with no recorded grant (#502;
+ * docs/operations/jobs.md, Uninstalled, says which those are). A token refresh does not move it,
+ * so an uninstall older than a reconnect is left to the next sync while one older than only a
+ * refresh is applied.
  */
 export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null }>;
 

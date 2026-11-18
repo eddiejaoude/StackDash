@@ -50,7 +50,8 @@ $$;
 -- endpoint's own connection when p_endpoint_id is set, and bounded at 100.
 -- Each row carries:
 -- - granted_at: connections.granted_at, when the connection was last granted (a connect or a
---   reconnect, never a token refresh). Null only for a live connection inserted without one.
+--   reconnect, never a token refresh). Null for a live connection with no recorded grant; the
+--   header above names the two kinds and the remedy.
 -- Security invoker: only the service role may call it, and it already reads every row it needs.
 -- Same parameters and grants as 20261116090300_webhook_targets_grant_fallback.sql; dropped and
 -- created again because its result loses credential_updated_at.
