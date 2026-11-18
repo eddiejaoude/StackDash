@@ -31,8 +31,8 @@
 -- supabase_realtime publication (20261104090000_realtime_publication.sql), sends each filled row to
 -- open workspace tabs, which refresh once (src/components/app/live-refresh.tsx).
 --
--- The contract step (its own issue) runs this function again, for Stripe connections a build before
--- #481 made after this migration, before it requires a mode.
+-- The contract step (#567) runs this function again, for Stripe connections a build before #481
+-- made after this migration, before it requires a mode.
 
 create function public.backfill_connection_mode(p_limit int)
   returns int

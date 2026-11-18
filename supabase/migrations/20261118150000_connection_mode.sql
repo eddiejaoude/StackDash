@@ -20,9 +20,9 @@
 --   with polling bringing its events meanwhile; a needs_attention one, which is not synced, until
 --   the user reconnects it.
 --
--- Expand step of expand then contract. The contract step, its own issue, runs the backfill again
--- for connections a build before #481 made after it, then requires a mode on every non-pending
--- Stripe connection.
+-- Expand step of expand then contract. The contract step (#567) runs the backfill again for
+-- connections a build before #481 made after it, then requires a mode on every non-pending Stripe
+-- connection.
 --
 -- Members read mode with the rest of their connection row (connections_select, table-wide select);
 -- nobody writes it through the Data API: authenticated keeps update (display_name,
