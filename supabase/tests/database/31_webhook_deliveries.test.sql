@@ -4,8 +4,8 @@
 -- delivery and no other job does, and webhook jobs and every other kind are claimed apart
 -- (claim_webhook_jobs and claim_sync_jobs), so neither backlog stops the other; a delivery's
 -- account maps to included accounts of active, failed, and needs_attention connections, only the
--- endpoint's own connection for a per-connection URL, with when each connection's credential was
--- written; retention deletes old deliveries only, and their jobs with them; the tables and
+-- endpoint's own connection for a per-connection URL, with when each connection was last granted;
+-- retention deletes old deliveries only, and their jobs with them; the tables and
 -- functions are service role only.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS); anon and authenticated
 -- are impersonated through the same role and JWT claims PostgREST uses.
@@ -18,7 +18,8 @@ select plan(66);
 -- Fixtures: workspaces A and B, each with an active fake connection that sees account fake-acct-1.
 -- A also has a revoked, a failed, and a pending connection with that account, and an account that
 -- is not included; B a GitHub connection with the same external id, and a needs_attention
--- connection. A's active connection has a stored credential; the others have none.
+-- connection. A's active connection was granted and has a credential saved after it; the others
+-- have neither.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
   ('c3100001-0000-4000-8000-000000000001', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -36,15 +37,15 @@ values
   ('c3100002-0000-4000-8000-000000000001', 'c3100001-0000-4000-8000-000000000001', 'owner'),
   ('c3100002-0000-4000-8000-000000000002', 'c3100001-0000-4000-8000-000000000002', 'owner');
 
-insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds)
+insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds, granted_at)
 values
-  ('c3100003-0000-4000-8000-000000000001', 'c3100002-0000-4000-8000-000000000001', 'fake', 'active', 'Fake A', 3600),
-  ('c3100003-0000-4000-8000-000000000002', 'c3100002-0000-4000-8000-000000000001', 'fake', 'revoked', 'Fake A revoked', 3600),
-  ('c3100003-0000-4000-8000-000000000003', 'c3100002-0000-4000-8000-000000000002', 'fake', 'active', 'Fake B', 3600),
-  ('c3100003-0000-4000-8000-000000000004', 'c3100002-0000-4000-8000-000000000002', 'fake', 'needs_attention', 'Fake B reconnect', 3600),
-  ('c3100003-0000-4000-8000-000000000005', 'c3100002-0000-4000-8000-000000000002', 'github', 'active', 'GitHub B', 3600),
-  ('c3100003-0000-4000-8000-000000000006', 'c3100002-0000-4000-8000-000000000001', 'fake', 'failed', 'Fake A failing', 3600),
-  ('c3100003-0000-4000-8000-000000000007', 'c3100002-0000-4000-8000-000000000001', 'fake', 'pending', 'Fake A pending', 3600);
+  ('c3100003-0000-4000-8000-000000000001', 'c3100002-0000-4000-8000-000000000001', 'fake', 'active', 'Fake A', 3600, '2026-10-31T00:00:00Z'),
+  ('c3100003-0000-4000-8000-000000000002', 'c3100002-0000-4000-8000-000000000001', 'fake', 'revoked', 'Fake A revoked', 3600, null),
+  ('c3100003-0000-4000-8000-000000000003', 'c3100002-0000-4000-8000-000000000002', 'fake', 'active', 'Fake B', 3600, null),
+  ('c3100003-0000-4000-8000-000000000004', 'c3100002-0000-4000-8000-000000000002', 'fake', 'needs_attention', 'Fake B reconnect', 3600, null),
+  ('c3100003-0000-4000-8000-000000000005', 'c3100002-0000-4000-8000-000000000002', 'github', 'active', 'GitHub B', 3600, null),
+  ('c3100003-0000-4000-8000-000000000006', 'c3100002-0000-4000-8000-000000000001', 'fake', 'failed', 'Fake A failing', 3600, null),
+  ('c3100003-0000-4000-8000-000000000007', 'c3100002-0000-4000-8000-000000000001', 'fake', 'pending', 'Fake A pending', 3600, null);
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind, included)
 values
@@ -352,15 +353,15 @@ select is(
   'c3100002-0000-4000-8000-000000000001 c3100003-0000-4000-8000-000000000001',
   'targets: each target names its workspace and connection');
 select is(
-  (select credential_updated_at from public.list_webhook_targets('fake', 'fake-acct-1')
+  (select granted_at from public.list_webhook_targets('fake', 'fake-acct-1')
    where account_id = 'c3100004-0000-4000-8000-000000000001'),
-  '2026-11-01T00:00:00Z'::timestamptz,
-  'targets: a target carries when its connection''s credential was written');
+  '2026-10-31T00:00:00Z'::timestamptz,
+  'targets: a target carries when its connection was last granted, not when its credential was saved');
 select is(
-  (select credential_updated_at from public.list_webhook_targets('fake', 'fake-acct-1')
+  (select granted_at from public.list_webhook_targets('fake', 'fake-acct-1')
    where account_id = 'c3100004-0000-4000-8000-000000000004'),
   null::timestamptz,
-  'targets: a connection without a stored credential has no credential time (boundary: no credential)');
+  'targets: a live connection with no recorded grant has no grant time (boundary: no grant)');
 select is_empty(
   $$ select 1 from public.list_webhook_targets('fake', 'fake-acct-2') $$,
   'targets: an account that is not included is no target (boundary: included false)');

@@ -103,11 +103,10 @@ export type WebhookDeliveryRecord = Readonly<{
 
 /**
  * A live connection a delivery acts on. `grantedAt` is when the connection was last granted, by a
- * connect or a reconnect (ISO). For a live connection with no recorded grant (made before the
- * grant was stamped, or inserted as live) it is its credential's last save, as before #476, and
- * null only without a credential either. A token refresh does not move a recorded grant, so an
- * uninstall older than a reconnect is left to the next sync while one older than only a refresh is
- * applied.
+ * connect or a reconnect (ISO), and null for a live connection with no recorded grant (#502;
+ * docs/operations/jobs.md, Uninstalled, says which those are). A token refresh does not move it,
+ * so an uninstall older than a reconnect is left to the next sync while one older than only a
+ * refresh is applied.
  */
 export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null }>;
 
@@ -154,6 +153,12 @@ export interface JobStore {
   getConnection(key: ConnectionKey): Promise<SyncConnection | null>;
   listIncludedAccounts(key: ConnectionKey): Promise<SyncAccount[]>;
   updateConnection(key: ConnectionKey, patch: ConnectionPatch): Promise<void>;
+  /**
+   * Applies the patch only while the connection's status is one of `statuses`, in the same
+   * statement, so a status another job wrote since the caller read the row is kept (#487). Returns
+   * whether the patch applied; false also when the connection is not in the workspace.
+   */
+  updateConnectionInStatus(key: ConnectionKey, statuses: readonly SyncConnection["status"][], patch: ConnectionPatch): Promise<boolean>;
   loadCredential(key: ConnectionKey): Promise<OAuthCredential | null>;
   saveCredential(key: ConnectionKey, credential: OAuthCredential): Promise<void>;
   /** The connection's credential refresh lock for `leaseSeconds`: its id, or null while it is held (#496). */
@@ -463,6 +468,18 @@ export function createSupabaseJobStore(): JobStore {
         .eq("id", connectionId)
         .eq("workspace_id", workspaceId);
       if (error) throw failure("connection update", error);
+    },
+
+    async updateConnectionInStatus({ workspaceId, connectionId }, statuses, patch) {
+      const { data, error } = await db
+        .from("connections")
+        .update(patch)
+        .eq("id", connectionId)
+        .eq("workspace_id", workspaceId)
+        .in("status", [...statuses])
+        .select("id");
+      if (error) throw failure("connection update", error);
+      return data.length > 0;
     },
 
     loadCredential(key) {

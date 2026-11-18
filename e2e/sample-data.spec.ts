@@ -89,6 +89,7 @@ ownerTest.describe("sample data as the owner", () => {
         workspace_id: workspace.id,
         provider: "vercel",
         status: "active",
+        granted_at: new Date().toISOString(),
         display_name: "Vercel e2e connection",
         poll_interval_seconds: 3600,
       });
