@@ -2,14 +2,14 @@
 -- events are inserted and counted; a stored event whose body is null takes the first non-null body
 -- a later write brings, and nothing else of it changes; a stored body is never replaced or
 -- cleared; the first row of a key in one call is the one written; a fill-in never crosses
--- workspaces, is not counted as new, and leaves the event count rollup as it was; only the
--- service role may call it.
+-- workspaces, is not counted as new, leaves the event count rollup as it was, and does not write
+-- the rollup row at all (so it takes no rollup lock); only the service role may call it.
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS).
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(18);
+select plan(19);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
@@ -79,6 +79,12 @@ create temp table rollup_before as
 select workspace_id, day, type_id, provider, external_account_id, event_count
 from public.activity_event_daily_counts
 where workspace_id in ('c3700002-0000-4000-8000-000000000001', 'c3700002-0000-4000-8000-000000000002');
+-- Where each rollup row sits: an update of the row, even one that leaves its count as it was,
+-- moves it, and so does the lock-decrement-increment path a fill-in must not take.
+create temp table rollup_ctids_before as
+select ctid::text as row_version
+from public.activity_event_daily_counts
+where workspace_id in ('c3700002-0000-4000-8000-000000000001', 'c3700002-0000-4000-8000-000000000002');
 
 -- ---------------------------------------------------------------------------
 -- A later write of stored events, as the poll after a delivery: every other column differs.
@@ -137,6 +143,16 @@ select set_eq(
   $$,
   $$ select * from rollup_before $$,
   'a fill-in leaves the event count rollup as it was'
+);
+
+select set_eq(
+  $$
+    select ctid::text as row_version
+    from public.activity_event_daily_counts
+    where workspace_id in ('c3700002-0000-4000-8000-000000000001', 'c3700002-0000-4000-8000-000000000002')
+  $$,
+  $$ select row_version from rollup_ctids_before $$,
+  'a fill-in does not write the event count rollup row'
 );
 
 -- value to null: a write without a body leaves the stored body alone.

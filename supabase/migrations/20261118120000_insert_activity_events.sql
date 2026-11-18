@@ -16,18 +16,20 @@
 --
 -- Two statements rather than `on conflict do update`, so the count of new rows stays a plain row
 -- count. Each statement reads committed rows afresh, so a row a concurrent writer committed while
--- the insert waited on it is still filled in. The update locks its rows in key order first, so two
--- writers filling the same events queue instead of deadlocking (the rollup triggers on
--- activity_events lock in key order for the same reason, #236).
+-- the insert waited on it is still filled in. The update locks the events it fills in key order.
 --
--- The update fires activity_events_count_update, a statement-level trigger that runs even when no
--- row matches, so it runs only when the call has a body to fill in. A fill-in takes each filled
--- event's activity_event_daily_counts row through the trigger's update path (lock, decrement,
--- delete if that reached zero, increment again) and leaves the counts as they were, since no
--- counted column changes; that is a second round of rollup row locks after the insert's, taken in
--- the rollup's own key order as every rollup writer takes them.
+-- A fill-in takes no rollup lock. The update fires activity_events_count_update, a statement-level
+-- trigger, so it runs only when an `if exists` probe finds a body to fill in, and the rollup
+-- function is replaced below to return at once for an update that moves no event to another
+-- rollup key. Without that, the trigger took each filled event's activity_event_daily_counts row
+-- through its update path (lock, decrement, increment again) after the insert's trigger had locked
+-- the inserted rows' rollup rows, and with the filled events' row locks between the two passes, two
+-- calls carrying a body for the same stored event deadlocked (#499 review: 155 of 200 rounds in a
+-- throwaway database). Now a call's locks are its inserted rows' rollup rows in key order, then the
+-- events it fills in key order, and nothing after. An update that does move a key (the
+-- external_accounts set null action) still decrements and increments as before.
 --
--- Expand only: a new function, so code that does not call it keeps working.
+-- Expand only: a new function, and a rollup function that counts every change as before.
 
 create function public.insert_activity_events(p_rows jsonb)
   returns int
@@ -92,3 +94,98 @@ $$;
 
 revoke execute on function public.insert_activity_events(jsonb) from public, anon, authenticated;
 grant execute on function public.insert_activity_events(jsonb) to service_role;
+
+-- ── activity_events_count_rollup ───────────────────────────────────────────────
+-- Stated again with the body 20261106090000_activity_event_daily_counts.sql creates and one change:
+-- an update whose old and new rows group to the same rollup keys with the same counts returns at
+-- once, since it changes no count. That is a body fill-in; the set null update moves a key and
+-- takes the usual path. Same signature, so the four triggers keep calling it.
+
+create or replace function public.activity_events_count_rollup()
+  returns trigger
+  language plpgsql
+  security definer
+  set search_path = ''
+as $$
+begin
+  if tg_op = 'TRUNCATE' then
+    truncate public.activity_event_daily_counts;
+    return null;
+  end if;
+
+  -- An update that moves no event to another rollup key (a body fill-in, #499) changes no count.
+  -- Nested: old_rows exists only for the update and delete triggers, and plpgsql plans a whole
+  -- condition at once, so `tg_op = 'UPDATE' and not exists (...)` fails on insert. Both transition
+  -- tables of an update hold the same number of rows, so one direction of `except` is enough.
+  if tg_op = 'UPDATE' then
+    if not exists (
+      select o.workspace_id, (o.occurred_at at time zone 'UTC')::date, o.type_id, o.provider, o.external_account_id,
+        count(*)
+      from old_rows o
+      group by 1, 2, 3, 4, 5
+      except
+      select n.workspace_id, (n.occurred_at at time zone 'UTC')::date, n.type_id, n.provider, n.external_account_id,
+        count(*)
+      from new_rows n
+      group by 1, 2, 3, 4, 5
+    ) then
+      return null;
+    end if;
+  end if;
+
+  if tg_op in ('DELETE', 'UPDATE') then
+    perform 1
+    from public.activity_event_daily_counts c
+    join (
+      select distinct o.workspace_id, (o.occurred_at at time zone 'UTC')::date as day, o.type_id, o.provider,
+        o.external_account_id
+      from old_rows o
+    ) g
+      on c.workspace_id = g.workspace_id
+      and c.day = g.day
+      and c.type_id = g.type_id
+      and c.provider is not distinct from g.provider
+      and c.external_account_id is not distinct from g.external_account_id
+    order by c.workspace_id, c.day, c.type_id, c.provider, c.external_account_id
+    for update of c;
+
+    with gone as (
+      select o.workspace_id, (o.occurred_at at time zone 'UTC')::date as day, o.type_id, o.provider,
+        o.external_account_id, count(*)::int as n
+      from old_rows o
+      group by 1, 2, 3, 4, 5
+    )
+    update public.activity_event_daily_counts c
+    set event_count = c.event_count - g.n
+    from gone g
+    where c.workspace_id = g.workspace_id
+      and c.day = g.day
+      and c.type_id = g.type_id
+      and c.provider is not distinct from g.provider
+      and c.external_account_id is not distinct from g.external_account_id;
+
+    delete from public.activity_event_daily_counts c
+    using (select distinct o.workspace_id, (o.occurred_at at time zone 'UTC')::date as day from old_rows o) t
+    where c.workspace_id = t.workspace_id
+      and c.day = t.day
+      and c.event_count = 0;
+  end if;
+
+  if tg_op in ('INSERT', 'UPDATE') then
+    insert into public.activity_event_daily_counts as c (
+      workspace_id, day, type_id, provider, external_account_id, event_count
+    )
+    select n.workspace_id, (n.occurred_at at time zone 'UTC')::date, n.type_id, n.provider,
+      n.external_account_id, count(*)::int
+    from new_rows n
+    group by 1, 2, 3, 4, 5
+    order by 1, 2, 3, 4, 5
+    on conflict on constraint activity_event_daily_counts_key
+      do update set event_count = c.event_count + excluded.event_count;
+  end if;
+
+  return null;
+end;
+$$;
+
+revoke execute on function public.activity_events_count_rollup() from public, anon, authenticated, service_role;
