@@ -1,10 +1,10 @@
-import type { Database } from "../src/lib/supabase/database.types";
-
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 import type { Page } from "@playwright/test";
 import { z } from "zod";
+
+import type { Database } from "../src/lib/supabase/database.types";
 
 import { openCreateForm } from "./fixtures/alerts";
 import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
@@ -78,13 +78,16 @@ async function countEvents(workspace: TestWorkspace): Promise<number | null> {
   return count;
 }
 
-type Incident = Pick<Database["public"]["Tables"]["activity_events"]["Row"], "id" | "title" | "occurred_at" | "connection_id" | "external_account_id">;
+type Incident = Pick<
+  Database["public"]["Tables"]["activity_events"]["Row"],
+  "id" | "title" | "occurred_at" | "connection_id" | "external_account_id" | "provider" | "type_id" | "severity"
+>;
 
 /** The newest failed deployment the command wrote, told apart from the sync's by its dedupe key. */
 async function latestIncident(workspace: TestWorkspace): Promise<Incident> {
   const { data: incident, error } = await adminClient()
     .from("activity_events")
-    .select("id, title, occurred_at, connection_id, external_account_id")
+    .select("id, title, occurred_at, connection_id, external_account_id, provider, type_id, severity")
     .eq("workspace_id", workspace.id)
     .like("dedupe_key", `${INCIDENT_DEDUPE_KEY_PREFIX}%`)
     .order("occurred_at", { ascending: false })
@@ -106,9 +109,9 @@ async function seedSyncFailureBefore(workspace: TestWorkspace, incident: Inciden
     workspace_id: workspace.id,
     connection_id: incident.connection_id,
     external_account_id: incident.external_account_id,
-    provider: "vercel",
-    type_id: "vercel.deployment.failed",
-    severity: "critical",
+    provider: incident.provider,
+    type_id: incident.type_id,
+    severity: incident.severity,
     title: "Production deployment of api failed",
     occurred_at: new Date(Date.parse(incident.occurred_at) - 1).toISOString(),
     dedupe_key: "e2e-demo-event-api-failed",
