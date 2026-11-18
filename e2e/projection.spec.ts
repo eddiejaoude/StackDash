@@ -26,6 +26,7 @@ async function seedConnection(workspace: TestWorkspace, name: string, externalId
       workspace_id: workspace.id,
       provider: "fake",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: name,
       poll_interval_seconds: 86_400,
       last_synced_at: new Date(todayStart - DAY_MS / 2).toISOString(),

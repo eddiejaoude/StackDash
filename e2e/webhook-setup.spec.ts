@@ -519,6 +519,7 @@ async function seedGitLabEndpoints(workspace: TestWorkspace, count: number): Pro
       workspace_id: workspace.id,
       provider: "gitlab" as const,
       status: "active" as const,
+      granted_at: new Date().toISOString(),
       display_name: `Seeded ${index}`,
       poll_interval_seconds: 3600,
     })),

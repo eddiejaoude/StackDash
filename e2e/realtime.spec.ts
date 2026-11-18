@@ -55,6 +55,7 @@ async function seedConnection(workspace: TestWorkspace): Promise<SeededConnectio
       workspace_id: workspace.id,
       provider: "fake",
       status: "active",
+      granted_at: new Date().toISOString(),
       display_name: "Fake live connection",
       poll_interval_seconds: 3_600,
       last_synced_at: new Date().toISOString(),
@@ -923,6 +924,7 @@ ownerTest.describe("arriving data", () => {
           workspace_id: workspace.id,
           provider: "github",
           status: "active",
+          granted_at: new Date().toISOString(),
           display_name: "acme-org",
           poll_interval_seconds: 3_600,
           next_sync_at: notDueForAMonth(),
@@ -1063,6 +1065,7 @@ ownerTest.describe("arriving data", () => {
             display_name,
             poll_interval_seconds: 3_600,
             created_at: new Date(connectedFrom + index * 60_000).toISOString(),
+            granted_at: new Date(connectedFrom + index * 60_000).toISOString(),
           })),
         )
         .select("id, display_name");
