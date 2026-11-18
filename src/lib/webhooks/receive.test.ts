@@ -12,6 +12,7 @@ import { postHogAdapter } from "@/lib/adapters/posthog";
 import {
   Secret,
   type AdapterContext,
+  type ConnectionMode,
   type ProviderAdapter,
   type WebhookConnection,
   type WebhookDescriptor,
@@ -289,6 +290,124 @@ describe("receiveWebhook", () => {
     expect(lines).toEqual([
       { level: "error", event: "webhook.secret_missing", fields: { provider: "fake", secretEnv: FAKE_WEBHOOK_SECRET_ENV } },
     ]);
+  });
+
+  describe("a test mode secret beside the app secret (#481)", () => {
+    const TEST_MODE_SECRET = "test-only-fake-test-mode-webhook-secret";
+    const TEST_MODE_SECRET_ENV = "FAKE_WEBHOOK_TEST_SECRET";
+    const signup: ActivityEvent = { typeId: "fake.signup", occurredAt: NOW, severity: "info", title: "New signup", externalAccountId: "fake-acct-1", dedupeKey: "k" };
+    const eventsIn = (mode: ConnectionMode | undefined): WebhookOutcome =>
+      mode === undefined ? { kind: "events", externalAccountId: "fake-acct-1", events: [signup] } : { kind: "events", externalAccountId: "fake-acct-1", mode, events: [signup] };
+    const uninstallIn = (mode: ConnectionMode | undefined): WebhookOutcome =>
+      mode === undefined
+        ? { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: NOW }
+        : { kind: "uninstalled", externalAccountId: "fake-acct-1", mode, occurredAt: NOW };
+
+    /** The fake provider with a test mode endpoint, its mode recorded per connection, and `outcome` as what it parses. */
+    function twoSecrets(outcome: WebhookOutcome, env: Readonly<{ primary?: string; testMode?: string }> = { primary: SECRET, testMode: TEST_MODE_SECRET }) {
+      return setup({
+        getAdapter: () => ({
+          ...withWebhooks({
+            registration: { kind: "app", secretEnv: FAKE_WEBHOOK_SECRET_ENV, testModeSecretEnv: TEST_MODE_SECRET_ENV },
+            parse: () => outcome,
+          }),
+          modeOf: () => "live",
+        }),
+        readEnv: (name) => (name === FAKE_WEBHOOK_SECRET_ENV ? env.primary : name === TEST_MODE_SECRET_ENV ? env.testMode : undefined),
+      });
+    }
+
+    it.each(["live", "test", undefined] as const)("accepts a delivery the app secret verifies, whatever mode it names (%s)", async (mode) => {
+      const { deps, store } = twoSecrets(eventsIn(mode));
+      const response = await receive(deps, delivery(EVENT_BODY));
+      expect(response.status).toBe(202);
+      expect(store.webhookDeliveries.map((row) => row.outcome)).toEqual([eventsIn(mode)]);
+    });
+
+    it("accepts a test mode delivery the test mode secret verifies, storing its mode", async () => {
+      const { deps, store, webhookJobs } = twoSecrets(eventsIn("test"));
+      const response = await receive(deps, delivery(EVENT_BODY, { secret: TEST_MODE_SECRET }));
+      expect(response.status).toBe(202);
+      expect(webhookJobs()).toHaveLength(1);
+      expect(store.webhookDeliveries.map((row) => row.outcome)).toEqual([eventsIn("test")]);
+    });
+
+    it("accepts a test mode uninstall the test mode secret verifies", async () => {
+      const { deps, store } = twoSecrets(uninstallIn("test"));
+      const response = await receive(deps, delivery(EVENT_BODY, { secret: TEST_MODE_SECRET }));
+      expect(response.status).toBe(202);
+      expect(store.webhookDeliveries.map((row) => row.outcome)).toEqual([uninstallIn("test")]);
+    });
+
+    it("accepts an ignored delivery the test mode secret verifies, which reaches no connection", async () => {
+      const { deps, store, webhookJobs } = twoSecrets({ kind: "ignored", reason: "unmapped" });
+      const response = await receive(deps, delivery(EVENT_BODY, { secret: TEST_MODE_SECRET }));
+      expect(response.status).toBe(202);
+      expect(webhookJobs()).toHaveLength(0);
+      expect(store.webhookDeliveries.map((row) => row.status)).toEqual(["processed"]);
+    });
+
+    it.each([
+      { name: "the test mode endpoint's copy first", first: TEST_MODE_SECRET, second: SECRET },
+      { name: "the live mode endpoint's copy first", first: SECRET, second: TEST_MODE_SECRET },
+    ])(
+      "answers the second copy of one test mode event, signed with the other secret, as a duplicate and queues one job ($name)",
+      async ({ first, second }) => {
+        // An account installed in both modes: Stripe sends its test mode event to both endpoints.
+        const { deps, webhookJobs } = twoSecrets(eventsIn("test"));
+        expect((await receive(deps, delivery(EVENT_BODY, { deliveryId: "delivery-both-modes", secret: first }))).status).toBe(202);
+        const repeat = await receive(deps, delivery(EVENT_BODY, { deliveryId: "delivery-both-modes", secret: second }));
+        expect(repeat.status).toBe(200);
+        expect(await repeat.json()).toEqual({ status: "duplicate" });
+        expect(webhookJobs()).toHaveLength(1);
+      },
+    );
+
+    it.each([
+      { name: "events naming live mode", outcome: eventsIn("live"), error: "invalid_events", event: "webhook.invalid_events" },
+      { name: "events naming no mode", outcome: eventsIn(undefined), error: "invalid_events", event: "webhook.invalid_events" },
+      { name: "an uninstall naming live mode", outcome: uninstallIn("live"), error: "invalid_uninstall", event: "webhook.invalid_uninstall" },
+      { name: "an uninstall naming no mode", outcome: uninstallIn(undefined), error: "invalid_uninstall", event: "webhook.invalid_uninstall" },
+    ])("answers 422 and stores nothing for $name verified only by the test mode secret (boundary: never live)", async ({ outcome, error, event }) => {
+      const { deps, store, webhookJobs, lines } = twoSecrets(outcome);
+      const response = await receive(deps, delivery(EVENT_BODY, { secret: TEST_MODE_SECRET }));
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ error, referenceId: "REF-TEST0000" });
+      expect(webhookJobs()).toHaveLength(0);
+      expect(store.webhookDeliveries).toEqual([]);
+      expect(lines.map((line) => line.event)).toEqual([event]);
+      expect(lines[0]?.fields?.issues).toEqual(["mode"]);
+    });
+
+    it("accepts a test mode delivery with only the test mode secret set (boundary: no live secret)", async () => {
+      const { deps } = twoSecrets(eventsIn("test"), { testMode: TEST_MODE_SECRET });
+      expect((await receive(deps, delivery(EVENT_BODY, { secret: TEST_MODE_SECRET }))).status).toBe(202);
+    });
+
+    it("refuses with 401 a delivery the app secret would verify while only the test mode secret is set (boundary: no live secret)", async () => {
+      const { deps, store } = twoSecrets(eventsIn("live"), { testMode: TEST_MODE_SECRET });
+      expect((await receive(deps, delivery(EVENT_BODY))).status).toBe(401);
+      expect(store.webhookDeliveries).toEqual([]);
+    });
+
+    it("refuses with 401 a delivery neither secret verifies", async () => {
+      const { deps, lines } = twoSecrets(eventsIn("test"));
+      expect((await receive(deps, delivery(EVENT_BODY, { secret: "some-other-secret" }))).status).toBe(401);
+      expect(lines).toEqual([{ level: "warn", event: "webhook.rejected", fields: { provider: "fake", reason: "bad_signature", endpointId: null } }]);
+    });
+
+    it("says a delivery signed with the test mode secret but past the tolerance is stale, not a bad signature", async () => {
+      const { deps, lines } = twoSecrets(eventsIn("test"));
+      const timestampSeconds = NOW_SECONDS - FAKE_WEBHOOK_TOLERANCE_SECONDS - 1;
+      expect((await receive(deps, delivery(EVENT_BODY, { secret: TEST_MODE_SECRET, timestampSeconds }))).status).toBe(401);
+      expect(lines.map((line) => line.fields?.reason)).toEqual(["stale"]);
+    });
+
+    it("answers 503, naming the app secret's variable, when neither secret is set", async () => {
+      const { deps, lines } = twoSecrets(eventsIn("test"), {});
+      expect((await receive(deps, delivery(EVENT_BODY))).status).toBe(503);
+      expect(lines).toEqual([{ level: "error", event: "webhook.secret_missing", fields: { provider: "fake", secretEnv: FAKE_WEBHOOK_SECRET_ENV } }]);
+    });
   });
 
   describe("connection-level URL", () => {
@@ -582,6 +701,39 @@ describe("receiveWebhook", () => {
         expect(lines.map((line) => line.event)).toEqual(["webhook.invalid_events"]);
         expect(lines[0]?.fields?.issues).toEqual(["installationId"]);
       });
+    });
+
+    describe("events and uninstalls naming a mode (#481)", () => {
+      const signup: ActivityEvent = { typeId: "fake.signup", occurredAt: NOW, severity: "info", title: "New signup", externalAccountId: "fake-acct-1", dedupeKey: "k" };
+      // What a parse that copied an unchecked value would return: a mode the type does not allow.
+      const drifted: WebhookOutcome = { kind: "events", externalAccountId: "fake-acct-1", mode: "live", events: [] };
+      Object.assign(drifted, { mode: "sandbox" });
+
+      it.each([
+        { name: "events", outcome: { kind: "events", externalAccountId: "fake-acct-1", mode: "test", events: [signup] } },
+        { name: "an uninstall", outcome: { kind: "uninstalled", externalAccountId: "fake-acct-1", mode: "live", occurredAt: NOW } },
+      ] satisfies { name: string; outcome: WebhookOutcome }[])("accepts $name naming a mode from an adapter that records modes, storing the mode", async ({ outcome }) => {
+        const { deps, store } = setup({ getAdapter: () => ({ ...withWebhooks({ parse: () => outcome }), modeOf: () => "live" }) });
+        expect((await receive(deps, delivery(EVENT_BODY))).status).toBe(202);
+        expect(store.webhookDeliveries.map((row) => row.outcome)).toEqual([outcome]);
+      });
+
+      it.each([
+        { name: "events from an adapter that does not declare modeOf", outcome: { kind: "events", externalAccountId: "fake-acct-1", mode: "live", events: [signup] }, records: false, error: "invalid_events" },
+        { name: "an uninstall from an adapter that does not declare modeOf", outcome: { kind: "uninstalled", externalAccountId: "fake-acct-1", mode: "test", occurredAt: NOW }, records: false, error: "invalid_uninstall" },
+        { name: "events naming a mode that is not one", outcome: drifted, records: true, error: "invalid_events" },
+      ] satisfies { name: string; outcome: WebhookOutcome; records: boolean; error: string }[])(
+        "answers 422 and logs the issue name only for $name (boundary)",
+        async ({ outcome, records, error }) => {
+          const parse = () => outcome;
+          const { deps, store, lines } = setup({ getAdapter: () => (records ? { ...withWebhooks({ parse }), modeOf: () => "live" } : withWebhooks({ parse })) });
+          const response = await receive(deps, delivery(EVENT_BODY));
+          expect(response.status).toBe(422);
+          expect(await response.json()).toEqual({ error, referenceId: "REF-TEST0000" });
+          expect(store.webhookDeliveries).toEqual([]);
+          expect(lines[0]?.fields?.issues).toEqual(["mode"]);
+        },
+      );
     });
 
     it("records a verified delivery the provider does not map as ignored and processed, with 202 and no job", async () => {

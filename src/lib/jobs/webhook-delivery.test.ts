@@ -6,7 +6,7 @@ import type { ActivityEvent } from "@/lib/adapters/events";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { SIMULATED_WEBHOOK_SECRET_ENV, simulatedAdapters } from "@/lib/adapters/simulated";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
-import { Secret, type OAuthCredential, type ProviderAdapter, type WebhookOutcome } from "@/lib/adapters/types";
+import { Secret, type ConnectionMode, type OAuthCredential, type ProviderAdapter, type WebhookOutcome } from "@/lib/adapters/types";
 import { vercelAdapter } from "@/lib/adapters/vercel";
 import type { LogFields, Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
@@ -387,7 +387,7 @@ describe("runWebhookJob", () => {
       // The harness clock is past the removal, so this save is after it.
       await harness.store.saveCredential({ workspaceId: WORKSPACE_A, connectionId: unstamped.id }, credential);
       expect(await harness.store.listInstallationTargets({ provider: "fake", installationId: INSTALLATION, endpointId: null })).toEqual([
-        { workspaceId: WORKSPACE_A, connectionId: unstamped.id, grantedAt: null, simulated: false },
+        { workspaceId: WORKSPACE_A, connectionId: unstamped.id, grantedAt: null, simulated: false, mode: null },
       ]);
       const job = await harness.deliver(installationUninstall);
 
@@ -675,6 +675,99 @@ describe("runWebhookJob", () => {
         }
         expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
       });
+    });
+  });
+
+  describe("live and test mode connections of one account (#481)", () => {
+    // A Stripe account id is the same in both modes. Each case puts a live and a test mode
+    // connection of fake-acct-1 in one workspace or in two, and checks a delivery of each mode
+    // reaches only its own mode's connection.
+    const placements = [
+      { name: "one workspace", liveIn: WORKSPACE_A, testIn: WORKSPACE_A },
+      { name: "two workspaces", liveIn: WORKSPACE_A, testIn: WORKSPACE_B },
+    ] as const;
+    const modes = [
+      { mode: "live", other: "test" },
+      { mode: "test", other: "live" },
+    ] as const;
+    const cases = placements.flatMap((placement) => modes.map((mode) => ({ ...placement, ...mode })));
+    const eventsIn = (mode: ConnectionMode): WebhookOutcome => ({ kind: "events", externalAccountId: "fake-acct-1", mode, events: [deployment] });
+    const uninstallIn = (mode: ConnectionMode): WebhookOutcome => ({ kind: "uninstalled", externalAccountId: "fake-acct-1", mode, occurredAt: UNINSTALLED_AT });
+
+    function bothModes(connect: (workspaceId: string, fields: Partial<MemoryConnection>) => MemoryConnection, liveIn: string, testIn: string) {
+      return { live: connect(liveIn, { mode: "live" }), test: connect(testIn, { mode: "test" }) };
+    }
+
+    it.each(cases)("writes a $mode mode delivery's events to the $mode mode connection only ($name)", async ({ mode, other, liveIn, testIn }) => {
+      const harness = setup();
+      const connections = bothModes(harness.connect, liveIn, testIn);
+      const job = await harness.deliver(eventsIn(mode));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.store.events.map((event) => event.connection_id)).toEqual([connections[mode].id]);
+      expect([...harness.delivered.keys()]).toEqual([connections[mode].id]);
+      expect(harness.infos).toContainEqual({
+        event: "webhook.targets_other_mode",
+        fields: { jobId: job.id, provider: "fake", deliveryRowId: harness.store.webhookDeliveries[0]?.id, kind: "events", mode, dropped: 1 },
+      });
+      expect(connections[other]).toMatchObject({ status: "active" });
+    });
+
+    it.each(cases)("asks only the $mode mode connection to reconnect on a $mode mode uninstall ($name)", async ({ mode, other, liveIn, testIn }) => {
+      const harness = setup();
+      const connections = bothModes(harness.connect, liveIn, testIn);
+      const before = { ...connections[other] };
+      const job = await harness.deliver(uninstallIn(mode));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(connections[mode]).toMatchObject({ status: "needs_attention", last_error_code: "auth_revoked" });
+      expect(connections[other]).toEqual(before);
+      expect(harness.store.events.map((event) => event.connection_id)).toEqual([connections[mode].id]);
+    });
+
+    it("writes nothing to a connection with no recorded mode, and says nothing matched (boundary: null)", async () => {
+      const harness = setup();
+      const connection = harness.connect(WORKSPACE_A, { mode: null });
+      const job = await harness.deliver(eventsIn("live"));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.store.events).toEqual([]);
+      expect(connection).toMatchObject({ status: "active" });
+      expect(harness.infos.map((line) => line.event)).toEqual(["webhook.targets_other_mode", "webhook.no_targets"]);
+      expect(harness.store.webhookDeliveries.map((delivery) => delivery.status)).toEqual(["processed"]);
+    });
+
+    it("leaves a connection with no recorded mode alone on an uninstall naming one (boundary: null)", async () => {
+      const harness = setup();
+      const connection = harness.connect(WORKSPACE_A, { mode: null });
+      const job = await harness.deliver(uninstallIn("test"));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(connection).toMatchObject({ status: "active", consecutive_failures: 0 });
+    });
+
+    it("reaches every mode, and logs nothing dropped, when the delivery names none (boundary: no mode named)", async () => {
+      const harness = setup();
+      const { live, test } = bothModes(harness.connect, WORKSPACE_A, WORKSPACE_B);
+      const unrecorded = harness.connect(WORKSPACE_B, { mode: null });
+      const job = await harness.deliver(events([deployment]));
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(new Set(harness.delivered.keys())).toEqual(new Set([live.id, test.id, unrecorded.id]));
+      expect(harness.infos.map((line) => line.event)).not.toContain("webhook.targets_other_mode");
+    });
+
+    it("keeps the kind and the mode together: a simulated test mode delivery skips a real test mode connection and a simulated live one", async () => {
+      const harness = setup();
+      const simulatedScopes = { granted_scopes: [SIMULATED_SCOPE] };
+      const kept = harness.connect(WORKSPACE_A, { mode: "test", ...simulatedScopes });
+      harness.connect(WORKSPACE_A, { mode: "test" });
+      harness.connect(WORKSPACE_B, { mode: "live", ...simulatedScopes });
+      const job = await harness.deliver(eventsIn("test"), "delivery-1", true);
+
+      expect(await runWebhookJob(job, harness.deps, harness.delivered)).toEqual({ status: "succeeded" });
+      expect(harness.store.events.map((event) => event.connection_id)).toEqual([kept.id]);
+      expect(harness.infos.map((line) => line.event)).toEqual(["webhook.targets_dropped", "webhook.targets_other_mode", "webhook.events_written"]);
     });
   });
 

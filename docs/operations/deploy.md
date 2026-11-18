@@ -168,6 +168,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `STRIPE_APP_SECRET_KEY` | Secret | Yes | Optional | Same (`sk_live_...` of the app's account) |
 | `STRIPE_APP_TEST_SECRET_KEY` | Secret | Only to accept test mode installs | Optional | Same (`sk_test_...`) |
 | `STRIPE_WEBHOOK_SECRET` | Secret | Only to receive Stripe webhooks for live mode installs | Optional | Same (`whsec_...` of the live mode webhook endpoint) |
+| `STRIPE_WEBHOOK_TEST_SECRET` | Secret | Only to receive Stripe webhooks for test mode installs | Optional | Same (`whsec_...` of the test mode webhook endpoint at the same URL) |
 | `SUPABASE_OAUTH_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Supabase OAuth app](oauth-apps.md#supabase-oauth-app) |
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RESEND_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Resend OAuth client](oauth-apps.md#resend-oauth-client) |

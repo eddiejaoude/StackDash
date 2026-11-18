@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { ActivityEventSchema } from "@/lib/adapters/events";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
-import { ProviderIdSchema, type OAuthCredential, type ProviderId, type WebhookOutcome } from "@/lib/adapters/types";
+import { connectionModes, ProviderIdSchema, type ConnectionMode, type OAuthCredential, type ProviderId, type WebhookOutcome } from "@/lib/adapters/types";
 import { ANOMALY_KINDS, type AnomalyMute, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import {
@@ -38,6 +38,7 @@ export type SyncConnection = Pick<
   | "consecutive_failures"
   | "missing_scopes"
   | "external_installation_id"
+  | "mode"
 >;
 
 export type SyncAccount = Pick<Tables<"external_accounts">, "id" | "external_id" | "display_name" | "sync_cursor">;
@@ -52,6 +53,7 @@ export type ConnectionPatch = Pick<
   | "last_error_reference"
   | "missing_scopes"
   | "external_installation_id"
+  | "mode"
 >;
 
 export type ClaimedJob = Pick<
@@ -115,9 +117,17 @@ export type WebhookDeliveryRecord = Readonly<{
  * so an uninstall older than a reconnect is left to the next sync while one older than only a
  * refresh is applied. `simulated` is whether the provider simulator made the connection (its
  * granted scopes hold SIMULATED_SCOPE, as `isSimulatedConnection` reads them), so the webhook job
- * keeps only the kind that verified the delivery (#495).
+ * keeps only the kind that verified the delivery (#495). `mode` is the connection's live or test
+ * mode (`connections.mode`, #481), null where none is recorded, so the webhook job keeps only the
+ * mode a delivery names.
  */
-export type ConnectionTarget = Readonly<{ workspaceId: string; connectionId: string; grantedAt: string | null; simulated: boolean }>;
+export type ConnectionTarget = Readonly<{
+  workspaceId: string;
+  connectionId: string;
+  grantedAt: string | null;
+  simulated: boolean;
+  mode: ConnectionMode | null;
+}>;
 
 /** An included external account of a live connection that a delivery's account maps to. */
 export type WebhookTarget = ConnectionTarget & Readonly<{ accountId: string }>;
@@ -267,9 +277,11 @@ function isManualSyncResult(value: unknown): value is ManualSyncResult {
   return MANUAL_SYNC_RESULTS.some((result) => result === value);
 }
 
-// The bound of list_webhook_targets, applied before the webhook job keeps one kind, so targets of
-// the other kind count toward it. 20261118140000_webhook_targets_simulated.sql's header says what a
-// target of the delivery's kind past the bound gets: a real one its next poll, a simulated one nothing.
+// The bound of list_webhook_targets, applied before the webhook job keeps one kind and then one mode,
+// so targets of the other kind or the other mode count toward it.
+// 20261118140000_webhook_targets_simulated.sql's header says what a target of the delivery's kind
+// past the bound gets: a real one its next poll, a simulated one nothing. The header of
+// 20261118150000_connection_mode.sql says the same for a target of the delivery's mode.
 export const WEBHOOK_TARGET_LIMIT = 100;
 
 // A row the database does not mark simulated is a real connection's. `simulated` is absent, not
@@ -296,11 +308,17 @@ function isSimulatedTarget(row: Readonly<{ simulated: boolean | undefined }>): b
 // with it, so after an Instant Rollback to such a build each delivery received and not yet applied
 // fails its job for good within about 15 minutes: polling brings a real connection the same
 // events, and a real uninstall shows at its next sync, which finds the grant gone.
+// `mode` (#481), on events and uninstalls, is the live or test mode the delivery names. An outcome
+// stored without it (every shape before #481) still reads back and reaches connections of every
+// mode, as before. A build before #481 refuses an outcome stored with it, the third mixed window of
+// 20261118150000_connection_mode.sql.
+const StoredModeSchema = z.enum(connectionModes).exactOptional();
 const StoredWebhookOutcomeSchema = z.union([
   z.strictObject({
     kind: z.literal("events"),
     externalAccountId: z.string().min(1),
     installationId: z.string().min(1).exactOptional(),
+    mode: StoredModeSchema,
     events: z.array(ActivityEventSchema.extend({ occurredAt: z.iso.datetime().transform((value) => new Date(value)) })),
     simulated: z.boolean().exactOptional(),
   }),
@@ -308,6 +326,7 @@ const StoredWebhookOutcomeSchema = z.union([
     kind: z.literal("uninstalled"),
     by: z.literal("account").exactOptional(),
     externalAccountId: z.string().min(1),
+    mode: StoredModeSchema,
     occurredAt: z.iso.datetime().transform((value) => new Date(value)),
     simulated: z.boolean().exactOptional(),
   }),
@@ -315,6 +334,7 @@ const StoredWebhookOutcomeSchema = z.union([
     kind: z.literal("uninstalled"),
     by: z.literal("installation"),
     installationId: z.string().min(1),
+    mode: StoredModeSchema,
     occurredAt: z.iso.datetime().transform((value) => new Date(value)),
     simulated: z.boolean().exactOptional(),
   }),
@@ -333,6 +353,7 @@ export function webhookOutcomeToJson(outcome: WebhookOutcome, simulated: boolean
     kind: outcome.kind,
     externalAccountId: outcome.externalAccountId,
     ...(outcome.installationId === undefined ? {} : { installationId: outcome.installationId }),
+    ...(outcome.mode === undefined ? {} : { mode: outcome.mode }),
     events: outcome.events.map((event) => ({ ...event, occurredAt: event.occurredAt.toISOString() })),
     simulated,
   };
@@ -488,7 +509,7 @@ export function createSupabaseJobStore(): JobStore {
       const { data, error } = await db
         .from("connections")
         .select(
-          "id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes, external_installation_id",
+          "id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes, external_installation_id, mode",
         )
         .eq("id", connectionId)
         .eq("workspace_id", workspaceId)
@@ -770,6 +791,11 @@ export function createSupabaseJobStore(): JobStore {
         accountId: row.account_id,
         grantedAt: row.granted_at,
         simulated: isSimulatedTarget(row),
+        // Null for a connection with no recorded mode (the generated type misses that the column is
+        // nullable), and absent from a database before 20261118150000_connection_mode.sql, where a
+        // Stripe delivery then reaches no connection. No poll covers that window: getConnection
+        // selects `mode` too, so every sync fails until the migration runs (its window 2).
+        mode: row.mode ?? null,
       }));
     },
 
@@ -787,6 +813,7 @@ export function createSupabaseJobStore(): JobStore {
         connectionId: row.connection_id,
         grantedAt: row.granted_at,
         simulated: isSimulatedTarget(row),
+        mode: row.mode ?? null,
       }));
     },
 

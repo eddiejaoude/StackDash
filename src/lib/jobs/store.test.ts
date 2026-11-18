@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
-import type { WebhookOutcome } from "@/lib/adapters/types";
+import { connectionModes, type WebhookOutcome } from "@/lib/adapters/types";
 import { addUtcDays, anomalySnapshotRange, findAnomalies, type AnomalyConnection, type AnomalyRow } from "@/lib/alerts/anomaly";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { Constants } from "@/lib/supabase/database.types";
 import { fakeSupabase, MAX_ROWS, type Row } from "@/lib/supabase/fake-postgrest";
 
 import {
@@ -343,6 +344,10 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { kind: "uninstalled", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "uninstalled", by: "account", externalAccountId: "fake-acct-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+    { kind: "events", externalAccountId: "acct_1", mode: "live", events: [] },
+    { kind: "events", externalAccountId: "acct_1", mode: "test", events: [] },
+    { kind: "uninstalled", externalAccountId: "acct_1", mode: "test", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
+    { kind: "uninstalled", by: "installation", installationId: "fake-installation-1", mode: "live", occurredAt: new Date("2026-11-14T08:00:00.000Z") },
     { kind: "ignored", reason: "unmapped event" },
   ])("reads back the $kind outcome it stored, event and uninstall dates included", (outcome) => {
     for (const simulated of [true, false]) {
@@ -392,6 +397,10 @@ describe("webhook delivery outcome stored as JSON (#28)", () => {
     { name: "an unknown by", value: { kind: "uninstalled", by: "organization", externalAccountId: "fake-acct-1", occurredAt: "2026-11-14T08:00:00.000Z" } },
     { name: "a simulated that is not a boolean", value: { kind: "events", externalAccountId: "fake-acct-1", events: [], simulated: "yes" } },
     { name: "a null simulated", value: { kind: "events", externalAccountId: "fake-acct-1", events: [], simulated: null } },
+    { name: "an unknown mode (#481)", value: { kind: "events", externalAccountId: "acct_1", mode: "sandbox", events: [] } },
+    { name: "a mode in another case", value: { kind: "uninstalled", externalAccountId: "acct_1", mode: "LIVE", occurredAt: "2026-11-14T08:00:00.000Z" } },
+    { name: "a null mode", value: { kind: "events", externalAccountId: "acct_1", mode: null, events: [] } },
+    { name: "a mode on an ignored delivery, which names none", value: { kind: "ignored", reason: "test", mode: "test" } },
   ])("refuses a stored outcome of another shape (boundary: $name)", ({ value }) => {
     expect(webhookOutcomeFromJson(value)).toBeNull();
   });
@@ -408,6 +417,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
       account_id: uuid(28003, index),
       granted_at: "2026-11-15T09:00:00.123456+00:00",
       simulated: false,
+      mode: null,
     }));
   }
 
@@ -447,8 +457,8 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: null, endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null, simulated: false },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false, mode: null },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), accountId: uuid(28003, 1), grantedAt: null, simulated: false, mode: null },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1" }]);
     expect(warn).not.toHaveBeenCalled();
@@ -468,7 +478,7 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listWebhookTargets({ provider: "fake", externalAccountId: "fake-acct-1", installationId: "fake-installation-1", endpointId: null });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), accountId: uuid(28003, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false, mode: null },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_external_id: "fake-acct-1", p_installation_id: "fake-installation-1" }]);
   });
@@ -481,8 +491,8 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const read = await store.listInstallationTargets({ provider: "fake", installationId: "fake-installation-1", endpointId: ENDPOINT_ID });
 
     expect(read).toEqual([
-      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
-      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false },
+      { workspaceId: uuid(28001, 0), connectionId: uuid(28002, 0), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false, mode: null },
+      { workspaceId: uuid(28001, 1), connectionId: uuid(28002, 1), grantedAt: "2026-11-15T09:00:00.123456+00:00", simulated: false, mode: null },
     ]);
     expect(requests.map((request) => request.args)).toEqual([{ p_provider: "fake", p_installation_id: "fake-installation-1", p_endpoint_id: ENDPOINT_ID }]);
   });
@@ -505,6 +515,26 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const byInstallation = await store.listInstallationTargets({ provider: "github", installationId: "github-installation-1", endpointId: null });
 
     for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.simulated)).toEqual([false]);
+  });
+
+  it("says each target's mode, on the account and the installation match (#481)", async () => {
+    const rows = [{ ...targets(1)[0], mode: "live" }, { ...targets(2)[1], mode: "test" }, { ...targets(3)[2], mode: null }];
+    const { store } = storeWith({ list_webhook_targets: () => rows });
+
+    const byAccount = await store.listWebhookTargets({ provider: "stripe", externalAccountId: "acct_1", installationId: null, endpointId: null });
+    const byInstallation = await store.listInstallationTargets({ provider: "stripe", installationId: "stripe-installation-1", endpointId: null });
+
+    for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.mode)).toEqual(["live", "test", null]);
+  });
+
+  it("reads a target without `mode` as having none, as a database before the migration returns it (boundary: mixed deploy, #481)", async () => {
+    const rows = targets(1).map(({ mode: _mode, ...row }) => row);
+    const { store } = storeWith({ list_webhook_targets: () => rows });
+
+    const byAccount = await store.listWebhookTargets({ provider: "stripe", externalAccountId: "acct_1", installationId: null, endpointId: null });
+    const byInstallation = await store.listInstallationTargets({ provider: "stripe", installationId: "stripe-installation-1", endpointId: null });
+
+    for (const read of [byAccount, byInstallation]) expect(read.map((target) => target.mode)).toEqual([null]);
   });
 
   it.each([
@@ -555,5 +585,11 @@ describe("createSupabaseJobStore webhook deliveries (#28)", () => {
     const { store } = storeWith({}, { webhook_deliveries: rows });
 
     expect(await store.loadWebhookDelivery(DELIVERY_ID)).toBeNull();
+  });
+});
+
+describe("connection modes (#481)", () => {
+  it("are the database's connection_mode enum, in order, so a mode the app names is one Postgres stores", () => {
+    expect(connectionModes).toEqual(Constants.public.Enums.connection_mode);
   });
 });

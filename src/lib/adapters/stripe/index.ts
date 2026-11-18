@@ -47,10 +47,12 @@ import {
  * Stripe adapter (adapter pattern over the Stripe REST API). Facts, endpoints, and privacy rules
  * come from docs/providers/stripe.md; "Unverified #n" refers to that page's Unverified list.
  *
- * Webhooks (#423): one endpoint on the app owner's account, in live mode, with "Listen to events on
- * Connected accounts", receives every install's events with `account` set to the installing
- * account. Stripe signs the timestamp and the raw body, and the event id (the delivery id) is inside
- * the body, so a captured delivery can be neither replayed later nor sent again under a new id.
+ * Webhooks (#423, #481): one endpoint on the app owner's account in live mode and one in test mode,
+ * both at the same URL with "Listen to events on Connected accounts", receive every install's
+ * events with `account` set to the installing account. Each endpoint has its own signing secret
+ * (STRIPE_WEBHOOK_SECRET, STRIPE_WEBHOOK_TEST_SECRET), and the route tries each one that is set.
+ * Stripe signs the timestamp and the raw body, and the event id (the delivery id) is inside the
+ * body, so a captured delivery can be neither replayed later nor sent again under a new id.
  */
 
 const AUTHORIZE_URL = "https://marketplace.stripe.com/oauth/v2/authorize";
@@ -767,19 +769,20 @@ function parseStripeWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): W
   if (!parsed.success) return { kind: "ignored", reason: "not a Stripe event" };
   const event = parsed.data;
   if (event.account === undefined) return { kind: "ignored", reason: "an event on the app owner's own account, not an install's" };
-  // Decided on #423 (option A): the endpoint is a live mode one, and Stripe also sends it the test
-  // mode events of an account that installed the app in both modes. The account id is the same in
-  // both, and nothing downstream knows a connection's mode, so a test mode uninstall would revoke
-  // the live connection. Test mode connections stay polled until #481.
-  // Known gap, accepted by Eddie on #423 (comment 6913870670), open until #481 routes deliveries by
-  // mode: the same blindness runs the other way. A live delivery for an account that also has a test
-  // mode connection (in this workspace or another, or left behind by a live connection deleted in
-  // StackDash but never uninstalled in Stripe) is written to that test mode connection too: live
-  // payments on its timeline and in its achievements, and a live uninstall marks it as needing a
-  // reconnect.
-  if (!event.livemode) return { kind: "ignored", reason: "test mode event; test mode connections are polled" };
+  // A Stripe account id is the same in live and test mode, so every outcome names its mode from the
+  // event's `livemode` (#481), and the webhook job keeps it to connections of that mode: a live
+  // payment never reaches a test mode connection of the account, and a test mode uninstall never
+  // revokes a live one. `livemode: false` does not say which kind of sandbox sent it
+  // (https://docs.stripe.com/stripe-apps/build-backend#event-behavior-depends-on-install-mode), but
+  // the app is not sandbox compatible (docs/providers/stripe.md, Test mode, live mode, and
+  // sandboxes), so a non-live event here is from the test mode sandbox. Stripe sends one to the
+  // test mode endpoint, and to the live one too for an account that installed the app in both modes
+  // (https://docs.stripe.com/stripe-apps/handling-modes#webhooks). The two copies are expected to
+  // share an event id, which makes the second a duplicate, but no Stripe page says so: Unverified
+  // item 13 in docs/providers/stripe.md says what happens if they do not.
+  const mode = event.livemode ? "live" : "test";
   if (UNINSTALL_EVENTS[event.type] === true) {
-    return { kind: "uninstalled", externalAccountId: event.account, occurredAt: new Date(event.created * 1000) };
+    return { kind: "uninstalled", externalAccountId: event.account, mode, occurredAt: new Date(event.created * 1000) };
   }
   let activity: ActivityEvent | undefined;
   try {
@@ -793,7 +796,7 @@ function parseStripeWebhook({ rawBody }: WebhookRequest, ctx: AdapterContext): W
     return { kind: "ignored", reason: "event object does not match the allowlist" };
   }
   if (activity === undefined) return { kind: "ignored", reason: "event type is not on the timeline" };
-  return { kind: "events", externalAccountId: event.account, events: [activity] };
+  return { kind: "events", externalAccountId: event.account, mode, events: [activity] };
 }
 
 /* Adapter -------------------------------------------------------------------------------------- */
@@ -834,10 +837,11 @@ export const stripeAdapter: ProviderAdapter = {
     optionalExtraKeys: [TEST_SECRET_KEY],
   },
   pollIntervalSeconds: 3600,
-  // App-level: one live mode endpoint on the app owner's account receives every install's events.
-  // One secret, deliberately (#423): see `parseStripeWebhook` for why test mode stays polled.
+  // App-level: a live mode and a test mode endpoint on the app owner's account, at the same URL,
+  // receive every install's events. Each has its own signing secret (#481); see `parseStripeWebhook`
+  // for how a delivery reaches only connections of its mode.
   webhooks: {
-    registration: { kind: "app", secretEnv: "STRIPE_WEBHOOK_SECRET" },
+    registration: { kind: "app", secretEnv: "STRIPE_WEBHOOK_SECRET", testModeSecretEnv: "STRIPE_WEBHOOK_TEST_SECRET" },
     subscriptions: WEBHOOK_SUBSCRIPTIONS,
     verify: verifyStripeWebhook,
     parse: parseStripeWebhook,
@@ -901,6 +905,13 @@ export const stripeAdapter: ProviderAdapter = {
       });
     }
     return credentialFromToken(token, issuedAt);
+  },
+
+  // The grant's mode, recorded at exchange time (#481). Null rather than a throw for a credential
+  // without it: such a credential's sync asks for a reconnect (`connectedAccount`), which records one.
+  modeOf(credential) {
+    const livemode = credential.metadata?.livemode;
+    return livemode === "true" ? "live" : livemode === "false" ? "test" : null;
   },
 
   // No revoke: Stripe Apps OAuth documents no revocation endpoint (Unverified #8).

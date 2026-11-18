@@ -6,14 +6,18 @@ import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events
 import { createAdapterContext, getAdapter, isFakeProviderEnabled } from "@/lib/adapters/registry";
 import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import {
+  connectionModes,
   ProviderIdSchema,
   Secret,
   type AdapterContext,
+  type ConnectionMode,
   type ProviderAdapter,
   type ProviderId,
   type WebhookConnection,
+  type WebhookDescriptor,
   type WebhookOutcome,
   type WebhookRegistration,
+  type WebhookRejectionReason,
   type WebhookRequest,
   type WebhookSource,
 } from "@/lib/adapters/types";
@@ -121,28 +125,71 @@ async function readWebhookBody(request: Request): Promise<Uint8Array | null> {
   return readBoundedRequestBody(request, WEBHOOK_MAX_BODY_BYTES);
 }
 
-type SecretResult = Readonly<{ ok: true; secret: Secret; endpoint: WebhookEndpoint | null }> | Readonly<{ ok: false; response: Response }>;
+/**
+ * A secret a delivery may be signed with. `testModeOnly` marks the provider's test mode endpoint
+ * secret (`testModeSecretEnv`, #481): what only it verifies must be a test mode delivery.
+ */
+type VerifyingSecret = Readonly<{ secret: Secret; testModeOnly: boolean }>;
 
-async function resolveSecret(
+type SecretResult =
+  | Readonly<{ ok: true; secrets: readonly VerifyingSecret[]; endpoint: WebhookEndpoint | null }>
+  | Readonly<{ ok: false; response: Response }>;
+
+async function resolveSecrets(
   provider: ProviderId,
   registration: WebhookRegistration,
   endpointId: string | null,
   deps: ReceiveDeps,
 ): Promise<SecretResult> {
   if (registration.kind === "app") {
-    const value = deps.readEnv(registration.secretEnv);
-    if (value === undefined || value.trim() === "") {
+    const configured = (name: string | undefined): string | undefined => {
+      const value = name === undefined ? undefined : deps.readEnv(name);
+      return value === undefined || value.trim() === "" ? undefined : value;
+    };
+    const primary = configured(registration.secretEnv);
+    const testMode = configured(registration.testModeSecretEnv);
+    if (primary === undefined && testMode === undefined) {
       // The instance enabled a provider's push path without its secret: a person must set it.
       // Logged by variable name, which is not secret.
       deps.log.error("webhook.secret_missing", { provider, secretEnv: registration.secretEnv });
       return { ok: false, response: json(503, { error: "not_configured" }) };
     }
-    return { ok: true, secret: new Secret(value), endpoint: null };
+    const secrets: VerifyingSecret[] = [];
+    if (primary !== undefined) secrets.push({ secret: new Secret(primary), testModeOnly: false });
+    if (testMode !== undefined) secrets.push({ secret: new Secret(testMode), testModeOnly: true });
+    return { ok: true, secrets, endpoint: null };
   }
   if (endpointId === null) return { ok: false, response: notFound() };
   const endpoint = await deps.loadWebhookEndpoint(endpointId);
   if (endpoint === null || endpoint.provider !== provider) return { ok: false, response: notFound() };
-  return { ok: true, secret: endpoint.secret, endpoint };
+  return { ok: true, secrets: [{ secret: endpoint.secret, testModeOnly: false }], endpoint };
+}
+
+type DeliveryVerification =
+  | Readonly<{ ok: true; deliveryId: string; testModeOnly: boolean }>
+  | Readonly<{ ok: false; reason: WebhookRejectionReason }>;
+
+/**
+ * Checks the delivery against every secret, all of them each time, so the time taken does not say
+ * which one matched. Verified by any secret that is not test mode only, it is a delivery of any
+ * mode; verified by the test mode secret alone, it is `testModeOnly`. Refused by all, the reason
+ * is the first one that is not `bad_signature` (a secret that matched but found the delivery stale
+ * or malformed says more than one that did not match), else `bad_signature`.
+ */
+function verifyDelivery(descriptor: WebhookDescriptor, request: WebhookRequest, secrets: readonly VerifyingSecret[], now: Date): DeliveryVerification {
+  const results = secrets.map(({ secret, testModeOnly }) => ({ testModeOnly, verification: descriptor.verify(request, secret, now) }));
+  let refusedFor: WebhookRejectionReason = "bad_signature";
+  let testModeDeliveryId: string | undefined;
+  for (const { testModeOnly, verification } of results) {
+    if (!verification.ok) {
+      if (refusedFor === "bad_signature") refusedFor = verification.reason;
+    } else if (!testModeOnly) {
+      return { ok: true, deliveryId: verification.deliveryId, testModeOnly: false };
+    } else {
+      testModeDeliveryId = verification.deliveryId;
+    }
+  }
+  return testModeDeliveryId === undefined ? { ok: false, reason: refusedFor } : { ok: true, deliveryId: testModeDeliveryId, testModeOnly: true };
 }
 
 type EventCheck = Readonly<{ ok: true; events: ActivityEvent[] }> | Readonly<{ ok: false; issues: string[] }>;
@@ -169,6 +216,19 @@ function checkEvents(adapter: ProviderAdapter, externalAccountId: string, candid
 function eventsInstallationIssues(adapter: ProviderAdapter, installationId: string | undefined): string[] {
   if (installationId === undefined) return [];
   return installationId.trim() === "" || adapter.installationIdOf === undefined ? ["installationId"] : [];
+}
+
+/**
+ * Issue names (never values) for the mode an events or uninstalled outcome names (#481): a value
+ * that is not a ConnectionMode, which the stored outcome refuses so the job could never run; a mode
+ * from an adapter that does not declare `modeOf`, so no connection records one and the delivery
+ * reaches none; or anything but test mode on a delivery only the test mode secret verified, which
+ * must never reach a live connection.
+ */
+function modeIssues(adapter: ProviderAdapter, mode: ConnectionMode | undefined, testModeOnly: boolean): string[] {
+  if (mode === undefined) return testModeOnly ? ["mode"] : [];
+  const known = connectionModes.some((candidate) => candidate === mode);
+  return !known || adapter.modeOf === undefined || (testModeOnly && mode !== "test") ? ["mode"] : [];
 }
 
 /**
@@ -215,17 +275,17 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
     const rawBody = await readWebhookBody(input.request);
     if (rawBody === null) return json(413, { error: "payload_too_large" });
 
-    const resolved = await resolveSecret(provider, descriptor.registration, input.endpointId, deps);
+    const resolved = await resolveSecrets(provider, descriptor.registration, input.endpointId, deps);
     if (!resolved.ok) return resolved.response;
     const endpointId = resolved.endpoint?.id ?? null;
 
     const request: WebhookRequest = { headers: input.request.headers, rawBody };
-    const verification = descriptor.verify(request, resolved.secret, deps.now());
+    const verification = verifyDelivery(descriptor, request, resolved.secrets, deps.now());
     if (!verification.ok) {
       deps.log.warn("webhook.rejected", { provider, reason: verification.reason, endpointId: input.endpointId });
       return json(401, { error: "unauthorized" });
     }
-    const { deliveryId } = verification;
+    const { deliveryId, testModeOnly } = verification;
     const fields = { provider, deliveryId, endpointId };
     if (endpointId !== null) {
       const count = await deps.countEndpointDelivery(endpointId);
@@ -248,7 +308,11 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
     }
     if (outcome.kind === "events") {
       const checked = checkEvents(adapter, outcome.externalAccountId, outcome.events);
-      const issues = [...eventsInstallationIssues(adapter, outcome.installationId), ...(checked.ok ? [] : checked.issues)];
+      const issues = [
+        ...eventsInstallationIssues(adapter, outcome.installationId),
+        ...modeIssues(adapter, outcome.mode, testModeOnly),
+        ...(checked.ok ? [] : checked.issues),
+      ];
       if (!checked.ok || issues.length > 0) {
         const referenceId = deps.logError("webhook.invalid_events", new Error(`${provider} webhook parse returned invalid events`), {
           ...fields,
@@ -259,7 +323,7 @@ export async function receiveWebhook(input: ReceiveInput, deps: ReceiveDeps): Pr
       outcome = { ...outcome, events: checked.events };
     }
     if (outcome.kind === "uninstalled") {
-      const issues = uninstallIssues(adapter, outcome);
+      const issues = [...uninstallIssues(adapter, outcome), ...modeIssues(adapter, outcome.mode, testModeOnly)];
       if (issues.length > 0) {
         const referenceId = deps.logError("webhook.invalid_uninstall", new Error(`${provider} webhook parse returned an invalid uninstall`), {
           ...fields,

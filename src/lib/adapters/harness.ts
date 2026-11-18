@@ -3,6 +3,7 @@ import { AchievementSchema, achievementRuleMetricKey, achievementRuleTypeIds } f
 import { EventTypeSchema, validateAdapterEvents } from "./events";
 import { validateAdapterMetrics, type AdapterMetric } from "./metrics";
 import {
+  connectionModes,
   Secret,
   type AdapterCapabilities,
   type BatchValidation,
@@ -258,7 +259,13 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
 
   const { clientIdEnv, clientSecretEnv, extraEnv = {}, optionalExtraKeys = [] } = adapter.oauth;
   const registration = adapter.webhooks?.registration;
-  const webhookSecretEnv = registration?.kind === "app" ? [registration.secretEnv] : [];
+  const webhookSecretEnv =
+    registration?.kind === "app" ? [registration.secretEnv, ...(registration.testModeSecretEnv === undefined ? [] : [registration.testModeSecretEnv])] : [];
+  // A delivery only the test mode secret verifies must name test mode (#481), which only an adapter
+  // that records a connection's mode can do.
+  if (registration?.kind === "app" && registration.testModeSecretEnv !== undefined && adapter.modeOf === undefined) {
+    problems.push("webhooks.registration names a testModeSecretEnv, but the adapter does not declare modeOf");
+  }
   for (const name of [clientIdEnv, clientSecretEnv, ...Object.values(extraEnv), ...webhookSecretEnv]) {
     if (!ENV_NAME.test(name)) problems.push(`environment variable name ${name} must be UPPER_SNAKE_CASE`);
     if (name.startsWith("NEXT_PUBLIC_")) problems.push(`${name} would be sent to the browser; drop NEXT_PUBLIC_`);
@@ -432,6 +439,9 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
  * carries a real time, which the job compares with the connection's grant. Only an adapter that
  * declares `installationIdOf` may name an installation, on an uninstall (#480) or on events (#497):
  * without it no connection records one, so the job could never find its connections.
+ * A `mode` (#481) needs `modeOf` for the same reason, and must be `"live"` or `"test"`, which the
+ * webhook route and the stored outcome also refuse otherwise, so a `parse` that copies an
+ * unchecked value fails here rather than with a 422 in production.
  */
 export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: WebhookOutcome): string[] {
   if (outcome.kind === "ignored") return blank(outcome.reason) ? ["an ignored delivery has no reason"] : [];
@@ -442,6 +452,12 @@ export function checkWebhookOutcome(adapter: ProviderAdapter<string>, outcome: W
       problems.push(`the ${outcome.kind} outcome names an installation, but the adapter does not declare installationIdOf`);
     }
   };
+  if (outcome.mode !== undefined) {
+    if (adapter.modeOf === undefined) problems.push(`the ${outcome.kind} outcome names a mode, but the adapter does not declare modeOf`);
+    if (!connectionModes.some((mode) => mode === outcome.mode)) {
+      problems.push(`the ${outcome.kind} outcome names mode ${String(outcome.mode)}, which is not "live" or "test"`);
+    }
+  }
   if (outcome.kind === "uninstalled") {
     if (outcome.by === "installation") {
       checkInstallation(outcome.installationId);

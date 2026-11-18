@@ -173,6 +173,13 @@ async function syncConnection(
     const installationId = credentialInstallationId(adapter, credential);
     if (installationId !== null) await deps.store.updateConnection(key, { external_installation_id: installationId });
   }
+  // The mode is in the sealed credential too (#481). The backfill read it from the account label,
+  // so the first sync after it, and every later one, checks it against the credential before any
+  // provider call: a null fills, and a mode that disagrees is corrected, since the credential is
+  // what the grant was. A refresh keeps the mode (Stripe refuses one for the other), so this writes
+  // only once per connection.
+  const mode = adapter.modeOf?.(credential) ?? null;
+  if (mode !== null && connection.mode !== mode) await deps.store.updateConnection(key, { mode });
 
   const client = deps.loadOAuthClient(adapter);
   if (client === null) {

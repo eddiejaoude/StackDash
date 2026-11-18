@@ -657,6 +657,50 @@ describe("sync job: installation id of a connection made before #480", () => {
   });
 });
 
+describe("sync job: mode of a connection (#481)", () => {
+  const moded = (mode: "live" | "test" | null): ProviderAdapter => ({ ...fakeAdapter, modeOf: () => mode });
+
+  it("fills a missing mode from the credential on the next sync", async () => {
+    const harness = setup({ adapter: moded("test") });
+    expect(connectionOf(harness).mode).toBeNull();
+
+    await harness.tick();
+
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).mode).toBe("test");
+  });
+
+  it("fills it even when the sync then fails (boundary: revoked credential)", async () => {
+    const harness = setup({ adapter: moded("live"), mode: "revoked" });
+
+    await harness.tick();
+
+    expect(connectionOf(harness)).toMatchObject({ status: "needs_attention", mode: "live" });
+  });
+
+  it("corrects a mode that disagrees with the credential, which is what the grant was (boundary: backfilled wrong)", async () => {
+    const harness = setup({ adapter: moded("live") });
+    connectionOf(harness).mode = "test";
+
+    await harness.tick();
+
+    expect(connectionOf(harness).mode).toBe("live");
+  });
+
+  it.each([
+    ["an adapter whose credential names no mode (boundary: null)", moded(null)],
+    ["an adapter that does not declare modeOf (boundary: omitted)", fakeAdapter],
+  ])("leaves a recorded mode alone for %s", async (_case, adapter: ProviderAdapter) => {
+    const harness = setup({ adapter });
+    connectionOf(harness).mode = "test";
+
+    await harness.tick();
+
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).mode).toBe("test");
+  });
+});
+
 describe("sync job: an uninstall applied while the sync runs (#487)", () => {
   // The fake adapter, except that one sync call can be preceded by a webhook job marking the
   // connection revoked (#28): the uninstall lands between the sync's read of the connection and its

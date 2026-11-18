@@ -38,6 +38,24 @@ export async function tickUntilStored(page: Page, workspace: TestWorkspace, dedu
 }
 
 /**
+ * Ticks until the provider's delivery with `deliveryId` is `processed`: its job has run, so what it
+ * did not write, it never will. A spec asserting that a delivery wrote nothing waits for this first,
+ * because a tick that applied another delivery (`tickUntilStored`) may not have reached this one.
+ */
+export async function tickUntilDeliveryProcessed(
+  page: Page,
+  provider: Database["public"]["Enums"]["provider_id"],
+  deliveryId: string,
+): Promise<void> {
+  await expect(async () => {
+    await tick(page);
+    const { data, error } = await adminClient().from("webhook_deliveries").select("status").eq("provider", provider).eq("delivery_id", deliveryId).single();
+    if (error) throw new Error(`Reading the delivery failed (code ${error.code}).`);
+    expect(data.status).toBe("processed");
+  }).toPass({ timeout: 90_000 });
+}
+
+/**
  * Ticks until the workspace's one connection of `provider` has finished its first sync
  * (`last_synced_at` is set). Every spec that posts an uninstall waits for this first, so the
  * uninstall is applied to an idle connection, as a real one is between its syncs. An uninstall

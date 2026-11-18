@@ -88,6 +88,7 @@ export class MemoryJobStore implements JobStore {
       display_name: "Example connection",
       authorized_account_label: null,
       external_installation_id: null,
+      mode: null,
       granted_at: null,
       granted_scopes: [],
       missing_scopes: [],
@@ -314,6 +315,7 @@ export class MemoryJobStore implements JobStore {
       consecutive_failures,
       missing_scopes,
       external_installation_id,
+      mode,
     } = row;
     return {
       id,
@@ -326,6 +328,7 @@ export class MemoryJobStore implements JobStore {
       consecutive_failures,
       missing_scopes,
       external_installation_id,
+      mode,
     };
   }
 
@@ -660,6 +663,7 @@ export class MemoryJobStore implements JobStore {
         accountId: account.id,
         grantedAt: connection.granted_at,
         simulated: isSimulatedConnection(connection),
+        mode: connection.mode,
       }));
   }
 
@@ -679,6 +683,7 @@ export class MemoryJobStore implements JobStore {
         connectionId: connection.id,
         grantedAt: connection.granted_at,
         simulated: isSimulatedConnection(connection),
+        mode: connection.mode,
       }));
   }
 

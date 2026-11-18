@@ -372,6 +372,28 @@ describe("simulated connect", () => {
     expect(vercelAdapter.installationIdOf).toBeUndefined();
     expect(simulatedAdapters.vercel.installationIdOf).toBeUndefined();
   });
+
+  it("names every simulated Stripe grant test mode, as its account's name says, and a credential it did not mint none (#481)", async () => {
+    const credential = await simulatedAdapters.stripe.exchangeCode(
+      { code: `${SIMULATED_CODE_PREFIX}code`, redirectUri: "http://localhost:3000/cb", callbackParams: {} },
+      makeCtx(SPAN_START),
+    );
+    expect(simulatedAdapters.stripe.modeOf?.(credential)).toBe("test");
+    expect((await simulatedAdapters.stripe.listAccounts(credential, makeCtx(SPAN_START))).map((account) => account.displayName)).toEqual([
+      "Example Stripe account (test mode)",
+    ]);
+    const { metadata: _simulated, ...unmarked } = credential;
+    expect(simulatedAdapters.stripe.modeOf?.(unmarked)).toBeNull();
+  });
+
+  it("verifies Stripe deliveries of either mode with the one simulated secret, never the live test mode variable (#481)", () => {
+    expect(simulatedAdapters.stripe.webhooks?.registration).toEqual({ kind: "app", secretEnv: SIMULATED_WEBHOOK_SECRET_ENV });
+  });
+
+  it("declares no mode when the live adapter has one environment per account (boundary)", () => {
+    expect(vercelAdapter.modeOf).toBeUndefined();
+    expect(simulatedAdapters.vercel.modeOf).toBeUndefined();
+  });
 });
 
 describe("simulated markers", () => {

@@ -161,3 +161,34 @@ describe("completeConnection installation id (#480)", () => {
     expect(finalUpdate(writes)).toMatchObject({ external_installation_id: null });
   });
 });
+
+describe("completeConnection mode (#481)", () => {
+  const moded = (mode: "live" | "test" | null): ProviderAdapter => ({ ...fakeAdapter, modeOf: () => mode });
+
+  it.each(["live", "test"] as const)("records a %s mode grant on a new connection", async (mode) => {
+    const writes = recordingClient();
+
+    await completeConnection({ adapter: moded(mode), ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential });
+
+    expect(finalUpdate(writes)).toMatchObject({ mode });
+  });
+
+  it("records the reconnect's mode, which may differ from the old one", async () => {
+    const writes = recordingClient();
+
+    await completeConnection({ adapter: moded("test"), ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential, reconnectId: CONNECTION_ID });
+
+    expect(finalUpdate(writes)).toMatchObject({ mode: "test" });
+  });
+
+  it.each([
+    ["an adapter that does not declare modeOf (boundary: omitted)", fakeAdapter],
+    ["a credential that names no mode (boundary: null)", moded(null)],
+  ])("writes null for %s", async (_case, adapter: ProviderAdapter) => {
+    const writes = recordingClient();
+
+    await completeConnection({ adapter, ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential });
+
+    expect(finalUpdate(writes)).toMatchObject({ mode: null });
+  });
+});

@@ -231,6 +231,35 @@ describe("checkAdapterDeclaration", () => {
       expect(checkAdapterDeclaration(adapterWith({ webhooks: webhooksWith({ subscriptions: ["event.created"] }) }))).toEqual([]);
     });
 
+    describe("a test mode secret (#481)", () => {
+      const testModeRegistration = { kind: "app", secretEnv: "EXAMPLE_WEBHOOK_SECRET", testModeSecretEnv: "EXAMPLE_WEBHOOK_TEST_SECRET" } as const;
+
+      it("passes from an adapter that declares modeOf", () => {
+        const adapter = adapterWith({ webhooks: webhooksWith({ registration: testModeRegistration }), modeOf: () => "test" });
+        expect(checkAdapterDeclaration(adapter)).toEqual([]);
+      });
+
+      it.each<[string, Partial<ProviderAdapter<string>>, string]>([
+        [
+          "an adapter without modeOf, which could never name the test mode such a delivery must",
+          { webhooks: webhooksWith({ registration: testModeRegistration }) },
+          "webhooks.registration names a testModeSecretEnv, but the adapter does not declare modeOf",
+        ],
+        [
+          "a lowercase test mode variable name",
+          { webhooks: webhooksWith({ registration: { ...testModeRegistration, testModeSecretEnv: "example_test_secret" } }), modeOf: () => "test" },
+          "environment variable name example_test_secret must be UPPER_SNAKE_CASE",
+        ],
+        [
+          "a test mode secret the browser would see",
+          { webhooks: webhooksWith({ registration: { ...testModeRegistration, testModeSecretEnv: "NEXT_PUBLIC_EXAMPLE_TEST_SECRET" } }), modeOf: () => "test" },
+          "NEXT_PUBLIC_EXAMPLE_TEST_SECRET would be sent to the browser; drop NEXT_PUBLIC_",
+        ],
+      ])("reports %s (boundary)", (_case, change, problem) => {
+        expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);
+      });
+    });
+
     it.each<[string, Partial<ProviderAdapter<string>>, string]>([
       [
         "no subscriptions",
@@ -593,6 +622,34 @@ describe("checkWebhookOutcome", () => {
       ["a blank installation id (boundary)", installed, fromInstallation(" "), ["the events outcome has no installationId"]],
     ])("reports %s", (_case, adapter, outcome, problems) => {
       expect(checkWebhookOutcome(adapter, outcome)).toEqual(problems);
+    });
+  });
+
+  describe("outcomes naming a mode (#481)", () => {
+    const moded = { ...exampleAdapter, modeOf: () => "live" as const };
+
+    it.each<[string, WebhookOutcome]>([
+      ["events naming live mode", { kind: "events", externalAccountId: ACCOUNT, mode: "live", events: [signup] }],
+      ["an uninstall naming test mode", { kind: "uninstalled", externalAccountId: ACCOUNT, mode: "test", occurredAt: NOW }],
+    ])("passes %s from an adapter that declares modeOf", (_case, outcome) => {
+      expect(checkWebhookOutcome(moded, outcome)).toEqual([]);
+    });
+
+    it.each<[string, WebhookOutcome, string]>([
+      ["events", { kind: "events", externalAccountId: ACCOUNT, mode: "live", events: [signup] }, "the events outcome names a mode, but the adapter does not declare modeOf"],
+      ["an uninstall", { kind: "uninstalled", externalAccountId: ACCOUNT, mode: "test", occurredAt: NOW }, "the uninstalled outcome names a mode, but the adapter does not declare modeOf"],
+    ])("reports %s naming a mode from an adapter without modeOf, whose connections never record one (boundary)", (_case, outcome, problem) => {
+      expect(checkWebhookOutcome(exampleAdapter, outcome)).toEqual([problem]);
+    });
+
+    it.each<[string, WebhookOutcome]>([
+      ["events", { kind: "events", externalAccountId: ACCOUNT, mode: "live", events: [signup] }],
+      ["an uninstall", { kind: "uninstalled", externalAccountId: ACCOUNT, mode: "test", occurredAt: NOW }],
+    ])("reports %s naming a mode that is not live or test, as a parse copying an unchecked value would (boundary: drifted value)", (_case, outcome) => {
+      // The type allows only "live" and "test"; a parse that copies the provider's value unchecked can still return another.
+      const drifted: WebhookOutcome = { ...outcome };
+      Object.assign(drifted, { mode: "sandbox" });
+      expect(checkWebhookOutcome(moded, drifted)).toEqual([`the ${outcome.kind} outcome names mode sandbox, which is not "live" or "test"`]);
     });
   });
 
