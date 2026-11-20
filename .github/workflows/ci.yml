@@ -221,8 +221,9 @@ jobs:
       # Supabase removes the container, so save the log first, on every run: a green run can pass
       # a rebalance by luck. The lines are also printed in the job log, because a rerun uploads a
       # new artifact that replaces this attempt's log, and the job log of each attempt is kept.
-      # Drop these two steps and this comment once #555 has its proof run: a CLI 3.2.0 run whose
-      # tests last 10 minutes or more, with no Rebalancing line.
+      # Drop these two steps, this comment, and the #555 note above the budget alert's delivery
+      # poll in e2e/demo-event.spec.ts once #555 has its proof run: a CLI 3.2.0 run whose tests
+      # last 10 minutes or more, with no Rebalancing line.
       - name: Save Realtime container log
         if: always()
         run: |
