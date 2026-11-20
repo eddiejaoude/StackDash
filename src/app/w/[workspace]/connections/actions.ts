@@ -225,21 +225,22 @@ export async function syncNow(
     const offered = new Set(availableProviders().map((adapter) => adapter.id));
     const syncable = connected.filter((connection) => offered.has(connection.provider));
     if (syncable.length === 0) {
-      const [unavailable] = connected;
-      if (unavailable === undefined) {
+      const [only] = connections;
+      if (connectionIds.length === 1 && only !== undefined) {
+        // Provider first: without an adapter the connection cannot be reconnected either, so
+        // "reconnect it" would be advice the connection page does not offer.
         return {
           ok: false,
-          message:
-            connectionIds.length === 1
-              ? "This connection is disconnected. Reconnect it before syncing."
-              : "These connections are disconnected. Reconnect them before syncing.",
+          message: offered.has(only.provider)
+            ? "This connection is disconnected. Reconnect it before syncing."
+            : providerUnavailableReason(PROVIDER_NAMES[only.provider]),
         };
       }
       return {
         ok: false,
         message:
-          connectionIds.length === 1
-            ? providerUnavailableReason(PROVIDER_NAMES[unavailable.provider])
+          connected.length === 0
+            ? "These connections are disconnected. Reconnect them before syncing."
             : "None of these connections can sync. Each one is disconnected, or its provider is not available on this instance.",
       };
     }

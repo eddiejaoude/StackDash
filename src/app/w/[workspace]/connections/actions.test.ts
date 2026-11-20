@@ -112,10 +112,17 @@ describe("syncNow and the provider registry", () => {
     expect(mocks.enqueueSync).not.toHaveBeenCalled();
   });
 
-  it("says a disconnected fake connection is disconnected, before saying its provider is off", async () => {
+  it("says a disconnected fake connection's provider is off, not to reconnect it, since it cannot be reconnected", async () => {
     vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "0");
     stubConnections([{ ...FAKE, status: "revoked" }]);
-    expect(await syncNow(null, form([FAKE.id]))).toEqual({
+    expect(await syncNow(null, form([FAKE.id]))).toEqual({ ok: false, message: UNAVAILABLE });
+    expect(mocks.enqueueSync).not.toHaveBeenCalled();
+  });
+
+  it("asks for a reconnect when a disconnected connection's provider is offered", async () => {
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "0");
+    stubConnections([{ ...GITHUB, status: "revoked" }]);
+    expect(await syncNow(null, form([GITHUB.id]))).toEqual({
       ok: false,
       message: "This connection is disconnected. Reconnect it before syncing.",
     });
