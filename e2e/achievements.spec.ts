@@ -325,6 +325,11 @@ ownerTest.describe("achievements as the owner", () => {
         await page.mouse.move(at.x, at.y);
         await page.mouse.down({ clickCount: 1 });
         await page.mouse.up({ clickCount: 1 });
+        // The Share dialog's close settles first (Chromium fires `close` a frame later, and its
+        // handler puts focus back on Share), so focus is still on Share at the end only if the
+        // press counted 2 moved nothing.
+        await expect(shareDialog).toBeHidden();
+        await expect(share).toBeFocused();
         await page.mouse.down({ clickCount: 2 });
         await page.mouse.up({ clickCount: 2 });
 
