@@ -30,7 +30,8 @@ export type PublicMetricId = Database["public"]["Enums"]["public_metric_id"];
 /** Every metric the engine defines, as the database enum lists them. */
 export const ALL_METRIC_IDS: readonly PublicMetricId[] = Constants.public.Enums.public_metric_id;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 export const HISTORY_DAYS = 36;
 /** GitHub stars today: 1,000 on the first stored day, 6 more each day after. */
 export const STARS_TODAY = 1000 + 6 * (HISTORY_DAYS - 1);
@@ -41,6 +42,46 @@ type Seeded = Readonly<{ projectId: string; accounts: Readonly<Record<(typeof PR
 
 function check(error: { code: string } | null, what: string): void {
   if (error) throw new Error(`Seeding ${what} failed (code ${error.code}).`);
+}
+
+const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  hourCycle: "h23",
+});
+
+/** The Europe/London calendar date and hour at `instant`. */
+function londonClock(instant: number): Readonly<{ year: number; month: number; day: number; hour: number }> {
+  const parts = LONDON_CLOCK.formatToParts(instant);
+  const part = (type: "year" | "month" | "day" | "hour"): number => {
+    const value = Number(parts.find((candidate) => candidate.type === type)?.value);
+    if (!Number.isInteger(value)) throw new Error(`No London ${type} for ${new Date(instant).toISOString()}.`);
+    return value;
+  };
+  return { year: part("year"), month: part("month"), day: part("day"), hour: part("hour") };
+}
+
+/**
+ * Noon in Europe/London, `daysAgo` London days before the newest London noon at or before `now`.
+ * The year in review counts events per London day (`year_review_counts`), so each seeded day has to
+ * be exactly one London day whatever the time of day the run starts: a fixed UTC offset from `now`
+ * puts two seeded days on one London day around a clock change (#581). Noon is never ambiguous,
+ * because the clocks change at 01:00 UTC.
+ */
+function londonNoon(now: number, daysAgo: number): Date {
+  const today = londonClock(now);
+  const noon = (daysBefore: number): number => {
+    const utcNoon = Date.UTC(today.year, today.month - 1, today.day - daysBefore, 12);
+    // 12:00 UTC reads 13:00 in London under British Summer Time, so step back the difference.
+    return utcNoon - (londonClock(utcNoon).hour - 12) * HOUR_MS;
+  };
+  // Before noon, today's noon is still ahead, and the year in review and the public metrics count
+  // only events up to now, so the newest seeded day is yesterday.
+  const newest = noon(0) <= now ? 0 : 1;
+  return new Date(noon(newest + daysAgo));
 }
 
 export async function seedShareProject(workspace: TestWorkspace, name = "Acme web"): Promise<Seeded> {
@@ -136,7 +177,7 @@ export async function seedShareProject(workspace: TestWorkspace, name = "Acme we
     type_id: typeId,
     severity: typeId.endsWith("failed") ? ("critical" as const) : ("success" as const),
     title: typeId,
-    occurred_at: new Date(now - daysAgo * DAY_MS - 60 * 60_000).toISOString(),
+    occurred_at: londonNoon(now, daysAgo).toISOString(),
     dedupe_key: `share-e2e-${typeId}-${daysAgo}-${index}`,
   });
   const days = Array.from({ length: HISTORY_DAYS }, (_, daysAgo) => daysAgo);
