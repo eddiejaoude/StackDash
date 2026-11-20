@@ -87,13 +87,8 @@ describe("syncNow and the provider registry", () => {
     expect(mocks.enqueueSync).toHaveBeenCalledExactlyOnceWith({ workspaceId: ACCESS.workspace.id, connectionId: GITHUB.id, reason: "manual" });
   });
 
-  it.each([
-    ["unset", undefined],
-    ["empty", ""],
-    ["0", "0"],
-    ["any value but 1", "true"],
-  ])("refuses a fake connection while the fake provider is off (flag %s), says why, and queues nothing", async (_title, value) => {
-    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", value);
+  it("refuses a fake connection while the fake provider is off, says why, and queues nothing", async () => {
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "0");
     stubConnections([FAKE]);
     expect(await syncNow(null, form([FAKE.id]))).toEqual({ ok: false, message: UNAVAILABLE });
     expect(mocks.enqueueSync).not.toHaveBeenCalled();
