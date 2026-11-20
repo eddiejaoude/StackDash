@@ -25,7 +25,7 @@ Order matters: the Supabase project must exist before the Vercel environment var
 ## 1. Create the production Supabase project
 
 1. In the [Supabase dashboard](https://supabase.com/dashboard), create a project in the organization that will own StackDash. Pick the region closest to the Vercel functions region (Vercel defaults to Washington, D.C., `iad1`, unless you change it in the project's Functions settings).
-2. Save the database password in your password manager. It is needed to link the CLI and is never stored in the repository or in Vercel.
+2. Save the database password in your password manager. A connection string needs it (step 2), and it is never stored in the repository or in Vercel.
 3. Note the project ref (the subdomain of `https://<project-ref>.supabase.co`, also under Project Settings, General).
 
 ## 2. Apply the migrations, forward only
@@ -36,13 +36,15 @@ From a clean checkout of the commit you are deploying:
 
 ```bash
 supabase login
-supabase link --project-ref <project-ref>        # asks for the database password
-supabase migration list --linked                 # shows which migrations the remote has
-supabase migration up --linked                   # applies only the missing ones, in order
-supabase migration list --linked                 # local and remote columns now match
+supabase link <project-ref>         # --remote now means this project
+supabase migration list --remote    # shows which migrations the remote has
+supabase migration up --remote      # lists the missing ones, asks, then applies them in order
+supabase migration list --remote    # local and remote columns now match
 ```
 
-If you cannot link (for example from a CI runner), the same command takes a connection string: `supabase migration up --db-url "<connection string>"`. Use the **direct connection** or the **session pooler** string from the project's Connect panel (session mode, port 5432). The transaction pooler (port 6543) does not support everything a migration session needs. Keep the string out of shell history and out of the repository.
+Use Supabase CLI 3.2 or later, as [What you need](self-hosting.md#what-you-need) says: CLI 2 has no `--remote` flag. `--remote` targets the linked project; without it, these commands act on your local stack instead. `supabase link` does not ask for the database password: with `--remote`, the CLI connects as a temporary database role that it creates with the access token from `supabase login`. `migration up` lists the migrations it is about to apply and asks before it applies them, and the default answer is no.
+
+If you cannot link (for example from a CI runner), the same commands take a connection string instead: `supabase migration up --remote="<connection string>"`. Give it as a `postgresql://` URL, as the Connect panel shows it, with any special characters in the password percent-encoded. A CI runner has no terminal to answer the question, so add `--yes` there; without it, `migration up` stops before it applies anything. Use the **direct connection** or the **session pooler** string from the project's Connect panel (session mode, port 5432). The transaction pooler (port 6543) does not support everything a migration session needs. Keep the string out of shell history and out of the repository.
 
 The app itself never connects to Postgres with a connection string: it talks to Supabase over HTTPS with the keys in step 5, so Vercel needs no `DATABASE_URL` and no pooler setting.
 
@@ -51,7 +53,7 @@ The migrations create everything the deployment relies on, including:
 - `public.hook_before_user_created(jsonb)`, the invite gate, with execute granted only to `supabase_auth_admin` (`20261031090300_jobs_and_invites.sql`).
 - The `pg_cron` extension (schema `pg_catalog`) and the `pg_net` extension (schema `extensions`). The cron job itself is not a migration because it carries the deployment URL and `CRON_SECRET`; see step 7.
 
-Every later release repeats `supabase migration list --linked` and `supabase migration up --linked` **before** promoting the matching deployment. Migrations follow expand then contract, so the previous deployment keeps working against the new schema.
+Every later release repeats `supabase migration list --remote` and `supabase migration up --remote` **before** promoting the matching deployment. Migrations follow expand then contract, so the previous deployment keeps working against the new schema.
 
 ## 3. Configure Supabase Auth
 
