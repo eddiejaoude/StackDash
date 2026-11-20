@@ -235,11 +235,12 @@ web3 = 30
 # secret = ""
 
 [auth.email]
-# Allow/disallow new user signups via email to your project. The CLI also uses this to enable the
-# email provider itself, which local e2e fixtures need for password sign-in of admin-created test
-# users. The app never offers email sign-in, and the invite hook still gates every new user.
-# Production disables the email provider in the dashboard (see the deployment runbook).
-enable_signup = true
+# Turns the email provider on or off: with it off, nobody signs up or signs in with email. Local
+# e2e fixtures need it on for password sign-in of admin-created test users. The app never offers
+# email sign-in, and the invite hook still gates every new user. `[auth] enable_signup` above is
+# the separate switch for new signups. Production disables the email provider in the dashboard
+# (see the deployment runbook).
+enabled = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
@@ -276,8 +277,8 @@ otp_expiry = 3600
 # content_path = "./supabase/templates/password_changed_notification.html"
 
 [auth.sms]
-# Allow/disallow new user signups via SMS to your project.
-enable_signup = false
+# Turns the phone provider on or off: with it off, nobody signs up or signs in with a phone number.
+enabled = false
 # If enabled, users need to confirm their phone number before signing in.
 enable_confirmations = false
 # Template for sending OTP to users
