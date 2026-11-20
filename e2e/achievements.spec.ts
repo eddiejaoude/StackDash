@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
@@ -6,6 +6,7 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
 import { openFilters } from "./fixtures/filters";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
+import { boxCenter } from "./fixtures/pointer";
 
 /*
  * A project's earned achievements as members see them (#413): the private Achievements section,
@@ -144,13 +145,6 @@ async function openEntry(page: Page, title: string) {
 
 async function expectFocusVisible(page: Page): Promise<void> {
   expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible") ?? false)).toBe(true);
-}
-
-/** The middle of an element on the screen. */
-async function centerOf(locator: Locator): Promise<{ x: number; y: number }> {
-  const box = await locator.boundingBox();
-  if (box === null) throw new Error("The element is not rendered.");
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
 }
 
 /** The published "10 Vercel deployments recorded" entry's details, open on the timeline at `width`. */
@@ -313,7 +307,7 @@ ownerTest.describe("achievements as the owner", () => {
         const close = shareDialog.getByRole("button", { name: "Close", exact: true });
         await share.click();
         await expect(close).toBeFocused();
-        const at = await centerOf(close);
+        const at = await boxCenter(close);
         // The point lies in the details once the Share dialog is closed, so the second click of the
         // double-click lands on them.
         await page.keyboard.press("Escape");
@@ -348,7 +342,7 @@ ownerTest.describe("achievements as the owner", () => {
       try {
         const { share, shareDialog } = await openPublishedEntry(page, workspace, width);
         const close = shareDialog.getByRole("button", { name: "Close", exact: true });
-        const at = await centerOf(share);
+        const at = await boxCenter(share);
         await page.mouse.click(at.x, at.y);
         await expect(close).toBeFocused();
         await page.keyboard.press("Escape");
