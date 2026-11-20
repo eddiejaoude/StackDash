@@ -58,7 +58,7 @@ describe("reconnectTarget", () => {
     expect(targetFor("fake")).toEqual({
       kind: "unavailable",
       reason:
-        "Example provider is not available on this instance, so this connection cannot be reconnected. Its history stays here until you delete the connection.",
+        "Example provider is not available on this instance, so this connection cannot sync or be reconnected. Its history stays here until you delete the connection.",
     });
   });
 
