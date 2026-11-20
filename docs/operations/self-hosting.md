@@ -21,7 +21,7 @@ A self-hosted StackDash is your own fork of the repository, deployed to your own
 | A Resend account with a verified sending domain | Only for alert email | Alert and digest emails. Without it, alerts still show in the app and reach Slack, Discord, and webhook channels ([Alert email](#alert-email)) |
 | A developer account with each provider you want to connect | One per provider | Registering that provider's app ([Register the OAuth apps](oauth-apps.md)) |
 
-On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) 2.120 or later, and `openssl`. Docker is only needed if you also run the local Supabase stack for development.
+On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) 3.2 or later, and `openssl`. Docker is only needed if you also run the local Supabase stack for development.
 
 ## Set it up
 

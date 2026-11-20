@@ -32,8 +32,10 @@ OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and 
   tests. On Node.js 24 or later, `npm ci` warns `EBADENGINE` and carries on.
 - Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
 - The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
-  version 2.120 or later, for example `brew install supabase/tap/supabase`. CI pins 2.120.0, the
-  version that generated the committed database types.
+  version 3.2 or later, for example `brew install supabase/tap/supabase`. CI pins 3.2.0, the
+  version that generated the committed database types. Still on CLI 2? Read Supabase's
+  [guide to moving to CLI 3](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3)
+  before you upgrade.
 - `openssl`, to generate secrets.
 
 ### 2. Clone and install

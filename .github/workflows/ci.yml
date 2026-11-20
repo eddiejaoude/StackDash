@@ -17,7 +17,7 @@ concurrency:
 env:
   # Pinned to the CLI that generated src/lib/supabase/database.types.ts, so db:types:check
   # compares like with like. Bump both together.
-  SUPABASE_CLI_VERSION: 2.120.0
+  SUPABASE_CLI_VERSION: 3.2.0
   # supabase/config.toml enables GitHub sign-in through env(); CI never signs in with GitHub,
   # so placeholders let the local stack start without a real OAuth app.
   SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID: ci-placeholder
