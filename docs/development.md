@@ -214,6 +214,10 @@ FAKE_PROVIDER_CLIENT_SECRET=fake-secret
 In the app, open your workspace, go to **Connections**, add **Example provider**, and approve the
 consent screen. Connecting queues the first sync.
 
+If you unset the flag later, Example provider connections stay listed with their history, but
+their page offers no **Sync now** or **Reconnect** and says why. The scheduled sync still tries
+them and marks them failed. Turn the flag back on to sync them again, or delete them.
+
 ### 9. Run a sync
 
 ```bash
