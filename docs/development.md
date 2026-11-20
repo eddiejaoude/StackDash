@@ -532,28 +532,12 @@ A file filter does not narrow the `chromium` dependency: it still runs in full. 
 always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
 include them.
 
-On Supabase CLI before 2.122.0, which includes 2.120.0, the version CI pins, the local Realtime
-container stops its Postgres Changes replication roughly every 10 minutes to rebalance it to a
-closer region. A change written in that gap never reaches the page, and neither the app nor
-Realtime reports an error. In a test run it looks like a live assertion that times out with no
-fault in the app: a spec waits for a change to appear without a reload, and it never does. To check
-whether a rebalance caused a failure, list the container's rebalance lines with their times:
-
-```bash
-docker logs --timestamps supabase_realtime_stackdash 2>&1 | grep 'Rebalancing Postgres Changes'
-```
-
-Match the line "Rebalancing Postgres Changes replication for a closer region". The timestamp
-`--timestamps` adds at the start of each line is in UTC, so convert the failure time to UTC before
-comparing. Channels subscribe again a few seconds after that line, so the change lost is one the
-spec wrote in those few seconds. The assertion then waits `LIVE_TIMEOUT_MS` (15 seconds, set in
-`e2e/fixtures/realtime.ts`) before it fails, so a rebalance caused the failure when its line comes
-between `LIVE_TIMEOUT_MS` and `LIVE_TIMEOUT_MS` plus a few seconds before the failure time
-Playwright reports: about 15 to 20 seconds. Rebalances come about 10 minutes apart. If one falls in
-that window, rerun the spec. CI saves the same log as the `realtime-log` artifact on every
-end-to-end run and prints the rebalance lines in the job log. Realtime has fixed the stall upstream,
-and the planned move of this repository and CI to Supabase CLI 3.2.0 removes it; that move should
-rewrite this note.
+Supabase CLI before 2.122.0 started a Realtime image that, about every 10 minutes, stopped its
+replication for a few seconds to rebalance it to a closer region, and dropped any change written in
+that gap. A spec waiting for that change timed out with no fault in the app. The Realtime image of
+CLI 2.122.0 and later does not do this. A running stack keeps the images of the CLI that started
+it, so if an older CLI started yours, restart it with `supabase stop` and `supabase start` after
+you upgrade.
 
 ## Project layout
 
