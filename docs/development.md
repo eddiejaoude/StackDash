@@ -35,7 +35,8 @@ OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and 
   version 3.2 or later, for example `brew install supabase/tap/supabase`. CI pins 3.2.0, the
   version that generated the committed database types. Still on CLI 2? Read Supabase's
   [guide to moving to CLI 3](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3)
-  before you upgrade.
+  before you upgrade. A running stack keeps the images of the CLI that started it, so run
+  `supabase stop` and `supabase start` after you upgrade.
 - `openssl`, to generate secrets.
 
 ### 2. Clone and install
