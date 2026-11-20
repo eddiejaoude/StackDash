@@ -63,7 +63,10 @@ async function demoEvent(type: string, workspace: TestWorkspace, simulate = "1")
  * about the 19th, so a sync before the command triggered the alert first, and the crossing found
  * it already triggered. The usual spend accrues at most $1.50 an hour, five times that on a launch
  * day (usagePerHour, src/lib/adapters/simulated/vercel.ts). At $7.50 for every hour of a 31 day
- * month, with the $20 seat and 20 percent tax, it would come to $6,720, short of $9,000.
+ * month, with the $20 seat and 20 percent tax, it would come to $6,720, short of $9,000. The unit
+ * test "keeps a whole month of revenue and spend within ten times the demo's Vercel budget"
+ * (src/lib/adapters/simulated/index.test.ts) holds a month of simulated spend to $6,000, so a
+ * change to the simulated rates fails there before it reaches this bound.
  */
 async function seedBudgetAlert(workspace: TestWorkspace): Promise<void> {
   const admin = adminClient();
