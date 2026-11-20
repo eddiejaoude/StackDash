@@ -65,23 +65,18 @@ function londonClock(instant: number): Readonly<{ year: number; month: number; d
 }
 
 /**
- * Noon in Europe/London, `daysAgo` London days before the newest London noon at or before `now`.
- * The year in review counts events per London day (`year_review_counts`), so each seeded day has to
- * be exactly one London day whatever the time of day the run starts: a fixed UTC offset from `now`
- * puts two seeded days on one London day around a clock change (#581). Noon is never ambiguous,
- * because the clocks change at 01:00 UTC.
+ * The start of the Europe/London day `daysAgo` London days before the one `now` falls on. The year
+ * in review counts events per London day (`year_review_event_counts`), so each seeded day has to be
+ * exactly one London day whatever the time of day the run starts: a fixed UTC offset from `now`
+ * puts two seeded days on one London day around a clock change (#581). Midnight is never ambiguous,
+ * because the clocks change at 01:00 UTC, and today's is never after `now`, so the newest seeded
+ * day is always today: on 1 January it is 00:00 UTC, inside the new year's window from the start.
  */
-function londonNoon(now: number, daysAgo: number): Date {
+function londonDayStart(now: number, daysAgo: number): Date {
   const today = londonClock(now);
-  const noon = (daysBefore: number): number => {
-    const utcNoon = Date.UTC(today.year, today.month - 1, today.day - daysBefore, 12);
-    // 12:00 UTC reads 13:00 in London under British Summer Time, so step back the difference.
-    return utcNoon - (londonClock(utcNoon).hour - 12) * HOUR_MS;
-  };
-  // Before noon, today's noon is still ahead, and the year in review and the public metrics count
-  // only events up to now, so the newest seeded day is yesterday.
-  const newest = noon(0) <= now ? 0 : 1;
-  return new Date(noon(newest + daysAgo));
+  const utcMidnight = Date.UTC(today.year, today.month - 1, today.day - daysAgo);
+  // 00:00 UTC reads 01:00 in London under British Summer Time, so step back the difference.
+  return new Date(utcMidnight - londonClock(utcMidnight).hour * HOUR_MS);
 }
 
 export async function seedShareProject(workspace: TestWorkspace, name = "Acme web"): Promise<Seeded> {
@@ -177,7 +172,7 @@ export async function seedShareProject(workspace: TestWorkspace, name = "Acme we
     type_id: typeId,
     severity: typeId.endsWith("failed") ? ("critical" as const) : ("success" as const),
     title: typeId,
-    occurred_at: londonNoon(now, daysAgo).toISOString(),
+    occurred_at: londonDayStart(now, daysAgo).toISOString(),
     dedupe_key: `share-e2e-${typeId}-${daysAgo}-${index}`,
   });
   const days = Array.from({ length: HISTORY_DAYS }, (_, daysAgo) => daysAgo);
