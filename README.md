@@ -93,7 +93,7 @@ or read [Write a provider adapter](docs/adapters.md) to build one.
 There is no hosted demo yet. `npm run demo` builds one on your own computer: a workspace with all 11
 providers simulated and 90 days of history, without registering any OAuth app. You need Node.js
 22.13 or later in the 22 line, Docker, the
-[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) 2.120 or
+[Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) 3.2 or
 later, and `openssl`.
 
 ```bash

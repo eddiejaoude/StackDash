@@ -21,7 +21,7 @@ A self-hosted StackDash is your own fork of the repository, deployed to your own
 | A Resend account with a verified sending domain | Only for alert email | Alert and digest emails. Without it, alerts still show in the app and reach Slack, Discord, and webhook channels ([Alert email](#alert-email)) |
 | A developer account with each provider you want to connect | One per provider | Registering that provider's app ([Register the OAuth apps](oauth-apps.md)) |
 
-On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) 2.120 or later, and `openssl`. Docker is only needed if you also run the local Supabase stack for development.
+On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) 3.2 or later, and `openssl`. Docker is only needed if you also run the local Supabase stack for development.
 
 ## Set it up
 
@@ -109,12 +109,14 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
 3. **Apply the new migrations** to your own Supabase project, from the checkout you are about to deploy. Forward only, as in [Deploy, step 2](deploy.md#2-apply-the-migrations-forward-only): never `supabase db push` and never `supabase db reset` against your project.
 
    ```bash
-   supabase migration list --linked     # the remote column is missing the new migrations
-   supabase migration up --linked       # applies only those, in order
-   supabase migration list --linked     # both columns now match
+   supabase migration list --remote     # the remote column is missing the new migrations
+   supabase migration up --remote       # lists those, asks, then applies them in order
+   supabase migration list --remote     # both columns now match
    ```
 
-   `--linked` targets the project you linked with `supabase link`. Per the [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-migration-up), `--linked` works on CLI 2 and CLI 3 for both `migration list` and `migration up`; CLI 3 deprecates it in favor of `--remote`, and CLI 4 removes it.
+   `--remote` targets the project you linked with `supabase link`; without it, these commands act on your local stack instead. `migration up` lists the migrations it is about to apply and asks before it applies them, and the default answer is no. Use the CLI version that [What you need](#what-you-need) lists: CLI 2 has no `--remote` flag. If you used `--linked` before, it still works in CLI 3 but is deprecated, and CLI 4 removes it, as the [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-migration-list) says.
+
+   If you are still on CLI 2, upgrade first with Supabase's [Migrating to Supabase CLI v3](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3) guide. Your checkout stays linked across the upgrade, so you do not need to run `supabase link` again: CLI 3 reads the linked project from the same `supabase/.temp/project-ref` file that CLI 2 wrote, as long as you have not turned on its experimental stack mode, which StackDash does not use.
 4. **Deploy**: push `main` to your fork. Vercel builds and promotes the new production deployment.
 5. **Follow any step the changes ask for** that a deployment does not do on its own, such as a new OAuth app setting or a changed `pg_cron` job. The scheduler itself carries over unchanged.
 
@@ -132,7 +134,7 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
 
 2. For each one, do one of these, in this order:
    - **Reconnect it** from its page in StackDash. The new grant tells StackDash the mode, so the recorded value is always right. This needs a deployment that records modes, one whose commit includes `supabase/migrations/20261118150000_connection_mode.sql`. The upgrade steps apply the migrations (step 3) before they deploy (step 4), so the deployment serving now is usually the one you are upgrading from, and if it does not record modes, the database refuses its reconnect. Then use one of these orders:
-     - **Deploy first**, when `supabase migration list --linked` shows no migration after `20261118150300_contract_connection_mode_validate.sql` still missing: do step 4 now. The new build runs against the database as it stands, because this migration only drops a function and validates a constraint, and nothing reads either. Reconnect each connection, then come back to step 3 below. Until then `/app/admin` shows the database migrations as **Behind**.
+     - **Deploy first**, when `supabase migration list --remote` shows no migration after `20261118150300_contract_connection_mode_validate.sql` still missing: do step 4 now. The new build runs against the database as it stands, because this migration only drops a function and validates a constraint, and nothing reads either. Reconnect each connection, then come back to step 3 below. Until then `/app/admin` shows the database migrations as **Behind**.
      - **Record the mode by SQL now**, as the next item describes, and reconnect each connection once the upgrade is done, so the mode then comes from Stripe. Use this order when later migrations are missing too, because the new build may need them.
    - **Record its mode by SQL**, only if you know whether the Stripe account was connected in live mode or in test mode: `update public.connections set mode = 'live' where id = '<id>';`, or `'test'`. Nothing checks the value. A wrong one sends the other mode's payments and uninstalls to this connection: live payments onto a test mode connection, or the reverse. How long a wrong value lasts depends on the status from step 1:
      - `active` or `failed`: its next sync on the new deployment reads the mode from the stored credential and corrects it, within the hour.
@@ -141,7 +143,7 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
    - **Delete it** from its page in StackDash. Its history is deleted with it.
 
    Until one of these is done the connection cannot be used, because the database refuses every change to it that does not record its mode. **Sync now** fails, a sync cannot record its result, and disconnecting fails too: StackDash deletes its credential first, and the database then refuses to mark it disconnected, so do not disconnect one in the meantime. These errors have this same cause, not a second fault.
-3. Run `supabase migration up --linked` again.
+3. Run `supabase migration up --remote` again.
 
 ### Check the upgrade
 

@@ -17,7 +17,7 @@ concurrency:
 env:
   # Pinned to the CLI that generated src/lib/supabase/database.types.ts, so db:types:check
   # compares like with like. Bump both together.
-  SUPABASE_CLI_VERSION: 2.120.0
+  SUPABASE_CLI_VERSION: 3.2.0
   # supabase/config.toml enables GitHub sign-in through env(); CI never signs in with GitHub,
   # so placeholders let the local stack start without a real OAuth app.
   SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID: ci-placeholder
@@ -213,15 +213,17 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-      # Realtime stops a lone node's Postgres Changes replication about every 10 minutes to
-      # rebalance it (#555), and a change written in that gap never reaches the page, with no
-      # error on either side. Only the container log shows when that happened, and stopping
-      # Supabase removes the container, so save the log first, on every run: a green run can
-      # pass a rebalance by luck. The lines are also printed in the job log, because a rerun
-      # uploads a new artifact that replaces this attempt's log, and the job log of each
-      # attempt is kept. Supabase CLI 3.2.0 removes the stall. Keep these two steps through the
-      # CLI pin move (#522): the log of its first CLI 3.2.0 run that lasts 10 minutes or more,
-      # with no Rebalancing line, is the proof #555 needs. Revisit them after that run.
+      # Realtime stopped a lone node's Postgres Changes replication about every 10 minutes to
+      # rebalance it (#555), and a change written in that gap never reached the page, with no
+      # error on either side. Realtime v2.144.3 fixed it: it no longer rebalances while the
+      # tenant's region has no nodes, which is always so on the stack's single node, and Supabase
+      # CLI 3.2.0 starts Realtime v2.167.0. Only the container log shows a rebalance, and stopping
+      # Supabase removes the container, so save the log first, on every run: a green run can pass
+      # a rebalance by luck. The lines are also printed in the job log, because a rerun uploads a
+      # new artifact that replaces this attempt's log, and the job log of each attempt is kept.
+      # Drop these two steps, this comment, and the #555 note above the budget alert's delivery
+      # poll in e2e/demo-event.spec.ts once #555 has its proof run: a CLI 3.2.0 run whose tests
+      # last 10 minutes or more, with no Rebalancing line.
       - name: Save Realtime container log
         if: always()
         run: |
