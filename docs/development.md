@@ -532,13 +532,6 @@ A file filter does not narrow the `chromium` dependency: it still runs in full. 
 always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
 include them.
 
-Supabase CLI before 2.122.0 started a Realtime image that, about every 10 minutes, stopped its
-replication for a few seconds to rebalance it to a closer region, and dropped any change written in
-that gap. A spec waiting for that change timed out with no fault in the app. The Realtime image of
-CLI 2.122.0 and later does not do this. A running stack keeps the images of the CLI that started
-it, so if an older CLI started yours, restart it with `supabase stop` and `supabase start` after
-you upgrade.
-
 ## Project layout
 
 ```text
