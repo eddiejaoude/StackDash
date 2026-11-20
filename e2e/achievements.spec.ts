@@ -147,6 +147,9 @@ async function expectFocusVisible(page: Page): Promise<void> {
   expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible") ?? false)).toBe(true);
 }
 
+// Records video of the #577 Share-again case under PW_PR_EVIDENCE=1 only.
+const shareEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
 /** The published "10 Vercel deployments recorded" entry's details, open on the timeline at `width`. */
 async function openPublishedEntry(page: Page, workspace: TestWorkspace, width: number) {
   const projectId = await seedAchievements(workspace);
@@ -337,7 +340,7 @@ ownerTest.describe("achievements as the owner", () => {
       }
     });
 
-    ownerTest(`opens Share again on a click counted 2 after Escape closed the Share dialog at ${width}px`, async ({ page }) => {
+    shareEvidenceTest(`opens Share again on a click counted 2 after Escape closed the Share dialog at ${width}px`, async ({ page }) => {
       const workspace = await createTestWorkspace(`Achievements share again ${width}`);
       try {
         const { share, shareDialog } = await openPublishedEntry(page, workspace, width);
@@ -354,6 +357,9 @@ ownerTest.describe("achievements as the owner", () => {
         await page.mouse.up({ clickCount: 2 });
         await expect(shareDialog).toBeVisible();
         await expect(close).toBeFocused();
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/after/share-again-${width}.png`, animations: "disabled" });
+        }
       } finally {
         await deleteTestWorkspace(workspace);
       }
