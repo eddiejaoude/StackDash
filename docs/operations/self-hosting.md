@@ -115,6 +115,8 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
    ```
 
    `--remote` targets the project you linked with `supabase link`; without it, these commands act on your local stack instead. `migration up` lists the migrations it is about to apply and asks before it applies them, and the default answer is no. Use the CLI version that [What you need](#what-you-need) lists: CLI 2 has no `--remote` flag. If you used `--linked` before, it still works in CLI 3 but is deprecated, and CLI 4 removes it, as the [Supabase CLI reference](https://supabase.com/docs/reference/cli/supabase-migration-list) says.
+
+   If you are still on CLI 2, upgrade first with Supabase's [Migrating to Supabase CLI v3](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3) guide. Your checkout stays linked across the upgrade, so you do not need to run `supabase link` again: CLI 3 reads the linked project from the same `supabase/.temp/project-ref` file that CLI 2 wrote, as long as you have not turned on its experimental stack mode, which StackDash does not use.
 4. **Deploy**: push `main` to your fork. Vercel builds and promotes the new production deployment.
 5. **Follow any step the changes ask for** that a deployment does not do on its own, such as a new OAuth app setting or a changed `pg_cron` job. The scheduler itself carries over unchanged.
 
