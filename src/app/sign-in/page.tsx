@@ -121,7 +121,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
         </Link>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Sign in</h1>
         <p className="mt-2 mb-6 text-sm leading-6 text-muted">
-          StackDash is invite only during the test. Sign in with the GitHub account whose email was invited.
+          Sign-up to StackDash is invite only for now. Sign in with the GitHub account whose email was invited.
         </p>
         <Suspense fallback={<div className="min-h-11 rounded-lg bg-panel-raised" aria-hidden="true" />}>
           <SignInPanel searchParams={searchParams} />
