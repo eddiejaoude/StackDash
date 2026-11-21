@@ -65,9 +65,7 @@ export default defineConfig({
   // or settles its workspace first, as e2e/demo-event.spec.ts does (`settleWorkspace`).
   // Tests tagged `@touch` run only in the touch projects, which run nothing else: WebKit and Firefox
   // count each tap of a double-tap 1 where Chromium counts the second 2 (#578), so a touch rule is
-  // proved in the engines that need it. Firefox has no `isMobile`. In WebKit a `@touch` test calls
-  // `keepLocalhostOnHttp` (e2e/fixtures/csp.ts) before its first navigation, or CI's production
-  // build never hydrates there, though a local dev-server run passes; it goes once #597 lands.
+  // proved in the engines that need it. Firefox has no `isMobile`.
   projects: [
     {
       name: "chromium",
