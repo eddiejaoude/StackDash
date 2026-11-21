@@ -103,8 +103,12 @@ select is(
   4,
   'project page functions: all four exist, so the check above is not vacuous');
 
--- Nothing is public by default: a project has no page until someone turns it on.
-select is_empty($$ select project_id from public.project_pages $$,
+-- Nothing is public by default: a project has no page until someone turns it on. Only this file's
+-- projects are checked, so a page someone turned on in a local database does not fail it (#247).
+select is_empty(
+  $$ select project_id from public.project_pages
+     where project_id in ('a9000003-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000002',
+                          'b9000003-0000-4000-8000-000000000001') $$,
   'project_pages: creating projects creates no page');
 
 -- ---------------------------------------------------------------------------
@@ -179,7 +183,10 @@ select is(
 set local role service_role;
 select is_empty($$ select project_id from public.public_project_page('pagetestaa', 'acme-web') $$,
   'public_project_page: a page that is on but has nothing published answers nothing');
-select is_empty($$ select page_slug from public.public_project_page_sitemap(100) $$,
+-- The sitemap reads are limited to this file's workspaces for the same reason (#247): a local
+-- database can already hold an indexable page with something published.
+select is_empty(
+  $$ select page_slug from public.public_project_page_sitemap(100) where workspace_slug in ('pagetestaa', 'pagetestbb') $$,
   'public_project_page_sitemap: a page with nothing published is not listed');
 reset role;
 
@@ -208,7 +215,7 @@ select is_empty($$ select project_id from public.public_project_page('pagetestaa
 select is_empty($$ select project_id from public.public_project_page('nosuchwork', 'acme-web') $$,
   'public_project_page: an unknown workspace answers nothing');
 select results_eq(
-  $$ select workspace_slug, page_slug from public.public_project_page_sitemap(100) $$,
+  $$ select workspace_slug, page_slug from public.public_project_page_sitemap(100) where workspace_slug in ('pagetestaa', 'pagetestbb') $$,
   $$ values ('pagetestaa'::text, 'acme-web'::text) $$,
   'public_project_page_sitemap: lists the indexable public page, not the page that asks not to be indexed');
 select is_empty($$ select page_slug from public.public_project_page_sitemap(0) $$,
