@@ -173,6 +173,8 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(newest.locator("time")).toHaveAttribute("datetime", "2026-06-15T23:30:00.000Z");
       await newest.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
       const inspector = page.getByRole("dialog", { name: "Event details" });
+      // #596: the event's emoji sits inside its severity pill, not on the logo's corner.
+      await expect(inspector.getByText(/^\p{Extended_Pictographic}.*Critical$/u)).toBeVisible();
       const link = inspector.getByRole("link", { name: /View in Vercel/ });
       await expect(link).toHaveAttribute("href", "https://example.com/deployments/0");
       await expect(link).toHaveAttribute("rel", "noopener noreferrer");

@@ -8,8 +8,7 @@ import type { Platform } from "@/lib/site";
 interface FeedEvent {
   platform: Platform;
   severity: Severity;
-  // What happened, in the corner of the logo, as in the app's event details (the app's timeline
-  // rows put it inside the status pill instead): 🏆 for an achievement.
+  // What happened, inside the status pill, as on the app's timeline (#596): 🏆 for an achievement.
   emoji: string;
   text: string;
 }
@@ -169,7 +168,7 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <ProviderMark platform={event.platform} emoji={event.emoji} size="sm" className="mt-0.5" />
+                  <ProviderMark platform={event.platform} size="sm" className="mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="font-mono text-xs text-muted">{event.platform}</span>
@@ -179,7 +178,7 @@ export function LiveEventFeed() {
                     </div>
                     <div className="mt-0.5 flex items-start justify-between gap-3">
                       <span className="text-sm leading-5">{event.text}</span>
-                      <SeverityBadge severity={event.severity} />
+                      <SeverityBadge severity={event.severity} emoji={event.emoji} />
                     </div>
                   </div>
                 </div>

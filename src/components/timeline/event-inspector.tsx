@@ -291,10 +291,11 @@ function EventDetails({ event, href, achievementActions }: { event: InspectorEve
   return (
     <div className="mt-6 space-y-5">
       <div className="flex flex-wrap items-center gap-2">
-        <ProviderMark provider={event.markProvider} emoji={event.emoji} size="sm" />
+        <ProviderMark provider={event.markProvider} size="sm" />
         <span className="text-sm">{provider}</span>
-        {/* An achievement's one gold pill says what it is, so it has no severity pill beside it. */}
-        {event.achievement === null ? <SeverityBadge severity={severityBadge(event.severity)} /> : <AchievementEarnedLabel />}
+        {/* An achievement's one gold pill says what it is, so it has no severity pill beside it. The
+            event's emoji sits inside whichever pill it gets, as on the timeline rows (#596). */}
+        {event.achievement === null ? <SeverityBadge severity={severityBadge(event.severity)} emoji={event.emoji} /> : <AchievementEarnedLabel emoji={event.emoji} />}
         {event.simulated ? <SimulatedBadge /> : null}
       </div>
       <h3 className="break-words text-xl font-semibold leading-7">{event.title}</h3>

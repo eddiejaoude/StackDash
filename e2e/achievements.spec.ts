@@ -269,6 +269,8 @@ ownerTest.describe("achievements as the owner", () => {
       const inspector = await openEntry(page, "10 Vercel deployments recorded");
       // One gold label says what it is; no severity pill repeats it.
       await expect(inspector).toContainText("Achievement earned");
+      // #596: the trophy sits inside that label, not on the logo's corner.
+      await expect(inspector.getByText(/^🏆\s*Achievement earned$/)).toBeVisible();
       await expect(inspector.getByText("Achievement", { exact: true })).toHaveCount(0);
       await expect(inspector.getByText("Success", { exact: true })).toHaveCount(0);
       await expect(inspector.getByRole("definition").first()).toHaveText("Achievement earned");
