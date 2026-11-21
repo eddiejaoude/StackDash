@@ -4,6 +4,7 @@ import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { TOUCH_REPEAT_RADIUS_PX, TOUCH_REPEAT_WINDOW_MS, type Tap } from "./dialog-controller";
 import { DialogCloseButton, ignoreClosingRepeat, ModalDialog, useModalDialog } from "./modal-dialog";
 
 type Props = Omit<Parameters<typeof ModalDialog>[0], "dialog" | "children">;
@@ -66,11 +67,23 @@ describe("ModalDialog", () => {
 describe("ignoreClosingRepeat", () => {
   type Type = "mousedown" | "mouseup" | "click" | "dblclick";
 
-  /** A mouse event as far as the rule reads one: its type and the browser's click count. */
+  /** Where and when a press happened, as far as the touch window reads one. */
+  type At = Readonly<{ x: number; y: number; ms: number }>;
+
+  /** A mouse event as far as the rule reads one: its type, the browser's click count, and where and when. */
   class Press extends Event {
     stopped = false;
-    constructor(type: Type, readonly detail: number) {
+    readonly clientX: number;
+    readonly clientY: number;
+    readonly #ms: number;
+    constructor(type: Type, readonly detail: number, at: At = { x: 0, y: 0, ms: 0 }) {
       super(type, { cancelable: true });
+      this.clientX = at.x;
+      this.clientY = at.y;
+      this.#ms = at.ms;
+    }
+    override get timeStamp(): number {
+      return this.#ms;
     }
     override stopPropagation(): void {
       this.stopped = true;
@@ -79,9 +92,9 @@ describe("ignoreClosingRepeat", () => {
   }
 
   /** Sends each event to `target` in turn and says, for each, whether it was ignored. */
-  function ignored(target: EventTarget, events: ReadonlyArray<readonly [Type, number]>): boolean[] {
-    return events.map(([type, count]) => {
-      const event = new Press(type, count);
+  function ignored(target: EventTarget, events: ReadonlyArray<readonly [Type, number] | readonly [Type, number, At]>): boolean[] {
+    return events.map(([type, count, at]) => {
+      const event = new Press(type, count, at);
       target.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(event.stopped);
       return event.stopped;
@@ -117,5 +130,47 @@ describe("ignoreClosingRepeat", () => {
     end();
     expect(TYPES.map((type) => getEventListeners(target, type).length)).toEqual([0, 0, 0, 0]);
     expect(ignored(target, [["mousedown", 2], ["click", 2]])).toEqual([false, false]);
+  });
+
+  describe("after a tap closed the dialog (#578)", () => {
+    const TAP: Tap = { x: 300, y: 33, timeStamp: 1_000 };
+    /** A tap's press, release, and click, each counted 1, `ms` after the closing tap, `dx` to its right and `dy` below it. */
+    const tap = (ms: number, dx = 0, dy = 0) => (["mousedown", "mouseup", "click"] as const).map((type) => [type, 1, { x: TAP.x + dx, y: TAP.y + dy, ms: TAP.timeStamp + ms }] as const);
+
+    it.each([
+      ["ignores a second tap at the same point 15 ms later, as WebKit and Firefox count it 1", TAP, tap(15), [true, true, true]],
+      ["ignores a second tap at the window's edge in time", TAP, tap(TOUCH_REPEAT_WINDOW_MS), [true, true, true]],
+      ["ignores a second tap at the window's edge in distance", TAP, tap(15, TOUCH_REPEAT_RADIUS_PX), [true, true, true]],
+      ["lets a tap 1 ms past the window through", TAP, tap(TOUCH_REPEAT_WINDOW_MS + 1), [false, false, false]],
+      ["lets a tap 1 px past the window's distance through", TAP, tap(15, TOUCH_REPEAT_RADIUS_PX + 1), [false, false, false]],
+      ["ignores a second tap 60 px across and 80 px down, on the window's radius", TAP, tap(15, 60, 80), [true, true, true]],
+      ["lets a tap 71 px across and 71 px down through, inside a square of the radius but outside the circle", TAP, tap(15, 71, 71), [false, false, false]],
+      ["lets a press counted 1 at the same point 15 ms later through after a mouse's close", null, tap(15), [false, false, false]],
+    ] as const)("%s", (_, closingTap, events, expected) => {
+      const target = new EventTarget();
+      ignoreClosingRepeat(target, closingTap);
+      expect(ignored(target, events)).toEqual(expected);
+    });
+
+    it("checks only the next press: a third tap counted 1 inside the window acts and ends the rule", () => {
+      const target = new EventTarget();
+      ignoreClosingRepeat(target, TAP);
+      expect(ignored(target, [...tap(15), ["mousedown", 2], ...tap(30)])).toEqual([true, true, true, true, false, false, false]);
+      expect(TYPES.map((type) => getEventListeners(target, type).length)).toEqual([0, 0, 0, 0]);
+    });
+
+    it("ends the second tap at its click: a click counted 1 with no press before it passes, and the rule stays", () => {
+      const target = new EventTarget();
+      ignoreClosingRepeat(target, TAP);
+      expect(ignored(target, [...tap(15), ["click", 1], ["mousedown", 2], ["click", 2]])).toEqual([true, true, true, false, true, true]);
+      expect(TYPES.map((type) => getEventListeners(target, type).length)).toEqual([1, 1, 1, 1]);
+    });
+
+    it("ends at a press counted 1 once the window has passed, which then acts as a click of its own", () => {
+      const target = new EventTarget();
+      ignoreClosingRepeat(target, TAP);
+      expect(ignored(target, [["mousedown", 2], ...tap(TOUCH_REPEAT_WINDOW_MS + 1)])).toEqual([true, false, false, false]);
+      expect(TYPES.map((type) => getEventListeners(target, type).length)).toEqual([0, 0, 0, 0]);
+    });
   });
 });

@@ -20,11 +20,14 @@ import { buttonClass } from "./button";
 import {
   createDialogController,
   dismissedByClick,
+  TOUCH_REPEAT_RADIUS_PX,
+  TOUCH_REPEAT_WINDOW_MS,
   type ClosedDialog,
   type CloseReason,
   type DialogController,
   type FocusTarget,
   type Point,
+  type Tap,
 } from "./dialog-controller";
 
 /**
@@ -135,16 +138,36 @@ const PRESS_EVENTS = ["mousedown", "mouseup", "click", "dblclick"] as const;
  * calling it again does nothing.
  *
  * The rule depends on the browser counting the later press of a double-click or double-tap as
- * `detail` 2. That was measured only in Chromium, including its touch emulation (`hasTouch`, two
- * taps at one point counted 1 then 2). A browser that counts each tap as 1 lets the second through
- * to the page, as before #563; #578 measures WebKit (iOS Safari) and Firefox.
+ * `detail` 2. Chromium does, mouse and touch (`hasTouch`, two taps at one point counted 1 then 2),
+ * but Playwright's WebKit and Firefox with touch count both taps of a double-tap 1 (#578). So when
+ * a tap closed the dialog (`closingTap`, its click's place and time), the next press counted 1
+ * within `TOUCH_REPEAT_RADIUS_PX` of it and `TOUCH_REPEAT_WINDOW_MS` after it is that double-tap's
+ * second tap: its press, release, and click, each counted 1, are ignored, and the rule stays for
+ * what the browser counts 2 or more. Once that click is ignored, a click counted 1 passes again.
+ * Any other press counted 1 ends it as above. Only the next press is checked, so a third tap
+ * counted 1 acts. A mouse's close passes no tap and keeps the count-only rule.
  */
-export function ignoreClosingRepeat(target: Pick<Window, "addEventListener" | "removeEventListener">): () => void {
+export function ignoreClosingRepeat(
+  target: Pick<Window, "addEventListener" | "removeEventListener">,
+  closingTap: Tap | null = null,
+): () => void {
+  let tap = closingTap;
+  // Whether the press counted 1 that came last was the double-tap's second tap.
+  let secondTap = false;
   function ignore(event: globalThis.MouseEvent): void {
-    if (event.type === "mousedown" && event.detail <= 1) end();
-    else if (event.detail > 1) {
+    if (event.type === "mousedown" && event.detail <= 1) {
+      secondTap = tap !== null && repeatsTap(tap, event);
+      tap = null;
+      if (!secondTap) {
+        end();
+        return;
+      }
+    }
+    if (event.detail > 1 || (secondTap && event.detail === 1)) {
       event.preventDefault();
       event.stopPropagation();
+      // The second tap ends at its click, so a click counted 1 after it is not part of the double-tap.
+      if (event.type === "click" && event.detail === 1) secondTap = false;
     }
   }
   function end(): void {
@@ -152,6 +175,13 @@ export function ignoreClosingRepeat(target: Pick<Window, "addEventListener" | "r
   }
   for (const type of PRESS_EVENTS) target.addEventListener(type, ignore, { capture: true });
   return end;
+}
+
+/** Whether `press` came close enough to `tap`, and soon enough after it, to be its double-tap's second tap. */
+function repeatsTap(tap: Tap, press: globalThis.MouseEvent): boolean {
+  const elapsed = press.timeStamp - tap.timeStamp;
+  const distance = Math.hypot(press.clientX - tap.x, press.clientY - tap.y);
+  return elapsed <= TOUCH_REPEAT_WINDOW_MS && distance <= TOUCH_REPEAT_RADIUS_PX;
 }
 
 const FRAME = "rounded-xl border bg-panel text-foreground backdrop:bg-black/60";
@@ -212,6 +242,11 @@ export function ModalDialog({
   const { ref, openCount } = dialog;
   // Where the last press on the dialog or its backdrop started, for `dismissedByClick`.
   const pressedAt = useRef<Point | null>(null);
+  // The `pointerType` of that press, for `ignoreClosingRepeat`'s touch window (#578). A click is a
+  // `PointerEvent` with its own `pointerType` only from Safari 18.2 and Firefox 129 (MDN
+  // browser-compat-data, api.Element.click_event.type_pointerevent), so the press says whether a
+  // tap closed the dialog.
+  const pressedWith = useRef<string | null>(null);
   // Whether a press counted 1 has reached the dialog since it opened (#506). Until one has, a
   // press or click the browser counts 2 or more continues the double-click whose first click opened
   // the dialog, as on an event row, and lands on whatever the dialog now shows under the pointer:
@@ -277,7 +312,10 @@ export function ModalDialog({
           });
         }}
         onKeyDown={keepTabInside}
-        onPointerDown={lightDismiss ? (event) => { pressedAt.current = { x: event.clientX, y: event.clientY }; } : undefined}
+        onPointerDown={(event) => {
+          pressedWith.current = event.pointerType;
+          if (lightDismiss) pressedAt.current = { x: event.clientX, y: event.clientY };
+        }}
         onMouseDownCapture={ignoreOpeningRepeat}
         onMouseUpCapture={ignoreOpeningRepeat}
         onClickCapture={ignoreOpeningRepeat}
@@ -296,10 +334,14 @@ export function ModalDialog({
           // may be the first of a double-click, and its rest lands on the page under it (#563).
           // The listeners go on `window`, the first stop of an event's capture path: React listens
           // on the document (`appElement = document` in next/dist/client/app-index.js) from before
-          // they exist, and a node runs its listeners in the order they were added.
+          // they exist, and a node runs its listeners in the order they were added. A tap's click
+          // also passes its place and time, the native event's so they compare with the next press.
+          const pressedWithTouch = pressedWith.current === "touch";
+          pressedWith.current = null;
           if (event.detail > 0 && !event.currentTarget.open) {
             endClosingRepeat.current?.();
-            endClosingRepeat.current = ignoreClosingRepeat(window);
+            const { clientX, clientY, timeStamp } = event.nativeEvent;
+            endClosingRepeat.current = ignoreClosingRepeat(window, pressedWithTouch ? { x: clientX, y: clientY, timeStamp } : null);
           }
         }}
         className={SIZES[size]}
