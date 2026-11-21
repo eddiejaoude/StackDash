@@ -72,10 +72,10 @@ and quotas work on every plan, and spend shows only where the provider reports i
 
 | Provider | What StackDash reads on every plan | Spend |
 | --- | --- | --- |
-| [Vercel](docs/providers/vercel.md) | Deployments and projects | Pro and Enterprise plans only. Vercel shares no billing data for Hobby accounts |
+| [Vercel](docs/providers/vercel.md) | Deployments | Pro and Enterprise plans only. Vercel shares no billing data for Hobby accounts |
 | [GitHub](docs/providers/github.md) | Stars, forks, releases, merged pull requests, and opened issues | Billed usage, Actions minutes, and Copilot AI Credits on GitHub's enhanced billing platform. For an organization, an owner installs the app |
 | [Resend](docs/providers/resend.md) | Emails sent against the daily and monthly quota, with reset dates | None. Resend has no billing API |
-| [Stripe](docs/providers/stripe.md) | Payments, customers, subscriptions, and payouts | Stripe fees, on any account |
+| [Stripe](docs/providers/stripe.md) | Revenue, payments, refunds, new customers, and subscriptions | Stripe fees, on any account |
 | [Supabase](docs/providers/supabase.md) | Plan limits, project health, signups, and logins. Daily active users on Pro and above | None. No Supabase billing endpoint accepts OAuth |
 | [DigitalOcean](docs/providers/digitalocean.md) | Droplet actions and App Platform deployments | Month to date usage, balance, and invoices, if your team role can read billing |
 | [PostHog](docs/providers/posthog.md) | Signups per project | Spend and projected spend per product on PostHog Cloud, for a member with billing access |

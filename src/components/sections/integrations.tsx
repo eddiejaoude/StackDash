@@ -28,7 +28,7 @@ const spendAvailability: readonly SpendAvailability[] = [
     provider: "Vercel",
     docSlug: "vercel",
     spend: "Pro and Enterprise plans only. Vercel shares no billing data for Hobby accounts.",
-    everyPlan: "Deployments and projects.",
+    everyPlan: "Deployments.",
   },
   {
     provider: "GitHub",
@@ -46,7 +46,7 @@ const spendAvailability: readonly SpendAvailability[] = [
     provider: "Stripe",
     docSlug: "stripe",
     spend: "Stripe fees, on any account.",
-    everyPlan: "Payments, customers, subscriptions, and payouts.",
+    everyPlan: "Revenue, payments, refunds, new customers, and subscriptions.",
   },
   {
     provider: "Supabase",
@@ -169,7 +169,7 @@ export function Integrations() {
 
       <p className="mt-8 max-w-3xl rounded-xl border border-line bg-panel/60 px-5 py-4 text-sm leading-6 text-muted">
         <span className="font-medium text-foreground">Not yet tried with real accounts.</span> Every integration
-        in the first group is built from the provider&apos;s documentation and tested against sample responses
+        listed as available is built from the provider&apos;s documentation and tested against sample responses
         taken from it. None has been connected to a real account yet, so each provider&apos;s page in the docs
         lists what is still unverified. Until Sentry approves the hosted integration for publication, only the
         organization that registered it can install it.
