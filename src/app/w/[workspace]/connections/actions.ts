@@ -4,10 +4,11 @@ import { refresh } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
-import { getAdapter } from "@/lib/adapters/registry";
+import { availableProviders, getAdapter } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { Secret, type ConnectionWebhookSetup, type ProviderAdapter, type ProviderId } from "@/lib/adapters/types";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
+import { providerUnavailableReason } from "@/lib/connections/provider-availability";
 import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/lib/connections/revoke";
 import { needsWriteAccess, webhookSetupResultCopy, type WebhookSetupResult } from "@/lib/connections/webhook-copy";
 import {
@@ -93,7 +94,7 @@ async function findConnections(access: WorkspaceAccess, connectionIds: readonly 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("connections")
-    .select("id, status, last_sync_requested_at")
+    .select("id, provider, status, last_sync_requested_at")
     .eq("workspace_id", access.workspace.id)
     .in("id", [...connectionIds])
     .limit(connectionIds.length);
@@ -219,14 +220,28 @@ export async function syncNow(
     const access = await requireWorkspaceAction(parsed.data.workspace, "manage_connections");
     const connections = await findConnections(access, connectionIds);
     if (connections.length < connectionIds.length) return { ok: false, message: NOT_FOUND_MESSAGE };
-    const syncable = connections.filter((connection) => connection.status !== "revoked");
+    const connected = connections.filter((connection) => connection.status !== "revoked");
+    // A provider this instance does not offer has no adapter, so its sync could only fail (#570).
+    const offered = new Set(availableProviders().map((adapter) => adapter.id));
+    const syncable = connected.filter((connection) => offered.has(connection.provider));
     if (syncable.length === 0) {
+      const [only] = connections;
+      if (connectionIds.length === 1 && only !== undefined) {
+        // Provider first: without an adapter the connection cannot be reconnected either, so
+        // "reconnect it" would be advice the connection page does not offer.
+        return {
+          ok: false,
+          message: offered.has(only.provider)
+            ? "This connection is disconnected. Reconnect it before syncing."
+            : providerUnavailableReason(PROVIDER_NAMES[only.provider]),
+        };
+      }
       return {
         ok: false,
         message:
-          connectionIds.length === 1
-            ? "This connection is disconnected. Reconnect it before syncing."
-            : "These connections are disconnected. Reconnect them before syncing.",
+          connected.length === 0
+            ? "These connections are disconnected. Reconnect them before syncing."
+            : "None of these connections can sync. Each one is disconnected, or its provider is not available on this instance.",
       };
     }
     // Settled, not all: one connection's failed request must not hide that the others were queued.

@@ -112,6 +112,14 @@ describe("getAdapter", () => {
     expect(() => getAdapter("fake")).toThrow(/disabled/);
   });
 
+  it.each([
+    ["absent from the environment", undefined],
+    ["0", "0"],
+  ])("refuses the fake provider when the flag is %s", (_, value) => {
+    vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", value);
+    expect(() => getAdapter("fake")).toThrow(/disabled/);
+  });
+
   it("refuses the fake provider when the flag is any value other than 1", () => {
     vi.stubEnv("STACKDASH_ENABLE_FAKE_PROVIDER", "true");
     expect(() => getAdapter("fake")).toThrow(/disabled/);

@@ -1,5 +1,7 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
 
+import { providerUnavailableReason } from "./provider-availability";
+
 /** Where a connection's Reconnect links go, or why the connection page offers none. */
 export type ReconnectTarget = Readonly<{ kind: "available"; href: string }> | Readonly<{ kind: "unavailable"; reason: string }>;
 
@@ -14,12 +16,7 @@ export function reconnectTarget(
   input: Readonly<{ connectionsPath: string; connectionId: string; providerName: string; adapter: ProviderAdapter | undefined }>,
 ): ReconnectTarget {
   const { connectionsPath, connectionId, providerName, adapter } = input;
-  if (adapter === undefined) {
-    return {
-      kind: "unavailable",
-      reason: `${providerName} is not available on this instance, so this connection cannot be reconnected. Its history stays here until you delete the connection.`,
-    };
-  }
+  if (adapter === undefined) return { kind: "unavailable", reason: providerUnavailableReason(providerName) };
   return {
     kind: "available",
     href: `${connectionsPath}/new/${adapter.id}?${new URLSearchParams({ connection: connectionId }).toString()}`,
