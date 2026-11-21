@@ -28,7 +28,7 @@ const feedEvents: readonly FeedEvent[] = [
   { platform: "Stripe", severity: "Achievement", emoji: "🏆", text: "Payday: 10 payments in one day" },
   { platform: "Vercel", severity: "Failed", emoji: "💥", text: "Preview deployment failed for acme-docs" },
   { platform: "Supabase", severity: "Achievement", emoji: "🏆", text: "Rush hour: 10 signups in one hour" },
-  { platform: "GitHub Actions", severity: "Alert", emoji: "⚠️", text: "Included minutes passed 50%" },
+  { platform: "GitHub", severity: "Alert", emoji: "💸", text: "Spending passed $10 this month" },
   { platform: "Stripe", severity: "Success", emoji: "🔁", text: "New customer subscribed to the Team plan" },
   { platform: "GitHub", severity: "Success", emoji: "🔀", text: "Pull request #128 merged in acme/api" },
   { platform: "Supabase", severity: "Success", emoji: "👋", text: "New signup on acme-docs" },
