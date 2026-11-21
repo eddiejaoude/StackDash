@@ -107,7 +107,7 @@ const groups: readonly IntegrationGroup[] = [
   {
     stage: "First",
     dotClass: "bg-success",
-    note: "In the first release",
+    note: "Available now",
     providers: [
       "Vercel",
       "GitHub and GitHub Actions",

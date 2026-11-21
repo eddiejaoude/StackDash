@@ -73,7 +73,7 @@ export function Features() {
       id="features"
       eyebrow="Features"
       title="One timeline, one alert, and stats you can share"
-      intro="The first release starts with what happened across your stack, who hears about it, and what you can show. Allowances and spend follow, where each provider reports them."
+      intro="What happened across your stack, who hears about it, and what you can show come first. Allowances and spend sit beside them, where each provider reports them."
     >
       <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {features.map((feature) => (
