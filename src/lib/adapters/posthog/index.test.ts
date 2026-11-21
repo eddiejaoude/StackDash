@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError } from "../errors";
 import { validateAdapterEvents } from "../events";
-import { checkSyncResult } from "../harness";
+import { checkSyncResult, dashboardSpendAfterSync } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { ASSERTION_AUDIENCE, CLIENT_ASSERTION_TYPE } from "./client-auth";
@@ -459,6 +459,24 @@ describe("sync", () => {
     expect([...achievementKeys]).toEqual(["posthog.signups.daily"]);
     for (const key of achievementKeys) expect(byKey(result.metrics, key).metricKey).toBe(key);
     expect(result.cursor).toBe(JSON.stringify({ v: 1, through: "2026-11-04" }));
+  });
+
+  it("counts PostHog spend once on the dashboard: spend.current, not its products nor the projection", async () => {
+    const result = await postHogAdapter.sync({ credential, externalAccountId: ORG_ID }, harness(syncRoutes()).ctx);
+    // The organization total, each product one segment below it (#204), and the period's projection.
+    const money = result.metrics.filter((item) => item.kind === "verified_spend" || item.kind === "estimated_spend");
+    expect(Object.fromEntries(money.map((item) => [item.metricKey, [item.kind, "amountMinor" in item ? item.amountMinor : null]]))).toEqual({
+      "posthog.spend.current": ["verified_spend", 1872],
+      "posthog.spend.current.product_analytics": ["verified_spend", 1250],
+      "posthog.spend.current.session_replay": ["verified_spend", 550],
+      "posthog.spend.current.surveys": ["verified_spend", 0],
+      "posthog.spend.projected": ["estimated_spend", 4104],
+    });
+    // billing.json's current_total_amount_usd_after_discount "18.72" is 1872 cents. The products
+    // again (1250 + 550 + 0) would show 3672, and the projection (4104) is not spent yet.
+    const CURRENT_MINOR = 1872;
+    const once = [{ currency: "USD", verifiedMinor: CURRENT_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(postHogAdapter, result.metrics, NOW)).toEqual({ provider: once, totals: once });
   });
 
   it("does not query signups again until another UTC day has ended", async () => {

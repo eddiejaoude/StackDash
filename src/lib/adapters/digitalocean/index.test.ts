@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError } from "../errors";
 import { validateAdapterEvents, type ActivityEvent } from "../events";
+import { dashboardSpendAfterSync } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult } from "../types";
 import {
@@ -498,6 +499,24 @@ describe("sync", () => {
     });
     // GET only, apart from nothing: sync never writes.
     expect(api.calls.every((call) => call.init?.method === "GET")).toBe(true);
+  });
+
+  it("counts DigitalOcean spend once on the dashboard: month to date, not the last invoice nor the daily SKU estimates", async () => {
+    const result = await digitaloceanAdapter.sync(syncInput, makeCtx(fakeDigitalOcean().fetch).ctx);
+    // Three readings of the same team's spend: this month so far, October's invoice, and what each
+    // SKU cost on the latest day, estimated.
+    const money = result.metrics.filter((item) => item.kind === "verified_spend" || item.kind === "estimated_spend");
+    expect(Object.fromEntries(money.map((item) => [item.metricKey, [item.kind, "amountMinor" in item ? item.amountMinor : null]]))).toEqual({
+      [MONTH_TO_DATE_METRIC_KEY]: ["verified_spend", 1121],
+      [LATEST_INVOICE_METRIC_KEY]: ["verified_spend", 5813],
+      "digitalocean.daily_spend.sku_1_ks_k8swn_00109": ["estimated_spend", 257],
+      "digitalocean.daily_spend.sku_1_do_drop_0109": ["estimated_spend", 128],
+    });
+    // balance.json's month_to_date_usage "11.21" is 1121 cents. The invoice (5813) bills a closed
+    // month and the SKU estimates (257 + 128) a closed day, so neither is spend this month on top.
+    const MONTH_TO_DATE_MINOR = 1121;
+    const once = [{ currency: "USD", verifiedMinor: MONTH_TO_DATE_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(digitaloceanAdapter, result.metrics, NOW)).toEqual({ provider: once, totals: once });
   });
 
   it("announces only invoices newer than the cursor and reads events from an hour before it", async () => {

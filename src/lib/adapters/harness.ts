@@ -1,3 +1,5 @@
+import { aggregateDashboard, type CurrencyAmounts } from "@/lib/dashboard/aggregate";
+import { toSnapshotRow } from "@/lib/jobs/ingest";
 import type { LogFields } from "@/lib/log/logger";
 import { AchievementSchema, achievementRuleMetricKey, achievementRuleTypeIds } from "./achievements";
 import { EventTypeSchema, validateAdapterEvents } from "./events";
@@ -430,6 +432,56 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
   });
 
   return problems;
+}
+
+/** One currency's spend as the dashboard shows it, in minor units; `null` where it shows none. */
+export type ShownSpend = Readonly<{ currency: string; verifiedMinor: number | null; estimatedMinor: number | null }>;
+
+function shown(amounts: readonly CurrencyAmounts[]): ShownSpend[] {
+  return amounts.map(({ currency, verified, estimated }) => ({
+    currency,
+    verifiedMinor: verified?.amountMinor ?? null,
+    estimatedMinor: estimated?.amountMinor ?? null,
+  }));
+}
+
+/**
+ * The spend the dashboard shows after one sync (#605): every metric stored as the sync runner
+ * stores it (`toSnapshotRow`), under one active connection holding each account the metrics name,
+ * then reduced by `aggregateDashboard` at `now`, the sync's clock, with the adapter's declared
+ * projections. `provider` is the connection's card, `totals` the headline. A test pins both to the
+ * one total its recorded responses hold, so a breakdown, a shorter window, or a projection counted
+ * beside that total fails it.
+ */
+export function dashboardSpendAfterSync(
+  adapter: ProviderAdapter,
+  metrics: readonly AdapterMetric[],
+  now: Date,
+): Readonly<{ provider: ShownSpend[]; totals: ShownSpend[] }> {
+  const connection = { id: "harness-connection", workspace_id: "harness-workspace" };
+  const accountIds = [...new Set(metrics.map((metric) => metric.externalAccountId))];
+  const view = aggregateDashboard({
+    snapshots: metrics.map((metric) => toSnapshotRow(metric, connection, { id: metric.externalAccountId })),
+    connections: [
+      {
+        id: connection.id,
+        provider: adapter.id,
+        display_name: adapter.displayName,
+        status: "active",
+        last_synced_at: now.toISOString(),
+        last_sync_requested_at: null,
+        poll_interval_seconds: adapter.pollIntervalSeconds,
+        granted_scopes: [...adapter.oauth.scopes],
+      },
+    ],
+    accounts: accountIds.map((id) => ({ id, connection_id: connection.id, display_name: id, project_id: null })),
+    projects: [],
+    projectedSpend: adapter.projectedSpend ?? [],
+    now,
+  });
+  const [card] = view.byProvider;
+  if (card === undefined) throw new Error("the dashboard shows no card for the one connection");
+  return { provider: shown(card.spend), totals: shown(view.totals) };
 }
 
 /**
