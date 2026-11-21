@@ -56,24 +56,40 @@ export default defineConfig({
   // tick running beside other specs syncs the connections they seed (active, next_sync_at null,
   // no credential) and writes connection updates and sync_failed events into their workspaces,
   // which breaks their realtime, dashboard, timeline, and trends assertions at random. Any spec
-  // that runs the tick must live in `instance-wide`, which waits for every `chromium` spec to
-  // finish. A dependency always runs in full (a file filter on the command line does not narrow
-  // it), and when a `chromium` test fails, Playwright skips the `instance-wide` specs.
+  // that runs the tick must live in `instance-wide`, which waits for every `chromium` and touch
+  // spec to finish. A dependency always runs in full (a file filter on the command line does not
+  // narrow it), and when one of those tests fails, Playwright skips the `instance-wide` specs.
   // The `instance-wide` specs run beside each other (`fullyParallel`, two workers in CI), so each
   // one's ticks sync, summarize, and dispatch in the other's workspaces too (#505). A spec there
   // counts only what no other tick can add to (by dedupe key, type, provider, or a day long past),
   // or settles its workspace first, as e2e/demo-event.spec.ts does (`settleWorkspace`).
+  // Tests tagged `@touch` run only in the touch projects, which run nothing else: WebKit and Firefox
+  // count each tap of a double-tap 1 where Chromium counts the second 2 (#578), so a touch rule is
+  // proved in the engines that need it. Firefox has no `isMobile`.
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       testIgnore: INSTANCE_WIDE_SPECS,
+      grepInvert: /@touch/,
     },
     {
       name: "instance-wide",
       use: { ...devices["Desktop Chrome"] },
       testMatch: INSTANCE_WIDE_SPECS,
-      dependencies: ["chromium"],
+      dependencies: ["chromium", "webkit-touch", "firefox-touch"],
+    },
+    {
+      name: "webkit-touch",
+      use: { ...devices["Desktop Safari"], hasTouch: true, isMobile: true },
+      testIgnore: INSTANCE_WIDE_SPECS,
+      grep: /@touch/,
+    },
+    {
+      name: "firefox-touch",
+      use: { ...devices["Desktop Firefox"], hasTouch: true },
+      testIgnore: INSTANCE_WIDE_SPECS,
+      grep: /@touch/,
     },
   ],
   webServer: [

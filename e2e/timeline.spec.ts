@@ -4,6 +4,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page, Route } from "@playwright/test";
 import { z } from "zod";
 
+import { TOUCH_REPEAT_WINDOW_MS } from "../src/components/ui/dialog-controller";
 import { REFRESH_MAX_WAIT_MS } from "../src/lib/realtime/refresh-scheduler";
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -1264,6 +1265,30 @@ async function interceptSignOut(page: Page) {
 }
 
 /**
+ * Opens `trigger`'s details from the keyboard and returns a point on their "Close event" with the
+ * header's "Sign out" under it once they close (#563): Close event measured open, and Sign out once
+ * they are closed again. At 375px Sign out lies under most of Close event, at 1280px under its left
+ * end only. Leaves the details open with Close event focused.
+ */
+async function closeEventOverSignOut(page: Page, trigger: Locator): Promise<Point> {
+  const inspector = page.getByRole("dialog", { name: "Event details" });
+  const close = inspector.getByRole("button", { name: "Close event" });
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(close).toBeFocused();
+  const closeBox = await close.boundingBox();
+  await page.keyboard.press("Escape");
+  await expect(inspector).toBeHidden();
+  const signOutBox = await page.getByRole("banner").getByRole("button", { name: "Sign out", exact: true }).boundingBox();
+  const at = overlapCenter(closeBox, signOutBox);
+  expect(await buttonTextAt(page, at)).toBe("Sign out");
+  await page.keyboard.press("Enter");
+  await expect(close).toBeFocused();
+  expect(await buttonTextAt(page, at)).toBe("Close event");
+  return at;
+}
+
+/**
  * A point on `trigger`'s row that lies on `control` once that row's details are open, where a
  * double-click on the part of the row the panel covers lands its second click (#506). Opens the
  * details from the keyboard to measure them, closes them, then scrolls the row level with the control.
@@ -1722,22 +1747,7 @@ ownerTest.describe("timeline event inspector", () => {
         const signOut = await interceptSignOut(page);
         const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
         const inspector = page.getByRole("dialog", { name: "Event details" });
-        const close = inspector.getByRole("button", { name: "Close event" });
-        // A point on "Close event" with "Sign out" under it once the details close: Close event
-        // measured open, from the keyboard, and Sign out once they are closed again. At 375px Sign
-        // out lies under most of Close event, at 1280px under its left end only.
-        await trigger.focus();
-        await page.keyboard.press("Enter");
-        await expect(close).toBeFocused();
-        const closeBox = await close.boundingBox();
-        await page.keyboard.press("Escape");
-        await expect(inspector).toBeHidden();
-        const signOutBox = await page.getByRole("banner").getByRole("button", { name: "Sign out", exact: true }).boundingBox();
-        const at = overlapCenter(closeBox, signOutBox);
-        expect(await buttonTextAt(page, at)).toBe("Sign out");
-        await page.keyboard.press("Enter");
-        await expect(close).toBeFocused();
-        expect(await buttonTextAt(page, at)).toBe("Close event");
+        const at = await closeEventOverSignOut(page, trigger);
         if (closeWith === "Enter") {
           await page.keyboard.press("Enter");
           await page.mouse.move(at.x, at.y);
@@ -1763,6 +1773,67 @@ ownerTest.describe("timeline event inspector", () => {
         if (evidence !== null && process.env.PW_PR_EVIDENCE === "1") {
           await page.screenshot({ path: `pr-evidence/after/inspector-${evidence}.png` });
         }
+        expect(signOut.requests).toEqual([]);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  // #578: WebKit and Firefox count each tap of a double-tap 1, so the count rule above lets the
+  // second tap on "Close event" through, and at 375px it lands on "Sign out". A tap that closed the
+  // details also ignores the next press counted 1 near it within `TOUCH_REPEAT_WINDOW_MS`, so the
+  // second tap does nothing; a separate tap there once that window has passed signs out as ever.
+  // Tagged `@touch`: these run in the webkit-touch and firefox-touch projects only.
+  for (const { name, signsOut } of [
+    { name: "closes the details on a double-tap on Close event without signing out", signsOut: false },
+    { name: "signs out on a tap where Close event was once the double-tap window has passed", signsOut: true },
+  ] as const) {
+    inspectorEvidenceTest(`${name} at 375px`, { tag: "@touch" }, async ({ page }) => {
+      const workspace = await seedTimeline(`Inspector tap ${signsOut ? "after window" : "double"}`);
+      try {
+        await page.setViewportSize({ width: 375, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const timeline = `/w/${workspace.slug}/timeline`;
+        await page.goto(timeline);
+        await expectHydrated(page);
+        const signOut = await interceptSignOut(page);
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const at = await closeEventOverSignOut(page, trigger);
+        // The count of every click from here on, in Node so the list outlives a sign-out's
+        // navigation. On `window` in the capture phase, added before the closing click adds the rule
+        // there, so it runs first and sees the clicks the rule stops as well.
+        const clicks: number[] = [];
+        await page.exposeFunction("__recordClick", (detail: number) => clicks.push(detail));
+        await page.evaluate(() => {
+          const record = Reflect.get(window, "__recordClick") as (detail: number) => void;
+          window.addEventListener("click", (event) => record(event.detail), true);
+        });
+
+        await page.touchscreen.tap(at.x, at.y);
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        if (signsOut) {
+          // Read after the closing click, so the window has passed once this much more time has.
+          const closedBy = await page.evaluate(() => performance.now());
+          await expect.poll(() => page.evaluate((since) => performance.now() - since, closedBy)).toBeGreaterThan(TOUCH_REPEAT_WINDOW_MS);
+        }
+        await page.touchscreen.tap(at.x, at.y);
+
+        if (signsOut) {
+          await expect(page.getByRole("heading", { name: SIGN_OUT_STAND_IN, exact: true })).toBeVisible();
+          expect(signOut.requests).toEqual(["POST"]);
+          return;
+        }
+        // Both taps counted 1, as #578 measured in these engines, so the count rule alone would not
+        // have stopped the second.
+        await expect.poll(() => clicks, { message: "both taps' clicks reached the page, each counted 1" }).toEqual([1, 1]);
+        expect(await signOut.submitted(), "the second tap submitted the sign-out form").toEqual([]);
+        // The press's default is prevented too, so it moved focus nowhere.
+        await expect(trigger).toBeFocused();
+        await expect(inspector).toBeHidden();
+        await expect(page).toHaveURL(timeline);
         expect(signOut.requests).toEqual([]);
       } finally {
         await deleteTestWorkspace(workspace);
