@@ -298,6 +298,19 @@ describe("recordTaps", () => {
     expect(ignored(target, tap(15))).toEqual([true, true, true]);
   });
 
+  it("stops checking at a second tap counted 2, as Chromium counts it, so a tap counted 1 1 ms past the opening tap's window acts though inside the second's", () => {
+    const target = new EventTarget();
+    const recorder = recordTaps(target);
+    openedDialog(recorder.last, target);
+    click(target, "touch", 1, AT);
+    const second = { ...AT, ms: AT.ms + 100 };
+    target.dispatchEvent(new PointerPress("touch"));
+    expect(ignored(target, [["mousedown", 2, second], ["mouseup", 2, second], ["click", 2, second]])).toEqual([true, true, true]);
+    expect(recorder.last()).toEqual({ ...TAP, timeStamp: second.ms });
+    target.dispatchEvent(new PointerPress("touch"));
+    expect(ignored(target, tap(TOUCH_REPEAT_WINDOW_MS + 1))).toEqual([false, false, false]);
+  });
+
   it("removes its listeners when ended", () => {
     const target = new EventTarget();
     recordTaps(target).end();

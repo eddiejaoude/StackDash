@@ -199,14 +199,16 @@ function repeatsTap(tap: Tap, press: Pick<MousePress, "clientX" | "clientY" | "t
  *
  * As on the closing side (`ignoreClosingRepeat`), Playwright's WebKit and Firefox with touch count
  * both taps of a double-tap 1 (#592). So the first press counted 1 inside is checked against
- * `lastTap`, the page's latest tap (`recordTaps`), which for a dialog a tap opened is that tap.
- * Within `TOUCH_REPEAT_RADIUS_PX` of it and `TOUCH_REPEAT_WINDOW_MS` after it, the press is that
- * double-tap's second tap: its press, release, and click, each counted 1, are ignored, and the rule
- * stays for what the browser counts 2 or more. Once that click is ignored, a click counted 1 passes
- * again. Only that first press is checked, so a third tap counted 1 acts. A mouse's click records
- * no tap and keeps the count-only rule. A dialog opened from the keyboard just after a tap is
- * checked against that tap too, so a tap inside near it within the window does nothing, and the
- * person taps again.
+ * `lastTap`, the page's latest tap (`recordTaps`), which for a dialog a tap opened is that tap
+ * until a press counted 2 or more is ignored. Within `TOUCH_REPEAT_RADIUS_PX` of it and
+ * `TOUCH_REPEAT_WINDOW_MS` after it, the press is that double-tap's second tap: its press, release,
+ * and click, each counted 1, are ignored, and the rule stays for what the browser counts 2 or more.
+ * Once that click is ignored, a click counted 1 passes again. Only that first press is checked, so
+ * a third tap counted 1 acts. A press the browser counts 2 or more shows it counts the double-tap
+ * itself, as Chromium does, and its click then replaces the recorded tap, so from there no press is
+ * checked against the tap. A mouse's click records no tap and keeps the count-only rule. A dialog
+ * opened from the keyboard just after a tap is checked against that tap too, so a tap inside near
+ * it within the window does nothing, and the person taps again.
  */
 export function openingRepeatRule(lastTap: () => Tap | null): Readonly<{ ignore: (event: MousePress) => void; closed: () => void }> {
   // Whether a press counted 1 other than the double-tap's second tap has reached the dialog since it opened.
@@ -230,6 +232,8 @@ export function openingRepeatRule(lastTap: () => Tap | null): Readonly<{ ignore:
       if (event.detail > 1 || (secondTap && event.detail === 1)) {
         event.preventDefault();
         event.stopPropagation();
+        // The browser counts this double-tap itself, and its click becomes `lastTap`, which is not the opening tap.
+        if (event.detail > 1) checkTap = false;
         // The second tap ends at its click, so a click counted 1 after it is not part of the double-tap.
         if (event.type === "click" && event.detail === 1) secondTap = false;
       }
