@@ -233,9 +233,7 @@ ownerTest.describe("demo event", () => {
       expect(crossing.code).toBe(0);
       expect(crossing.stdout).toContain("rose to at least $9,000.00 this month, 90 percent of the Vercel monthly budget of $10,000.00");
       expect(crossing.stdout).toContain("1 alert triggered");
-      // Delivery first, then the render, so a failure says which half broke. On Supabase CLI before
-      // 2.122.0 a delivery lost while the page stayed subscribed was the stack's 10 minute
-      // replication rebalance (#555); the Realtime image of CLI 3.2.0 does not rebalance.
+      // Delivery first, then the render, so a failure says which half broke.
       await expect
         .poll(() => deliveredEvent(live, BUDGET_ALERT), { timeout: LIVE_TIMEOUT_MS, message: "Realtime never delivered the budget alert event" })
         .toBe(true);

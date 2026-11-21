@@ -35,7 +35,8 @@ OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and 
   version 3.2 or later, for example `brew install supabase/tap/supabase`. CI pins 3.2.0, the
   version that generated the committed database types. Still on CLI 2? Read Supabase's
   [guide to moving to CLI 3](https://supabase.com/docs/guides/local-development/cli/migrating-to-v3)
-  before you upgrade.
+  before you upgrade. A running stack keeps the images of the CLI that started it, so run
+  `supabase stop` and `supabase start` after you upgrade.
 - `openssl`, to generate secrets.
 
 ### 2. Clone and install
@@ -531,13 +532,6 @@ npx playwright test --project=chromium              # every spec except the tick
 A file filter does not narrow the `chromium` dependency: it still runs in full. A wrapper that
 always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
 include them.
-
-Supabase CLI before 2.122.0 started a Realtime image that, about every 10 minutes, stopped its
-replication for a few seconds to rebalance it to a closer region, and dropped any change written in
-that gap. A spec waiting for that change timed out with no fault in the app. The Realtime image of
-CLI 2.122.0 and later does not do this. A running stack keeps the images of the CLI that started
-it, so if an older CLI started yours, restart it with `supabase stop` and `supabase start` after
-you upgrade.
 
 ## Project layout
 
