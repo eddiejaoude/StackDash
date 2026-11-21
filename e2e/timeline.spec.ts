@@ -1878,17 +1878,18 @@ ownerTest.describe("timeline event inspector", () => {
         page.on("request", (request) => {
           if (isRenderRequest(request, timeline)) renders.push(request.url());
         });
-        // Every click from here on, in order: its count, and whether it went on to `window`'s bubble
-        // phase, as a click nothing stopped does. Sent once its dispatch is over, so each entry is
-        // final when it arrives.
-        const clicks: Array<readonly [number, boolean]> = [];
-        await page.exposeFunction("__recordClick", (detail: number, passed: boolean) => clicks.push([detail, passed]));
+        // Every click from here on, in order: its count, its time, and whether it went on to
+        // `window`'s bubble phase, as a click nothing stopped does. Sent once its dispatch is over, so
+        // each entry is final when it arrives.
+        const clicks: Array<Readonly<{ detail: number; timeStamp: number; passed: boolean }>> = [];
+        await page.exposeFunction("__recordClick", (detail: number, timeStamp: number, passed: boolean) => clicks.push({ detail, timeStamp, passed }));
         await page.evaluate(() => {
-          const record = Reflect.get(window, "__recordClick") as (detail: number, passed: boolean) => void;
+          const record = Reflect.get(window, "__recordClick") as (detail: number, timeStamp: number, passed: boolean) => void;
           const passed = new WeakSet<Event>();
           window.addEventListener("click", (event) => passed.add(event));
-          window.addEventListener("click", (event) => setTimeout(() => record(event.detail, passed.has(event))), true);
+          window.addEventListener("click", (event) => setTimeout(() => record(event.detail, event.timeStamp, passed.has(event))), true);
         });
+        const counts = () => clicks.map(({ detail, passed }) => [detail, passed]);
 
         await page.touchscreen.tap(at.x, at.y);
         if (followsLink) {
@@ -1902,15 +1903,24 @@ ownerTest.describe("timeline event inspector", () => {
           await page.touchscreen.tap(at.x, at.y);
           await expect(page).toHaveURL(href);
           await expect(inspector).toBeHidden();
-          await expect.poll(() => clicks, { message: "both taps' clicks went on, each counted 1" }).toEqual([[1, true], [1, true]]);
+          await expect.poll(counts, { message: "both taps' clicks went on, each counted 1" }).toEqual([[1, true], [1, true]]);
           return;
         }
-        // In the double-tap the second tap follows the first at once, as in the closing case above.
+        // The details open only once the router has rendered the URL the first tap wrote.
+        // Playwright's taps come 15 to 19 ms apart (#578), which can be before that, and the second
+        // then lands on the row again. The case is a second tap on the open details, so the test
+        // waits for the open, checked every frame in the page rather than by a polling `expect`
+        // whose later retries could outlast `TOUCH_REPEAT_WINDOW_MS`.
+        await page.waitForFunction(() => document.querySelector("dialog[open]") !== null, undefined, { polling: "raf" });
         await page.touchscreen.tap(at.x, at.y);
 
+        await expect.poll(() => clicks.length).toBe(2);
+        const [first, second] = clicks;
+        if (first === undefined || second === undefined) throw new Error("Both taps' clicks were recorded, but not read.");
+        expect(second.timeStamp - first.timeStamp, "the second tap came within the double-tap window").toBeLessThanOrEqual(TOUCH_REPEAT_WINDOW_MS);
         // Both taps counted 1, as #592 measured in these engines, so the count rule alone would not
         // have stopped the second.
-        await expect.poll(() => clicks, { message: "the first tap's click went on and the second's was stopped, each counted 1" }).toEqual([[1, true], [1, false]]);
+        expect(counts(), "the first tap's click went on and the second's was stopped, each counted 1").toEqual([[1, true], [1, false]]);
         // Visible rather than `toHaveJSProperty("open", true)`: reading the dialog's `open` that way
         // crashed Playwright's Firefox page here, with the details still open.
         await expect(inspector).toBeVisible();
