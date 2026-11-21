@@ -15,7 +15,7 @@ import { ArrivalEventRow, ArrivalEvents, ArrivalFlash, ArrivalNewLabel } from ".
 import { EventTime } from "./event-time";
 import { EventInspectorLink } from "./event-inspector";
 
-// Severity stays on the node and in the status pill, not a competing left edge on the row.
+// Severity stays on the node and in every row's status pill (#594), not a competing left edge.
 // Only an arriving event flashes a left edge for a moment (#171).
 const SEVERITY_NODE: Record<EventSeverity, string> = {
   info: "border-line-strong",
