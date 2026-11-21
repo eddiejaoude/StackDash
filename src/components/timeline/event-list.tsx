@@ -15,10 +15,8 @@ import { ArrivalEventRow, ArrivalEvents, ArrivalFlash, ArrivalNewLabel } from ".
 import { EventTime } from "./event-time";
 import { EventInspectorLink } from "./event-inspector";
 
-// At rest, severity belongs to the node, not a competing left edge on the row; only an arriving
-// event's row flashes one for a moment (#171). Success, warning, and critical rows also print the
-// word in a pill; an info row, the quiet majority, gives its word to assistive tech only (#385).
-// Color still never carries severity alone: info's node is neutral, so it has no color to explain.
+// Severity stays on the node and in every row's status pill (#594), not a competing left edge.
+// Only an arriving event flashes a left edge for a moment (#171).
 const SEVERITY_NODE: Record<EventSeverity, string> = {
   info: "border-line-strong",
   success: "border-success",
@@ -121,7 +119,7 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
               <ArrivalNewLabel eventIds={[event.id]} />
             </p>
           </div>
-          <RowLabels severity={event.severity} achievement={event.achievement !== null} simulated={markSimulated && event.simulated} />
+          <RowLabels severity={event.severity} emoji={event.emoji} achievement={event.achievement !== null} simulated={markSimulated && event.simulated} />
         </div>
       </article>
     </ArrivalEventRow>
@@ -172,7 +170,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
               <ArrivalNewLabel eventIds={eventIds} />
             </p>
           </div>
-          <RowLabels severity={latest.severity} achievement={latest.achievement !== null} simulated={markSimulated && latest.simulated} />
+          <RowLabels severity={latest.severity} emoji={latest.emoji} achievement={latest.achievement !== null} simulated={markSimulated && latest.simulated} />
         </div>
         <details className="group relative z-10 mt-2">
           <summary className="inline-flex min-h-6 list-none items-center gap-1 text-sm text-accent underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">
@@ -192,20 +190,16 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
 }
 
 /**
- * The row's labels on the right: "Simulated" when asked for, and the severity pill for success,
- * warning, and critical. An info row's word ("Event") is screen-reader text only, so quiet rows
- * carry no pill and the pills that remain stand out. It sits where the pill would, so a row reads
- * in the same order whatever its severity. An achievement's pill says "Achievement" in gold rather
- * than "Success", the same word and color as the homepage feed.
+ * The row's status pill, with the event's emoji inside it rather than over the provider logo
+ * (#594). The word is the severity's (`severityBadge`), so a neutral row's "Info" matches the
+ * filters and event details; an achievement shows its gold label instead of the ordinary Success.
  */
-function RowLabels({ severity, achievement, simulated }: { severity: EventSeverity; achievement: boolean; simulated: boolean }) {
+function RowLabels({ severity, emoji, achievement, simulated }: { severity: EventSeverity; emoji: string; achievement: boolean; simulated: boolean }) {
   const word = achievement ? "Achievement" : severityBadge(severity);
-  const quiet = severity === "info" && !achievement;
-  if (quiet && !simulated) return <span className="sr-only">{word}</span>;
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
       {simulated ? <SimulatedBadge /> : null}
-      {quiet ? <span className="sr-only">{word}</span> : <SeverityBadge severity={word} />}
+      <SeverityBadge severity={word} emoji={emoji} />
     </div>
   );
 }
@@ -219,7 +213,7 @@ function TimelinePosition({ event, now, latest = false }: { event: TimelineEvent
       </div>
       <div aria-hidden="true" className="col-start-1 row-span-2 row-start-1 lg:col-start-2 lg:row-span-1">
         <span className={`flex size-10 items-center justify-center rounded-lg border bg-background ${event.achievement === null ? SEVERITY_NODE[event.severity] : "border-gold/60"}`}>
-          <ProviderMark provider={event.markProvider} emoji={event.emoji} size="sm" />
+          <ProviderMark provider={event.markProvider} size="sm" />
         </span>
       </div>
     </>

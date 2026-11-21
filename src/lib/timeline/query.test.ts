@@ -312,7 +312,7 @@ describe("eventTypeLabel", () => {
 describe("severityBadge", () => {
   it("maps every severity to a badge word", () => {
     expect(EVENT_SEVERITIES.map(severityBadge)).toEqual([
-      "Event",
+      "Info",
       "Success",
       "Warning",
       "Critical",

@@ -42,12 +42,13 @@ export const MAX_TYPE_FILTERS = 100;
 
 export const EVENT_SEVERITIES = ["info", "success", "warning", "critical"] as const satisfies readonly EventSeverity[];
 
-// The badge vocabulary shared with the landing page. The filter uses the same words as each event
-// row: success, warning, and critical rows show theirs as a pill, while an info row's "Event" is
-// screen-reader text only, so quiet rows carry no pill (#385). The event details show the pill for
-// every severity.
+// The app timeline's word for each stored severity, from the badge vocabulary shared with the
+// landing page (#594). Event rows, the severity links, the filter checkboxes, the chips, and the
+// event details all read it here, so a neutral event says "Info" everywhere, never the landing
+// page's "Event". Every row shows its word as a pill, with the event's emoji inside it, except an
+// achievement, whose row says "Achievement" instead (`RowLabels`).
 const SEVERITY_BADGE: Record<EventSeverity, Severity> = {
-  info: "Event",
+  info: "Info",
   success: "Success",
   warning: "Warning",
   critical: "Critical",

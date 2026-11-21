@@ -8,7 +8,8 @@ import type { Platform } from "@/lib/site";
 interface FeedEvent {
   platform: Platform;
   severity: Severity;
-  // What happened, in the corner of the logo, as on the app timeline: 🏆 for an achievement.
+  // What happened, in the corner of the logo, as in the app's event details (the app's timeline
+  // rows put it inside the status pill instead): 🏆 for an achievement.
   emoji: string;
   text: string;
 }

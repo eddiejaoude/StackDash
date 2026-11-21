@@ -51,7 +51,10 @@ export type TimelineEvent = Pick<
    * (its id is adapter-scoped, `vercel.deployments.10`). Null is StackDash's own empty frame.
    */
   markProvider: ProviderId | null;
-  /** The emoji in the corner of that logo (`eventEmoji`). */
+  /**
+   * What happened (`eventEmoji`): inside the row's status pill (#594), and in the corner of that
+   * logo in the event details.
+   */
   emoji: string;
 };
 
