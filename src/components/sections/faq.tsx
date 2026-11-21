@@ -17,7 +17,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: `Does ${site.name} need write access to my accounts?`,
-    answer: `Only if you choose automatic webhook setup. Otherwise it connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect. Polar and GitLab have no read-only way to add a webhook, so automatic webhook setup asks for write access there, and says so first. ${site.name} writes only to add and delete its own webhook, and setting the webhook up by hand asks for no write access.`,
+    answer: `Not to read your data. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect. Polar and GitLab have no read-only way to add a webhook, so automatic webhook setup asks for write access there, and says so first. ${site.name} writes only to add and delete its own webhook, and setting the webhook up by hand asks for no extra access.`,
   },
   {
     question: "Will any of my data be public?",
@@ -32,8 +32,8 @@ const faq: readonly FaqItem[] = [
     answer: `Only where an official way to read it exists. Consumer subscriptions are separate from API billing and most do not offer a documented usage API. ${site.name} will not scrape sessions or ask for your password to fill that gap.`,
   },
   {
-    question: "Which services come first?",
-    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, Sentry, and GitLab, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. ElevenLabs is planned next. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
+    question: "Which services does it connect to?",
+    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, Sentry, and GitLab, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. ElevenLabs is planned later. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
   },
   {
     question: "Will it show OpenAI and Anthropic API spend?",

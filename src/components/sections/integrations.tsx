@@ -100,14 +100,14 @@ function providerDocHref(slug: string): string {
 }
 
 // Order from the OAuth research on issue #11. The first group is every adapter built so far and
-// connects through OAuth. The next group is ElevenLabs, which returns with a restricted API key
+// connects through OAuth. The planned group is ElevenLabs, which returns with a restricted API key
 // (#49). The last group waits because its usage data needs an admin key or partner approval, and
 // says which.
 const groups: readonly IntegrationGroup[] = [
   {
-    stage: "First",
+    stage: "Available",
     dotClass: "bg-success",
-    note: "Available now",
+    note: "Connect them today",
     providers: [
       "Vercel",
       "GitHub and GitHub Actions",
@@ -123,9 +123,9 @@ const groups: readonly IntegrationGroup[] = [
     ],
   },
   {
-    stage: "Next",
+    stage: "Planned",
     dotClass: "bg-warning",
-    note: "Planned straight after",
+    note: "Further out on the roadmap",
     providers: ["ElevenLabs"],
   },
   {
