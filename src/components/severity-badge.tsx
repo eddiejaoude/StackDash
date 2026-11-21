@@ -4,7 +4,7 @@
 // The word is always printed, so color is never the only signal.
 // "Warning" and "Critical" are the app timeline's words for stored event severities; the landing
 // page keeps its own vocabulary.
-export type Severity = "Success" | "Achievement" | "Alert" | "Failed" | "Summary" | "Event" | "Warning" | "Critical";
+export type Severity = "Success" | "Achievement" | "Alert" | "Failed" | "Summary" | "Event" | "Info" | "Warning" | "Critical";
 
 const SEVERITY_CLASSES: Record<Severity, string> = {
   Success: "border-success/40 text-success",
@@ -13,17 +13,19 @@ const SEVERITY_CLASSES: Record<Severity, string> = {
   Failed: "border-danger/40 text-danger",
   Summary: "border-line text-muted",
   Event: "border-line text-muted",
+  Info: "border-line bg-panel-raised text-muted",
   Warning: "border-warning/40 text-warning",
   Critical: "border-danger/40 text-danger",
 };
 
-/** Event severity as a text pill, so color is never the only carrier of meaning. */
-export function SeverityBadge({ severity }: { severity: Severity }) {
+/** Event severity with an optional decorative icon, so color is never the only carrier of meaning. */
+export function SeverityBadge({ severity, emoji }: { severity: Severity; emoji?: string }) {
   return (
     <span
-      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] ${SEVERITY_CLASSES[severity]}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[10px] ${SEVERITY_CLASSES[severity]}`}
     >
-      {severity}
+      {emoji === undefined ? null : <span aria-hidden="true" className="text-[11px] leading-none">{emoji}</span>}
+      <span>{severity}</span>
     </span>
   );
 }
