@@ -280,7 +280,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
         "href",
         reconnectHref,
       );
-      await expect(page.getByText("cannot be reconnected")).toHaveCount(0);
+      await expect(page.getByText("is not available on this instance")).toHaveCount(0);
       const attentionLink = attention.getByRole("link", { name: `Reconnect ${PROVIDER_NAME}` });
       await expect(attentionLink).toHaveAttribute("href", reconnectHref);
       await attentionLink.click();
