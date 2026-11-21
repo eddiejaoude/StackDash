@@ -2,7 +2,7 @@
 
 What is being built now, what comes next, and what is planned after that. This page is the public summary of the project board the maintainers plan StackDash on, and it changes when the board does. It names no dates: work moves up or down as priorities change.
 
-Last checked against the board: 2026-11-16.
+Last checked against the board: 2026-11-21.
 
 ## How this page maps to the board
 
@@ -26,15 +26,15 @@ Want something that is not here? Search the issues first, then open a new one: a
 
 ## Now
 
-- **Events pushed by webhook from GitLab, Resend, and Polar**, so pipelines, deployments, releases, merge requests, email and domain events, orders, subscriptions, and refunds reach the timeline within a minute instead of at the next hourly sync.
-- **Fixes** to how connections set up and remove their webhooks.
+- **Fixes** to the home page, the sign-in page, and the provider docs, so each says what StackDash does today.
 
 ## Next
 
 - **Hosted version.** Run the sync scheduler and background jobs for the hosted version, and decide its billing provider, tax approach, and plan limits.
 - **Dashboard and achievements.** Clearer dashboard figures and chart series names, one consistent list of unusual days, and a deployment streak counted across every provider that deploys.
 - **Privacy.** Remove an account's invite and sign-in records when the account is deleted.
-- **Fixes.** The timeline, alerts, connections, webhooks, sign-in, the content security policy, and the docs, plus the reliability of the end-to-end tests.
+- **Found through search and AI assistants.** A page for each integration generated from its adapter, structured data, an llms.txt, and the docs as Markdown, plus the first answer guides to common questions.
+- **Fixes.** The timeline, alerts, connections, webhooks, sign-in, the home page, the content security policy, and the docs, plus the reliability of the end-to-end tests.
 
 ## Later
 
@@ -51,12 +51,13 @@ Want something that is not here? Search the issues first, then open a new one: a
 - **More integrations.** OpenAI and Anthropic usage and cost through an admin API key, and ElevenLabs credits and reset dates.
 - **Teams.** Invite members to a workspace by email, change their roles or remove them, transfer ownership, leave a workspace, and create more workspaces and switch between them. Workspaces already have owner, admin, and viewer roles.
 - **Public pages.** A leaderboard of verified stats that are not revenue, and public profile and project directory pages.
-- **Hosted version: paid plans.** Plans and their limits, checkout, a pricing page, billing settings, the payment provider's customer portal, a grace period for failed payments, and API and MCP rate limits per plan. Plans apply to the hosted version; a self-hosted install gets its own default. Per-seat and annual pricing, coupons, trials, usage-based overage, and a second billing provider come after that.
+- **Hosted version: paid plans.** Plans and their limits, checkout, a pricing page, billing settings, the payment provider's customer portal, a grace period for failed payments, and API and MCP rate limits per plan. Plans apply to the hosted version; a self-hosted install gets its own default. An operator can also put a workspace on a paid plan without payment. Per-seat and annual pricing, coupons, trials, usage-based overage, and a second billing provider come after that.
 - **Hosted version: operations.** Error tracking, uptime checks, sign-up abuse protection, backups with a restore drill, a status page, and support tiers.
 - **Timeline.** Hide the event types you do not care about, save named views, give deploys, payments, and alerts their own detail fields, and serve the per-provider counts from a rollup for very large workspaces.
 - **Dashboard and events.** How the monthly comparison treats accounts that start or stop reporting, blocked on a decision. Record the deployment environment on events, and add a daily logins metric.
 - **Email.** A weekly email with what changed across your stack and how your leaderboard rank moved.
 - **Versioned releases.** Tagged releases with release notes, to upgrade to instead of `main`.
 - **A light theme**, blocked on a decision: whether to offer a manual switch as well as following the system setting.
-- **An admin console** for the hosted version, with audited impersonation for support.
-- **Fixes and upkeep.** A tab title that goes blank after a save. A check that a live Resend callback carries its issuer, and two dependency upgrades, are blocked until something outside the project changes.
+- **An admin console** for the hosted version: a read-only view of a customer's plan and subscription first, then audited impersonation for support.
+- **A blog** with the launch posts, blocked on a decision: whether a self-hosted instance publishes it too.
+- **Fixes and upkeep.** A tab title that goes blank after a save. GitLab webhook deliveries signed rather than checked with a shared token, waiting on a decision about setup by hand. A check that a live Resend callback carries its issuer, and a dependency upgrade, are blocked until something outside the project changes.
