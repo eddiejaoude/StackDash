@@ -262,15 +262,14 @@ export function ModalDialog({
         aria-labelledby={titleId}
         aria-describedby={description === undefined ? describedBy : descriptionId}
         onClose={(event) => {
-          // React delivers a nested dialog's `close` here too, as the Share dialog inside the event
-          // details closes, and that resets the rule as well. #558 kept that so the second click of a
-          // double-click on the nested dialog's Close would do nothing here; the closing rule (#563,
-          // `ignoreClosingRepeat`) now stops that click at `window` before it arrives, so the reset
-          // keeps only its cost: open the nested dialog with a click, close it with Escape, and
-          // clicks at the same point within the double-click time are counted 2 or more and do
-          // nothing until a pause or a move lets the browser count one as 1 again. #577 tracks
-          // resetting only on this dialog's own close.
-          pressedSinceOpen.current = false;
+          // This dialog's own close resets the rule for its next open. React delivers a nested
+          // dialog's `close` here too, as the Share dialog inside the event details closes, but this
+          // dialog stays open then and keeps its rule (#577): the rest of a double-click on the
+          // nested dialog's Close never reaches it, because the click that closed the nested dialog
+          // put `ignoreClosingRepeat` on `window` (#563). Resetting here as well would only make a
+          // click counted 2 do nothing, such as Share clicked again at the same point after Escape
+          // closed the Share dialog.
+          if (event.target === event.currentTarget) pressedSinceOpen.current = false;
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
             onClose,

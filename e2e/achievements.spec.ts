@@ -4,7 +4,9 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { openFilters } from "./fixtures/filters";
+import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
+import { boxCenter } from "./fixtures/pointer";
 
 /*
  * A project's earned achievements as members see them (#413): the private Achievements section,
@@ -145,6 +147,25 @@ async function expectFocusVisible(page: Page): Promise<void> {
   expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible") ?? false)).toBe(true);
 }
 
+// Records video of the #577 Share-again case under PW_PR_EVIDENCE=1 only.
+const shareEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
+/** The published "10 Vercel deployments recorded" entry's details, open on the timeline at `width`. */
+async function openPublishedEntry(page: Page, workspace: TestWorkspace, width: number) {
+  const projectId = await seedAchievements(workspace);
+  await publishAsOwner(workspace, projectId, "vercel.deployments.10");
+  await page.setViewportSize({ width, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(`/w/${workspace.slug}/timeline`);
+  await expectHydrated(page);
+  const inspector = await openEntry(page, "10 Vercel deployments recorded");
+  return {
+    inspector,
+    share: inspector.getByRole("button", { name: "Share 10 Vercel deployments recorded" }),
+    shareDialog: page.getByRole("dialog", { name: "Share 10 Vercel deployments recorded" }),
+  };
+}
+
 ownerTest.describe("achievements as the owner", () => {
   ownerTest("lists earned achievements by provider, oldest first, with dates and evidence", async ({ page }) => {
     const workspace = await createTestWorkspace("Achievements list");
@@ -276,6 +297,74 @@ ownerTest.describe("achievements as the owner", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  // #577: the Share dialog is a dialog inside the event details, and its `close` reaches the
+  // details' `onClose` too. The details stay open then and keep their opening rule (#506): the rest
+  // of a double-click on Share's Close is stopped by the closing rule (#563) before it reaches them,
+  // and a click counted 2 on Share after Escape closed the Share dialog opens it again.
+  for (const width of [1280, 375]) {
+    ownerTest(`does nothing in the details on a double-click on the Share dialog's Close at ${width}px`, async ({ page }) => {
+      const workspace = await createTestWorkspace(`Achievements share close ${width}`);
+      try {
+        const { inspector, share, shareDialog } = await openPublishedEntry(page, workspace, width);
+        const close = shareDialog.getByRole("button", { name: "Close", exact: true });
+        await share.click();
+        await expect(close).toBeFocused();
+        const at = await boxCenter(close);
+        // The point lies in the details once the Share dialog is closed, so the second click of the
+        // double-click lands on them.
+        await page.keyboard.press("Escape");
+        await expect(shareDialog).toBeHidden();
+        expect(await inspector.evaluate((element, { x, y }) => element.contains(document.elementFromPoint(x, y)), at)).toBe(true);
+
+        await share.click();
+        await expect(close).toBeFocused();
+        await page.mouse.move(at.x, at.y);
+        await page.mouse.down({ clickCount: 1 });
+        await page.mouse.up({ clickCount: 1 });
+        // The Share dialog's close settles first (Chromium fires `close` a frame later, and its
+        // handler puts focus back on Share), so focus is still on Share at the end only if the
+        // press counted 2 moved nothing.
+        await expect(shareDialog).toBeHidden();
+        await expect(share).toBeFocused();
+        await page.mouse.down({ clickCount: 2 });
+        await page.mouse.up({ clickCount: 2 });
+
+        await expect(shareDialog).toBeHidden();
+        await expect(inspector).toHaveJSProperty("open", true);
+        await expect(inspector.getByRole("heading", { name: "10 Vercel deployments recorded", exact: true })).toBeVisible();
+        await expect(share).toBeFocused();
+        expect(await page.evaluate(() => window.getSelection()?.toString())).toBe("");
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+
+    shareEvidenceTest(`opens Share again on a click counted 2 after Escape closed the Share dialog at ${width}px`, async ({ page }) => {
+      const workspace = await createTestWorkspace(`Achievements share again ${width}`);
+      try {
+        const { share, shareDialog } = await openPublishedEntry(page, workspace, width);
+        const close = shareDialog.getByRole("button", { name: "Close", exact: true });
+        const at = await boxCenter(share);
+        await page.mouse.click(at.x, at.y);
+        await expect(close).toBeFocused();
+        await page.keyboard.press("Escape");
+        await expect(shareDialog).toBeHidden();
+        await expect(share).toBeFocused();
+
+        // At the first click's point, as a click inside the double-click time is counted.
+        await page.mouse.down({ clickCount: 2 });
+        await page.mouse.up({ clickCount: 2 });
+        await expect(shareDialog).toBeVisible();
+        await expect(close).toBeFocused();
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/after/share-again-${width}.png`, animations: "disabled" });
+        }
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   ownerTest("says Simulated on the entry of an achievement earned from simulator data", async ({ page }) => {
     const workspace = await createTestWorkspace("Achievements simulated entry");

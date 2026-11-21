@@ -14,6 +14,7 @@ import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, 
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
 import { openWith } from "./fixtures/palette";
+import { boxCenter, type Point } from "./fixtures/pointer";
 import { deliveredEvent, expectSubscribed, isRenderRequest, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
@@ -1196,14 +1197,6 @@ ownerTest.describe("timeline active filters", () => {
 });
 
 const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
-
-type Point = { x: number; y: number };
-
-async function boxCenter(locator: Locator): Promise<Point> {
-  const box = await locator.boundingBox();
-  if (box === null) throw new Error("The element is not rendered.");
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-}
 
 /**
  * The middle of the page's "Timeline" heading: on the dimmed page beside the open details panel or
