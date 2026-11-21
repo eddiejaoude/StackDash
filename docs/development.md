@@ -606,7 +606,7 @@ src/
     public-metrics/            public metric definitions, engine, history, published read API, badges, cards, yearly card
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
-    crypto/                    credential encryption and key ids
+    crypto/                    credential encryption, key ids, and key rotation (npm run keys:rotate)
     auth/, workspaces/, account/  session, redirects, super admins, roles and permissions, account deletion
     admin/                     instance overview: configuration checks, deployment and migration state
     demo/                      the demo workspace, its replayed history, its one-time sign-in link, incidents on cue (npm run demo, demo:seed, demo:event), and in-app sample data
