@@ -497,7 +497,7 @@ npm run test:e2e
 
 Chromium runs the suite. WebKit and Firefox run only the tests tagged `@touch`, in the
 `webkit-touch` and `firefox-touch` projects: both engines count each tap of a double-tap as a
-separate click, which Chromium does not (#578).
+separate click, which Chromium does not.
 
 Playwright starts its own dev server on port 3100 (override with `E2E_PORT=3200 npm run test:e2e`),
 which loads `.env.local`. The suite needs no GitHub app: `e2e/global-setup.ts` reads the Supabase
