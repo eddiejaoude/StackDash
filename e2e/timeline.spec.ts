@@ -1289,6 +1289,25 @@ async function closeEventOverSignOut(page: Page, trigger: Locator): Promise<Poin
 }
 
 /**
+ * WebKit applies the production policy's `upgrade-insecure-requests` (src/proxy.ts) to localhost:
+ * against CI's production build on http://localhost it asks for every `/_next/static` file over
+ * https, which fails, and the page never hydrates. Chromium and Firefox leave localhost alone, and
+ * `bypassCSP` does not stop the upgrade. Drops that one directive from each document's policy and
+ * keeps the rest, until #597 settles the policy for plain http. Call before the first navigation;
+ * a route added later, such as `interceptSignOut`'s, runs before this one.
+ */
+async function keepLocalhostOnHttp(page: Page): Promise<void> {
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() !== "document") return route.fallback();
+    const response = await route.fetch({ maxRedirects: 0 });
+    const headers = response.headers();
+    const policy = headers["content-security-policy"];
+    if (policy === undefined) return route.fulfill({ response });
+    await route.fulfill({ response, headers: { ...headers, "content-security-policy": policy.replace(/;\s*upgrade-insecure-requests\b/, "") } });
+  });
+}
+
+/**
  * A point on `trigger`'s row that lies on `control` once that row's details are open, where a
  * double-click on the part of the row the panel covers lands its second click (#506). Opens the
  * details from the keyboard to measure them, closes them, then scrolls the row level with the control.
@@ -1795,6 +1814,7 @@ ownerTest.describe("timeline event inspector", () => {
         await page.setViewportSize({ width: 375, height: 900 });
         await page.emulateMedia({ reducedMotion: "reduce" });
         const timeline = `/w/${workspace.slug}/timeline`;
+        await keepLocalhostOnHttp(page);
         await page.goto(timeline);
         await expectHydrated(page);
         const signOut = await interceptSignOut(page);
