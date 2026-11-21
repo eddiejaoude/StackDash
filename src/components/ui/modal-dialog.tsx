@@ -181,7 +181,7 @@ export function ignoreClosingRepeat(
 function repeatsTap(tap: Tap, press: globalThis.MouseEvent): boolean {
   const elapsed = press.timeStamp - tap.timeStamp;
   const distance = Math.hypot(press.clientX - tap.x, press.clientY - tap.y);
-  return elapsed >= 0 && elapsed <= TOUCH_REPEAT_WINDOW_MS && distance <= TOUCH_REPEAT_RADIUS_PX;
+  return elapsed <= TOUCH_REPEAT_WINDOW_MS && distance <= TOUCH_REPEAT_RADIUS_PX;
 }
 
 const FRAME = "rounded-xl border bg-panel text-foreground backdrop:bg-black/60";
