@@ -2,15 +2,15 @@
 
 Provider id: `github`. Verification: documentation only. Docs checked 2026-11-16.
 
-StackDash reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus stars, star history, and forks, and puts pull requests merged, issues opened, releases published, and new stars on the timeline. It installs as a GitHub App with five read-only permissions, and receives GitHub's webhooks so that pull requests, issues, stars, an uninstall, a suspension, or a revoked authorization reach StackDash within a minute. Releases arrive by the hourly sync.
+StackDash reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus star counts and new forks, and puts pull requests merged, issues opened, releases published, and new stars on the timeline. It installs as a GitHub App with five read-only permissions, and receives GitHub's webhooks so that pull requests, issues, stars, an uninstall, a suspension, or a revoked authorization reach StackDash within a minute. Releases arrive by the hourly sync.
 
 ## Go or no-go
 
-**Go for the MVP, with one scope correction.** A GitHub App with three read-only permissions covers everything StackDash reads: organization billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star count, star history, and forks. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so personal accounts also need the user authorization step.
+**Go.** A GitHub App with five read-only permissions covers everything StackDash reads: billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star counts, new forks, merged pull requests, opened issues, and published releases. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so a personal account connection keeps the user's refresh token.
 
-The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. The landing page's Copilot row names AI Credits for the same reason.
+The limits a user can trip on: billing needs the enhanced billing platform, so an account still on legacy billing gets stars, forks, and activity but no spend. An organization install needs an organization owner; a member's install becomes a request the owner approves. Only the first 100 repositories of an installation are read. Enterprise accounts are out of scope. Since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)); premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. So StackDash reads `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend, and `premium_request/usage` only for a month with no AI credit rows.
 
-**Go for timeline activity, with two more read-only permissions.** Pull requests read and Issues read let GitHub send the `pull_request` and `issues` webhooks and let the hourly sync read the same lists as the backfill. Releases come from each repository's events feed, which needs only the Metadata read the app already has. The `release` webhook and the release list need Contents read, which also reads every covered repository's code, and an installer cannot leave out one permission ("Choosing permissions for a GitHub App": they "see and grant the repository and organization permissions that the app requested"). So StackDash does not ask for it, and releases reach the timeline within about an hour, or up to about 7 hours when GitHub's feed lags. Both new permissions are optional for an installation made before they were added: it keeps syncing billing, stars, forks, and releases, and the connection lists the permissions it lacks until the owner accepts them on GitHub.
+Releases come from each repository's events feed, which needs only Metadata read. The `release` webhook and the release list need Contents read, which also reads every covered repository's code, and an installer cannot leave out one permission ("Choosing permissions for a GitHub App": they "see and grant the repository and organization permissions that the app requested"). So StackDash does not ask for it, and releases reach the timeline within about an hour, or up to about 7 hours when GitHub's feed lags. Pull requests read and Issues read are optional for an installation made before they were added: it keeps syncing billing, stars, forks, and releases, and the connection lists the permissions it lacks until the owner accepts them on GitHub.
 
 ## Connection
 
@@ -38,39 +38,39 @@ GitHub App, installed on a user or organization account, plus a one-time user au
 3. GitHub redirects to the setup URL with `installation_id`. In practice it also sends `setup_action` (`install` or `update`) and the `state`, but `setup_action` is not in the official docs (see Unverified).
 4. **Never trust `installation_id` from the query string.** The setup URL docs warn that it can be spoofed and say to generate a user access token and check that the installation belongs to that user. So the callback does not save anything yet. It starts the web application flow below.
 
-If an organization member without owner rights installs, GitHub sends the owner a request instead of installing ([requesting a GitHub App](https://docs.github.com/en/apps/using-github-apps/requesting-a-github-app-from-your-organization-owner)). The callback must then show "Waiting for an organization owner to approve" and not create a connection. Whether the redirect carries `setup_action=request` and no `installation_id` is unverified.
+If an organization member without owner rights installs, GitHub sends the owner a request instead of installing ([requesting a GitHub App](https://docs.github.com/en/apps/using-github-apps/requesting-a-github-app-from-your-organization-owner)). The callback then shows "Waiting for an organization owner to approve the StackDash GitHub App" and creates no connection. Whether the redirect carries `setup_action=request` and no `installation_id` is unverified.
 
 ### User authorization (verifies the installation)
 
 Do **not** enable "Request user authorization (OAuth) during installation": when it is on, GitHub disables the setup URL and always uses the first callback URL. Run the flow explicitly instead.
 
-Authorize query: `client_id`, `redirect_uri` (must exactly match a registered callback URL), `state` (new value, bound to the pending `installation_id`), `code_challenge` and `code_challenge_method=S256` (PKCE, `plain` is not supported). Do not send `scope`: GitHub Apps have no scopes; the only accepted value is `offline_access`, which forces expiring tokens, and that is already the default.
+Authorize query: `client_id`, `redirect_uri` (must exactly match a registered callback URL), `state` (new value, bound to the pending `installation_id`), `code_challenge` and `code_challenge_method=S256` (PKCE, `plain` is not supported). StackDash sends no `scope`: GitHub Apps have no scopes; the only accepted value is `offline_access`, which forces expiring tokens, and that is already the default.
 
 Exchange: `POST https://github.com/login/oauth/access_token` with `client_id`, `client_secret`, `code`, `redirect_uri`, `code_verifier`. Response fields: `access_token`, `expires_in`, `refresh_token`, `refresh_token_expires_in`, `scope` (always empty), `token_type` (`bearer`). A mismatched `state` means abort.
 
 Then:
 
-1. `GET /user/installations` with the user token (paginate, `per_page=100`). The `installation_id` must be in the list, otherwise reject.
-2. `GET /app/installations/{installation_id}` with the app JWT. Read `account.login`, `account.id`, `account.type` (`User` or `Organization`), `target_type`, `repository_selection` (`all` or `selected`), `permissions`, `suspended_at`.
-3. Persist the connection: installation id, account id, login, and type. Store the account **id** as the stable key; logins can be renamed.
-4. Personal account (`account.type = User`): keep the user refresh token, encrypted, because the user billing endpoints only accept user access tokens. Organization: the user token is not needed after step 1, so revoke it with `DELETE /applications/{client_id}/token` and store nothing.
+1. `GET /user/installations` with the user token (`per_page=100`, at most 10 pages). StackDash rejects the connection unless the `installation_id` is in the list.
+2. `GET /app/installations/{installation_id}` with the app JWT, when listing the account and on every sync. StackDash reads `account.login`, `account.id`, `account.type` (`User` or `Organization`), `permissions`, and `suspended_at`.
+3. StackDash persists the connection: installation id, account id, login, and type. The account **id** is the stable key; logins can be renamed.
+4. Personal account (`account.type = User`): StackDash keeps the user refresh token, encrypted, because the user billing endpoints only accept user access tokens. Organization: the user token is not needed after step 1, so StackDash revokes it with `DELETE /applications/{client_id}/token` and keeps no working user token.
 
 A user access token only has permissions both the app and the user hold. For personal billing that is fine: the account holder can always read their own billing.
 
 ### Installation access tokens (every sync)
 
-1. Build the JWT in memory from `GITHUB_APP_PRIVATE_KEY`.
-2. `POST /app/installations/{installation_id}/access_tokens` with `Authorization: Bearer <JWT>`. Narrow the token with the body: `{"permissions": {"metadata": "read", "organization_administration": "read"}}`, plus `pull_requests` and `issues` at `read` for each the installation holds (a token "cannot be granted permissions that the app was not granted", so an installation that has not accepted them yet asks for fewer). Optional `repositories` or `repository_ids` (up to 500) narrow it further.
-3. Use the token until `expires_at` minus a margin, then mint a new one. Do not persist installation tokens; mint per sync run. Expired tokens return `401`.
+1. StackDash builds the JWT in memory from `GITHUB_APP_PRIVATE_KEY`, with the App ID as `iss`.
+2. `POST /app/installations/{installation_id}/access_tokens` with `Authorization: Bearer <JWT>`. StackDash narrows the token with the body: `{"permissions": {"metadata": "read"}}`, plus `organization_administration` at `read` for an organization (it has no effect on a personal account), and `pull_requests` and `issues` at `read` for each the installation holds (a token "cannot be granted permissions that the app was not granted", so an installation that has not accepted them yet asks for fewer). It sends no `repositories` or `repository_ids` (up to 500), so the token covers every repository the installation does.
+3. StackDash mints a new token on every sync run and never persists it. Expired tokens return `401`.
 
 ### User token refresh (personal accounts only)
 
-`POST https://github.com/login/oauth/access_token` with `client_id`, `client_secret`, `grant_type=refresh_token`, `refresh_token`. The response holds a new access token **and a new refresh token**; the old pair stops working at once. Serialize refreshes per connection and persist the new pair atomically before use. `bad_refresh_token` means the user must authorize again. A refresh token unused for 6 months expires, so a daily sync keeps it alive.
+`POST https://github.com/login/oauth/access_token` with `client_id`, `client_secret`, `grant_type=refresh_token`, `refresh_token`. The response holds a new access token **and a new refresh token**; the old pair stops working at once. StackDash serializes refreshes per connection with a refresh lock and stores the new pair before use. `bad_refresh_token` means the user must authorize again. A refresh token unused for 6 months expires, so regular syncs keep it alive.
 
 ### Disconnect and revoke
 
-- From StackDash: `DELETE /app/installations/{installation_id}` with the JWT uninstalls the app from that account. Also revoke the stored user grant with `DELETE /applications/{client_id}/grant` (Basic auth `client_id:client_secret`, body `{"access_token": "..."}`), which removes every token for that user. Delete stored tokens either way.
-- From GitHub: the user can uninstall or suspend the app in account or organization settings, or revoke the user authorization. StackDash hears of it from the webhook within a minute (see [Webhooks](#webhooks)) and asks for a reconnect; when a delivery is missed, it finds out on the next sync instead: token minting or API calls fail. Treat `401` on a user token, and `404` or `403` when minting an installation token, as "needs reconnection" and stop retrying. Exact status codes for uninstalled and suspended installations are unverified.
+- From StackDash: disconnecting deletes the stored tokens. It does not uninstall the app or revoke the user grant, so StackDash then asks the user to uninstall the StackDash GitHub App on GitHub: at github.com/settings/installations, or for an organization in the organization's settings under GitHub Apps.
+- From GitHub: the user can uninstall or suspend the app in account or organization settings, or revoke the user authorization. StackDash hears of it from the webhook within a minute (see [Webhooks](#webhooks)) and asks for a reconnect; when a delivery is missed, it finds out on the next sync instead: token minting or API calls fail. StackDash treats `401` on any token, and `404` or `403` when reading the installation or minting its token, as "needs reconnection" and stops retrying. Exact status codes for uninstalled and suspended installations are unverified.
 - Revoking the user authorization does not uninstall the app.
 
 ## Permissions
@@ -79,15 +79,15 @@ All read-only. Nothing in this list can write.
 
 | Permission (GitHub UI group) | Level | Why | Token types |
 |---|---|---|---|
-| Repository: Metadata | Read | Repo details, star count, star history, forks, list of installed repositories, the `star` webhook, and published releases from the repository events feed (`GET /repos/{owner}/{repo}/events`). Mandatory for every GitHub App | Installation, user |
-| Organization: Administration | Read | Organization billing usage, usage summary, AI credit usage, premium request usage, budgets | Installation, user |
+| Repository: Metadata | Read | The list of installed repositories with their star counts, new forks, the `star` webhook, and published releases from the repository events feed (`GET /repos/{owner}/{repo}/events`). Mandatory for every GitHub App | Installation, user |
+| Organization: Administration | Read | Organization billing usage, usage summary, AI credit usage, premium request usage | Installation, user |
 | Account: Plan | Read | Personal account billing usage, usage summary, AI credit usage, premium request usage | User only |
 | Repository: Pull requests | Read | The `pull_request` webhook and `GET /repos/{owner}/{repo}/pulls`, for merged pull requests on the timeline. Optional | Installation |
 | Repository: Issues | Read | The `issues` webhook and `GET /repos/{owner}/{repo}/issues`, for opened issues on the timeline. Optional | Installation |
 
 The `star` webhook needs only Metadata read. `installation` and `github_app_authorization` deliveries reach every GitHub App without a permission.
 
-Not requested: Contents, Organization plan, Actions. `GET /installation/repositories` needs no permission beyond the installation token. Contents read would allow the `release` and `fork` webhooks and the release list, but it also reads every covered repository's code, so releases come from the events feed (Metadata read) and forks stay polled.
+Not requested: Contents, Organization: Plan (personal billing uses Account: Plan read, above), Actions. `GET /installation/repositories` needs no permission beyond the installation token. Contents read would allow the `release` and `fork` webhooks and the release list, but it also reads every covered repository's code, so releases come from the events feed (Metadata read) and forks stay polled.
 
 "Optional" means an installation without it still connects and syncs. Each sync checks the installation's permissions and reports the missing ones as partial errors, which the connection page lists as missing permissions until the account owner approves the app's new permissions on GitHub (GitHub asks the owners of every installation to review an app's added permissions); the next sync then clears them.
 
@@ -97,7 +97,7 @@ Organization owners approve "Administration: read" at install time. On a persona
 
 ### Which repositories
 
-`GET /installation/repositories` (installation token, `per_page=100`, paginate). Returns the repositories the owner granted. Respect `repository_selection`: a "selected" install only shows chosen repositories. Re-read every sync because users add and remove repositories. Each repository carries `stargazers_count`, a required integer in GitHub's reference for this endpoint ([List repositories accessible to the app installation](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-app-installation)) and the number of users who starred it ([REST API endpoints for starring](https://docs.github.com/en/rest/activity/starring)). It is StackDash's star count for every repository, with no request per repository.
+`GET /installation/repositories` (installation token, `per_page=100`, first page only). Returns the repositories the owner granted, so a "selected" install shows only the chosen repositories. StackDash reads it on every sync, because users add and remove repositories. An installation with more than 100 repositories has only the first 100 read, logged as `github.sync.repositories_truncated`. Each repository carries `stargazers_count`, a required integer in GitHub's reference for this endpoint ([List repositories accessible to the app installation](https://docs.github.com/en/rest/apps/installations#list-repositories-accessible-to-the-app-installation)) and the number of users who starred it ([REST API endpoints for starring](https://docs.github.com/en/rest/activity/starring)). It is StackDash's star count for every repository, with no request per repository.
 
 ### Repositories and StackDash projects
 
@@ -121,25 +121,25 @@ Daily line items for every metered product. **Only for organizations on the enha
 
 Each `usageItems[]` entry: `date` (string, one UTC day), `product` (for example `Actions`), `sku` (for example `Actions Linux`), `quantity` (integer, in `unitType`), `unitType` (for example `minutes`), `pricePerUnit` (USD number), `grossAmount`, `discountAmount`, `netAmount` (USD numbers), `organizationName`, `repositoryName` (optional, `owner/repo`).
 
-Granularity: per day, product, SKU, and repository where the product has one. `netAmount = grossAmount - discountAmount` is what GitHub bills; `discountAmount` covers included usage and free usage (for example standard runners in public repositories). Request `year` and `month` for the current month on each sync, and the previous month during the first days of a new month to pick up late usage.
+Granularity: per day, product, SKU, and repository where the product has one. `netAmount = grossAmount - discountAmount` is what GitHub bills; `discountAmount` covers included usage and free usage (for example standard runners in public repositories). StackDash requests `year` and `month` for the current month on each sync, and the previous month too during the first 3 days of a new month to pick up late usage. It keeps each item's `date`, `product`, and `netAmount`: the daily spend per product.
 
 ### Billing usage summary, organization: `GET /organizations/{org}/settings/billing/usage/summary`
 
-Public preview, subject to change. Aggregated over the requested period (default: current month). Extra filters: `repository` (`owner/repo`), `product`, `sku`. Response: `timePeriod` (`year`, `month`, `day`), `organization`, and `usageItems[]` with `product`, `sku`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Only the last 24 months are available. Use it for the month-to-date total per product; use `/usage` for the daily chart.
+Public preview, subject to change. Aggregated over the requested period (default: current month). Extra filters: `repository` (`owner/repo`), `product`, `sku`. Response: `timePeriod` (`year`, `month`, `day`), `organization`, and `usageItems[]` with `product`, `sku`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Only the last 24 months are available. StackDash reads it for the month-to-date net spend per product and SKU and the gross quantity per product and unit (`github.usage.<product>.<unit>`), and `/usage` for daily spend. It skips Copilot rows here, because Copilot comes from the AI credit endpoint.
 
 StackDash stores the same money at three levels: month to date per product (`github.spend.<product>`), per SKU (`github.spend.<product>.<sku>`), and per product per UTC day (`github.daily_spend.<product>`). Spend totals, alerts, and the daily summary count only the month to date per product. A SKU row is a breakdown of its product, and a day row lies inside the month, so neither is added again (`countedSnapshots` in `src/lib/dashboard/aggregate.ts`).
 
 ### AI credits, organization: `GET /organizations/{org}/settings/billing/ai_credit/usage`
 
-Copilot usage since 2026-06-01. Filters: `year`, `month`, `day`, `user`, `model`, `product`. Response: `timePeriod`, `organization`, and `usageItems[]` with `product`, `sku`, `model`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Included credits are pooled across the organization; `discountAmount` is the part covered by the pool, `netAmount` the billed overage. Last 24 months only. No per-item date: for a daily series, query with `day`.
+Copilot usage since 2026-06-01. Filters: `year`, `month`, `day`, `user`, `model`, `product`. Response: `timePeriod`, `organization`, and `usageItems[]` with `product`, `sku`, `model`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Included credits are pooled across the organization; `discountAmount` is the part covered by the pool, `netAmount` the billed overage. Last 24 months only. No per-item date. StackDash reads it by month for Copilot's month-to-date net spend (`github.spend.copilot`, with no SKU breakdown) and gross quantity (`github.usage.copilot.<unit>`).
 
 ### Premium requests, organization: `GET /organizations/{org}/settings/billing/premium_request/usage`
 
-Same parameters and schema as AI credits, with `unitType: "requests"`. Legacy since 2026-06-01. Keep it as a fallback so months before June 2026 still show, and in case an account still has premium request rows. Last 24 months only.
+Same parameters and schema as AI credits, with `unitType: "requests"`. Legacy since 2026-06-01. StackDash reads it only for a month in which the AI credit endpoint returns no rows or fails, so months before June 2026 still show, as does an account that still has premium request rows. Last 24 months only.
 
 ### Budgets, organization: `GET /organizations/{org}/settings/billing/budgets`
 
-Optional, same Administration read permission. Each budget has `budget_type`, `budget_product_skus` or `budget_product_sku`, `budget_scope`, `budget_amount` (**whole US dollars**, or a license count for license products), `prevent_further_usage`, `budget_alerting`. Gives StackDash a real limit to compare spend against. Paginated (`per_page` max 100, default 10, `has_next_page`).
+StackDash does not read budgets. The endpoint needs the same Administration read permission. Each budget has `budget_type`, `budget_product_skus` or `budget_product_sku`, `budget_scope`, `budget_amount` (**whole US dollars**, or a license count for license products), `prevent_further_usage`, `budget_alerting`. Paginated (`per_page` max 100, default 10, `has_next_page`).
 
 ### Personal account equivalents (user access token, Account: Plan read)
 
@@ -154,7 +154,7 @@ Installation tokens do **not** work on these. They only cover usage billed to th
 
 ### Repository: `GET /repos/{owner}/{repo}`
 
-`stargazers_count`, `forks_count`, `watchers_count` (equals stars, legacy naming), `subscribers_count` (actual watchers), `private`, `visibility`, `fork`, `archived`, `pushed_at`. Never log the response: it can contain `temp_clone_token`, a 5 minute read credential.
+StackDash does not call it: the repository list already carries each repository's star count (see Which repositories). The response holds `stargazers_count`, `forks_count`, `watchers_count` (equals stars, legacy naming), `subscribers_count` (actual watchers), `private`, `visibility`, `fork`, `archived`, `pushed_at`, and can contain `temp_clone_token`, a 5 minute read credential.
 
 ### Star count: `GET /repos/{owner}/{repo}/stargazers/count`
 
@@ -162,15 +162,15 @@ Returns `{ "count": 42 }`. Current stars; users who unstarred are not included. 
 
 ### Star history: `GET /repos/{owner}/{repo}/stargazers/history`
 
-Stars grouped by calendar week, newest first. Each item: `week` (Unix seconds, start of week), `total` (stars that week), `days` (7 integers, Sunday first). Weeks without stars contain zeros. `per_page` max 30, `page` max 100. Pages go back to the repository's creation week; concatenating pages gives one continuous series. **Week and day boundaries are not guaranteed to align with UTC.** Use it to backfill history on first connect and to show recent weeks, not for exact UTC days.
+Stars grouped by calendar week, newest first, with `days` holding 7 integers, Sunday first. **Week and day boundaries are not guaranteed to align with UTC.** StackDash does not call it: star counts come from the repository list (see Which repositories), and new stars per day from UTC day snapshots of those counts (see [New stars per day](#new-stars-per-day-githubstarsgaineddaily)).
 
 ### Stargazer list: avoid
 
-`GET /repos/{owner}/{repo}/stargazers` with `Accept: application/vnd.github.star+json` adds `starred_at` per user. Since July 2026 GitHub limits this endpoint to admins and collaborators and may return empty results or `403` ([changelog](https://github.blog/changelog/2026-06-30-upcoming-access-restrictions-to-public-api-endpoints-and-ui-views/)). It also returns personal data (logins, avatars) StackDash does not need. Use count and history instead.
+`GET /repos/{owner}/{repo}/stargazers` with `Accept: application/vnd.github.star+json` adds `starred_at` per user. Since July 2026 GitHub limits this endpoint to admins and collaborators and may return empty results or `403` ([changelog](https://github.blog/changelog/2026-06-30-upcoming-access-restrictions-to-public-api-endpoints-and-ui-views/)). It also returns personal data (logins, avatars) StackDash does not need. StackDash does not call it and reads only the star count from the repository list.
 
 ### Forks: `GET /repos/{owner}/{repo}/forks`
 
-`sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync that reaches the repository within the fork budget (see [Time budget](#time-budget)), read the first page and stop at the first fork id already seen. Store the fork `id` and `created_at` for de-duplication; do not store owner logins. `forks_count` on the repository is the total.
+`sort=newest` (default), `per_page` max 100. Each item is a repository: `id`, `full_name`, `owner.login`, `created_at` (when the fork was made), `private`. On each sync that reaches the repository within the fork budget (see [Time budget](#time-budget)), StackDash reads the first page (`per_page=100`) and reports each fork made since the newest one it saw before. It keeps only the fork `id` and `created_at`, never the owner or name. It does not read `forks_count`, the repository's total.
 
 ### Merged pull requests: `GET /repos/{owner}/{repo}/pulls`
 
@@ -218,10 +218,10 @@ A usage metric StackDash derives from the star count snapshots (`stargazers_coun
 
 ### Units, freshness, retention
 
-- Money: every amount is a JSON number in US dollars, with sub-cent prices (`pricePerUnit: 0.008`). No currency field is returned; USD is the inference from GitHub's billing docs, which price everything in USD. Convert at the parse boundary to integer cents (`amountMinor`, `currency: "USD"`) with decimal string arithmetic, never by multiplying floats. Keep `pricePerUnit` as the original decimal string. Round per line item and note that StackDash totals can differ from GitHub's by a few cents.
-- Quantities: `minutes`, `requests`, `credits` or `ai-credits`, and storage in GB-hours for Actions storage (GitHub's GB is 2^30 bytes). Always store the `unitType` string next to the number.
-- Dates: billing `date` is a UTC day. Star history weeks are not UTC aligned.
-- Freshness: not documented for the REST endpoints. Actions artifact storage usage updates "within 6 to 12 hours". Treat the current day as provisional and re-read it on the next sync.
+- Money: every amount is a JSON number in US dollars, with sub-cent prices (`pricePerUnit: 0.008`). No currency field is returned; USD is the inference from GitHub's billing docs, which price everything in USD. StackDash parses each amount to an exact decimal at the parse boundary, sums each metric at full precision, and rounds once to integer cents (`currency: "USD"`), never by multiplying floats, so its totals can differ from GitHub's by rounding.
+- Quantities: `minutes`, `requests`, `credits` or `ai-credits`, and storage in GB-hours for Actions storage (GitHub's GB is 2^30 bytes). StackDash keeps the `unitType` as the usage metric's unit.
+- Dates: billing `date` is a UTC day.
+- Freshness: not documented for the REST endpoints. Actions artifact storage usage updates "within 6 to 12 hours". StackDash reads the whole month again on every sync, so the current day is updated as GitHub adds usage.
 - Retention: summary, AI credit, and premium request endpoints return the last 24 months only.
 
 ### Timeline events
@@ -231,15 +231,12 @@ Pull requests, issues, and single stars arrive by webhook within a minute; the p
 | Event | Source | Rule |
 |---|---|---|
 | New stars | Daily snapshot of `stargazers_count` | One event per UTC day with the net change, if positive. Unstars reduce it, so it is net, not gross. Only when the first sync of the next day runs by 02:00 UTC: a later close would report up to two days as one, so that day gets no event. Its stars still show in the star counts (`github.stars.total` and each repository's) |
-| Star milestone | `stargazers_count` | When the count first reaches 100, 500, 1,000, then every further 1,000. Fire once per milestone per repository, even if the count dips and rises again. Polled only: only the cursor knows which milestones already fired |
+| Star milestone | `stargazers_count` | When the count first reaches 100, 500, 1,000, then every further 1,000. Fires once per milestone per repository, even if the count dips and rises again. Polled only: only the cursor knows which milestones already fired |
 | Repository starred | `star` webhook, `created` | One event per star, at `starred_at`, keyed by repository and `starred_at`. Who starred is never read. Webhook only: the stargazer list that could backfill it is restricted and personal (see [Stargazer list](#stargazer-list-avoid)), so a missed delivery shows only in the daily net and the counts. An unstar (`deleted`) is ignored: the daily net counts it |
-| New fork | `/forks` (newest first) | One event per new fork id, at its `created_at`. Summarize per day if there are many |
+| New fork | `/forks` (newest first) | One event per new fork id, at its `created_at` |
 | Pull request merged | `pull_request` webhook (`closed` with `merged: true`), then `/pulls` | One event per merge, at `merged_at`, keyed `github.pull_request.merged:<repository id>:<number>`. Only the number and the repository |
 | Issue opened | `issues` webhook (`opened`), then `/issues` | One event per issue, at `created_at`, keyed `github.issue.opened:<repository id>:<number>`. Only the number and the repository |
 | Release published | `/events` (`ReleaseEvent`, `published`), polled only | One event per published release, at `published_at`, keyed `github.release.published:<repository id>:<release id>`, titled with its tag. Within about an hour, or up to about 7 hours when the feed lags |
-| Spend started | `/usage/summary` | First non-zero `netAmount` for a product in a month: included usage has run out |
-| Daily spend | `/usage` | Net spend per product per UTC day |
-| Budget threshold | `/budgets` plus `/usage/summary` | Month-to-date net spend crosses 75, 90, or 100 percent of a budget (GitHub's own alert levels) |
 
 ## Achievements
 
@@ -269,15 +266,14 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 
 | Value | Status |
 |---|---|
-| Net, gross, discount amounts per product and SKU per day (org and personal) | Verified (GitHub's billed figures; the current month is provisional until invoiced) |
+| Net amounts per product and SKU for the month, and per product per day (org and personal) | Verified (GitHub's billed figures; the current month is provisional until invoiced) |
 | AI credit and premium request quantities and amounts | Verified |
-| Budgets and their amounts | Verified |
-| Star count, fork count, new fork ids and times | Verified |
-| Star history per week | Verified counts; days are approximate because boundaries are not UTC |
+| Budgets and their amounts | Not read: StackDash does not call the budgets endpoint |
+| Star count, new fork ids and times | Verified |
 | Daily new stars from count snapshots | Verified net change at poll time; gross stars per day unavailable |
 | Pull requests merged, issues opened, releases published, single stars | Verified: GitHub's own event, by webhook or from its list or events feed |
 | Month-end spend projection | Estimated (StackDash extrapolation) |
-| Included allowance remaining (for example "$12 of Actions compute left") | Estimated: `discountAmount` is returned, the plan allowance is not; it would come from GitHub's pricing docs |
+| Included allowance remaining (for example "$12 of Actions compute left") | Unavailable: `discountAmount` is returned, the plan allowance is not, and StackDash does not estimate it |
 | Invoices, payment history, plan name | Unavailable through these permissions |
 | Per user and per workflow usage | Unavailable (detailed report is web only; AI credit `user` filter exists for orgs) |
 | Billing for organizations not on the enhanced billing platform | Unavailable |
@@ -289,9 +285,9 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Installation tokens: 5,000 requests per hour per installation, plus 50 per hour per repository above 20 and 50 per hour per organization user above 20, capped at 12,500. GitHub Enterprise Cloud organizations: 15,000.
 - User access tokens: share the user's 5,000 per hour with every other app and personal token the user runs.
 - Secondary limits: at most 100 concurrent requests, 900 points per minute for REST (`GET` costs 1), 90 seconds of CPU per minute, and 2,000 OAuth token requests per hour per app. Some endpoints cost more, undisclosed.
-- Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions; use them for pacing, not exact counting.
-- Exceeded: `403` or `429`. If `retry-after` is present, wait that many seconds. If `x-ratelimit-remaining` is `0`, wait until `x-ratelimit-reset`. Otherwise wait at least one minute, then back off exponentially and give up after a fixed number of tries. Continuing while limited can get the app banned.
-- Budget: per repository per sync 1 request for forks within their 20 second budget (star counts come with the repository list), plus the activity reads within theirs (see [Time budget](#time-budget)): one page each of pull requests and issues and one to three pages of the events feed. About 4 billing calls per account. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Its first page of forks took 1.1 to 5.8 s, so the fork budget reads about 4 busy repositories a sync. Webhook deliveries cost no requests. Run requests serially per installation.
+- Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions. StackDash reads only `x-ratelimit-remaining`, to tell a rate limited `403` from a missing permission.
+- Exceeded: `403` or `429`. StackDash treats a `403` with `retry-after` or `x-ratelimit-remaining: 0` as rate limited. It retries the sync after `retry-after` (at most a day) when present, otherwise with exponential backoff from one minute up to an hour, and gives up after a fixed number of tries. It does not read `x-ratelimit-reset`. Continuing while limited can get the app banned.
+- Budget: per repository per sync 1 request for forks within their 20 second budget (star counts come with the repository list), plus the activity reads within theirs (see [Time budget](#time-budget)): one page each of pull requests and issues and one to three pages of the events feed. 3 or 4 billing calls per account per month read (summary, usage, AI credit, and premium request when AI credit has no rows or fails), for two months during the first 3 days of a month. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Its first page of forks took 1.1 to 5.8 s, so the fork budget reads about 4 busy repositories a sync. Webhook deliveries cost no requests. StackDash sends requests serially per installation.
 
 ## Webhooks
 
@@ -325,33 +321,34 @@ No billing webhooks exist in the docs checked. Spend stays polled.
 
 ## Permission risks
 
-Disclose these on the connect screen before redirecting:
+The connect screen lists each permission and what it can read before redirecting. The risks:
 
 - **Organization Administration read** is broader than billing. It also reads organization Actions settings and permissions, hosted runner details, code security configurations, security managers, secret scanning custom patterns, interaction limits, the organization's app installations, and Copilot seat assignments (`/orgs/{org}/copilot/billing/seats`, which lists members). StackDash calls only the billing endpoints, but the token can read the rest.
 - **Repository Metadata read** on private repositories also exposes the collaborator list and permissions, contributors, commit comments, and languages, and on every covered repository the events feed: who pushed, opened, commented, or released what. StackDash reads only repository details, stars, forks, and the feed's `ReleaseEvent` entries, and of those only the release's id, tag, time, and link.
 - **Repository Pull requests read** reads pull request titles, descriptions, comments, and reviews. StackDash keeps only the number, merge time, and link.
 - **Repository Issues read** reads issue titles, bodies, comments, and labels. StackDash keeps only the number, opening time, and link.
-- **Account Plan read** (personal accounts) reads that user's billing usage and plan. It is held through a refresh token valid for 6 months, the longest-lived secret in this adapter. Encrypt it at rest.
+- **Account Plan read** (personal accounts) reads that user's billing usage and plan. It is held through a refresh token valid for 6 months, the longest-lived secret in this adapter. StackDash stores it encrypted.
 - The **private key** can mint tokens for every installation of the app. It never expires. Store it only in the server environment, never in the database or logs; rotate by adding a new key, deploying, then deleting the old one.
 - The **webhook secret** signs every installation's deliveries: anyone holding it can post events to every workspace's timeline and mark connections as needing a reconnect. Server environment only; rotate by changing it on the app registration and in the environment together.
-- Installation tokens default to every permission and repository the installation has. Always narrow `permissions` when minting.
-- Org installs need an organization owner; the connect screen should say so.
+- Installation tokens default to every permission and repository the installation has. StackDash narrows `permissions` when minting (see [Installation access tokens](#installation-access-tokens-every-sync)), not repositories.
+- Org installs need an organization owner; the connect screen says so under Organization administration.
 - **Private repository names** appear in the timeline titles of their events, which only the workspaces that connected that account can read. A verified delivery holds its parsed events, titles included, until the next job tick applies them, normally within a minute; the row then keeps the delivery id for 30 days to deduplicate redeliveries, with the events cleared (`webhook_deliveries.outcome`, set to null once applied). StackDash never logs the names: a failed repository read names the path template (`/repos/{owner}/{repo}/pulls`), never the repository, and webhook logs name only the provider, the delivery id, and the outcome.
 
 ## Limitations
 
 - The billing usage report requires the enhanced billing platform. Organizations still on legacy billing get no billing data; stars and forks still work.
-- Copilot moved to AI credits on 2026-06-01. Premium request data before that date is in the premium request endpoint; after it, in the AI credit endpoint. Show both under one "Copilot" row, by `unitType`.
-- The usage summary endpoints are in public preview and may change. Validate every response with zod and fail the sync on schema drift instead of guessing.
+- Copilot moved to AI credits on 2026-06-01. Premium request data before that date is in the premium request endpoint; after it, in the AI credit endpoint. StackDash reports both as Copilot spend (`github.spend.copilot`), with usage by `unitType`.
+- The usage summary endpoints are in public preview and may change. StackDash validates every response and fails the sync on schema drift instead of guessing.
 - No per-workflow or per-user detail through the API (organization owners cannot see per-user AI usage in the UI either; the API `user` filter exists).
 - Only 24 months of history for summary, AI credit, and premium request data.
-- Star history days are not UTC aligned; daily star events come from count snapshots and are net.
+- Daily star events come from count snapshots and are net.
 - The stargazer list is restricted; StackDash never knows who starred.
 - Single star events come only by webhook. A missed `star` delivery shows in the daily net and the star counts, not as its own event.
 - Activity is read one page per list per repository per sync (the events feed up to three), within a 20 second budget. A repository with more than 30 merges or 100 new issues since its list was last read, and a missed webhook among them, can miss some; the truncation is logged. A repository the budget defers is read first on the next sync, from where it left off.
 - Forks are read within a 20 second budget too. In an installation with more busy repositories than one sync reaches, each repository's forks are read every several hours rather than every hour: a new fork is reported that much later, and when more than 100 forks are made between two of its reads, the oldest of them are not reported.
 - Releases are polled only, from the events feed: within about an hour, or up to about 7 hours when GitHub's feed lags. A repository with more than 300 events since its feed was last read (the feed's cap) can miss a release, and that is logged as `github.sync.activity_truncated`. On an hourly read that takes more than 300 events an hour. A repository the budget defers is read less often, so in an installation with more busy repositories than one sync reaches, releases published between two of its turns can be missed, and each such turn logs it.
 - One installation per account. A user with a personal account and two organizations installs three times and gets three connections.
+- Only the first 100 repositories of an installation are read; the rest are logged as `github.sync.repositories_truncated`.
 - Enterprise accounts are out of scope.
 
 ## Self-hosted registration
@@ -372,10 +369,10 @@ Each deployment registers its own GitHub App, because the private key, client se
 
 | Variable | Value |
 |---|---|
-| `GITHUB_APP_ID` | Numeric App ID. Accepted as JWT `iss`; GitHub recommends the client ID instead |
+| `GITHUB_APP_ID` | Numeric App ID. StackDash uses it as the JWT `iss`; GitHub recommends the client ID instead |
 | `GITHUB_APP_SLUG` | Slug from the app's public page URL. Builds the install URL |
 | `GITHUB_APP_PRIVATE_KEY` | Full PEM contents, PKCS#1. If your host cannot store multiline values, store it with `\n` escapes and convert back when loading |
-| `GITHUB_APP_CLIENT_ID` | Client ID (different from the App ID). Used as JWT `iss` and in the user authorization flow |
+| `GITHUB_APP_CLIENT_ID` | Client ID (different from the App ID). Used in the user authorization flow |
 | `GITHUB_APP_CLIENT_SECRET` | Client secret. Shown once |
 | `GITHUB_APP_WEBHOOK_SECRET` | The webhook secret from step 7. Leave it unset while the webhook is inactive |
 
@@ -663,7 +660,7 @@ A `github_app_authorization` delivery body, complete apart from the sender's pro
 
 ## Unverified
 
-Confirm with a test organization and a test personal account before the adapter ships:
+Not yet confirmed with a test organization and a test personal account:
 
 - `setup_action` (`install`, `update`, `request`) on the setup URL redirect is not in the official docs, and neither is the exact form of `state` passthrough. The handler must work if either is missing.
 - What the redirect looks like when a non-owner requests an org install (no `installation_id` expected).
@@ -676,7 +673,7 @@ Confirm with a test organization and a test personal account before the adapter 
 - Freshness of billing usage (how long after usage it appears) and of star counts.
 - Status codes when minting a token for a deleted or suspended installation.
 - Whether the user token exchange returns JSON by default or needs `Accept: application/json` (documented for OAuth apps; the GitHub App page does not say).
-- Whether an installation token counts as "admin or collaborator" for the restricted stargazer list. StackDash does not plan to call it, so this only matters if plans change.
+- Whether an installation token counts as "admin or collaborator" for the restricted stargazer list. StackDash does not call it, so this only matters if that changes.
 - Whether `/stargazers/history` counts stars that were later removed.
 - What `GET /repos/{owner}/{repo}/issues` answers for a repository with issues turned off (the list documents `404` and `422`, not `410`). StackDash treats `404` and `410` the same: no issues for that repository.
 - That every `installation` delivery carries `installation.account` (an enterprise installation may name no user or organization), and that `suspended_at` is set on `suspend`.
