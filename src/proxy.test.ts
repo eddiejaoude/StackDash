@@ -11,7 +11,8 @@ import { proxy } from "./proxy";
 // Public project page addresses (#150) through the proxy: the rate limit the badges and cards
 // share (#321), then the lookup that decides between the page, a redirect, and the 404. Then the
 // super admin page (#374): only a verified super admin's /app/admin is sent to the page's route,
-// and that route's own path is answered as not found.
+// and that route's own path is answered as not found. Last, the one directive of the nonce policy
+// that depends on the request (#597).
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
 const { checkPublicRateLimit, findPublicProjectPage, getClaims, warn } = vi.hoisted(() => ({
@@ -212,5 +213,105 @@ describe("proxy for the super admin page", () => {
       expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
     }
     expect(getClaims).not.toHaveBeenCalled();
+  });
+});
+
+describe("proxy's nonce policy and upgrade-insecure-requests", () => {
+  const HOSTED = "https://stackdash.example.com";
+  // The whole policy this file's Supabase URL gives, nonce aside, so any other change shows.
+  const PRODUCTION_POLICY = [
+    "default-src 'self'",
+    "script-src 'self' 'nonce-N'",
+    "style-src 'self' 'nonce-N'",
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' blob: data: https://avatars.githubusercontent.com",
+    "font-src 'self'",
+    "connect-src 'self' http://127.0.0.1:54321 ws://127.0.0.1:54321",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self' http://127.0.0.1:54321 https://github.com",
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+  const WITHOUT_UPGRADE = PRODUCTION_POLICY.replace("; upgrade-insecure-requests", "");
+
+  /** The policy on a public page's response for a request to `origin`, its nonce written as N. */
+  async function policyFor(origin: string, headers: Record<string, string> = {}): Promise<string | undefined> {
+    const response = await proxy(new NextRequest(`${origin}${ADDRESS}`, { headers }));
+    return response.headers.get("Content-Security-Policy")?.replace(/'nonce-[^']+'/g, "'nonce-N'");
+  }
+
+  it("keeps the whole policy, upgrade-insecure-requests included, for https on a hosted name", async () => {
+    expect(await policyFor(HOSTED)).toBe(PRODUCTION_POLICY);
+  });
+
+  // A browser always sends Host, port included, and `next start` copies it into x-forwarded-host,
+  // so every row but the one about a missing Host sends it as a header.
+  it.each([
+    ["a LAN address (boundary: private, not loopback)", "http://192.168.1.20:3000", { host: "192.168.1.20:3000" }],
+    ["a name that starts with localhost (boundary: not loopback)", "http://localhost.example.com", { host: "localhost.example.com" }],
+    ["a LAN Host while the server listens on localhost (boundary: next start's URL host)", "http://localhost:3000", { host: "192.168.1.20:3000" }],
+    [
+      "a hosted x-forwarded-host on a loopback server (boundary: proxy in front)",
+      "http://localhost:3000",
+      { "x-forwarded-host": "stackdash.example.com", host: "localhost:3000" },
+    ],
+    [
+      "an x-forwarded-host list that starts with localhost (boundary: a host list is refused, not split)",
+      "http://localhost:3000",
+      { "x-forwarded-host": "localhost:3000, stackdash.example.com", host: "localhost:3000" },
+    ],
+    [
+      "an x-forwarded-host list that ends with localhost (boundary: a host list is refused, not split)",
+      "http://localhost:3000",
+      { "x-forwarded-host": "stackdash.example.com, localhost:3000", host: "localhost:3000" },
+    ],
+    [
+      "a hosted name, as a forged x-forwarded-proto says (boundary: the scheme alone is not enough)",
+      HOSTED,
+      { "x-forwarded-proto": "http", host: "stackdash.example.com" },
+    ],
+    ["a loopback server with no Host header (boundary: fail closed, not the URL host)", "http://localhost:3000", {}],
+  ])("keeps upgrade-insecure-requests for plain http to %s", async (_title, origin, headers) => {
+    expect(await policyFor(origin, headers)).toBe(PRODUCTION_POLICY);
+  });
+
+  it.each([
+    ["https", { "x-forwarded-proto": "https", host: "localhost:3000" }],
+    ["a list whose first value is https", { "x-forwarded-proto": "https, http", host: "localhost:3000" }],
+  ])("keeps upgrade-insecure-requests on a loopback host when x-forwarded-proto is %s (boundary: TLS ended in front)", async (_title, headers) => {
+    expect(await policyFor("http://localhost:3000", headers)).toBe(PRODUCTION_POLICY);
+  });
+
+  it.each([
+    ["localhost", "http://localhost:3000", { host: "localhost:3000" }],
+    ["127.0.0.1", "http://127.0.0.1:3000", { host: "127.0.0.1:3000" }],
+    ["[::1]", "http://[::1]:3000", { host: "[::1]:3000" }],
+    [
+      "localhost, with the headers next start adds",
+      "http://localhost:3000",
+      { "x-forwarded-proto": "http", "x-forwarded-host": "localhost:3000", host: "localhost:3000" },
+    ],
+    [
+      "localhost, when the first x-forwarded-proto value is http and a later one https",
+      "http://localhost:3000",
+      { "x-forwarded-proto": "http, https", host: "localhost:3000" },
+    ],
+  ])("leaves out only upgrade-insecure-requests for plain http to %s (boundary: loopback)", async (_title, origin, headers) => {
+    expect(await policyFor(origin, headers)).toBe(WITHOUT_UPGRADE);
+  });
+
+  it.each([
+    ["https on a hosted name", HOSTED, { host: "stackdash.example.com" }],
+    ["plain http to localhost", "http://localhost:3000", { host: "localhost:3000" }],
+  ])("keeps the development policy as it was for %s (boundary: NODE_ENV development)", async (_title, origin, headers) => {
+    vi.stubEnv("NODE_ENV", "development");
+
+    expect(await policyFor(origin, headers)).toBe(
+      WITHOUT_UPGRADE.replace("script-src 'self' 'nonce-N'", "script-src 'self' 'nonce-N' 'unsafe-eval'").replace(
+        "style-src 'self' 'nonce-N'",
+        "style-src 'self' 'unsafe-inline'",
+      ),
+    );
   });
 });

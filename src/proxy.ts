@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { ADMIN_PATH, ADMIN_ROUTE, admitsToAdminRoute } from "@/lib/auth/super-admin";
 import { findPublicProjectPage } from "@/lib/data/project-pages";
-import { publicEnv } from "@/lib/env";
+import { isLoopbackUrl, publicEnv } from "@/lib/env";
 import { parseProjectPagePath, projectPagePath } from "@/lib/public-metrics/project-page";
 import { checkPublicRateLimit, rateLimitedHeaders, rateLimitedPageHtml, type RateLimitDecision } from "@/lib/public-metrics/requests";
 import type { Database } from "@/lib/supabase/database.types";
@@ -22,6 +22,32 @@ function formActionSources(supabaseOrigin: string): string {
 }
 
 /**
+ * True when the browser asked for this page over plain http on this computer (`localhost`, a
+ * 127.x.x.x address, or `[::1]`), the only case where the policy leaves out
+ * `upgrade-insecure-requests` (#597). WebKit applies that directive to localhost too, so a
+ * production build served on http://localhost (`npm run start`, the e2e run) asked for every
+ * `/_next/static` file over https, which failed, and the page never hydrated in Safari. Chromium
+ * and Firefox leave localhost alone. Hosted pages are https, so they keep the directive as before,
+ * and so does plain http to any other host (a LAN address, a name that only starts with
+ * localhost).
+ *
+ * The scheme is the first `x-forwarded-proto` value when a proxy in front set one (TLS ended
+ * there), else the request URL's. The host is the one the browser addressed, `x-forwarded-host`
+ * then `Host`, as isSameOrigin reads it: under `next start` the request URL's host is the address
+ * the server was started on, not the one the browser used, so it is never read, and a request with
+ * neither header keeps the directive. A client that forges these headers only drops the directive
+ * from its own response, which is rendered per request with its own nonce and never cached
+ * (`no-store`, held in e2e/csp.spec.ts), so nobody else's policy changes.
+ */
+function isPlainHttpToLoopback(request: NextRequest): boolean {
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const isHttp = forwardedProto ? forwardedProto === "http" : request.nextUrl.protocol === "http:";
+  if (!isHttp) return false;
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  return host !== null && isLoopbackUrl(`http://${host}`);
+}
+
+/**
  * Builds the per-request nonce policy, enforced on every proxied page. Next.js reads the nonce from
  * the request's CSP header and stamps it on the scripts it renders per request, so no page code has
  * to handle it. That only works for HTML rendered per request: a static shell prerendered at build
@@ -30,7 +56,7 @@ function formActionSources(supabaseOrigin: string): string {
  * #125), the signed-out /unsubscribe page that alert emails link to (#152), and the global
  * not-found page that answers paths matching no route (#197).
  */
-function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
+function contentSecurityPolicy(nonce: string, supabaseUrl: URL, request: NextRequest): string {
   const isDev = process.env.NODE_ENV === "development";
   const supabaseOrigin = supabaseUrl.origin;
   const supabaseSocket = `${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`;
@@ -54,8 +80,10 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
     "base-uri 'self'",
     `form-action ${formActionSources(supabaseOrigin)}`,
     "frame-ancestors 'none'",
-    // Local Supabase serves plain http on 127.0.0.1, which this directive would break.
-    ...(isDev ? [] : ["upgrade-insecure-requests"]),
+    // Local Supabase serves plain http on 127.0.0.1, which this directive would break in
+    // development. A production build served over plain http on this computer leaves it out too,
+    // or WebKit never hydrates the page (isPlainHttpToLoopback, #597).
+    ...(isDev || isPlainHttpToLoopback(request) ? [] : ["upgrade-insecure-requests"]),
   ].join("; ");
 }
 
@@ -127,7 +155,7 @@ function withNoncePolicy(
   respond: (init: { request: { headers: Headers } }) => NextResponse,
 ): NextResponse {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const policy = contentSecurityPolicy(nonce, new URL(supabaseUrl));
+  const policy = contentSecurityPolicy(nonce, new URL(supabaseUrl), request);
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("Content-Security-Policy", policy);
   const response = respond({ request: { headers: requestHeaders } });

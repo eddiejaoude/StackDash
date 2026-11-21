@@ -10,7 +10,6 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { keepLocalhostOnHttp } from "./fixtures/csp";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 import { expectHydrated } from "./fixtures/hydration";
@@ -1788,13 +1787,12 @@ ownerTest.describe("timeline event inspector", () => {
     { name: "closes the details on a double-tap on Close event without signing out", signsOut: false },
     { name: "signs out on a tap where Close event was once the double-tap window has passed", signsOut: true },
   ] as const) {
-    inspectorEvidenceTest(`${name} at 375px`, { tag: "@touch" }, async ({ page, browserName }) => {
+    inspectorEvidenceTest(`${name} at 375px`, { tag: "@touch" }, async ({ page }) => {
       const workspace = await seedTimeline(`Inspector tap ${signsOut ? "after window" : "double"}`);
       try {
         await page.setViewportSize({ width: 375, height: 900 });
         await page.emulateMedia({ reducedMotion: "reduce" });
         const timeline = `/w/${workspace.slug}/timeline`;
-        if (browserName === "webkit") await keepLocalhostOnHttp(page);
         await page.goto(timeline);
         await expectHydrated(page);
         const signOut = await interceptSignOut(page);
@@ -1855,13 +1853,12 @@ ownerTest.describe("timeline event inspector", () => {
     { name: "keeps the details open on a double-tap on a row under the full-width panel", followsLink: false },
     { name: "follows a link in the details on a tap where the row was once the double-tap window has passed", followsLink: true },
   ] as const) {
-    inspectorEvidenceTest(`${name} at 375px`, { tag: "@touch" }, async ({ page, browserName }) => {
+    inspectorEvidenceTest(`${name} at 375px`, { tag: "@touch" }, async ({ page }) => {
       const workspace = await seedTimeline(`Inspector open tap ${followsLink ? "after window" : "double"}`);
       try {
         await page.setViewportSize({ width: 375, height: 900 });
         await page.emulateMedia({ reducedMotion: "reduce" });
         const timeline = `/w/${workspace.slug}/timeline`;
-        if (browserName === "webkit") await keepLocalhostOnHttp(page);
         await page.goto(timeline);
         await expectHydrated(page);
         const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
