@@ -10,8 +10,8 @@ import { SYNC_FAILED_TYPE_ID } from "@/lib/jobs/sync-connection";
 import { CHANNEL_NEEDS_ATTENTION_TYPE_ID, NOTIFICATION_FAILED_TYPE_ID } from "@/lib/notifications/dispatch";
 
 /*
- * The emoji for what happened, at a glance: inside a timeline row's status pill (#594), and in the
- * corner of the provider's logo in the event details. Adapters declare theirs on each event type
+ * The emoji for what happened, at a glance, inside the event's status pill wherever it is shown:
+ * timeline rows (#594) and the event details (#596). Adapters declare theirs on each event type
  * (`EventType.emoji`); StackDash's own types are named here, because they have no adapter.
  * Decorative only: the title and type say it in words.
  */
