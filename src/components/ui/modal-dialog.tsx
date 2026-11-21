@@ -142,9 +142,10 @@ const PRESS_EVENTS = ["mousedown", "mouseup", "click", "dblclick"] as const;
  * but Playwright's WebKit and Firefox with touch count both taps of a double-tap 1 (#578). So when
  * a tap closed the dialog (`closingTap`, its click's place and time), the next press counted 1
  * within `TOUCH_REPEAT_RADIUS_PX` of it and `TOUCH_REPEAT_WINDOW_MS` after it is that double-tap's
- * second tap: it is ignored with its release and click, all counted 1, and the rule stays. Any other
- * press counted 1 ends it as above. Only the next press is checked, so a third tap counted 1 acts.
- * A mouse's close passes no tap and keeps the count-only rule.
+ * second tap: its press, release, and click, each counted 1, are ignored, and the rule stays for
+ * what the browser counts 2 or more. Once that click is ignored, a click counted 1 passes again.
+ * Any other press counted 1 ends it as above. Only the next press is checked, so a third tap
+ * counted 1 acts. A mouse's close passes no tap and keeps the count-only rule.
  */
 export function ignoreClosingRepeat(
   target: Pick<Window, "addEventListener" | "removeEventListener">,
@@ -165,6 +166,8 @@ export function ignoreClosingRepeat(
     if (event.detail > 1 || (secondTap && event.detail === 1)) {
       event.preventDefault();
       event.stopPropagation();
+      // The second tap ends at its click, so a click counted 1 after it is not part of the double-tap.
+      if (event.type === "click" && event.detail === 1) secondTap = false;
     }
   }
   function end(): void {

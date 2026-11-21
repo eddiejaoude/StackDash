@@ -157,6 +157,13 @@ describe("ignoreClosingRepeat", () => {
       expect(TYPES.map((type) => getEventListeners(target, type).length)).toEqual([0, 0, 0, 0]);
     });
 
+    it("ends the second tap at its click: a click counted 1 with no press before it passes, and the rule stays", () => {
+      const target = new EventTarget();
+      ignoreClosingRepeat(target, TAP);
+      expect(ignored(target, [...tap(15), ["click", 1], ["mousedown", 2], ["click", 2]])).toEqual([true, true, true, false, true, true]);
+      expect(TYPES.map((type) => getEventListeners(target, type).length)).toEqual([1, 1, 1, 1]);
+    });
+
     it("ends at a press counted 1 once the window has passed, which then acts as a click of its own", () => {
       const target = new EventTarget();
       ignoreClosingRepeat(target, TAP);
