@@ -190,11 +190,12 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
 }
 
 /**
- * Keep the event icon with its status rather than over the provider logo. Neutral events get a
- * muted Info pill; achievements keep their gold label instead of the ordinary Success label.
+ * The row's status pill, with the event's emoji inside it rather than over the provider logo
+ * (#594). The word is the severity's (`severityBadge`), so a neutral row's "Info" matches the
+ * filters and event details; an achievement shows its gold label instead of the ordinary Success.
  */
 function RowLabels({ severity, emoji, achievement, simulated }: { severity: EventSeverity; emoji: string; achievement: boolean; simulated: boolean }) {
-  const word = achievement ? "Achievement" : severity === "info" ? "Info" : severityBadge(severity);
+  const word = achievement ? "Achievement" : severityBadge(severity);
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
       {simulated ? <SimulatedBadge /> : null}

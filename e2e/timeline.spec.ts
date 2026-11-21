@@ -217,6 +217,8 @@ ownerTest.describe("timeline as the owner", () => {
         // "London time" is said once for the feed, not under every day heading.
         await expect(region.getByText("London time")).toHaveCount(1);
         await expect(region.getByText("London time")).toBeVisible();
+        // #594: every row prints its status as a visible pill, a neutral row's "Info" included.
+        await expect(rows.first().getByText("Info", { exact: true })).toBeVisible();
         const criticalPill = region.getByRole("list", { name: "Tuesday, 2026-06-16", exact: true }).getByText("Critical", { exact: true });
         await expect(criticalPill).toBeVisible();
         const title = page.getByRole("heading", { name: longTitle, exact: true });
