@@ -132,6 +132,8 @@ jobs:
         if: always()
         run: supabase stop
 
+  # The job name stays "(Chromium)" though it runs WebKit and Firefox touch projects too: the
+  # "Protect main" ruleset requires a check by this exact name (docs/internal/hosted-instance.md).
   e2e:
     name: End-to-end tests (Chromium)
     runs-on: ubuntu-latest
@@ -151,8 +153,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      # WebKit and Firefox run the `@touch` projects (playwright.config.ts, #578).
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit firefox
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
