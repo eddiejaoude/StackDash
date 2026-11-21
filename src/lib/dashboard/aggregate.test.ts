@@ -31,6 +31,7 @@ import {
   type CurrencyAmounts,
   type DashboardInput,
   type ProjectInput,
+  type ProviderId,
   type SnapshotInput,
 } from "./aggregate";
 
@@ -630,6 +631,10 @@ describe("withStaleNotice (#267)", () => {
   const third: ConnectionInput = { ...connection, id: "c3", provider: "vercel", display_name: "Vercel team" };
   const secondAccount: AccountInput = { id: "a3", connection_id: "c2", display_name: "Org", project_id: null };
   const thirdAccount: AccountInput = { id: "a4", connection_id: "c3", display_name: "Team", project_id: null };
+  // Every provider here is offered, as on an instance with the fake provider's flag on.
+  const offered: ReadonlySet<ProviderId> = new Set(["fake", "github", "vercel"]);
+  // The fake provider's flag off: its connection (c1) stays in view but cannot sync (#570).
+  const fakeOff: ReadonlySet<ProviderId> = new Set(["github", "vercel"]);
 
   function view(connections: readonly ConnectionInput[]) {
     return aggregateDashboard(
@@ -653,6 +658,7 @@ describe("withStaleNotice (#267)", () => {
         { ...connection, last_synced_at: threeDaysAgo },
         { ...second, last_synced_at: twoDaysAgo },
       ]),
+      offered,
     );
     expect(notice).toEqual({
       connections: [
@@ -681,6 +687,7 @@ describe("withStaleNotice (#267)", () => {
   it("shows the notice when most connections are stale: two of three, and a connection it does not name keeps its own stale value", () => {
     const { notice, view: shown } = withStaleNotice(
       view([{ ...connection, last_synced_at: threeDaysAgo }, { ...second, last_synced_at: twoDaysAgo }, third]),
+      offered,
     );
     expect(notice).toMatchObject({ total: 3, connections: [{ connectionId: "c1" }, { connectionId: "c2" }] });
     const vercelCard = shown.byProvider.find((summary) => summary.connectionId === "c3");
@@ -692,9 +699,9 @@ describe("withStaleNotice (#267)", () => {
     const asked = (owner: ConnectionInput, at: string | null) => ({ ...owner, last_synced_at: threeDaysAgo, last_sync_requested_at: at });
     const early = "2026-10-15T11:56:00.000Z";
     const late = "2026-10-15T11:58:00.000Z";
-    expect(withStaleNotice(view([asked(connection, late), asked(second, early)])).notice?.syncRequestedAt).toBe(early);
+    expect(withStaleNotice(view([asked(connection, late), asked(second, early)]), offered).notice?.syncRequestedAt).toBe(early);
     // One never asked: it can sync now, so there is no cooldown to wait out.
-    expect(withStaleNotice(view([asked(connection, late), asked(second, null)])).notice?.syncRequestedAt).toBeNull();
+    expect(withStaleNotice(view([asked(connection, late), asked(second, null)]), offered).notice?.syncRequestedAt).toBeNull();
   });
 
   it.each([
@@ -705,25 +712,57 @@ describe("withStaleNotice (#267)", () => {
     ["no connections", []],
   ] as const)("keeps each value's own stale mark and shows no notice (boundary: %s)", (_name, connections) => {
     const before = view(connections);
-    const { notice, view: shown } = withStaleNotice(before);
+    const { notice, view: shown } = withStaleNotice(before, offered);
     expect(notice).toBeNull();
     expect(shown).toBe(before);
   });
 
   it("is fresh at exactly two poll intervals, as every stale mark is (boundary: two intervals)", () => {
     const exactlyTwo = "2026-10-15T10:00:00.000Z";
-    expect(withStaleNotice(view([{ ...connection, last_synced_at: exactlyTwo }])).notice).toBeNull();
-    expect(withStaleNotice(view([{ ...connection, last_synced_at: "2026-10-15T09:59:59.999Z" }])).notice).not.toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: exactlyTwo }]), offered).notice).toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: "2026-10-15T09:59:59.999Z" }]), offered).notice).not.toBeNull();
   });
 
   it("leaves out a disconnected connection, which no sync can bring up to date, and one never synced", () => {
     const revoked = { ...second, status: "revoked" as const, last_synced_at: threeDaysAgo };
     const neverSynced = { ...third, last_synced_at: null };
-    expect(withStaleNotice(view([connection, revoked, neverSynced])).notice).toBeNull();
-    expect(withStaleNotice(view([{ ...connection, last_synced_at: threeDaysAgo }, revoked])).notice).toMatchObject({
+    expect(withStaleNotice(view([connection, revoked, neverSynced]), offered).notice).toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: threeDaysAgo }, revoked]), offered).notice).toMatchObject({
       total: 1,
       connections: [{ connectionId: "c1" }],
     });
+  });
+
+  it("neither names nor counts a connection whose provider this instance does not offer, which keeps its own stale mark (#588)", () => {
+    const connections = [
+      { ...connection, last_synced_at: threeDaysAgo },
+      { ...second, last_synced_at: twoDaysAgo },
+      { ...third, last_synced_at: threeDaysAgo },
+    ];
+    expect(withStaleNotice(view(connections), offered).notice).toMatchObject({
+      total: 3,
+      connections: [{ connectionId: "c1" }, { connectionId: "c2" }, { connectionId: "c3" }],
+    });
+    const { notice, view: shown } = withStaleNotice(view(connections), fakeOff);
+    expect(notice).toEqual({
+      connections: [
+        { connectionId: "c2", name: "GitHub org" },
+        { connectionId: "c3", name: "Vercel team" },
+      ],
+      total: 2,
+      lastSyncedAt: twoDaysAgo,
+      syncRequestedAt: null,
+    });
+    expect(shown.byProvider.find((summary) => summary.connectionId === "c1")?.spend[0]?.verified?.stale).toBe(true);
+  });
+
+  it("shows no notice when the only stale connection's provider is not offered (boundary: the fake provider's flag off)", () => {
+    const connections = [{ ...connection, last_synced_at: threeDaysAgo }];
+    expect(withStaleNotice(view(connections), offered).notice).toMatchObject({ total: 1, connections: [{ connectionId: "c1" }] });
+    const before = view(connections);
+    const { notice, view: shown } = withStaleNotice(before, fakeOff);
+    expect(notice).toBeNull();
+    expect(shown).toBe(before);
   });
 
   it("says since when in words, naming the stale connections only when some are fresh", () => {

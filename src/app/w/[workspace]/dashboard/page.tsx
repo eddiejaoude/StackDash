@@ -28,6 +28,7 @@ import {
   spendProviderIds,
 } from "@/lib/adapters/registry";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
+import { offeredProviderIds } from "@/lib/connections/provider-availability";
 import { aggregateDashboard, type ProviderId, snapshotWindowStart, withStaleNotice } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
@@ -252,8 +253,9 @@ async function DashboardContent({
   const timelinePath = workspacePath(workspace.slug, "timeline");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
-  // One notice for the page when most connections are stale, instead of a line on every value (#267).
-  const { view: dashboard, notice } = withStaleNotice(aggregateDashboard(input));
+  // One notice for the page when most connections are stale, instead of a line on every value (#267),
+  // counting only connections Sync now can bring up to date (#588).
+  const { view: dashboard, notice } = withStaleNotice(aggregateDashboard(input), offeredProviderIds());
   // One "Simulated" for the page when every connection in view is simulated, instead of a badge on
   // every card, total, and chart; a mixed workspace keeps them (#269).
   const allSimulated = everySimulated(dashboard.byProvider);

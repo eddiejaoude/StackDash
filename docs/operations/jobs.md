@@ -99,6 +99,8 @@ The timeline gets exactly one `stackdash.sync_failed` event per failure episode.
 
 The same Server Action (`syncNow` in `src/app/w/[workspace]/connections/actions.ts`) serves a connection's page and the dashboard's stale notice. The notice appears when most or all connections in view have not synced within two poll intervals, and its "Sync now" sends every stale connection at once: one read checks they belong to the workspace, then each goes through `enqueueSync` with its own cooldown, settled one by one, so a failure for one connection is logged with a reference and the answer still says how many were queued. The notice's button is unavailable, with the connection page's hint, only while every stale connection is in its cooldown.
 
+`syncNow` refuses a connection whose provider this instance does not offer, which is the fake provider while `STACKDASH_ENABLE_FAKE_PROVIDER` is off: it has no adapter to sync with. The stale notice and the command palette's "Sync ... now" commands leave such a connection out by the same check (`offeredProviderIds` in `src/lib/connections/provider-availability.ts`), so the notice neither names nor counts it, and its dashboard card keeps its own stale mark.
+
 ## Retention
 
 The daily retention job deletes, in batches of 1000 rows:

@@ -4,11 +4,11 @@ import { refresh } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
-import { availableProviders, getAdapter } from "@/lib/adapters/registry";
+import { getAdapter } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { Secret, type ConnectionWebhookSetup, type ProviderAdapter, type ProviderId } from "@/lib/adapters/types";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
-import { providerUnavailableReason } from "@/lib/connections/provider-availability";
+import { offeredProviderIds, providerUnavailableReason } from "@/lib/connections/provider-availability";
 import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/lib/connections/revoke";
 import { needsWriteAccess, webhookSetupResultCopy, type WebhookSetupResult } from "@/lib/connections/webhook-copy";
 import {
@@ -222,7 +222,7 @@ export async function syncNow(
     if (connections.length < connectionIds.length) return { ok: false, message: NOT_FOUND_MESSAGE };
     const connected = connections.filter((connection) => connection.status !== "revoked");
     // A provider this instance does not offer has no adapter, so its sync could only fail (#570).
-    const offered = new Set(availableProviders().map((adapter) => adapter.id));
+    const offered = offeredProviderIds();
     const syncable = connected.filter((connection) => offered.has(connection.provider));
     if (syncable.length === 0) {
       const [only] = connections;
