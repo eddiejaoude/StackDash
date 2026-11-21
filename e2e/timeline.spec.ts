@@ -1847,6 +1847,93 @@ ownerTest.describe("timeline event inspector", () => {
     });
   }
 
+  // #592: the opening side of #578. A double-tap on a row opens the details with its first tap,
+  // and at 375px its second tap lands on the full-width panel, here on "Show events around this
+  // time". WebKit and Firefox count that tap 1, so the count rule above (#506) would let it follow
+  // the link. A tap that opened a dialog also ignores the next press counted 1 inside it near that
+  // tap within `TOUCH_REPEAT_WINDOW_MS`, so the second tap does nothing; a separate tap there once
+  // that window has passed follows the link as ever. Tagged `@touch`, as above.
+  for (const { name, followsLink } of [
+    { name: "keeps the details open on a double-tap on a row under the full-width panel", followsLink: false },
+    { name: "follows a link in the details on a tap where the row was once the double-tap window has passed", followsLink: true },
+  ] as const) {
+    inspectorEvidenceTest(`${name} at 375px`, { tag: "@touch" }, async ({ page, browserName }) => {
+      const workspace = await seedTimeline(`Inspector open tap ${followsLink ? "after window" : "double"}`);
+      try {
+        await page.setViewportSize({ width: 375, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        const timeline = `/w/${workspace.slug}/timeline`;
+        if (browserName === "webkit") await keepLocalhostOnHttp(page);
+        await page.goto(timeline);
+        await expectHydrated(page);
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const close = inspector.getByRole("button", { name: "Close event" });
+        const around = inspector.getByRole("link", { name: AROUND, exact: true });
+        const at = await rowPointUnder(page, trigger, around);
+        expect(await linkTextAt(page, at)).toBe("Synthetic event 1");
+        const opened = await trigger.getAttribute("href");
+        if (opened === null) throw new Error("The row has no href.");
+        const renders: string[] = [];
+        page.on("request", (request) => {
+          if (isRenderRequest(request, timeline)) renders.push(request.url());
+        });
+        // Every click from here on, in order: its count, and whether it went on to `window`'s bubble
+        // phase, as a click nothing stopped does. Sent once its dispatch is over, so each entry is
+        // final when it arrives.
+        const clicks: Array<readonly [number, boolean]> = [];
+        await page.exposeFunction("__recordClick", (detail: number, passed: boolean) => clicks.push([detail, passed]));
+        await page.evaluate(() => {
+          const record = Reflect.get(window, "__recordClick") as (detail: number, passed: boolean) => void;
+          const passed = new WeakSet<Event>();
+          window.addEventListener("click", (event) => passed.add(event));
+          window.addEventListener("click", (event) => setTimeout(() => record(event.detail, passed.has(event))), true);
+        });
+
+        await page.touchscreen.tap(at.x, at.y);
+        if (followsLink) {
+          await expect(close).toBeFocused();
+          expect(await linkTextAt(page, at)).toBe(AROUND);
+          const href = await around.getAttribute("href");
+          if (href === null) throw new Error("The link in the details has no href.");
+          // Read after the opening click, so the window has passed once this much more time has.
+          const openedBy = await page.evaluate(() => performance.now());
+          await expect.poll(() => page.evaluate((since) => performance.now() - since, openedBy)).toBeGreaterThan(TOUCH_REPEAT_WINDOW_MS);
+          await page.touchscreen.tap(at.x, at.y);
+          await expect(page).toHaveURL(href);
+          await expect(inspector).toBeHidden();
+          await expect.poll(() => clicks, { message: "both taps' clicks went on, each counted 1" }).toEqual([[1, true], [1, true]]);
+          return;
+        }
+        // In the double-tap the second tap follows the first at once, as in the closing case above.
+        await page.touchscreen.tap(at.x, at.y);
+
+        // Both taps counted 1, as #592 measured in these engines, so the count rule alone would not
+        // have stopped the second.
+        await expect.poll(() => clicks, { message: "the first tap's click went on and the second's was stopped, each counted 1" }).toEqual([[1, true], [1, false]]);
+        // Visible rather than `toHaveJSProperty("open", true)`: reading the dialog's `open` that way
+        // crashed Playwright's Firefox page here, with the details still open.
+        await expect(inspector).toBeVisible();
+        await expect(page).toHaveURL(opened);
+        // The second press's default is prevented, so it leaves focus where the open put it.
+        await expect(close).toBeFocused();
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await expectNoAxeViolations(page);
+        // By now a followed link would have asked for the page it leads to.
+        expect(renders, "the second tap followed a link in the details").toEqual([]);
+        await expect(inspector).toBeVisible();
+        await expect(page).toHaveURL(opened);
+        // Still usable from the keyboard: Escape closes the details and focus returns to the row.
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(timeline);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
   // #407: light dismiss is the details panel's alone. Every other dialog, the command palette
   // among them, stays open on a click outside it, so a click never discards what someone typed.
   ownerTest("keeps the command palette open on a click outside it", async ({ page }) => {
