@@ -1,4 +1,5 @@
 import { eventTypeName } from "@/lib/adapters/registry";
+import type { ProviderId } from "@/lib/adapters/types";
 import { ADMIN_PATH } from "@/lib/auth/super-admin";
 import { appendScopeParams, buildScopeOptions, EMPTY_SCOPE, type ScopeFilters, type ScopeSources } from "@/lib/filters/scope";
 import { providerName, typeOwnerName } from "@/lib/providers";
@@ -56,6 +57,8 @@ export type PaletteSources = Readonly<{
   eventTypeIds: readonly string[];
   /** Providers configured on this instance, offered to members who may connect one. */
   configuredProviders: readonly Readonly<{ id: string; displayName: string }>[];
+  /** Providers this instance offers (`offeredProviderIds`); a connection to any other cannot sync. */
+  offeredProviders: ReadonlySet<ProviderId>;
   /** Every workspace the member belongs to, this one included. */
   workspaces: readonly Readonly<{ slug: string; name: string }>[];
   /** True for a super admin only (`showsAdminLink`); nobody else's list holds the admin page or its path. */
@@ -150,9 +153,10 @@ function scopeCommands(sources: PaletteSources, scope: PaletteScope) {
     })),
   ];
 
-  // syncNow refuses a disconnected connection, so it is not offered.
+  // syncNow refuses a disconnected connection, and one whose provider this instance does not offer
+  // (#570), so neither is offered (#588).
   const syncable = canPerform(sources.role, "manage_connections")
-    ? scope.connections.filter((connection) => connection.status !== "revoked")
+    ? scope.connections.filter((connection) => connection.status !== "revoked" && sources.offeredProviders.has(connection.provider))
     : [];
   const syncNames = distinctLabels(
     syncable,

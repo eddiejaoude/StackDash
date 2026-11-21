@@ -14,6 +14,7 @@ import { Wordmark } from "@/components/wordmark";
 import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
 import { requireUser, type SessionUser } from "@/lib/auth/session";
 import { ADMIN_PATH, showsAdminLink } from "@/lib/auth/super-admin";
+import { offeredProviderIds } from "@/lib/connections/provider-availability";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import {
   getWorkspaceMembership,
@@ -202,6 +203,7 @@ async function HeaderPalette({ membership, superAdmin }: { membership: Workspace
     configuredProviders: catalog
       .filter(isProviderConfigured)
       .map((adapter) => ({ id: adapter.id, displayName: adapter.displayName })),
+    offeredProviders: offeredProviderIds(),
     workspaces,
     superAdmin,
     // Read after the membership above, so the clock never runs during prerendering.

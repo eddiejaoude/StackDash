@@ -707,7 +707,8 @@ export function freshnessLabel(retrievedAt: string, stale: boolean, now: Date): 
 /**
  * The dashboard's one stale notice (#267), shown when most or all of the connections in view that
  * can sync have not synced within two poll intervals (`ProviderSummary.stale`). A connection that
- * never synced or is disconnected cannot be brought up to date by a sync, so it is not counted.
+ * never synced, is disconnected, or belongs to a provider this instance does not offer (#588)
+ * cannot be brought up to date by a sync, so it is not counted.
  */
 export type StaleNotice = Readonly<{
   connections: readonly Readonly<{ connectionId: string; name: string }>[];
@@ -739,11 +740,17 @@ function amountsWithoutStaleMarks(list: readonly CurrencyAmounts[]): CurrencyAmo
  * and values, and the totals that mix connections, carry no stale mark of their own, because the
  * notice says it once for the page; each still says when it was read. A connection the notice does
  * not name keeps its own marks. Without a notice (half or fewer stale), the view is returned as it
- * is, so a lone stale value stands out.
+ * is, so a lone stale value stands out. `offeredProviders` is `offeredProviderIds()`: `syncNow`
+ * skips a connection to any other provider (#570), so the notice neither names nor counts it.
  */
-export function withStaleNotice(view: DashboardView): Readonly<{ view: DashboardView; notice: StaleNotice | null }> {
+export function withStaleNotice(
+  view: DashboardView,
+  offeredProviders: ReadonlySet<ProviderId>,
+): Readonly<{ view: DashboardView; notice: StaleNotice | null }> {
   const syncable = view.byProvider.flatMap((summary) =>
-    summary.lastSyncedAt === null || summary.status === "revoked" ? [] : [{ summary, lastSyncedAt: summary.lastSyncedAt }],
+    summary.lastSyncedAt === null || summary.status === "revoked" || !offeredProviders.has(summary.provider)
+      ? []
+      : [{ summary, lastSyncedAt: summary.lastSyncedAt }],
   );
   const stale = syncable.filter(({ summary }) => summary.stale);
   if (stale.length === 0 || stale.length * 2 <= syncable.length) return { view, notice: null };

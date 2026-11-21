@@ -35,6 +35,8 @@ const SOURCES: PaletteSources = {
   scope: SCOPE,
   eventTypeIds: ["vercel.deployment.failed"],
   configuredProviders: [{ id: "resend", displayName: "Resend" }],
+  // Every provider this file connects, as on an instance with the fake provider's flag on.
+  offeredProviders: new Set(["vercel", "stripe", "fake"]),
   workspaces: [
     { slug: SLUG, name: "Acme" },
     { slug: OTHER_SLUG, name: "Side project" },
@@ -199,6 +201,32 @@ describe("buildPaletteCommands", () => {
       .filter((command) => command.action.kind === "sync")
       .map((command) => command.label);
     expect(labels).toEqual(["Sync Vercel team now", "Sync Vercel hobby now"]);
+  });
+
+  it("offers no sync for a connection whose provider this instance does not offer (#588)", () => {
+    const scope: PaletteScope = {
+      ...NO_SCOPE,
+      connections: [
+        { id: C1, provider: "vercel", display_name: "Vercel team", status: "active" },
+        { id: C2, provider: "fake", display_name: "Example sandbox", status: "active" },
+      ],
+    };
+    const syncLabels = (offeredProviders: PaletteSources["offeredProviders"]) =>
+      buildPaletteCommands({ ...SOURCES, scope, offeredProviders })
+        .filter((command) => command.action.kind === "sync")
+        .map((command) => command.label);
+    expect(syncLabels(new Set(["vercel", "fake"]))).toEqual(["Sync Vercel now", "Sync Example provider now"]);
+    expect(syncLabels(new Set(["vercel"]))).toEqual(["Sync Vercel now"]);
+  });
+
+  it("keeps the dashboards of a provider it offers no sync for (boundary: its only connection's provider is not offered)", () => {
+    const scope: PaletteScope = {
+      ...NO_SCOPE,
+      connections: [{ id: C2, provider: "fake", display_name: "Example sandbox", status: "active" }],
+    };
+    const fakeOff = buildPaletteCommands({ ...SOURCES, scope, offeredProviders: new Set(["vercel"]) });
+    expect(fakeOff.filter((command) => command.action.kind === "sync")).toEqual([]);
+    expect(fakeOff.map((command) => command.id)).toContain("dashboard:provider:fake");
   });
 
   it("opens the create API key form in settings", () => {
