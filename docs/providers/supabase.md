@@ -10,18 +10,18 @@ All facts below were checked against Supabase's documentation and the Management
 
 | Topic | Answer |
 |---|---|
-| Authentication | OAuth 2.0 authorization code flow with PKCE, through a Supabase OAuth app. No API key or personal access token path (MVP is OAuth only) |
+| Authentication | OAuth 2.0 authorization code flow with PKCE, through a Supabase OAuth app. No API key or personal access token path |
 | Scopes | `organizations:read`, `projects:read`, `analytics:read`. Never `database:read` |
 | Read-only | Yes. All three scopes are read scopes |
 | Spend or invoices | Unavailable. No billing endpoint carries an OAuth scope |
 | Auth activity | Yes, through the logs endpoint, source `auth_audit_logs` |
 | Webhooks | None. Polling only |
 | Rate limit | 120 requests per minute per endpoint per project or organization, shared by every user of the OAuth app |
-| Biggest constraint | Auth audit logs are kept for 1 hour on the Free plan, so the adapter must poll well inside that hour |
+| Biggest constraint | Auth audit logs are kept for 1 hour on the Free plan, so StackDash polls every 15 minutes and cannot count daily active users on Free |
 
 ### Correction to the original plan
 
-The original plan named `GET /v1/projects/{ref}/analytics/endpoints/logs.all`. That endpoint was removed on 2026-09-23 and now always returns `410 Gone` ([changelog](https://supabase.com/changelog/48235-migration-of-supabase-management-api-logs-all-analytics-endpoint-to-logs-endpoint), OpenAPI operation `v1-get-project-logs-all`). Use `GET /v1/projects/{ref}/analytics/endpoints/logs` instead. It takes ClickHouse SQL against one unified `logs` table, with the same `analytics:read` scope and the same 24 hour window rule.
+StackDash queries `GET /v1/projects/{ref}/analytics/endpoints/logs`. The older `GET /v1/projects/{ref}/analytics/endpoints/logs.all` was removed on 2026-09-23 and now always returns `410 Gone` ([changelog](https://supabase.com/changelog/48235-migration-of-supabase-management-api-logs-all-analytics-endpoint-to-logs-endpoint), OpenAPI operation `v1-get-project-logs-all`), so StackDash never calls it. The `logs` endpoint takes ClickHouse SQL against one unified `logs` table, with the same `analytics:read` scope and the same 24 hour window rule.
 
 ## Connection
 
@@ -33,7 +33,7 @@ The original plan named `GET /v1/projects/{ref}/analytics/endpoints/logs.all`. T
 | Token | `POST https://api.supabase.com/v1/oauth/token` | `application/x-www-form-urlencoded` |
 | Revoke | `POST https://api.supabase.com/v1/oauth/revoke` | `application/json`, returns `204` |
 
-The OpenAPI spec marks all three as Beta and "experimental", so they may change. Treat any unexpected status as an error with the response kept as `cause`.
+The OpenAPI spec marks all three as Beta and "experimental", so they may change. StackDash treats any unexpected status as an error.
 
 ### Authorize
 
@@ -49,9 +49,9 @@ Query parameters ([OAuth guide](https://supabase.com/docs/guides/integrations/bu
 | `code_challenge_method` | `S256` |
 | `organization_slug` | Optional. Pre-selects an organization on the consent screen |
 
-Do not send `scope`. The guide marks it deprecated: scopes are set on the OAuth app itself. Supabase strongly recommends PKCE, and StackDash always uses it.
+StackDash does not send `scope`. The guide marks it deprecated: scopes are set on the OAuth app itself. Supabase strongly recommends PKCE, and StackDash always uses it.
 
-On consent, Supabase redirects to `redirect_uri` with `code` and `state`. Compare `state` with the stored value before anything else.
+On consent, Supabase redirects to `redirect_uri` with `code` and `state`. StackDash checks `state` against the stored value before anything else.
 
 ### Token exchange
 
@@ -61,14 +61,14 @@ Response (OpenAPI `v1-exchange-oauth-token`): `access_token` (string), `refresh_
 
 ### Token lifetimes and refresh
 
-- The Management API reference says OAuth tokens are "short-lived". No exact access token or refresh token lifetime is documented. Compute expiry from `expires_in` at exchange time, never from a hard-coded value.
-- Refresh with `POST /v1/oauth/token`, `grant_type=refresh_token`, `refresh_token`, and the same Basic client credentials.
-- Whether refresh tokens rotate is not documented. Always store the `refresh_token` from a refresh response when one is present, and keep the old one only if none is returned.
-- If the user revokes the app, refresh fails and access tokens stop working. The guide says to handle `401 Unauthorized` on every call. A `401` on refresh marks the connection as needing reconnection; do not retry it.
+- The Management API reference says OAuth tokens are "short-lived". No exact access token or refresh token lifetime is documented. StackDash computes expiry from `expires_in` at exchange time, never from a hard-coded value.
+- StackDash refreshes with `POST /v1/oauth/token`, `grant_type=refresh_token`, `refresh_token`, and the same Basic client credentials.
+- Whether refresh tokens rotate is not documented. StackDash stores the `refresh_token` from a refresh response when one is present, and keeps the old one only if none is returned.
+- If the user revokes the app, refresh fails and access tokens stop working. The guide says to handle `401 Unauthorized` on every call. StackDash treats a `401` on any call, refresh included, as a revoked grant: the connection is marked as needing reconnection and the call is not retried.
 
 ### Revoke
 
-On disconnect, call `POST /v1/oauth/revoke` with JSON `{ "client_id", "client_secret", "refresh_token" }`. A `204` means the app authorization and its tokens are revoked. Then delete the stored tokens.
+On disconnect, StackDash calls `POST /v1/oauth/revoke` with JSON `{ "client_id", "client_secret", "refresh_token" }`. A `204` means the app authorization and its tokens are revoked. StackDash then deletes the stored tokens, even when the revoke call fails.
 
 ### Scopes and why
 
@@ -77,14 +77,14 @@ Scopes are configured on the OAuth app, not per request. Changing them later for
 | Scope | Endpoints StackDash uses (scope from the OpenAPI `x-oauth-scope` of each operation) |
 |---|---|
 | `organizations:read` | `GET /v1/organizations`, `GET /v1/organizations/{slug}`, `GET /v1/organizations/{slug}/entitlements` |
-| `projects:read` | `GET /v1/organizations/{slug}/projects`, `GET /v1/projects`, `GET /v1/projects/{ref}`, `GET /v1/projects/{ref}/health` |
-| `analytics:read` | `GET /v1/projects/{ref}/analytics/endpoints/logs`, `GET /v1/projects/{ref}/analytics/endpoints/metrics` |
+| `projects:read` | `GET /v1/organizations/{slug}/projects`, `GET /v1/projects/{ref}`, `GET /v1/projects/{ref}/health` |
+| `analytics:read` | `GET /v1/projects/{ref}/analytics/endpoints/logs` |
 
-`organizations:read` also unlocks `GET /v1/organizations/{slug}/members`, which returns member `email`, `user_id`, and `user_name`. StackDash never calls it.
+`organizations:read` also unlocks `GET /v1/organizations/{slug}/members`, which returns member `email`, `user_id`, and `user_name`. StackDash never calls it. `projects:read` also unlocks `GET /v1/projects`, and `analytics:read` also unlocks `GET /v1/projects/{ref}/analytics/endpoints/metrics`. StackDash calls neither.
 
 #### Why never `database:read`
 
-`database:read` unlocks `POST /v1/projects/{ref}/database/query/read-only`, which runs arbitrary SQL "as supabase_read_only_user". In Supabase's Postgres init script that role is created `with login bypassrls` and granted `pg_read_all_data` ([initial schema](https://raw.githubusercontent.com/supabase/postgres/develop/migrations/db/init-scripts/00000000000000-initial-schema.sql), lines 19 and 20). It reads every row of every table, row level security ignored, including `auth.users` emails and phone numbers. The optional `auth.audit_log_entries` table is only reachable this way too. StackDash needs counts, not rows, so it must not hold this scope.
+`database:read` unlocks `POST /v1/projects/{ref}/database/query/read-only`, which runs arbitrary SQL "as supabase_read_only_user". In Supabase's Postgres init script that role is created `with login bypassrls` and granted `pg_read_all_data` ([initial schema](https://raw.githubusercontent.com/supabase/postgres/develop/migrations/db/init-scripts/00000000000000-initial-schema.sql), lines 19 and 20). It reads every row of every table, row level security ignored, including `auth.users` emails and phone numbers. The optional `auth.audit_log_entries` table is only reachable this way too. StackDash needs counts, not rows, so it does not request this scope.
 
 #### Disclosure before connecting
 
@@ -103,26 +103,29 @@ The third line matters: `analytics:read` returns raw log rows on request, and th
 
 - `GET /v1/organizations` lists the organizations the token can see: `slug`, `name`, and deprecated `id`.
 - `GET /v1/organizations/{slug}/projects` returns `{ projects, pagination }`. Query `offset`, `limit` (1 to 100, default 100), `sort` (`name_asc`, `name_desc`, `created_asc`, `created_desc`), `statuses`. Each project has `ref`, `name`, `region`, `cloud_provider`, `is_branch`, `status`, `inserted_at`, and `databases[]` with `infra_compute_size`, `status`, `type` (`PRIMARY` or `READ_REPLICA`), and optional `disk_volume_size_gb`.
-- `GET /v1/projects` lists all projects with `ref`, `organization_slug`, `name`, `region`, `created_at`, `status`, and `database` (`host`, `version`, `postgres_engine`, `release_channel`). No pagination parameters are documented.
+- `GET /v1/projects` lists all projects with `ref`, `organization_slug`, `name`, `region`, `created_at`, `status`, and `database` (`host`, `version`, `postgres_engine`, `release_channel`). No pagination parameters are documented. StackDash does not call it.
+- `GET /v1/projects/{ref}` returns one project in the same shape. StackDash reads its `name`, `status`, and `organization_slug` on every sync.
 
-Prefer the organization-scoped list: it is paginated and its rate limit is tracked per organization, while `GET /v1/projects` and `GET /v1/organizations` are tracked per caller (see [Rate limits](#rate-limits)). Skip projects whose `status` is `INACTIVE` (paused) when polling logs and health. Free projects pause after 1 week of inactivity ([pricing](https://supabase.com/pricing)).
+At connect time StackDash lists projects with the organization-scoped endpoint (`limit=100`, `sort=name_asc`): it is paginated and its rate limit is tracked per organization, while `GET /v1/projects` and `GET /v1/organizations` are tracked per caller (see [Rate limits](#rate-limits)). It reads up to 25 organizations and 10 pages per organization, skips preview branches (`is_branch`), and offers each remaining project as an account. A sync skips health and logs while the project's `status` is `INACTIVE` (paused). Free projects pause after 1 week of inactivity ([pricing](https://supabase.com/pricing)).
 
 ### Plan and entitlements
 
-- `GET /v1/organizations/{slug}` returns `id`, `name`, `plan` (`free`, `pro`, `team`, `enterprise`, `platform`), `opt_in_tags`, `allowed_release_channels`.
+- `GET /v1/organizations/{slug}` returns `id`, `name`, `plan` (`free`, `pro`, `team`, `enterprise`, `platform`), `opt_in_tags`, `allowed_release_channels`. StackDash reads `plan` only.
 - `GET /v1/organizations/{slug}/entitlements` returns `entitlements[]`, each with `feature.key`, `feature.type` (`boolean`, `numeric`, `set`), `hasAccess`, `type`, and `config`. A numeric `config` has `enabled`, `value`, `unlimited`, `unit`.
 
-Keys StackDash reads (from the documented enum):
+StackDash reads both on every sync. The spec lists the internal permission `organization_admin_read` for both, so a member without the owner or admin role may get a `403`. That does not stop the sync: StackDash skips the limits it cannot read and reports the missing permission. Without a readable plan and audit retention, StackDash assumes the Free plan's 1 hour retention.
 
-| Key | Use |
-|---|---|
-| `security.audit_logs_days` | Auth audit log retention. Drives the polling interval |
-| `log.retention_days` | API and database log retention |
-| `function.max_count` | Edge Function count limit |
-| `realtime.max_concurrent_users` | Realtime limit |
-| `storage.max_file_size` | Storage limit |
+Keys StackDash reads (from the documented enum). Each one the organization has access to, enabled and not unlimited, is stored as an included allowance metric:
 
-No entitlement key covers database size, egress, or monthly active users. Those plan limits appear only on the [pricing page](https://supabase.com/pricing): Free has 500 MB database size per project and 50,000 MAU; Pro and Team include 8 GB disk per project and 100,000 MAU. A limit taken from the pricing page is a constant in code, labeled estimated, with the date checked.
+| Key | Metric key | Use |
+|---|---|---|
+| `security.audit_logs_days` | `supabase.plan.audit_log_retention` | Auth audit log retention. Sets how far back a log window may start and whether daily active users are counted. A value below 1 day is not stored |
+| `log.retention_days` | `supabase.plan.log_retention` | API and database log retention |
+| `function.max_count` | `supabase.plan.edge_functions` | Edge Function count limit |
+| `realtime.max_concurrent_users` | `supabase.plan.realtime_concurrent_users` | Realtime limit |
+| `storage.max_file_size` | `supabase.plan.storage_max_file_size` | Storage limit. Stored only when Supabase gives a usable unit |
+
+No entitlement key covers database size, egress, or monthly active users. Those plan limits appear only on the [pricing page](https://supabase.com/pricing): Free has 500 MB database size per project and 50,000 MAU; Pro and Team include 8 GB disk per project and 100,000 MAU. StackDash stores these as included allowance metrics labeled estimated, with the pricing page and the date checked as the source: `supabase.plan.database_size` (Free), `supabase.plan.disk_size` (Pro and Team), and `supabase.plan.monthly_active_users`. Enterprise and platform limits are custom, so none are stored.
 
 ### Project health
 
@@ -130,7 +133,9 @@ No entitlement key covers database size, egress, or monthly active users. Those 
 
 - `services` is required: a comma-separated list from `auth`, `db`, `db_postgres_user`, `pooler`, `realtime`, `rest`, `storage`, `pg_bouncer`.
 - `timeout_ms` is optional.
-- Response: an array of `{ name, status, info?, error? }`, `status` one of `COMING_UP`, `ACTIVE_HEALTHY`, `UNHEALTHY`. `healthy` (boolean) is deprecated; use `status`.
+- Response: an array of `{ name, status, info?, error? }`, `status` one of `COMING_UP`, `ACTIVE_HEALTHY`, `UNHEALTHY`. `healthy` (boolean) is deprecated; StackDash reads `status`.
+
+StackDash keeps no per-service status. It turns changes in the readings into health events (see Timeline events below).
 
 ### Auth activity from logs
 
@@ -164,13 +169,13 @@ Actions StackDash counts ([auth audit logs](https://supabase.com/docs/guides/aut
 
 | Action | Documented meaning | StackDash use |
 |---|---|---|
-| `user_signedup` | New user registration | "New signup" timeline event, one per row |
+| `user_signedup` | New user registration | "New signup" timeline event, one per row; daily count |
 | `login` | User sign-in attempt | Daily login count; daily active users |
 | `logout` | User sign-out | Daily count |
 | `user_deleted` | User account deleted | Daily count |
 | `token_refreshed` | Refresh token used to obtain new tokens | Daily active users only |
 
-The docs warn "there may be a short delay before logs appear". Poll windows that end a few minutes in the past so late events are not missed.
+The docs warn "there may be a short delay before logs appear". StackDash ends every window 5 minutes in the past, rounded down to the minute, so late events are not missed.
 
 #### Queries
 
@@ -197,7 +202,7 @@ order by timestamp asc
 limit 1000
 ```
 
-If a window returns the full `limit`, split it in half and query again.
+If the signup query returns the full `limit`, StackDash splits the window in half and queries each half, at most two levels deep. If a quarter window still returns the full `limit`, the extra signups are missing from the timeline, but the daily count still comes from `count()`.
 
 Daily active users, aggregated by ClickHouse so no user id leaves Supabase:
 
@@ -209,14 +214,14 @@ where source = 'auth_audit_logs'
 limit 1
 ```
 
-The changelog's examples filter on `source_name`, while the current query guide and field reference use `source`. Confirm which column the endpoint accepts with a test project.
+The changelog's examples filter on `source_name`, while the current query guide and field reference use `source`. StackDash uses `source`; this is not confirmed against a live project.
 
 #### Windows and daily active users
 
 - Event counts add up across windows, so the daily "N logins" figure is the sum of every poll window in the UTC day.
 - Distinct users do not add up. An exact daily active user count needs one query over the whole UTC day (`00:00:00Z` to the next `00:00:00Z`, exactly 24 hours), run after the day ends and while that day is still retained.
-- That works when `security.audit_logs_days` is at least 1 (Pro: 7 days, Team: 28 days).
-- On the Free plan, auth audit logs are kept for 1 hour, so no full-day query is possible. Summing hourly distinct counts overstates the figure, and keeping ids to deduplicate breaks the privacy rule. Recommendation: on Free, show daily active users as unavailable with a short reason ("Supabase keeps auth logs for 1 hour on the Free plan"), and show logins and signups as normal.
+- That works when `security.audit_logs_days` is at least 1 (Pro: 7 days, Team: 28 days). StackDash runs the query when the day's last window closes and stores the result as `supabase.auth.daily_active_users` (unit `users`, the UTC day as the period).
+- On the Free plan, auth audit logs are kept for 1 hour, so no full-day query is possible. Summing hourly distinct counts overstates the figure, and keeping ids to deduplicate breaks the privacy rule. On Free, StackDash stores no daily active users and the daily summary says why ("Supabase keeps auth logs for 1 hour on the Free plan."). Logins and signups are shown as normal. When the audit retention cannot be read, StackDash does the same and says it could not read how long the organization keeps auth logs.
 
 ### Usage and database size
 
@@ -224,12 +229,23 @@ The changelog's examples filter on `source_name`, while the current query guide 
 |---|---|---|
 | Spend, invoices, credits | No. No billing endpoint has an OAuth scope (`GET /v1/projects/{ref}/billing/addons` lists none) | Unavailable |
 | Monthly active users (billed MAU) | No endpoint | Unavailable |
-| Database size in use | Possibly, through `GET /v1/projects/{ref}/analytics/endpoints/metrics` (`analytics:read`). It returns Prometheus text with about 200 series. Supabase's own Grafana dashboard charts `pg_database_size_mb` from this feed ([supabase-grafana](https://github.com/supabase/supabase-grafana)). The pricing page lists the metrics endpoint as not included on Free. Returns `400` when the project is not active and healthy | Estimated, Pro and above, unverified |
-| Provisioned disk | `databases[].disk_volume_size_gb` from the organization projects list (`projects:read`). This is the disk size, not data in use | Verified as provisioned size |
-| API request counts | `GET /v1/projects/{ref}/analytics/endpoints/usage.api-counts` (`interval` from `15min` to `7day`, returns `total_auth_requests`, `total_rest_requests`, `total_storage_requests`, `total_realtime_requests` per timestamp). The spec lists no OAuth scope for it | Unverified, not in MVP |
-| Disk utilization | `GET /v1/projects/{ref}/config/disk/util` exists but lists no OAuth scope | Unavailable for OAuth [inference], not in MVP |
+| Database size in use | Not read. `GET /v1/projects/{ref}/analytics/endpoints/metrics` (`analytics:read`) returns Prometheus text with about 200 series, and Supabase's own Grafana dashboard charts `pg_database_size_mb` from this feed ([supabase-grafana](https://github.com/supabase/supabase-grafana)). The pricing page lists the metrics endpoint as not included on Free, and it returns `400` when the project is not active and healthy. StackDash does not call it | Unavailable |
+| Provisioned disk | `databases[].disk_volume_size_gb` from the organization projects list (`projects:read`). This is the disk size, not data in use. StackDash does not read it | Not read |
+| API request counts | `GET /v1/projects/{ref}/analytics/endpoints/usage.api-counts` (`interval` from `15min` to `7day`, returns `total_auth_requests`, `total_rest_requests`, `total_storage_requests`, `total_realtime_requests` per timestamp). The spec lists no OAuth scope for it. StackDash does not call it | Not read |
+| Disk utilization | `GET /v1/projects/{ref}/config/disk/util` exists but lists no OAuth scope | Unavailable for OAuth [inference], not read |
 
-The metrics endpoint is the only documented path to database size with these scopes. The Prometheus text can be large; parse only the `pg_database_size_mb` line and do not store the rest.
+The metrics endpoint is the only documented path to database size in use with these scopes. Whether its feed includes `pg_database_size_mb` is unverified, and StackDash does not show database size in use.
+
+### Timeline events (by polling)
+
+| Event | Endpoint | Rule |
+|---|---|---|
+| `supabase.auth.signup` (New signup) | Logs, signup query | One per `user_signedup` row, at the event's time. Only the time is kept |
+| `supabase.auth.daily_summary` (Daily auth summary) | Logs, counts query and daily active users query | One per project per UTC day, after the day's last window: logins, signups, logouts, deleted users, and daily active users where available. Says when part of the day was not counted |
+| `supabase.project.unhealthy` (Project unhealthy) | Health | When a checked service reports `UNHEALTHY` and the last reading was not unhealthy. Names the unhealthy services. A first reading that is unhealthy also counts |
+| `supabase.project.healthy` (Project healthy again) | Health | When every checked service reports `ACTIVE_HEALTHY` after an unhealthy reading. A first healthy reading creates no event, and `COMING_UP` changes nothing |
+
+Each health event is kept at most once per project, state, and UTC day.
 
 ### Verified, estimated, unavailable
 
@@ -237,11 +253,11 @@ The metrics endpoint is the only documented path to database size with these sco
 |---|---|---|
 | Signups, logins, logouts, deleted users | count per UTC day, plus one timestamp per signup | Verified (provider-reported log events) |
 | Daily active users | count per UTC day | Verified on Pro and above; unavailable on Free |
-| Plan | `free`, `pro`, `team`, `enterprise`, `platform` | Verified |
+| Plan | `free`, `pro`, `team`, `enterprise`, `platform` | Verified. Used to choose the plan limits and the audit retention; not stored itself |
 | Entitlements (log retention, function count, realtime limits) | as given by `unit` | Verified |
-| Plan limits not in entitlements (database size, MAU) | MB, users per month | Estimated (pricing page constant) |
-| Project health per service | status | Verified |
-| Database size | MB, at scrape time | Estimated, unverified |
+| Plan limits not in entitlements (database size on Free, disk on Pro and Team, MAU) | MB or GB, users | Estimated (pricing page constant) |
+| Project health | event when it changes | Verified |
+| Database size in use | | Unavailable |
 | Spend | | Unavailable |
 
 ## Achievements
@@ -263,12 +279,14 @@ The signup ladder is the same on PostHog. It counts `supabase.auth.signup` event
 ## Polling
 
 - Webhooks: none. Supabase has no webhook for auth events or project changes reachable by an OAuth app. Log drains exist but are paid, per project, and push to a destination the customer configures, so they are out of scope.
-- Suggested cycle per connection, every 15 minutes:
-  1. Organization projects list (one call per organization).
-  2. For each active project: health (one call), auth counts and signup timestamps for the window since the last successful poll (two log queries).
-- Once per day: organization, entitlements, and the full-day daily active users query (Pro and above).
-- Windows are non-overlapping, from the previous window's end to now minus a settle lag of 5 minutes. A 15 minute interval with a 5 minute lag keeps every window well inside the 1 hour Free retention, and leaves room for one missed cycle. If a project falls more than about 45 minutes behind on Free, record a gap rather than claiming zero events.
-- Read `security.audit_logs_days` per organization. On Pro and above the interval could be longer, but 15 minutes keeps the timeline fresh.
+- Every 15 minutes, StackDash syncs each connected project:
+  1. The project (`GET /v1/projects/{ref}`), then its organization and entitlements (two calls).
+  2. Unless the project is paused: health (one call), then auth counts and signup timestamps for each window since the last successful poll (two log queries per window, more when the signup query is split).
+  3. After a UTC day's last window: the full-day daily active users query (Pro and above).
+- Projects are listed only at connect time, so a project created later appears after reconnecting.
+- Windows are non-overlapping, from the previous window's end to now minus a settle lag of 5 minutes, and never cross UTC midnight. A 15 minute interval with a 5 minute lag keeps every window well inside the 1 hour Free retention, and leaves room for one missed cycle. On Free, a window never starts more than about 45 minutes before the settle point: when a project falls further behind, StackDash starts at the oldest retained minute and marks that day's summary as a partial day rather than claiming zero events.
+- The first sync starts at the start of the current UTC day, or at the oldest retained minute if that is later, and marks the day partial when it starts late. One sync covers at most 8 windows; the rest wait for the next sync.
+- The interval is 15 minutes on every plan, including Pro and above, where `security.audit_logs_days` would allow longer.
 
 ### Rate limits
 
@@ -276,13 +294,13 @@ From the [Management API reference](https://supabase.com/docs/reference/api/intr
 
 - 120 requests per minute, per project or organization, per endpoint.
 - For OAuth apps the identifier is the OAuth app id, so the limit is shared by everyone calling through the app. For a hosted StackDash, every user who connects the same Supabase project shares that project's budget.
-- Calls without a project or organization in the path (`GET /v1/projects`, `GET /v1/organizations`) are tracked on the identifier alone. Reading the docs, for an OAuth app this is one budget for the whole app across all users [inference]. Call them only at connect time.
-- Analytics endpoints are stricter. The exceptions table lists 30 requests per minute for `logs.all`, `usage.api-counts`, and `usage.api-requests-count`. It does not list the new `logs` endpoint. Budget 30 per minute per project for it until confirmed.
-- Over the limit, every call returns `429` for the rest of the minute. Responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (seconds). Back off using `X-RateLimit-Reset`, and stagger projects across the interval.
+- Calls without a project or organization in the path (`GET /v1/projects`, `GET /v1/organizations`) are tracked on the identifier alone. Reading the docs, for an OAuth app this is one budget for the whole app across all users [inference]. StackDash calls `GET /v1/organizations` only at connect time and never calls `GET /v1/projects`.
+- Analytics endpoints are stricter. The exceptions table lists 30 requests per minute for `logs.all`, `usage.api-counts`, and `usage.api-requests-count`. It does not list the new `logs` endpoint, so its limit is unverified. A normal sync sends two log queries per project.
+- Over the limit, every call returns `429` for the rest of the minute. Responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (seconds). On a `429`, StackDash retries the sync after `Retry-After`, or after `X-RateLimit-Reset` when that is the only one given.
 
 ### Log query allowance
 
-Logs Query is not billed, but each organization gets an allowance of 100 times its log ingest (Free: 100 GB) ([logs query usage](https://supabase.com/docs/guides/platform/manage-your-usage/logs-query)). The docs warn that scheduled polling rescans data on every run. Once enforcement starts (not yet, per the docs), going over means the next month is degraded: 10 queries per minute and log retention cut to 1 hour on Free or 24 hours on paid plans, and a second month over cuts off log access. Keep windows small and always filter on the source, which is what the queries above do. The `402` status on the logs endpoint is the likely signal; surface it as a connection warning, not a retry.
+Logs Query is not billed, but each organization gets an allowance of 100 times its log ingest (Free: 100 GB) ([logs query usage](https://supabase.com/docs/guides/platform/manage-your-usage/logs-query)). The docs warn that scheduled polling rescans data on every run. Once enforcement starts (not yet, per the docs), going over means the next month is degraded: 10 queries per minute and log retention cut to 1 hour on Free or 24 hours on paid plans, and a second month over cuts off log access. In normal running each window is one poll interval long, and every query filters on the source. The `402` status on the logs endpoint is the likely signal; StackDash reports it as a sync error saying the Logs Query allowance is exceeded.
 
 ### Retention per plan
 
@@ -297,10 +315,10 @@ From the [pricing comparison](https://supabase.com/pricing):
 
 ## Privacy
 
-- Store counts and timestamps only. Never emails, phone numbers, IP addresses, user agents, Supabase user ids, actor names, or log row ids.
-- Never select an identifying column. Daily active users are counted with `uniqExact()` inside the query, so ids never reach StackDash.
-- Parse `result` with zod schemas that accept only the expected aggregate columns (`action`, `events`, `timestamp`, `active_users`). Reject anything else instead of storing it.
-- Do not log raw responses from the logs endpoint.
+- StackDash stores counts and timestamps only. Never emails, phone numbers, IP addresses, user agents, Supabase user ids, actor names, or log row ids.
+- It never selects an identifying column. Daily active users are counted with `uniqExact()` inside the query, so ids never reach StackDash.
+- It parses `result` with zod schemas that accept only the expected aggregate columns (`action`, `events`, `timestamp`, `active_users`), and rejects anything else instead of storing it.
+- It does not log raw responses from the logs endpoint.
 - Fixtures are synthetic.
 
 ## Self-hosted registration
@@ -325,7 +343,7 @@ The guide says "once you've published your OAuth App". Whether an app must be pu
 
 ## Sample responses
 
-From documentation, not recorded. Shapes follow the OpenAPI schemas; values are synthetic. Replace them with recorded, sanitized fixtures after the test project checks.
+From documentation, not recorded. Shapes follow the OpenAPI schemas; values are synthetic. The adapter's test fixtures follow the same shapes and are synthetic too.
 
 `POST /v1/oauth/token`:
 
@@ -438,7 +456,7 @@ How Free's 1 hour audit retention appears in `security.audit_logs_days` is unkno
 
 Whether `events` arrives as a number or a string, and whether `timestamp` arrives as an ISO string or epoch microseconds, is unverified.
 
-The documented audit log event format, shown only so implementers know what not to store ([auth audit logs](https://supabase.com/docs/guides/auth/audit-logs)):
+The documented audit log event format, shown only to make clear what StackDash does not store ([auth audit logs](https://supabase.com/docs/guides/auth/audit-logs)):
 
 ```json
 {
@@ -453,22 +471,19 @@ The documented audit log event format, shown only so implementers know what not 
 
 ## Confirm first, with a test project
 
-The original checklist, restated with what the docs say. Run each on a Free organization and a Pro organization before building the adapter.
+The adapter is built from the documentation. These checks against a Free and a Pro organization are still open; until they are run, StackDash follows the documented behavior described on this page.
 
-- [ ] **Auth audit events appear in the logs endpoint, and which source and fields hold the action.** Docs: source `auth_audit_logs`, action in `log_attributes['auth_audit_event.action']`, user in `auth_audit_event.actor_id`. Confirm with one signup, one login, one logout, one deletion, and one token refresh. Also confirm whether the filter column is `source` (query guide) or `source_name` (changelog), and that these events are recorded without turning on "Write audit logs to the database".
-- [ ] **Log retention on the Free plan is longer than the polling interval.** Docs: auth audit logs are kept 1 hour on Free (7 days Pro, 28 days Team); API and database logs 1 day on Free. A 15 minute poll fits. Confirm the 1 hour figure by querying a window 50 to 70 minutes old, and record what `security.audit_logs_days` returns on Free.
-- [ ] **Whether the metrics endpoint includes database size.** Docs: `GET /v1/projects/{ref}/analytics/endpoints/metrics` takes `analytics:read` and returns Prometheus text; Supabase's Grafana dashboard charts `pg_database_size_mb` from this feed; pricing lists the metrics endpoint as not included on Free. Confirm the series is present on Pro and what Free returns.
-- [ ] **Whether `usage.api-counts` accepts OAuth tokens.** Docs: the spec lists no OAuth scope for it, and the rate limit table puts it at 30 per minute. Call it with an OAuth token holding only the three scopes and record the status.
-
-Added by this research:
-
-- [ ] `logs.all` returns `410` and `logs` works with an OAuth token holding `analytics:read`.
-- [ ] The rate limit on `/analytics/endpoints/logs` (read `X-RateLimit-Limit`).
-- [ ] Access token lifetime (`expires_in`) and whether refresh rotates the refresh token.
-- [ ] Whether a token is limited to the organization chosen on the consent screen or covers every organization the user belongs to.
-- [ ] Whether a user without the owner or admin role can authorize the app and read the organization and entitlements (the spec lists the internal permission `organization_admin_read` for both).
-- [ ] The response types of `count()`, `uniqExact()`, and `timestamp` in `result`.
-- [ ] Whether `login` includes failed sign-in attempts (the docs say "sign-in attempt").
+- **Auth audit events appear in the logs endpoint, and which source and fields hold the action.** Docs: source `auth_audit_logs`, action in `log_attributes['auth_audit_event.action']`, user in `auth_audit_event.actor_id`. To confirm with one signup, one login, one logout, one deletion, and one token refresh. Also open: whether the filter column is `source` (query guide, used by StackDash) or `source_name` (changelog), and whether these events are recorded without turning on "Write audit logs to the database".
+- **Log retention on the Free plan is longer than the polling interval.** Docs: auth audit logs are kept 1 hour on Free (7 days Pro, 28 days Team); API and database logs 1 day on Free. A 15 minute poll fits. To confirm the 1 hour figure, query a window 50 to 70 minutes old, and record what `security.audit_logs_days` returns on Free.
+- **Whether the metrics endpoint includes database size.** Docs: `GET /v1/projects/{ref}/analytics/endpoints/metrics` takes `analytics:read` and returns Prometheus text; Supabase's Grafana dashboard charts `pg_database_size_mb` from this feed; pricing lists the metrics endpoint as not included on Free. StackDash does not call it, so database size in use is not shown.
+- **Whether `usage.api-counts` accepts OAuth tokens.** Docs: the spec lists no OAuth scope for it, and the rate limit table puts it at 30 per minute. StackDash does not call it.
+- `logs.all` returns `410` and `logs` works with an OAuth token holding `analytics:read`.
+- The rate limit on `/analytics/endpoints/logs` (read `X-RateLimit-Limit`).
+- Access token lifetime (`expires_in`) and whether refresh rotates the refresh token.
+- Whether a token is limited to the organization chosen on the consent screen or covers every organization the user belongs to.
+- Whether a user without the owner or admin role can authorize the app and read the organization and entitlements (the spec lists the internal permission `organization_admin_read` for both).
+- The response types of `count()`, `uniqExact()`, and `timestamp` in `result`. StackDash accepts a number or a string for counts, and an ISO string or epoch microseconds for `timestamp`.
+- Whether `login` includes failed sign-in attempts (the docs say "sign-in attempt").
 
 ## Unverified
 
@@ -508,4 +523,4 @@ All checked 2026-10-31.
 
 ## Go or no-go
 
-**Go for the MVP**, on three conditions: the adapter uses `/analytics/endpoints/logs` (not the removed `logs.all`), polls every 15 minutes so Free plan auth logs (1 hour retention) are not missed, and shows daily active users only where audit retention covers a full day (Pro and above). Run the test project checklist before building.
+Go. StackDash reads the organization's plan limits, each project's health, and auth activity through `/analytics/endpoints/logs`, polling every 15 minutes. The limits a user trips on: on the Free plan, auth audit logs are kept for 1 hour, so daily active users are unavailable and a project more than about 45 minutes behind records a partial day. A member without the owner or admin role may be refused the plan and limits; health and auth activity still sync. Projects are listed at connect time, paused projects are skipped, and spend and database size in use are not available.
