@@ -80,7 +80,8 @@ async function watchViolations(page: Page): Promise<string[]> {
 
 /**
  * A path under a proxied prefix that matches no page gets the enforced nonce policy and a not-found
- * page rendered per request, so it carries the nonce (#197).
+ * page rendered per request, so it carries the nonce (#197). It is never cached, as for the sign-in
+ * page.
  */
 async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   const response = await page.goto(path);
@@ -88,6 +89,7 @@ async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   const headers = response?.headers() ?? {};
   expectAppPolicy(headers["content-security-policy"]);
   expect(headers["content-security-policy-report-only"]).toBeUndefined();
+  expect(headers["cache-control"]).toContain("no-store");
   await expect(page).toHaveTitle("Page not found · StackDash");
   await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
   await expectHydrated(page);
@@ -101,13 +103,16 @@ test.describe("signed out", () => {
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
   });
 
-  test("the sign-in page enforces the nonce policy, hydrates, and reports no violations", async ({ page }) => {
+  test("the sign-in page enforces the nonce policy, is never cached, hydrates, and reports no violations", async ({ page }) => {
     const violations = await watchViolations(page);
     const response = await page.goto("/sign-in");
 
     const headers = response?.headers() ?? {};
     expectAppPolicy(headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
+    // The policy depends on request headers a client can forge (isPlainHttpToLoopback in
+    // src/proxy.ts, #597), which is safe only while no cache can hand one client's response to another.
+    expect(headers["cache-control"]).toContain("no-store");
     await expect(page.getByRole("button", { name: "Continue with GitHub" })).toBeEnabled();
     await expectHydrated(page);
     expect(violations).toEqual([]);
