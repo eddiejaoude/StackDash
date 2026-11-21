@@ -379,7 +379,8 @@ async function ConnectionContent({
         </h2>
         {canManage ? (
           <div className="mt-4 flex flex-wrap items-start gap-4">
-            {revoked ? null : (
+            {/* Without an adapter a sync can only fail (#570); the lock note below says why. */}
+            {revoked || adapter === undefined ? null : (
               <SyncNowForm workspaceSlug={workspace.slug} connectionIds={[connection.id]} cooldownNotice={cooldownNotice} />
             )}
             {reconnect.kind === "available" ? (
