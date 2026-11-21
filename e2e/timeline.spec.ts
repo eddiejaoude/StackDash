@@ -1921,6 +1921,8 @@ ownerTest.describe("timeline event inspector", () => {
         // Both taps counted 1, as #592 measured in these engines, so the count rule alone would not
         // have stopped the second.
         expect(counts(), "the first tap's click went on and the second's was stopped, each counted 1").toEqual([[1, true], [1, false]]);
+        // The details are still open, so the second tap landed on a link it could have followed.
+        expect(await linkTextAt(page, at)).toBe(AROUND);
         // Visible rather than `toHaveJSProperty("open", true)`: reading the dialog's `open` that way
         // crashed Playwright's Firefox page here, with the details still open.
         await expect(inspector).toBeVisible();
