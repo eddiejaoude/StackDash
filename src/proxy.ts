@@ -34,16 +34,17 @@ function formActionSources(supabaseOrigin: string): string {
  * The scheme is the first `x-forwarded-proto` value when a proxy in front set one (TLS ended
  * there), else the request URL's. The host is the one the browser addressed, `x-forwarded-host`
  * then `Host`, as isSameOrigin reads it: under `next start` the request URL's host is the address
- * the server was started on, not the one the browser used. A client that forges these headers only
- * drops the directive from its own response, which is rendered per request with its own nonce and
- * never cached, so nobody else's policy changes.
+ * the server was started on, not the one the browser used, so it is never read, and a request with
+ * neither header keeps the directive. A client that forges these headers only drops the directive
+ * from its own response, which is rendered per request with its own nonce and never cached
+ * (`no-store`, held in e2e/csp.spec.ts), so nobody else's policy changes.
  */
 function isPlainHttpToLoopback(request: NextRequest): boolean {
   const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
   const isHttp = forwardedProto ? forwardedProto === "http" : request.nextUrl.protocol === "http:";
   if (!isHttp) return false;
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? request.nextUrl.host;
-  return isLoopbackUrl(`http://${host}`);
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  return host !== null && isLoopbackUrl(`http://${host}`);
 }
 
 /**

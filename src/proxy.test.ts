@@ -245,38 +245,69 @@ describe("proxy's nonce policy and upgrade-insecure-requests", () => {
     expect(await policyFor(HOSTED)).toBe(PRODUCTION_POLICY);
   });
 
+  // A browser always sends Host, port included, and `next start` copies it into x-forwarded-host,
+  // so every row but the one about a missing Host sends it as a header.
   it.each([
-    ["a LAN address (boundary: private, not loopback)", "http://192.168.1.20:3000", {}],
-    ["a name that starts with localhost (boundary: not loopback)", "http://localhost.example.com", {}],
+    ["a LAN address (boundary: private, not loopback)", "http://192.168.1.20:3000", { host: "192.168.1.20:3000" }],
+    ["a name that starts with localhost (boundary: not loopback)", "http://localhost.example.com", { host: "localhost.example.com" }],
     ["a LAN Host while the server listens on localhost (boundary: next start's URL host)", "http://localhost:3000", { host: "192.168.1.20:3000" }],
-    ["a hosted x-forwarded-host on a loopback server (boundary: proxy in front)", "http://localhost:3000", { "x-forwarded-host": "stackdash.example.com" }],
+    [
+      "a hosted x-forwarded-host on a loopback server (boundary: proxy in front)",
+      "http://localhost:3000",
+      { "x-forwarded-host": "stackdash.example.com", host: "localhost:3000" },
+    ],
+    [
+      "an x-forwarded-host list that starts with localhost (boundary: a host list is refused, not split)",
+      "http://localhost:3000",
+      { "x-forwarded-host": "localhost:3000, stackdash.example.com", host: "localhost:3000" },
+    ],
+    [
+      "an x-forwarded-host list that ends with localhost (boundary: a host list is refused, not split)",
+      "http://localhost:3000",
+      { "x-forwarded-host": "stackdash.example.com, localhost:3000", host: "localhost:3000" },
+    ],
+    [
+      "a hosted name, as a forged x-forwarded-proto says (boundary: the scheme alone is not enough)",
+      HOSTED,
+      { "x-forwarded-proto": "http", host: "stackdash.example.com" },
+    ],
+    ["a loopback server with no Host header (boundary: fail closed, not the URL host)", "http://localhost:3000", {}],
   ])("keeps upgrade-insecure-requests for plain http to %s", async (_title, origin, headers) => {
     expect(await policyFor(origin, headers)).toBe(PRODUCTION_POLICY);
   });
 
   it.each([
-    ["https", { "x-forwarded-proto": "https" }],
-    ["a list whose first value is https", { "x-forwarded-proto": "https, http" }],
+    ["https", { "x-forwarded-proto": "https", host: "localhost:3000" }],
+    ["a list whose first value is https", { "x-forwarded-proto": "https, http", host: "localhost:3000" }],
   ])("keeps upgrade-insecure-requests on a loopback host when x-forwarded-proto is %s (boundary: TLS ended in front)", async (_title, headers) => {
     expect(await policyFor("http://localhost:3000", headers)).toBe(PRODUCTION_POLICY);
   });
 
   it.each([
-    ["localhost", "http://localhost:3100", {}],
-    ["127.0.0.1", "http://127.0.0.1:3100", {}],
-    ["[::1]", "http://[::1]:3100", {}],
-    ["localhost, as x-forwarded-proto says", "http://localhost:3100", { "x-forwarded-proto": "http", host: "localhost:3100" }],
+    ["localhost", "http://localhost:3000", { host: "localhost:3000" }],
+    ["127.0.0.1", "http://127.0.0.1:3000", { host: "127.0.0.1:3000" }],
+    ["[::1]", "http://[::1]:3000", { host: "[::1]:3000" }],
+    [
+      "localhost, with the headers next start adds",
+      "http://localhost:3000",
+      { "x-forwarded-proto": "http", "x-forwarded-host": "localhost:3000", host: "localhost:3000" },
+    ],
+    [
+      "localhost, when the first x-forwarded-proto value is http and a later one https",
+      "http://localhost:3000",
+      { "x-forwarded-proto": "http, https", host: "localhost:3000" },
+    ],
   ])("leaves out only upgrade-insecure-requests for plain http to %s (boundary: loopback)", async (_title, origin, headers) => {
     expect(await policyFor(origin, headers)).toBe(WITHOUT_UPGRADE);
   });
 
   it.each([
-    ["https on a hosted name", HOSTED],
-    ["plain http to localhost", "http://localhost:3100"],
-  ])("keeps the development policy as it was for %s (boundary: NODE_ENV development)", async (_title, origin) => {
+    ["https on a hosted name", HOSTED, { host: "stackdash.example.com" }],
+    ["plain http to localhost", "http://localhost:3000", { host: "localhost:3000" }],
+  ])("keeps the development policy as it was for %s (boundary: NODE_ENV development)", async (_title, origin, headers) => {
     vi.stubEnv("NODE_ENV", "development");
 
-    expect(await policyFor(origin)).toBe(
+    expect(await policyFor(origin, headers)).toBe(
       WITHOUT_UPGRADE.replace("script-src 'self' 'nonce-N'", "script-src 'self' 'nonce-N' 'unsafe-eval'").replace(
         "style-src 'self' 'nonce-N'",
         "style-src 'self' 'unsafe-inline'",
