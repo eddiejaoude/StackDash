@@ -482,6 +482,7 @@ Not yet confirmed against a Free and a Pro organization. Until they are, StackDa
 - Whether `login` counts failed attempts (the docs say "sign-in attempt"), which would inflate login counts.
 - Whether a token spans one organization or all of the user's organizations, and whether a member without the owner or admin role can authorize the app and read the organization and entitlements (the spec lists the internal permission `organization_admin_read` for both).
 - Whether an OAuth app must be published before users outside its organization can authorize it.
+- Whether `GET /v1/projects/{ref}/config/disk/util` accepts OAuth tokens. The spec lists no OAuth scope for it.
 - Whether the user-scoped rate limit on `GET /v1/projects` and `GET /v1/organizations` is one budget for the whole OAuth app.
 - The value types of `count()`, `uniqExact()`, and `timestamp` in the logs `result` array. StackDash accepts a number or a string for counts, and an ISO string or epoch microseconds for `timestamp`.
 - `actor_username` holding the user's email (likely, not stated).

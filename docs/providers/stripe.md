@@ -227,7 +227,7 @@ No write permission is requested. `balance_transaction_source_read` is not reque
 
 ### Disclosure copy
 
-The connect screen lists the seven permissions, each with its purpose from the manifest above, then this under **Data collected**. Those purposes are not all accurate yet: `invoice_read` and `payout_read` describe reads StackDash does not make (see [Permissions](#permissions)), and `customer_read` and `subscription_read` describe counts that StackDash only shows as timeline events.
+The connect screen lists the seven permissions, each with its purpose from the manifest above, then this under **Data collected**. Those purposes are not all accurate yet: `invoice_read` and `payout_read` describe reads StackDash does not make, `balance_read` names the current balance, which StackDash does not read (see [Permissions](#permissions)), and `customer_read` and `subscription_read` describe counts that StackDash only shows as timeline events.
 
 - Stripe fees per currency, this month and last 30 days
 - Revenue net of refunds per currency, this month and last 30 days

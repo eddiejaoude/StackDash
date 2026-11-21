@@ -67,7 +67,7 @@ An app registered before webhooks: add the webhook, the two repository permissio
 
 ## Vercel Integration
 
-Reads billing charges and deployments. Full steps, including the required profile fields: [Vercel, Self-hosted registration steps](../providers/vercel.md#self-hosted-registration-steps). Scopes and what they also allow: [Vercel, Scopes requested](../providers/vercel.md#scopes-requested) and [Permission risks](../providers/vercel.md#permission-risks).
+Reads the team name, billing charges, and deployments. Full steps, including the required profile fields: [Vercel, Self-hosted registration steps](../providers/vercel.md#self-hosted-registration-steps). Scopes and what they also allow: [Vercel, Scopes requested](../providers/vercel.md#scopes-requested) and [Permission risks](../providers/vercel.md#permission-risks).
 
 Settings that must match the code:
 
