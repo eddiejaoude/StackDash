@@ -132,10 +132,11 @@ jobs:
         if: always()
         run: supabase stop
 
-  # The job name stays "(Chromium)" though it runs WebKit and Firefox touch projects too: the
-  # "Protect main" ruleset requires a check by this exact name (docs/internal/hosted-instance.md).
+  # Chromium, plus the WebKit and Firefox touch projects (#578). The "Protect main" ruleset requires
+  # a check by this exact name: rename it only together with the ruleset
+  # (docs/internal/hosted-instance.md).
   e2e:
-    name: End-to-end tests (Chromium)
+    name: End-to-end tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
