@@ -16,8 +16,8 @@
  *   whose own close restores focus.
  *
  * It also decides when a click on a light-dismiss dialog's backdrop closes it (#407):
- * `dismissedByClick`, and holds the touch window of the closing rule in modal-dialog.tsx (#578),
- * which the end-to-end tests wait out.
+ * `dismissedByClick`, and holds the touch window of the closing and opening rules in
+ * modal-dialog.tsx (#578, #592), which the end-to-end tests wait out.
  */
 
 export type FocusTarget = Readonly<{ focus: () => void; isConnected: boolean }>;
@@ -54,24 +54,25 @@ export function dismissedByClick(box: Box, pressedAt: Point | null, releasedAt: 
 }
 
 /**
- * The touch window of `ignoreClosingRepeat` (#578): a press counted 1 at most this long after, and
- * this far from, a tap that closed a dialog is that double-tap's second tap. Playwright's WebKit
- * (`isMobile`) and Firefox, with touch, count both taps of a double-tap `detail` 1, so time and
- * place are all that tell the second tap apart: it came 15 to 19 ms after the first, at the same
- * point. No web API reports the platform's double-tap settings, so these follow its defaults:
+ * The touch window of `ignoreClosingRepeat` (#578) and `openingRepeatRule` (#592): a press counted
+ * 1 at most this long after, and this far from, a tap that closed or opened a dialog is that
+ * double-tap's second tap. Playwright's WebKit (`isMobile`) and Firefox, with touch, count both
+ * taps of a double-tap `detail` 1, so time and place are all that tell the second tap apart: it
+ * came 15 to 19 ms after the first, at the same point. No web API reports the platform's double-tap
+ * settings, so these follow its defaults:
  *
  * - 500 ms: Windows' default double-click time (SetDoubleClickTime, learn.microsoft.com). The
- *   window runs from the closing click, fired as the first tap lifts, to the second tap's press,
- *   fired as it lifts, so it has to hold Android's double-tap time, 300 ms from the first tap's up
- *   to the second's down (`DOUBLE_TAP_TIMEOUT`, ViewConfiguration.java), plus the second tap
- *   itself. iOS publishes no value.
+ *   window runs from the click that closed or opened the dialog, fired as the first tap lifts, to
+ *   the second tap's press, fired as it lifts, so it has to hold Android's double-tap time, 300 ms
+ *   from the first tap's up to the second's down (`DOUBLE_TAP_TIMEOUT`, ViewConfiguration.java),
+ *   plus the second tap itself. iOS publishes no value.
  * - 100 px: Android's double-tap distance, 100 dp between the two touches (`DOUBLE_TAP_SLOP`,
  *   ViewConfiguration.java). Next.js's default viewport is `width=device-width` (src/app/layout.tsx
  *   sets no width; node_modules/next/dist/docs/01-app/01-getting-started/14-metadata-and-og-images.md),
  *   at which a CSS pixel is a dp.
  *
- * The cost: a separate tap that close and that soon after a tap closed a dialog does nothing, and
- * the person taps again.
+ * The cost: a separate tap that close and that soon after a tap closed or opened a dialog does
+ * nothing, and the person taps again.
  */
 export const TOUCH_REPEAT_WINDOW_MS = 500;
 export const TOUCH_REPEAT_RADIUS_PX = 100;

@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type MouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -42,9 +41,10 @@ import {
  * right after opening a destructive confirmation cancels rather than confirms. `lightDismiss` also
  * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose. Every
  * dialog ignores the later clicks of the double-click that opened it (#506), and once a click has
- * closed it, the page ignores the rest of that click's double-click (#563). So no dialog, and
- * nothing under one, may depend on a second click at the same point within the system's
- * double-click time of a click that opened or closed it.
+ * closed it, the page ignores the rest of that click's double-click (#563); after a tap, also the
+ * next tap near it within `TOUCH_REPEAT_WINDOW_MS` (#578, #592). So no dialog, and nothing under
+ * one, may depend on a second click at the same point within the system's double-click time of a
+ * click that opened or closed it.
  */
 
 export type ModalDialogHandle = Readonly<{
@@ -132,7 +132,7 @@ const PRESS_EVENTS = ["mousedown", "mouseup", "click", "dblclick"] as const;
  * on whatever the dialog covered: under the event details' "Close event", the header's "Sign out".
  * Until a press counted 1 reaches `target`, this stops every press, release, click, and `dblclick`
  * the browser counts 2 or more in the capture phase and prevents its default, so nothing acts on
- * it, takes focus, or selects a word, as `ignoreOpeningRepeat` does inside a dialog it opened. The
+ * it, takes focus, or selects a word, as `openingRepeatRule` does inside a dialog it opened. The
  * press counted 1 (or 0, from a script) starts a click of its own: it passes and removes the
  * listeners. A click counted 0, a key's, passes and leaves them. Returns what removes them sooner;
  * calling it again does nothing.
@@ -177,11 +177,123 @@ export function ignoreClosingRepeat(
   return end;
 }
 
+/** A mouse event as far as the opening rule reads and stops one, from React or the DOM. */
+type MousePress = Pick<globalThis.MouseEvent, "type" | "detail" | "clientX" | "clientY" | "timeStamp" | "preventDefault" | "stopPropagation">;
+
 /** Whether `press` came close enough to `tap`, and soon enough after it, to be its double-tap's second tap. */
-function repeatsTap(tap: Tap, press: globalThis.MouseEvent): boolean {
+function repeatsTap(tap: Tap, press: Pick<MousePress, "clientX" | "clientY" | "timeStamp">): boolean {
   const elapsed = press.timeStamp - tap.timeStamp;
   const distance = Math.hypot(press.clientX - tap.x, press.clientY - tap.y);
   return elapsed <= TOUCH_REPEAT_WINDOW_MS && distance <= TOUCH_REPEAT_RADIUS_PX;
+}
+
+/**
+ * The opening side of #506. A dialog a click opened is under the pointer at once, so the rest of
+ * that click's double-click, as on an event row, lands on whatever the dialog now shows there: its
+ * backdrop, a word, a link, a button. It is not for the dialog, so until a press counted 1 reaches
+ * the dialog, `ignore`, in the dialog's capture phase, stops every press, release, click, and
+ * `dblclick` the browser counts 2 or more and prevents its default: nothing inside sees it, the
+ * press selects no word and moves no focus off the control the open focused, and the click follows
+ * no link. A deliberate double-click inside starts with a press counted 1, and keyboard activation
+ * has no count at all. `closed` starts the rule again for the next open.
+ *
+ * As on the closing side (`ignoreClosingRepeat`), Playwright's WebKit and Firefox with touch count
+ * both taps of a double-tap 1 (#592). So the first press counted 1 inside is checked against
+ * `lastTap`, the page's latest tap (`recordTaps`), which for a dialog a tap opened is that tap.
+ * Within `TOUCH_REPEAT_RADIUS_PX` of it and `TOUCH_REPEAT_WINDOW_MS` after it, the press is that
+ * double-tap's second tap: its press, release, and click, each counted 1, are ignored, and the rule
+ * stays for what the browser counts 2 or more. Once that click is ignored, a click counted 1 passes
+ * again. Only that first press is checked, so a third tap counted 1 acts. A mouse's click records
+ * no tap and keeps the count-only rule. A dialog opened from the keyboard just after a tap is
+ * checked against that tap too, so a tap inside near it within the window does nothing, and the
+ * person taps again.
+ */
+export function openingRepeatRule(lastTap: () => Tap | null): Readonly<{ ignore: (event: MousePress) => void; closed: () => void }> {
+  // Whether a press counted 1 other than the double-tap's second tap has reached the dialog since it opened.
+  let pressedSinceOpen = false;
+  // Whether the next press counted 1 is the first since the dialog opened, and so checked against the tap.
+  let checkTap = true;
+  // Whether the press counted 1 that came last was the double-tap's second tap.
+  let secondTap = false;
+  return {
+    ignore(event) {
+      if (pressedSinceOpen) return;
+      if (event.type === "mousedown" && event.detail <= 1) {
+        const tap = checkTap ? lastTap() : null;
+        checkTap = false;
+        secondTap = tap !== null && repeatsTap(tap, event);
+        if (!secondTap) {
+          pressedSinceOpen = true;
+          return;
+        }
+      }
+      if (event.detail > 1 || (secondTap && event.detail === 1)) {
+        event.preventDefault();
+        event.stopPropagation();
+        // The second tap ends at its click, so a click counted 1 after it is not part of the double-tap.
+        if (event.type === "click" && event.detail === 1) secondTap = false;
+      }
+    },
+    closed() {
+      pressedSinceOpen = false;
+      checkTap = true;
+      secondTap = false;
+    },
+  };
+}
+
+/** The latest tap `recordTaps` saw, and what removes its listeners. */
+export type TapRecorder = Readonly<{ last: () => Tap | null; end: () => void }>;
+
+/**
+ * Records the place and time of the page's latest click when a tap made it, for the opening rule's
+ * touch window (#592). The click that opens a dialog lands outside it, on an event row or a button,
+ * and the event details open only once the router has rendered the URL that click wrote, so
+ * neither the dialog nor its `open` sees that click; `target` (`window`) sees every click first, in
+ * the capture phase. As on the closing side, the `pointerdown` before the click says whether a tap
+ * made it, since a click is not a `PointerEvent` in every supported browser. A click after a
+ * mouse's or pen's press, or with no press before it (counted 0, a key's), records no tap. Returns
+ * the latest tap, and what removes the listeners.
+ */
+export function recordTaps(target: Pick<Window, "addEventListener" | "removeEventListener">): TapRecorder {
+  let pressedWithTouch = false;
+  let tap: Tap | null = null;
+  function pressed(event: PointerEvent): void {
+    pressedWithTouch = event.pointerType === "touch";
+  }
+  function clicked(event: globalThis.MouseEvent): void {
+    tap = pressedWithTouch && event.detail > 0 ? { x: event.clientX, y: event.clientY, timeStamp: event.timeStamp } : null;
+    pressedWithTouch = false;
+  }
+  target.addEventListener("pointerdown", pressed, { capture: true });
+  target.addEventListener("click", clicked, { capture: true });
+  return {
+    last: () => tap,
+    end() {
+      target.removeEventListener("pointerdown", pressed, { capture: true });
+      target.removeEventListener("click", clicked, { capture: true });
+    },
+  };
+}
+
+// The page's one tap recorder, on `window` while any dialog is mounted, and how many are: a list
+// with a confirmation on every row then adds no listeners per row.
+let sharedTaps: { recorder: TapRecorder; dialogs: number } | null = null;
+
+/** Keeps the page's tap recorder on while the dialog calling it is mounted; returns what lets it go. */
+function holdTapRecorder(): () => void {
+  const shared = (sharedTaps ??= { recorder: recordTaps(window), dialogs: 0 });
+  shared.dialogs += 1;
+  return () => {
+    shared.dialogs -= 1;
+    if (shared.dialogs > 0) return;
+    shared.recorder.end();
+    sharedTaps = null;
+  };
+}
+
+function lastTap(): Tap | null {
+  return sharedTaps?.recorder.last() ?? null;
 }
 
 const FRAME = "rounded-xl border bg-panel text-foreground backdrop:bg-black/60";
@@ -247,24 +359,13 @@ export function ModalDialog({
   // browser-compat-data, api.Element.click_event.type_pointerevent), so the press says whether a
   // tap closed the dialog.
   const pressedWith = useRef<string | null>(null);
-  // Whether a press counted 1 has reached the dialog since it opened (#506). Until one has, a
-  // press or click the browser counts 2 or more continues the double-click whose first click opened
-  // the dialog, as on an event row, and lands on whatever the dialog now shows under the pointer:
-  // its backdrop, a word, a link, a button. It is not for the dialog, so it does nothing. A
-  // deliberate double-click inside starts with a press counted 1, and keyboard activation has no
-  // count at all.
-  const pressedSinceOpen = useRef(false);
-  // In the capture phase, so nothing inside sees any of its events: the press, the release, the
-  // click, or the `dblclick`. Preventing the press's default keeps it from selecting a word and
-  // from moving focus off the control the open focused onto the dialog itself; preventing the
-  // click's keeps a link from being followed.
-  const ignoreOpeningRepeat = (event: MouseEvent<HTMLDialogElement>) => {
-    if (event.type === "mousedown" && event.detail <= 1) pressedSinceOpen.current = true;
-    else if (event.detail > 1 && !pressedSinceOpen.current) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
-  };
+  // The opening rule (#506), this dialog's own, with the touch window of #592. In the capture
+  // phase, so nothing inside sees any event it ignores: the press, the release, the click, or the
+  // `dblclick`.
+  const [openingRepeat] = useState(() => openingRepeatRule(lastTap));
+  // A tap that opens the dialog lands on the page before it opens, so the page's tap recorder runs
+  // while the dialog is mounted.
+  useEffect(() => holdTapRecorder(), []);
 
   // Removes what `ignoreClosingRepeat` put in place when a click last closed this dialog, unless a
   // press counted 1 already has: before the next such close puts its own, and on unmount.
@@ -304,7 +405,7 @@ export function ModalDialog({
           // put `ignoreClosingRepeat` on `window` (#563). Resetting here as well would only make a
           // click counted 2 do nothing, such as Share clicked again at the same point after Escape
           // closed the Share dialog.
-          if (event.target === event.currentTarget) pressedSinceOpen.current = false;
+          if (event.target === event.currentTarget) openingRepeat.closed();
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
             onClose,
@@ -316,10 +417,10 @@ export function ModalDialog({
           pressedWith.current = event.pointerType;
           if (lightDismiss) pressedAt.current = { x: event.clientX, y: event.clientY };
         }}
-        onMouseDownCapture={ignoreOpeningRepeat}
-        onMouseUpCapture={ignoreOpeningRepeat}
-        onClickCapture={ignoreOpeningRepeat}
-        onDoubleClickCapture={ignoreOpeningRepeat}
+        onMouseDownCapture={openingRepeat.ignore}
+        onMouseUpCapture={openingRepeat.ignore}
+        onClickCapture={openingRepeat.ignore}
+        onDoubleClickCapture={openingRepeat.ignore}
         onClick={(event) => {
           if (lightDismiss) {
             const pressed = pressedAt.current;
