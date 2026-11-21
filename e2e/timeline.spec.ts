@@ -1832,13 +1832,17 @@ ownerTest.describe("timeline event inspector", () => {
         });
 
         await page.touchscreen.tap(at.x, at.y);
-        await expect(inspector).toBeHidden();
-        await expect(trigger).toBeFocused();
         if (signsOut) {
+          await expect(inspector).toBeHidden();
+          await expect(trigger).toBeFocused();
           // Read after the closing click, so the window has passed once this much more time has.
           const closedBy = await page.evaluate(() => performance.now());
           await expect.poll(() => page.evaluate((since) => performance.now() - since, closedBy)).toBeGreaterThan(TOUCH_REPEAT_WINDOW_MS);
         }
+        // In the double-tap the second tap follows the first at once: the close and the rule both
+        // happen in the first tap's click, so nothing has to settle between them, and a wait here
+        // could outlast `TOUCH_REPEAT_WINDOW_MS` on a slow runner and make the second tap a
+        // separate one.
         await page.touchscreen.tap(at.x, at.y);
 
         if (signsOut) {
