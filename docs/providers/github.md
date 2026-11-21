@@ -25,7 +25,7 @@ GitHub App, installed on a user or organization account, plus a one-time user au
 | Callback URL (user authorization) | `<SITE_URL>/api/connections/github/callback` (same route as the setup URL) |
 | API base URL | `https://api.github.com` |
 | API version header | `X-GitHub-Api-Version: 2026-03-10` (latest). `2022-11-28` is supported until 2028-03-10. Requests without the header get `2022-11-28` |
-| App JWT | RS256, signed with the app private key. `iat` 60 seconds in the past, `exp` at most 10 minutes ahead, `iss` = client ID (recommended) or app ID |
+| App JWT | RS256, signed with the app private key. `iat` 60 seconds in the past, `exp` at most 10 minutes ahead (StackDash uses 9), `iss` = client ID (recommended) or app ID. StackDash sends the App ID |
 | Installation access token | 1 hour. Minted with the JWT. Starts with `ghs` and an underscore. Since 2026-04-27 new tokens roll out in a longer stateless format (that prefix, the app ID, an underscore, then a JWT), so never assume 40 characters |
 | User access token | 8 hours (`expires_in: 28800`), starts with `ghu` and an underscore. Only when "Expire user authorization tokens" is on (the default) |
 | Refresh token | 6 months (`refresh_token_expires_in: 15897600`), starts with `ghr` and an underscore, rotates on every use |
@@ -135,7 +135,7 @@ Copilot usage since 2026-06-01. Filters: `year`, `month`, `day`, `user`, `model`
 
 ### Premium requests, organization: `GET /organizations/{org}/settings/billing/premium_request/usage`
 
-Same parameters and schema as AI credits, with `unitType: "requests"`. Legacy since 2026-06-01. StackDash reads it only for a month in which the AI credit endpoint returns no rows or fails, so months before June 2026 still show, as does an account that still has premium request rows. Last 24 months only.
+Same parameters and schema as AI credits, with `unitType: "requests"`. Legacy since 2026-06-01. StackDash reads it only for a month in which the AI credit endpoint returns no rows or answers `400`, `403`, or `404`, so months before June 2026 still show, as does an account that still has premium request rows. Any other AI credit failure fails the sync. Last 24 months only.
 
 ### Budgets, organization: `GET /organizations/{org}/settings/billing/budgets`
 
@@ -287,7 +287,7 @@ The star thresholds read the stored `github.stars.total` snapshots. When the fir
 - Secondary limits: at most 100 concurrent requests, 900 points per minute for REST (`GET` costs 1), 90 seconds of CPU per minute, and 2,000 OAuth token requests per hour per app. Some endpoints cost more, undisclosed.
 - Headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-used`, `x-ratelimit-reset` (UTC epoch seconds), `x-ratelimit-resource`. Values can vary between responses because of multiple regions. StackDash reads only `x-ratelimit-remaining`, to tell a rate limited `403` from a missing permission.
 - Exceeded: `403` or `429`. StackDash treats a `403` with `retry-after` or `x-ratelimit-remaining: 0` as rate limited. It retries the sync after `retry-after` (at most a day) when present, otherwise with exponential backoff from one minute up to an hour, and gives up after a fixed number of tries. It does not read `x-ratelimit-reset`. Continuing while limited can get the app banned.
-- Budget: per repository per sync 1 request for forks within their 20 second budget (star counts come with the repository list), plus the activity reads within theirs (see [Time budget](#time-budget)): one page each of pull requests and issues and one to three pages of the events feed. 3 or 4 billing calls per account per month read (summary, usage, AI credit, and premium request when AI credit has no rows or fails), for two months during the first 3 days of a month. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Its first page of forks took 1.1 to 5.8 s, so the fork budget reads about 4 busy repositories a sync. Webhook deliveries cost no requests. StackDash sends requests serially per installation.
+- Budget: per repository per sync 1 request for forks within their 20 second budget (star counts come with the repository list), plus the activity reads within theirs (see [Time budget](#time-budget)): one page each of pull requests and issues and one to three pages of the events feed. 3 or 4 billing calls per account per month read (summary, usage, AI credit, and premium request when AI credit has no rows or answers `400`, `403`, or `404`), for two months during the first 3 days of a month. Measured on 2026-11-16 against three busy public repositories (`vercel/next.js`, `supabase/supabase`, `eddiejaoude/StackDash`), one authenticated request per page: pull requests (30) 0.66 to 0.81 MB in 0.9 to 1.3 s, issues since an hour ago 0.03 to 0.25 MB in 0.5 to 0.8 s, and the events feed read the way the code reads it (back to 8 hours ago, an hourly sync's window with its 6 hour allowance): 3 pages on all three, 1.4 to 2.1 MB in 4.4 to 6.6 s. So a busy repository's activity is about 6 to 8 s and 2.2 to 3 MB a sync, the budget reads about 3 busy repositories, or about 20 quiet ones, per sync, and 100 busy repositories cycle in about a day and a half. Its first page of forks took 1.1 to 5.8 s, so the fork budget reads about 4 busy repositories a sync. Webhook deliveries cost no requests. StackDash sends requests serially per installation.
 
 ## Webhooks
 
@@ -382,7 +382,7 @@ Check the key with GitHub's fingerprint command and compare to the settings page
 
 ## Sample responses
 
-All samples are from documentation, not recorded. Trimmed and synthetic; replace with recorded, sanitized fixtures before tests rely on them.
+All samples are from documentation, not recorded, trimmed, and synthetic. The adapter's tests use synthetic fixtures in the same shapes (`src/lib/adapters/github/fixtures/`).
 
 Setup URL redirect after install (from documentation, not recorded; `setup_action` and `state` assumed, see Unverified):
 
@@ -476,7 +476,7 @@ Setup URL redirect after install (from documentation, not recorded; `setup_actio
 }
 ```
 
-Note the SKU spelling differs between the two documented examples (`Actions Linux` and `actions_linux`). Do not join on SKU strings across endpoints until recorded fixtures show the real values.
+Note the SKU spelling differs between the two documented examples (`Actions Linux` and `actions_linux`). StackDash takes SKUs from the usage summary only and never joins SKU strings across endpoints.
 
 `GET /organizations/{org}/settings/billing/ai_credit/usage` (from documentation, not recorded):
 
@@ -502,7 +502,7 @@ Note the SKU spelling differs between the two documented examples (`Actions Linu
 }
 ```
 
-The user-level documented example uses `"unitType": "ai-credits"` and `"product": "Copilot AI Credits"`, so accept both spellings.
+The user-level documented example uses `"unitType": "ai-credits"` and `"product": "Copilot AI Credits"`. StackDash files every row from the AI credit and premium request endpoints under Copilot, whatever its `product` spelling.
 
 `GET /organizations/{org}/settings/billing/premium_request/usage` (from documentation, not recorded):
 
@@ -662,11 +662,11 @@ A `github_app_authorization` delivery body, complete apart from the sender's pro
 
 Not yet confirmed with a test organization and a test personal account:
 
-- `setup_action` (`install`, `update`, `request`) on the setup URL redirect is not in the official docs, and neither is the exact form of `state` passthrough. The handler must work if either is missing.
+- `setup_action` (`install`, `update`, `request`) on the setup URL redirect is not in the official docs, and neither is the exact form of `state` passthrough. StackDash does not read `setup_action`, and a redirect without `state` returns to the last workspace's connections page.
 - What the redirect looks like when a non-owner requests an org install (no `installation_id` expected).
 - The status code from `/settings/billing/usage` for an account not on the enhanced billing platform (the docs list `400` and `403`).
 - Whether `/usage` without `month` returns the whole year (no default documented for `month`, unlike the other endpoints).
-- The automation tutorial says billing usage endpoints do not support fine-grained personal access tokens and asks for a classic token, while the endpoint reference lists installation, user, and fine-grained tokens with Administration read. Confirm an installation token returns `200`.
+- The automation tutorial says billing usage endpoints do not support fine-grained personal access tokens and asks for a classic token, while the endpoint reference lists installation, user, and fine-grained tokens with Administration read. That an installation token gets `200`.
 - That the organization AI credit endpoint returns data for Copilot Business and Enterprise orgs, and whether the premium request endpoint still returns rows for months after 2026-06-01.
 - Real `product`, `sku`, and `unitType` strings (documented examples disagree).
 - Whether amounts can carry more than two decimal places in `netAmount`, and that all amounts are USD for accounts billed through Azure.
@@ -674,14 +674,13 @@ Not yet confirmed with a test organization and a test personal account:
 - Status codes when minting a token for a deleted or suspended installation.
 - Whether the user token exchange returns JSON by default or needs `Accept: application/json` (documented for OAuth apps; the GitHub App page does not say).
 - Whether an installation token counts as "admin or collaborator" for the restricted stargazer list. StackDash does not call it, so this only matters if that changes.
-- Whether `/stargazers/history` counts stars that were later removed.
 - What `GET /repos/{owner}/{repo}/issues` answers for a repository with issues turned off (the list documents `404` and `422`, not `410`). StackDash treats `404` and `410` the same: no issues for that repository.
 - That every `installation` delivery carries `installation.account` (an enterprise installation may name no user or organization), and that `suspended_at` is set on `suspend`.
 - Whether someone other than a personal account's owner can authorize against its installation (`GET /user/installations` lists installations the user has "explicit permission" to). If so, their revoked authorization does not match the connection by `sender.id` (see [Webhooks](#webhooks)).
 - How long the events feed lags today. The REST page still says 30 seconds to 6 hours; GitHub's 2025 changelog says events would appear "almost immediately". StackDash reads back the documented 6 hours either way.
 - That an installation token with Metadata read lists a private repository's events, and that a private repository's `ReleaseEvent` carries the same release fields. The public half is checked (below).
 
-Checked on a public repository on 2026-11-16: `GET /repos/vercel/next.js/events?per_page=100` (authenticated) honours `per_page=100`, answers `422` for page 4, and holds a `ReleaseEvent` (created 2026-11-15T23:49:25Z, action `published`) whose `payload.release` carries `id` (446440896), `tag_name` (`v16.5.0-canary.52`), `draft` (false), `published_at`, and `html_url`: the five fields `ReleaseSchema` reads.
+Checked on a public repository on 2026-11-16: `GET /repos/vercel/next.js/events?per_page=100` (authenticated) honors `per_page=100`, answers `422` for page 4, and holds a `ReleaseEvent` (created 2026-11-15T23:49:25Z, action `published`) whose `payload.release` carries `id` (446440896), `tag_name` (`v16.5.0-canary.52`), `draft` (false), `published_at`, and `html_url`: the five fields `ReleaseSchema` reads.
 
 ## Sources
 

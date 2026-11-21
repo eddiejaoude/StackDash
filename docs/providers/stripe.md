@@ -227,7 +227,7 @@ No write permission is requested. `balance_transaction_source_read` is not reque
 
 ### Disclosure copy
 
-The connect screen lists the seven permissions, each with its purpose from the manifest above, then this under **Data collected**:
+The connect screen lists the seven permissions, each with its purpose from the manifest above, then this under **Data collected**. Those purposes are not all accurate yet: `invoice_read` and `payout_read` describe reads StackDash does not make (see [Permissions](#permissions)), and `customer_read` and `subscription_read` describe counts that StackDash only shows as timeline events.
 
 - Stripe fees per currency, this month and last 30 days
 - Revenue net of refunds per currency, this month and last 30 days
@@ -288,7 +288,7 @@ Polling algorithm:
 
 - Amounts: integers in the smallest currency unit. Zero-decimal currencies (for example JPY) have no minor unit, so `100` means 100 yen. StackDash stores `amountMinor` plus currency and formats it with the currency's exponent.
 - Currency: Stripe returns lowercase three-letter ISO codes. StackDash normalizes them to uppercase ISO 4217 at the parse boundary.
-- Timestamps: Unix seconds, UTC. `available_on` and `arrival_date` are dates expressed as timestamps.
+- Timestamps: Unix seconds, UTC.
 - Granularity: per object. StackDash totals fees and revenue per currency over two windows: this calendar month (UTC) and the last 30 days.
 - Freshness: the API reflects objects as soon as they exist. A balance transaction has `status` `pending` until its `available_on`, but its `fee` is already set, and StackDash counts pending transactions too. StackDash syncs hourly, so fees and revenue are up to an hour old. Timeline events arrive within a minute where the instance receives webhooks for the connection's mode.
 

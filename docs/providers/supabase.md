@@ -234,7 +234,7 @@ The changelog's examples filter on `source_name`, while the current query guide 
 | API request counts | `GET /v1/projects/{ref}/analytics/endpoints/usage.api-counts` (`interval` from `15min` to `7day`, returns `total_auth_requests`, `total_rest_requests`, `total_storage_requests`, `total_realtime_requests` per timestamp). The spec lists no OAuth scope for it. StackDash does not call it | Not read |
 | Disk utilization | `GET /v1/projects/{ref}/config/disk/util` exists but lists no OAuth scope | Unavailable for OAuth [inference], not read |
 
-The metrics endpoint is the only documented path to database size in use with these scopes. Whether its feed includes `pg_database_size_mb` is unverified, and StackDash does not show database size in use.
+The metrics endpoint is the only documented path to database size in use with these scopes. StackDash does not call it, so it does not show database size in use.
 
 ### Timeline events (by polling)
 
@@ -469,35 +469,21 @@ The documented audit log event format, shown only to make clear what StackDash d
 }
 ```
 
-## Confirm first, with a test project
-
-The adapter is built from the documentation. These checks against a Free and a Pro organization are still open; until they are run, StackDash follows the documented behavior described on this page.
-
-- **Auth audit events appear in the logs endpoint, and which source and fields hold the action.** Docs: source `auth_audit_logs`, action in `log_attributes['auth_audit_event.action']`, user in `auth_audit_event.actor_id`. To confirm with one signup, one login, one logout, one deletion, and one token refresh. Also open: whether the filter column is `source` (query guide, used by StackDash) or `source_name` (changelog), and whether these events are recorded without turning on "Write audit logs to the database".
-- **Log retention on the Free plan is longer than the polling interval.** Docs: auth audit logs are kept 1 hour on Free (7 days Pro, 28 days Team); API and database logs 1 day on Free. A 15 minute poll fits. To confirm the 1 hour figure, query a window 50 to 70 minutes old, and record what `security.audit_logs_days` returns on Free.
-- **Whether the metrics endpoint includes database size.** Docs: `GET /v1/projects/{ref}/analytics/endpoints/metrics` takes `analytics:read` and returns Prometheus text; Supabase's Grafana dashboard charts `pg_database_size_mb` from this feed; pricing lists the metrics endpoint as not included on Free. StackDash does not call it, so database size in use is not shown.
-- **Whether `usage.api-counts` accepts OAuth tokens.** Docs: the spec lists no OAuth scope for it, and the rate limit table puts it at 30 per minute. StackDash does not call it.
-- `logs.all` returns `410` and `logs` works with an OAuth token holding `analytics:read`.
-- The rate limit on `/analytics/endpoints/logs` (read `X-RateLimit-Limit`).
-- Access token lifetime (`expires_in`) and whether refresh rotates the refresh token.
-- Whether a token is limited to the organization chosen on the consent screen or covers every organization the user belongs to.
-- Whether a user without the owner or admin role can authorize the app and read the organization and entitlements (the spec lists the internal permission `organization_admin_read` for both).
-- The response types of `count()`, `uniqExact()`, and `timestamp` in `result`. StackDash accepts a number or a string for counts, and an ISO string or epoch microseconds for `timestamp`.
-- Whether `login` includes failed sign-in attempts (the docs say "sign-in attempt").
-
 ## Unverified
 
-- Access and refresh token lifetimes, and refresh token rotation. Not documented.
+Not yet confirmed against a Free and a Pro organization. Until they are, StackDash follows the documented behavior described on this page.
+
+- Whether auth audit events appear in the logs endpoint under source `auth_audit_logs`, with the action in `log_attributes['auth_audit_event.action']` and the user in `auth_audit_event.actor_id`, and whether they are recorded without turning on "Write audit logs to the database".
+- `source` (query guide, used by StackDash) versus `source_name` (changelog) as the filter column.
+- That `logs` works with an OAuth token holding `analytics:read`.
 - The rate limit for `GET /v1/projects/{ref}/analytics/endpoints/logs`. Only `logs.all` (30 per minute) is listed.
-- `source` versus `source_name` as the filter column.
-- Whether `login` counts failed attempts, which would inflate login counts.
-- Whether the metrics feed reached through the Management API includes `pg_database_size_mb`, and what it returns on Free.
-- Whether `usage.api-counts`, `usage.api-requests-count`, and `config/disk/util` accept OAuth tokens.
-- How the Free plan's 1 hour audit retention is expressed in `security.audit_logs_days`.
-- Whether a token spans one organization or all of the user's organizations, and whether non-admin members can authorize.
+- Access and refresh token lifetimes, and refresh token rotation. Not documented.
+- That the Free plan keeps auth audit logs for 1 hour, and how that is expressed in `security.audit_logs_days`.
+- Whether `login` counts failed attempts (the docs say "sign-in attempt"), which would inflate login counts.
+- Whether a token spans one organization or all of the user's organizations, and whether a member without the owner or admin role can authorize the app and read the organization and entitlements (the spec lists the internal permission `organization_admin_read` for both).
 - Whether an OAuth app must be published before users outside its organization can authorize it.
 - Whether the user-scoped rate limit on `GET /v1/projects` and `GET /v1/organizations` is one budget for the whole OAuth app.
-- Field value types in the logs `result` array.
+- The value types of `count()`, `uniqExact()`, and `timestamp` in the logs `result` array. StackDash accepts a number or a string for counts, and an ISO string or epoch microseconds for `timestamp`.
 - `actor_username` holding the user's email (likely, not stated).
 
 ## Sources

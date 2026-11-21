@@ -214,7 +214,7 @@ The deployment ladder is the same on Railway, DigitalOcean, and GitLab. It count
 | Month-to-date net billed spend (`vercel.spend.total`) | Verified | Every charge category, credits and adjustments included, computed by StackDash from provider values. Left out when negative |
 | Deployment outcomes (succeeded, failed) | Verified | From deployment states, by polling and webhooks |
 | Daily or per-SKU charges, `EffectiveCost`, usage quantities, spend per project | Unavailable | Vercel reports them; StackDash does not read them |
-| Projected month-end spend | Unavailable | The adapter declares no projection |
+| Projected month-end spend | Estimated (StackDash's own projection) | The dashboard projects month-to-date spend to the end of the UTC month (`periodEndOf` in `src/lib/dashboard/projection.ts`) and labels it Estimate by StackDash |
 | Build duration | Unavailable | StackDash does not read `buildingAt` |
 | Enterprise commitment allocation | Unavailable | StackDash does not call `GET /v1/billing/contract-commitments` |
 | Hobby plan usage against free limits | Unavailable | Billing scope is Pro and Enterprise only |
