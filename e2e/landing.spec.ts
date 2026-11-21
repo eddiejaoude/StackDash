@@ -195,6 +195,8 @@ test.describe("landing page", () => {
       await expect(rows).toHaveCount(10);
       expect(await achievements.count()).toBeGreaterThanOrEqual(3);
       await expect(achievements.filter({ hasText: "Payday: 10 payments in one day" })).toHaveCount(1);
+      // #596: the trophy sits inside the pill, not on the logo's corner.
+      await expect(achievements.filter({ hasText: "Payday: 10 payments in one day" }).getByText(/^🏆\s*Achievement$/)).toBeVisible();
     });
 
     // 64rem is the lg breakpoint: from it the feed sits beside the allowances and spend column and

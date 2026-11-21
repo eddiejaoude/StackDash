@@ -52,8 +52,8 @@ export type TimelineEvent = Pick<
    */
   markProvider: ProviderId | null;
   /**
-   * What happened (`eventEmoji`): inside the row's status pill (#594), and in the corner of that
-   * logo in the event details.
+   * What happened (`eventEmoji`), shown inside the event's status pill on its row and in the event
+   * details (#594, #596).
    */
   emoji: string;
 };

@@ -32,9 +32,9 @@ export const EventTypeSchema = z.strictObject({
   description: z.string().trim().min(1).max(280),
   shownByDefault: z.boolean(),
   category: EventCategorySchema.optional(),
-  // One emoji for what happened (🚀 a deployment went live, 💳 a payment), shown inside a timeline
-  // row's status pill and in the corner of the provider's logo in the event details (#594).
-  // Decorative: the label and title say it in words.
+  // One emoji for what happened (🚀 a deployment went live, 💳 a payment), shown inside the event's
+  // status pill on timeline rows and in the event details (#594, #596). Decorative: the label and
+  // title say it in words.
   emoji: EventEmojiSchema,
 });
 
