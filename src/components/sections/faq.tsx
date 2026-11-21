@@ -17,7 +17,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: `Does ${site.name} need write access to my accounts?`,
-    answer: `Not to read your data. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect. Polar and GitLab have no read-only way to add a webhook, so automatic webhook setup asks for write access there, and says so first. ${site.name} writes only to add and delete its own webhook, and setting the webhook up by hand asks for no extra access.`,
+    answer: `Not where a provider offers read-only access. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect. Polar and GitLab have no read-only way to add a webhook, so automatic webhook setup asks for write access there, and says so first. ${site.name} writes only to add and delete its own webhook, and setting the webhook up by hand asks for no extra access.`,
   },
   {
     question: "Will any of my data be public?",
