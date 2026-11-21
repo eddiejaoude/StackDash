@@ -57,12 +57,22 @@ async function demoEvent(type: string, workspace: TestWorkspace, simulate = "1")
   }
 }
 
-/** A Vercel budget of $600 with an alert at 90 percent, as the demo seed adds. */
+/**
+ * A Vercel budget of $10,000 with an alert at 90 percent, which only the command's surge crosses
+ * (#590). Not the demo seed's $600: the simulated sync's usual month-to-date spend passes $540 from
+ * about the 19th, so a sync before the command triggered the alert first, and the crossing found
+ * it already triggered. The usual spend accrues at most $1.50 an hour, five times that on a launch
+ * day (usagePerHour, src/lib/adapters/simulated/vercel.ts). At $7.50 for every hour of a 31 day
+ * month, with the $20 seat and 20 percent tax, it would come to $6,720, short of $9,000. The unit
+ * test "keeps a whole month of revenue and spend within ten times the demo's Vercel budget"
+ * (src/lib/adapters/simulated/index.test.ts) holds a month of simulated spend to $6,000, so a
+ * change to the simulated rates fails there before it reaches this bound.
+ */
 async function seedBudgetAlert(workspace: TestWorkspace): Promise<void> {
   const admin = adminClient();
   const { data: budget, error } = await admin
     .from("budgets")
-    .insert({ workspace_id: workspace.id, name: "Vercel monthly", scope: "provider", provider: "vercel", amount_minor: 60_000, currency: "USD" })
+    .insert({ workspace_id: workspace.id, name: "Vercel monthly", scope: "provider", provider: "vercel", amount_minor: 1_000_000, currency: "USD" })
     .select("id")
     .single();
   if (error) throw new Error(`Seeding the budget failed (code ${error.code}).`);
@@ -221,7 +231,7 @@ ownerTest.describe("demo event", () => {
 
       const crossing = await demoEvent("budget-crossing", workspace);
       expect(crossing.code).toBe(0);
-      expect(crossing.stdout).toContain("rose to at least $540.00 this month, 90 percent of the Vercel monthly budget of $600.00");
+      expect(crossing.stdout).toContain("rose to at least $9,000.00 this month, 90 percent of the Vercel monthly budget of $10,000.00");
       expect(crossing.stdout).toContain("1 alert triggered");
       // Delivery first, then the render, so a failure says which half broke. On Supabase CLI before
       // 2.122.0 a delivery lost while the page stayed subscribed was the stack's 10 minute
