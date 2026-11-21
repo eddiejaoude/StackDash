@@ -7,7 +7,7 @@ const principles: readonly IconCardItem[] = [
   {
     icon: ShieldIcon,
     title: "Read-only wherever the provider allows it",
-    body: "OAuth first, with the narrowest read-only scopes the provider offers, so most connections need no API key at all. Where a provider has no OAuth route, a restricted read-only key is the fallback. Write permissions are never requested for a dashboard that only reads.",
+    body: `OAuth first, with the narrowest read-only scopes the provider offers, so most connections need no API key at all. Where a provider has no OAuth route, a restricted read-only key is the fallback. Write access is asked for only when you choose automatic webhook setup on a provider with no read-only way to add a webhook, such as Polar and GitLab, and ${site.name} uses it only to add and delete its own webhook. Setting the webhook up by hand keeps the connection read-only.`,
   },
   {
     icon: EyeIcon,
