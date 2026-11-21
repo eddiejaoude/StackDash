@@ -213,7 +213,9 @@ function repeatsTap(tap: Tap, press: Pick<MousePress, "clientX" | "clientY" | "t
 export function openingRepeatRule(lastTap: () => Tap | null): Readonly<{ ignore: (event: MousePress) => void; closed: () => void }> {
   // Whether a press counted 1 other than the double-tap's second tap has reached the dialog since it opened.
   let pressedSinceOpen = false;
-  // Whether the next press counted 1 is the first since the dialog opened, and so checked against the tap.
+  // Whether `lastTap` still holds the tap that opened the dialog, so the next press counted 1 is checked
+  // against it. Cleared by the first press counted 1, and by an ignored press counted 2 or more, whose
+  // click replaces `lastTap`.
   let checkTap = true;
   // Whether the press counted 1 that came last was the double-tap's second tap.
   let secondTap = false;
