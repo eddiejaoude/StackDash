@@ -229,20 +229,17 @@ describe("stripeAdapter.detectMissingPermissions", () => {
     {
       name: "empty grant misses everything",
       scopes: [],
-      missing: [
-        "event_read",
-        "charge_read",
-        "customer_read",
-        "subscription_read",
-        "invoice_read",
-        "balance_read",
-        "payout_read",
-      ],
+      missing: ["event_read", "charge_read", "customer_read", "subscription_read", "balance_read"],
     },
     {
       name: "partial permission list",
-      scopes: ["event_read", "charge_read", "customer_read", "subscription_read", "invoice_read"],
-      missing: ["balance_read", "payout_read"],
+      scopes: ["event_read", "charge_read", "customer_read"],
+      missing: ["subscription_read", "balance_read"],
+    },
+    {
+      name: "grant from the earlier manifest, with invoice_read and payout_read, misses nothing",
+      scopes: ["event_read", "charge_read", "customer_read", "subscription_read", "invoice_read", "balance_read", "payout_read"],
+      missing: [],
     },
   ])("$name", ({ scopes, missing }) => {
     expect(stripeAdapter.detectMissingPermissions({ scopes })).toEqual(missing);

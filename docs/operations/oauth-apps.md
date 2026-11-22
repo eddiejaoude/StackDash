@@ -89,7 +89,7 @@ Settings that must match the code:
 
 - Owner account: a Stripe account used only for the app, without Connect enabled. One account owns at most one public app.
 - `stripe-app.json`: `distribution_type` `public`, `stripe_api_access_type` `oauth` (fixed after the first upload), `allowed_redirect_uris` `["<SITE_URL>/api/connections/stripe/callback"]` (HTTPS for live mode).
-- Permissions, added with `stripe apps grant permission`: `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read`. Nothing else.
+- Permissions, added with `stripe apps grant permission`: `event_read`, `charge_read`, `customer_read`, `subscription_read`, `balance_read`. Nothing else. An app uploaded earlier with `invoice_read` and `payout_read`: see [Packaging the Stripe App](../providers/stripe.md#packaging-the-stripe-app) for removing them.
 - After `stripe apps upload`: in the Dashboard, **Created apps**, select the app, **Set external test version**, **Access**: **Anyone with the link**. Up to 25 external testers can install an unpublished app; until the app is published, every user is added this way ([External testers and review](../providers/stripe.md#external-testers-and-review)). Testers need the Apps administrator role on their Stripe account.
 - Webhooks, optional: one endpoint in the owner account's live mode, **Developers**, **Webhooks**, at `<SITE_URL>/api/webhooks/stripe`, with **Listen to events on Connected accounts** and the eight events listed in [Stripe, Webhooks](../providers/stripe.md#webhooks), and, to push test mode installs' events too, a second endpoint with the same settings at the same URL in the owner account's test mode. Each delivery reaches only connections of its own mode.
 

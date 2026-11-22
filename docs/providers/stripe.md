@@ -2,7 +2,7 @@
 
 Provider id: `stripe`. Verification: documentation only.
 
-StackDash reads your Stripe fees and revenue, and payment, refund, customer, and subscription events, to show them next to your costs. It installs as a Stripe App with seven read-only permissions and never writes to Stripe. This is separate from StackDash billing its own customers.
+StackDash reads your Stripe fees and revenue, and payment, refund, customer, and subscription events, to show them next to your costs. It installs as a Stripe App with five read-only permissions and never writes to Stripe. This is separate from StackDash billing its own customers.
 
 All facts below come from Stripe's documentation, checked 2026-10-31. Anything not confirmed by a doc is in [Unverified](#unverified).
 
@@ -16,7 +16,7 @@ All facts below come from Stripe's documentation, checked 2026-10-31. Anything n
 | Access token lifetime | 1 hour |
 | Refresh token | Rotated on every refresh, expires 1 year after it was issued or last rotated |
 | Account id | `stripe_user_id` in the token response (`acct_...`) |
-| Permissions | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read`. All read-only |
+| Permissions | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `balance_read`. All read-only |
 | API base | `https://api.stripe.com/v1` |
 | Units | Integer amounts in the smallest currency unit, lowercase ISO 4217 currency, Unix timestamps in seconds (UTC) |
 | Events history | `GET /v1/events` goes back up to 30 days |
@@ -150,12 +150,10 @@ stripe login
 stripe apps create stackdash-connector
 cd stackdash-connector
 stripe apps grant permission "event_read" "Read payment, customer, subscription, and refund events to show them on your StackDash timeline"
-stripe apps grant permission "charge_read" "Read payment and refund amounts to show revenue"
-stripe apps grant permission "customer_read" "Count new customers. StackDash does not store customer names or emails"
-stripe apps grant permission "subscription_read" "Count new and canceled subscriptions"
-stripe apps grant permission "invoice_read" "Read paid invoice amounts to show revenue"
-stripe apps grant permission "balance_read" "Read your balance and Stripe fees"
-stripe apps grant permission "payout_read" "Read payout amounts and dates"
+stripe apps grant permission "charge_read" "Show succeeded, failed, and refunded payments on your StackDash timeline"
+stripe apps grant permission "customer_read" "Show new customers on your StackDash timeline. StackDash does not store customer names or emails"
+stripe apps grant permission "subscription_read" "Show new and canceled subscriptions on your StackDash timeline"
+stripe apps grant permission "balance_read" "Read balance transactions to total Stripe fees and revenue. StackDash does not read your current balance"
 stripe apps upload
 ```
 
@@ -174,12 +172,10 @@ Manifest (`stripe-app.json`, the v1 manifest that `stripe apps create` generates
   ],
   "permissions": [
     { "permission": "event_read", "purpose": "Read payment, customer, subscription, and refund events to show them on your StackDash timeline" },
-    { "permission": "charge_read", "purpose": "Read payment and refund amounts to show revenue" },
-    { "permission": "customer_read", "purpose": "Count new customers. StackDash does not store customer names or emails" },
-    { "permission": "subscription_read", "purpose": "Count new and canceled subscriptions" },
-    { "permission": "invoice_read", "purpose": "Read paid invoice amounts to show revenue" },
-    { "permission": "balance_read", "purpose": "Read your balance and Stripe fees" },
-    { "permission": "payout_read", "purpose": "Read payout amounts and dates" }
+    { "permission": "charge_read", "purpose": "Show succeeded, failed, and refunded payments on your StackDash timeline" },
+    { "permission": "customer_read", "purpose": "Show new customers on your StackDash timeline. StackDash does not store customer names or emails" },
+    { "permission": "subscription_read", "purpose": "Show new and canceled subscriptions on your StackDash timeline" },
+    { "permission": "balance_read", "purpose": "Read balance transactions to total Stripe fees and revenue. StackDash does not read your current balance" }
   ]
 }
 ```
@@ -199,6 +195,8 @@ Manifest fields that matter:
 
 A v2 manifest (`stripe-app.yaml`) also exists. It nests the same values under `declarations` (`distribution_type`, `stripe_api_access_type`, `allowed_redirect_uris`, `stripe_api_access.permissions`). `stripe apps migrate` converts v1 to v2. Either works; keep whichever `stripe apps create` produces.
 
+An app uploaded earlier also asked for `invoice_read` and `payout_read`, with older purposes. To match the code: run `stripe apps revoke permission "invoice_read"` and `stripe apps revoke permission "payout_read"`, set the other purposes to the ones above in the manifest, raise `version`, upload, and release the new version (or set it as the external test version). Stripe asks every installed account to reauthorize an app whose permissions changed ([Versions and releases](https://docs.stripe.com/stripe-apps/versions-and-releases)). StackDash needs no new permission, so a connection keeps syncing whether or not its account has reauthorized yet (item 14 in [Unverified](#unverified)).
+
 Account restrictions for the account that owns the app:
 
 - One public app per Stripe account. Private apps can sit alongside it.
@@ -213,21 +211,21 @@ Account restrictions for the account that owns the app:
 | `charge_read` | The `charge.*` payment and refund events on the timeline | Full charge objects, including `billing_details` and `receipt_email` |
 | `customer_read` | Customer events for "new customer" | Full customer records: names, emails, phone numbers, addresses |
 | `subscription_read` | The subscription created and ended events | Full subscription objects |
-| `invoice_read` | Not used: StackDash does not read invoices | Invoices include `customer_email`, `customer_name`, and more |
 | `balance_read` | Balance transactions, for fees and revenue. StackDash does not read the current balance | Balance only |
-| `payout_read` | Not used: StackDash does not read payouts | Payout objects, including the destination bank account id |
+
+Not requested: `invoice_read` and `payout_read`. Revenue comes from balance transactions, and StackDash shows no invoice or payout. Invoices include `customer_email` and `customer_name`, and payouts the destination bank account id, so leaving both out keeps that data out of reach.
 
 No write permission is requested. `balance_transaction_source_read` is not requested: StackDash does not expand `source` on balance transactions.
 
 ### Permission risks
 
-- `customer_read`, `charge_read`, `invoice_read`, and `event_read` let StackDash read personal data about the user's customers. StackDash discards it at the parse boundary (see [Privacy](#privacy)), but the access is real and must be disclosed.
+- `customer_read`, `charge_read`, and `event_read` let StackDash read personal data about the user's customers. StackDash discards it at the parse boundary (see [Privacy](#privacy)), but the access is real and must be disclosed.
 - Stripe's permission model is per object type. There is no field-level restriction, so data minimization is StackDash's job.
 - The code exchange and every refresh use the app developer account's full secret key. Whoever runs a StackDash instance holds a live secret key for their app's Stripe account. Use a dedicated Stripe account that only owns the app and processes no payments, so that key can move no money.
 
 ### Disclosure copy
 
-The connect screen lists the seven permissions, each with its purpose from the manifest above, then this under **Data collected**. Those purposes are not all accurate yet: `invoice_read` and `payout_read` describe reads StackDash does not make, `balance_read` names the current balance, which StackDash does not read (see [Permissions](#permissions)), and `customer_read` and `subscription_read` describe counts that StackDash only shows as timeline events.
+The connect screen lists the five permissions, each with its purpose from the manifest above, then this under **Data collected**:
 
 - Stripe fees per currency, this month and last 30 days
 - Revenue net of refunds per currency, this month and last 30 days
@@ -368,7 +366,7 @@ Every self-hosted instance registers its own Stripe App, because the app's redir
 1. Create or pick a Stripe account just for the app. It must not have Connect enabled. Activate it if you will publish. Each account can own only one public app.
 2. Install the Stripe CLI (1.25.0 or later), run `stripe login` with that account, install the apps plugin (`stripe plugin install apps`, 1.19.0 or later). Node.js 22 or later and pnpm 10 are required.
 3. Run `stripe apps create <your-app-name>`. Pick a globally unique app id.
-4. Edit `stripe-app.json` as in [Packaging the Stripe App](#packaging-the-stripe-app). Set `allowed_redirect_uris` to `["<SITE_URL>/api/connections/stripe/callback"]`, with `<SITE_URL>` your public HTTPS origin. Add the seven permissions with `stripe apps grant permission`.
+4. Edit `stripe-app.json` as in [Packaging the Stripe App](#packaging-the-stripe-app). Set `allowed_redirect_uris` to `["<SITE_URL>/api/connections/stripe/callback"]`, with `<SITE_URL>` your public HTTPS origin. Add the five permissions with `stripe apps grant permission`.
 5. Run `stripe apps upload` from the app directory. The authentication type is fixed after this.
 6. In the Dashboard, open **Created apps** in the account's live mode, select the app, click **Set external test version**, pick the uploaded version, and set **Access** to **Anyone with the link**.
 7. Copy the OAuth install link for each environment you want to support. The `client_id` query parameter of that link is your client id.
@@ -511,10 +509,11 @@ Not yet confirmed with a test app and a test account:
 11. Which `fee_details[].type` values cover all Stripe processing fees for every payment method (for example whether some fees post later as separate `stripe_fee` balance transactions).
 12. Whether **Listen to events on Connected accounts** is offered on an app owner account without Connect enabled. The Stripe Apps event docs say to use it and do not mention Connect.
 13. Whether the two copies of a test mode event that an account installed in both modes sends, one to each endpoint, carry the same event id. [Handle different modes](https://docs.stripe.com/stripe-apps/handling-modes#webhooks) and [Event behavior depends on install mode](https://docs.stripe.com/stripe-apps/build-backend#event-behavior-depends-on-install-mode) say only that the event goes to both endpoints, and [Webhooks](https://docs.stripe.com/webhooks), "Handle duplicate events", warns that two separate Event objects can be sent for one occurrence. If the ids differ, both copies are accepted, both name test mode, and the test mode connection shows the event twice: the timeline's dedupe key is the event id, and a poll of the account's events shares only one of the two ids.
+14. That an account which has not yet reauthorized after the permission change keeps working with its earlier grant. Stripe's page says users are prompted to reauthorize, not what an install does until then.
 
 ## Go or no-go
 
-Go. Self-serve OAuth with seven read-only permissions. StackDash reads Stripe fees and revenue net of refunds per currency from balance transactions, and payment, refund, customer, and subscription events, by hourly polling and, where the instance has the signing secrets, by webhook. Limits a user can trip on: installing needs Apps administrator rights on the Stripe account; until the app is published, at most 25 accounts can install it from the external test link; only live mode and test mode installs work, not general sandboxes; an account with more than 1,000 balance transactions since the earlier of the start of the month and 30 days ago gets no fee or revenue figures; and events more than 30 days old cannot be read. Items 1 to 3 in [Unverified](#unverified) are still open.
+Go. Self-serve OAuth with five read-only permissions. StackDash reads Stripe fees and revenue net of refunds per currency from balance transactions, and payment, refund, customer, and subscription events, by hourly polling and, where the instance has the signing secrets, by webhook. Limits a user can trip on: installing needs Apps administrator rights on the Stripe account; until the app is published, at most 25 accounts can install it from the external test link; only live mode and test mode installs work, not general sandboxes; an account with more than 1,000 balance transactions since the earlier of the start of the month and 30 days ago gets no fee or revenue figures; and events more than 30 days old cannot be read. Items 1 to 3 in [Unverified](#unverified) are still open.
 
 ## Sources
 
