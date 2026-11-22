@@ -6,7 +6,7 @@ import { RESEND_WEBHOOK_HEADERS, resendWebhookSignature } from "../src/lib/adapt
 import { SIMULATED_SCOPE } from "../src/lib/adapters/simulated/marker";
 import { Secret } from "../src/lib/adapters/types";
 import { expect, ownerTest } from "./fixtures/auth";
-import { connectSimulated } from "./fixtures/connections";
+import { connectSimulated, makeConnectionsNotDue } from "./fixtures/connections";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { anonymous } from "./fixtures/share";
 import {
@@ -133,6 +133,7 @@ ownerTest.describe("Resend webhook setup", () => {
     const resend = await anonymous(baseURL);
     try {
       await connectSimulated(page, workspace.slug, "Resend");
+      await makeConnectionsNotDue(page, workspace.id);
       const connection = await connectionId(page);
       await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toHaveAccessibleDescription(RESEND_MANUAL);
 
@@ -225,6 +226,7 @@ ownerTest.describe("Resend webhook setup", () => {
     const resend = await anonymous(baseURL);
     try {
       await connectSimulated(page, workspace.slug, "Resend");
+      await makeConnectionsNotDue(page, workspace.id);
       const connection = await connectionId(page);
       await expect(panel(page).getByRole("radio", { name: "Set up automatically" })).toHaveAccessibleDescription(RESEND_AUTOMATIC);
       await expect(panel(page).getByText("Write access", { exact: true })).toHaveCount(0);

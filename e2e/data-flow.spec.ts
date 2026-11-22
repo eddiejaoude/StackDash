@@ -34,6 +34,20 @@ function overlaps(a: Box, b: Box): boolean {
   return width > 1 && height > 1;
 }
 
+/** The stage's computed transform when the load event fires, and where it settles. */
+interface StageAtLoad {
+  transform: string;
+  /** Its computed transform once every animation on it, a transition included, has finished. */
+  rest: string;
+  animations: number;
+}
+
+/** The page's view of the functions the load tests expose to it. */
+type StageWindow = Window & {
+  reportStageAtLoad?: (stage: StageAtLoad | null) => Promise<void>;
+  reportStageWithoutStylesheet?: (transform: string) => Promise<void>;
+};
+
 test.describe("hero data-flow constellation", () => {
   // The hero fades in; a scan mid-fade reports contrast the settled page has not. Reduced motion
   // also parks every packet with its label showing, so the scan covers the labels too.
@@ -260,9 +274,7 @@ test.describe("hero data-flow constellation in motion", () => {
       );
     // What is drawn, not only the inputs: the rotation in the computed transform, its upper-left
     // 3 by 3 (perspective(1400px) in front of the rotations leaves that part alone). The whole
-    // matrix is not compared: in two CI runs the perspective was still transitioning in right after
-    // load while the stage was already flat, so it is no fixed reference for "flat" (#464). Why the
-    // stage starts from transform none there is not known yet (#623).
+    // transform right after load is pinned by "hero data-flow constellation on load" below (#623).
     const rotation = () =>
       tilt.evaluate((element) => {
         const { m11, m12, m13, m21, m22, m23, m31, m32, m33 } = new DOMMatrix(getComputedStyle(element).transform);
@@ -299,6 +311,73 @@ test.describe("hero data-flow constellation in motion", () => {
     await page.mouse.move(frame.x + frame.width * 0.9, frame.y + frame.height * 0.1);
     await expect.poll(angles).toEqual([0, 0]);
   });
+});
+
+// In two CI runs the stage was caught 250 to 283 ms into a 0.4s transition from transform none to
+// its rest transform, right after load (#623): a style computed for it before the stylesheet
+// applied became the transition's start, because Chromium restyles the descendants of a size
+// container during layout, after it has begun starting transitions. The stage is now the size
+// container itself (.flow-tilt in globals.css). The second case computes that early style on
+// purpose: the stylesheet waits until the page has computed the stage's style without it.
+test.describe("hero data-flow constellation on load", () => {
+  test.use({ viewport: { width: 1280, height: 800 } });
+
+  for (const { when, styledBeforeStylesheet } of [
+    { when: "on load", styledBeforeStylesheet: false },
+    { when: "when its style was computed before the stylesheet applied", styledBeforeStylesheet: true },
+  ]) {
+    test(`the stage starts at its rest transform, not transitioning, ${when}`, async ({ page }) => {
+      const atLoad = Promise.withResolvers<StageAtLoad | null>();
+      await page.exposeFunction("reportStageAtLoad", (stage: StageAtLoad | null) => atLoad.resolve(stage));
+      // Read at the load event itself, so the time a locator takes to resolve cannot let a
+      // transition finish before it is seen.
+      await page.addInitScript(() => {
+        addEventListener("load", () => {
+          const report = (window as StageWindow).reportStageAtLoad;
+          const stage = document.querySelector('[data-testid="flow-tilt"]');
+          if (!stage) {
+            void report?.(null);
+            return;
+          }
+          const transform = getComputedStyle(stage).transform;
+          const animations = stage.getAnimations();
+          for (const animation of animations) animation.finish();
+          void report?.({ transform, rest: getComputedStyle(stage).transform, animations: animations.length });
+        });
+      });
+
+      const withoutStylesheet = Promise.withResolvers<string>();
+      if (styledBeforeStylesheet) {
+        await page.exposeFunction("reportStageWithoutStylesheet", (transform: string) =>
+          withoutStylesheet.resolve(transform),
+        );
+        // As soon as the parser has added the stage, compute its style, which also lets the
+        // stylesheet through. This needs the parser to reach the stage while the stylesheet is
+        // held: a parser-blocking script ahead of it would wait on the stylesheet too, and the hold
+        // would then show as page.goto timing out.
+        await page.addInitScript(() => {
+          new MutationObserver((_records, observer) => {
+            const stage = document.querySelector('[data-testid="flow-tilt"]');
+            if (!stage) return;
+            observer.disconnect();
+            void (window as StageWindow).reportStageWithoutStylesheet?.(getComputedStyle(stage).transform);
+          }).observe(document, { childList: true, subtree: true });
+        });
+        await page.route("**/*.css", async (route) => {
+          await withoutStylesheet.promise;
+          return route.continue();
+        });
+      }
+
+      await page.goto("/");
+      if (styledBeforeStylesheet) expect(await withoutStylesheet.promise).toBe("none");
+      const stage = await atLoad.promise;
+      if (!stage) throw new Error("The stage was not in the page at load");
+      expect(stage.rest, "the stage's rest transform is its perspective, not none").not.toBe("none");
+      expect(stage.transform).toBe(stage.rest);
+      expect(stage.animations).toBe(0);
+    });
+  }
 });
 
 test.describe("hero data-flow constellation on a touch screen", () => {

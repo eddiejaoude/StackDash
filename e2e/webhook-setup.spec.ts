@@ -6,7 +6,7 @@ import { SIMULATED_SCOPE } from "../src/lib/adapters/simulated/marker";
 import { SIMULATED_WEBHOOK_WRITE_SCOPE } from "../src/lib/adapters/simulated/webhooks";
 import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "../src/lib/connections/webhook-copy";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { connectSimulated } from "./fixtures/connections";
+import { connectSimulated, makeConnectionsNotDue } from "./fixtures/connections";
 import {
   adminClient,
   CONNECTION_URL,
@@ -92,6 +92,7 @@ ownerTest.describe("webhook setup panel", () => {
       ownerTest.slow();
       if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
       await connectSimulated(page, workspace.slug, "GitLab");
+      await makeConnectionsNotDue(page, workspace.id);
       const connection = await connectionId(page);
 
       // Both choices, with their copy, before anything is requested or changed.
@@ -148,6 +149,7 @@ ownerTest.describe("webhook setup panel", () => {
       await page.keyboard.press("Enter");
 
       await expect(page).toHaveURL(CONNECTION_URL);
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(
         page.getByText("Webhook set up", { exact: true }),
       ).toBeVisible();
@@ -209,6 +211,7 @@ ownerTest.describe("webhook setup panel", () => {
       const provider = await anonymous(baseURL);
       try {
         await connectSimulated(page, workspace.slug, "GitLab");
+        await makeConnectionsNotDue(page, workspace.id);
         const connection = await connectionId(page);
 
         await chooseWithKeyboard(page, "Set up by hand");
@@ -353,6 +356,7 @@ ownerTest.describe("webhook setup panel", () => {
     async ({ page }) => {
       ownerTest.slow();
       await connectSimulated(page, workspace.slug, "Resend");
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(
         panel(page).getByRole("radio", { name: "Set up automatically" }),
       ).toHaveAccessibleDescription(RESEND_AUTOMATIC);
@@ -385,6 +389,7 @@ ownerTest.describe("webhook setup panel", () => {
 
       // A second Resend connection, set up by hand: Resend generates the signing secret.
       await connectSimulated(page, workspace.slug, "Resend");
+      await makeConnectionsNotDue(page, workspace.id);
       await chooseWithKeyboard(page, "Set up by hand");
       await expect(
         panel(page).getByText(
@@ -427,6 +432,7 @@ ownerTest.describe("webhook setup panel", () => {
       await seedGitLabEndpoints(workspace, WEBHOOK_ENDPOINTS_PER_WORKSPACE);
 
       await connectSimulated(page, workspace.slug, "GitLab");
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(
         panel(page).getByText(
           `This workspace already has ${WEBHOOK_ENDPOINTS_PER_WORKSPACE} webhooks, the most one workspace can have.`,
@@ -444,6 +450,7 @@ ownerTest.describe("webhook setup panel", () => {
     async ({ page }) => {
       ownerTest.slow();
       await connectSimulated(page, workspace.slug, "GitLab");
+      await makeConnectionsNotDue(page, workspace.id);
       const connection = await connectionId(page);
       await chooseWithKeyboard(page, "Set up automatically");
       await page
@@ -451,6 +458,7 @@ ownerTest.describe("webhook setup panel", () => {
         .check();
       await page.getByRole("button", { name: "Continue to GitLab" }).click();
       await expect(page.getByText("Webhook set up", { exact: true })).toBeVisible();
+      await makeConnectionsNotDue(page, workspace.id);
 
       // As if creating the webhook had failed after the consent: the write-scoped grant is stored
       // and no webhook uses it.
@@ -480,6 +488,7 @@ ownerTest.describe("webhook setup panel", () => {
       await expect(page.getByText(SIMULATED_WEBHOOK_WRITE_SCOPE).filter({ visible: true })).toHaveCount(0);
       await page.getByRole("button", { name: "Continue to GitLab" }).click();
       await expect(page).toHaveURL(CONNECTION_URL);
+      await makeConnectionsNotDue(page, workspace.id);
       expect(await grantedScopes(connection)).toEqual([SIMULATED_SCOPE]);
       await expect(panel(page).getByRole("heading", { name: /^Write access/ })).toHaveCount(0);
       await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toHaveAccessibleDescription(GITLAB_MANUAL);

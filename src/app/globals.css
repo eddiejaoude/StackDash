@@ -539,11 +539,11 @@ summary {
 /*
  * Hero data-flow constellation (src/components/sections/data-flow.tsx, data-flow-stage.tsx). The
  * stage is drawn at 700 by 520 because offset-path takes pixels, then scaled to the frame's width:
- * tan(atan2()) turns the length ratio 100cqw / 700px into a plain number.
+ * tan(atan2()) turns the length ratio 100cqw / 700px into a plain number. The size container is
+ * .flow-tilt, which fills the frame (see there).
  */
 .flow-frame {
   position: relative;
-  container-type: inline-size;
   max-width: 700px;
   aspect-ratio: 700 / 520;
   margin-inline: auto;
@@ -560,10 +560,18 @@ summary {
 }
 
 /* A mouse pointer tilts the whole stage toward it, so lines, cards and packets stay aligned.
- * FlowStage writes --tilt-x and --tilt-y once per frame and resets them on leave or pause. */
+ * FlowStage writes --tilt-x and --tilt-y once per frame and resets them on leave or pause.
+ * The tilt is the stage's size container, not a descendant of one. Chromium restyles a size
+ * container's descendants during layout, after it has begun starting transitions, so a style the
+ * page computed before this stylesheet applied (transform none) became the starting point of a
+ * 0.4s transition on load (#623). The container itself is restyled with the rest of the page,
+ * before transitions can start. Its own descendants still can transition from unstyled values in
+ * that case (the source cards' border color does, for 0.2s), but only while the hero is still
+ * transparent at the start of its fade-in. */
 .flow-tilt {
   position: absolute;
   inset: 0;
+  container-type: inline-size;
   transform: perspective(1400px) rotateX(var(--tilt-y, 0deg)) rotateY(var(--tilt-x, 0deg));
   transition: transform 0.4s ease-out;
 }

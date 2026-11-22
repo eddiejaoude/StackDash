@@ -4,7 +4,7 @@ import { SIMULATED_SCOPE } from "../src/lib/adapters/simulated/marker";
 import { SIMULATED_WEBHOOK_WRITE_SCOPE } from "../src/lib/adapters/simulated/webhooks";
 import { STANDARD_WEBHOOK_TOLERANCE_SECONDS } from "../src/lib/webhooks/standard-webhooks";
 import { expect, ownerTest } from "./fixtures/auth";
-import { connectSimulated } from "./fixtures/connections";
+import { connectSimulated, makeConnectionsNotDue } from "./fixtures/connections";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import {
   connectedOrganizationId,
@@ -85,6 +85,7 @@ ownerTest.describe("Polar webhook setup", () => {
     const polar = await anonymous(baseURL);
     try {
       await connectSimulated(page, workspace.slug, "Polar");
+      await makeConnectionsNotDue(page, workspace.id);
       const connection = await connectionId(page);
       const organizationId = await connectedOrganizationId(workspace);
       await expect(panel(page).getByRole("radio", { name: "Set up by hand" })).toHaveAccessibleDescription(POLAR_MANUAL);
@@ -172,6 +173,7 @@ ownerTest.describe("Polar webhook setup", () => {
     const polar = await anonymous(baseURL);
     try {
       await connectSimulated(page, workspace.slug, "Polar");
+      await makeConnectionsNotDue(page, workspace.id);
       const connection = await connectionId(page);
       await expect(panel(page).getByRole("radio", { name: /Set up automatically/ })).toHaveAccessibleDescription(POLAR_AUTOMATIC);
       await expect(panel(page).getByText("Write access", { exact: true })).toBeVisible();
@@ -205,6 +207,7 @@ ownerTest.describe("Polar webhook setup", () => {
       await page.keyboard.press("Enter");
 
       await expect(page).toHaveURL(CONNECTION_URL);
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(page.getByText("Webhook set up", { exact: true })).toBeVisible();
       await expect(panel(page).getByText(/^Set up automatically\. StackDash added this webhook in Polar/)).toBeVisible();
       await expect(panel(page).getByRole("heading", { name: "Write access StackDash holds in Polar" })).toBeVisible();
@@ -239,6 +242,7 @@ ownerTest.describe("Polar webhook setup", () => {
   ownerTest("the one account needed result says why and what to do", async ({ page }) => {
     if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
     await connectSimulated(page, workspace.slug, "Polar");
+    await makeConnectionsNotDue(page, workspace.id);
     await connectionId(page);
     // The page's wording and focus for the `one_account_needed` result, the code the start route
     // sends a refused automatic setup back with. Nothing is refused here: the refusal before the

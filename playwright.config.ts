@@ -22,6 +22,9 @@ const INSTANCE_WIDE_SPECS = [
   "webhooks*.spec.ts",
 ];
 
+// The spec that writes thousands of rows to a table Realtime publishes; see `projects` below.
+const BULK_WRITE_SPEC = "trends-long-history.spec.ts";
+
 // Pass this process's environment through (CI sets the Supabase variables here). Locally the dev
 // server loads .env.local itself, and variables already set here take precedence over it.
 const inherited = Object.fromEntries(
@@ -53,13 +56,16 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   // POST /api/jobs/tick is instance-wide: it syncs every due connection of every workspace. Seeds
-  // are never due (`notDueForAMonth` in e2e/fixtures/db.ts, #408), but a connection a spec makes
-  // through the connect flow is due at once (#621), so a tick running beside other specs would sync
-  // it and write connection updates and sync events into their workspaces, which breaks their
-  // realtime, dashboard, timeline, and trends assertions at random. Any spec that runs the tick
-  // must live in `instance-wide`, which waits for every `chromium` and touch
-  // spec to finish. A dependency always runs in full (a file filter on the command line does not
-  // narrow it), and when one of those tests fails, Playwright skips the `instance-wide` specs.
+  // are never due (`notDueForAMonth` in e2e/fixtures/db.ts, #408), and a connection a `chromium`
+  // spec creates through the app's connect flow or sample data is made not due once it lands
+  // (`makeConnectionsNotDue` in e2e/fixtures/connections.ts, #621). A tick still syncs every
+  // connection that is due, such as one between its connect and that step, or a simulated one a
+  // local tick watcher with simulation on has made due again (#626), and writes connection
+  // updates and sync events into its workspace, which would break that spec's realtime, dashboard,
+  // timeline, and trends assertions at random. So specs that tick live apart: any spec that runs
+  // the tick must live in `instance-wide`, which waits for every `chromium` and touch spec to
+  // finish. A dependency always runs in full (a file filter on the command line does not narrow
+  // it), and when one of those tests fails, Playwright skips the `instance-wide` specs.
   // The `instance-wide` specs run beside each other (`fullyParallel`, two workers in CI), so each
   // one's ticks sync, summarize, and dispatch in the other's workspaces too (#505). A spec there
   // counts only what no other tick can add to (by dedupe key, type, provider, or a day long past),
@@ -67,11 +73,17 @@ export default defineConfig({
   // Tests tagged `@touch` run only in the touch projects, which run nothing else: WebKit and Firefox
   // count each tap of a double-tap 1 where Chromium counts the second 2 (#578), so a touch rule is
   // proved in the engines that need it. Firefox has no `isMobile`.
+  // A bulk write to a table in the Realtime publication stalls every live change after it, in every
+  // workspace: Realtime reads the replication slot in commit order through one poller, and checks
+  // each change against the subscriptions to its table (`realtime.apply_rls`) before the next. The
+  // 22,500 usage snapshots e2e/trends-long-history.spec.ts seeds held live changes up for most of a
+  // minute in CI, failing the specs beside it that wait 15 s for one (#621). So that spec runs alone
+  // in `bulk-writes`, after every other project, and waits on no live change itself.
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: INSTANCE_WIDE_SPECS,
+      testIgnore: [...INSTANCE_WIDE_SPECS, BULK_WRITE_SPEC],
       grepInvert: /@touch/,
     },
     {
@@ -81,15 +93,21 @@ export default defineConfig({
       dependencies: ["chromium", "webkit-touch", "firefox-touch"],
     },
     {
+      name: "bulk-writes",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: BULK_WRITE_SPEC,
+      dependencies: ["chromium", "webkit-touch", "firefox-touch", "instance-wide"],
+    },
+    {
       name: "webkit-touch",
       use: { ...devices["Desktop Safari"], hasTouch: true, isMobile: true },
-      testIgnore: INSTANCE_WIDE_SPECS,
+      testIgnore: [...INSTANCE_WIDE_SPECS, BULK_WRITE_SPEC],
       grep: /@touch/,
     },
     {
       name: "firefox-touch",
       use: { ...devices["Desktop Firefox"], hasTouch: true },
-      testIgnore: INSTANCE_WIDE_SPECS,
+      testIgnore: [...INSTANCE_WIDE_SPECS, BULK_WRITE_SPEC],
       grep: /@touch/,
     },
   ],

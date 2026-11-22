@@ -2,13 +2,15 @@ import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
+import { makeConnectionsNotDue } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
 
 /*
  * "Explore with sample data" (#257): the web server simulates providers (playwright.config.ts), so
  * an empty workspace's timeline offers it to owners and admins. The action runs the first sync of
  * this workspace's connections itself, never the instance-wide tick, so this spec stays in the
- * `chromium` project. With simulation off the control is absent; the server always simulates in
+ * `chromium` project. The action leaves them due, so the spec makes them not due once they are
+ * added (#621). With simulation off the control is absent; the server always simulates in
  * end-to-end runs, so `sampleDataRefusal`'s unit tests cover that case.
  */
 
@@ -44,6 +46,9 @@ ownerTest.describe("sample data as the owner", () => {
       await expect(page.getByRole("region", { name: "No activity yet" })).toHaveCount(0);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(events.first()).toBeVisible();
+      // The action's redirect rendered this page client side; the step below reloads it, so what
+      // the redirect itself shows is checked first.
+      await makeConnectionsNotDue(page, workspace.id);
       // Every connection is simulated, so the page says it once rather than on every row (#269).
       await expect(page.getByRole("region", { name: "Simulated data" })).toContainText("Every connection in view is simulated");
       await expect(page.getByText("Simulated", { exact: true })).toHaveCount(1);

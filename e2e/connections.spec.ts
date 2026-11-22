@@ -2,7 +2,15 @@ import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
+import { makeConnectionsNotDue } from "./fixtures/connections";
+import {
+  adminClient,
+  CONNECTION_URL,
+  createTestWorkspace,
+  deleteTestWorkspace,
+  notDueForAMonth,
+  type TestWorkspace,
+} from "./fixtures/db";
 import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
 import { insertUnheard } from "./fixtures/realtime";
@@ -110,10 +118,10 @@ async function startFakeConnect(page: Page, slug: string, edit: (url: URL) => vo
 /**
  * Connects the fake provider through the catalog and disclosure page, with the keyboard. The
  * start route answers with the handoff page, whose meta refresh moves on to the fake authorize
- * route, so the browser ends on the new connection.
+ * route, so the browser ends on the new connection, which is then made not due (#621).
  */
-async function connectThroughUi(page: Page, slug: string): Promise<string> {
-  await page.goto(`/w/${slug}/connections`);
+async function connectThroughUi(page: Page, workspace: TestWorkspace): Promise<string> {
+  await page.goto(`/w/${workspace.slug}/connections`);
   await page.getByRole("link", { name: `Connect ${PROVIDER_NAME}` }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Connect ${PROVIDER_NAME}`);
   const consent = page.getByRole("checkbox", {
@@ -125,6 +133,7 @@ async function connectThroughUi(page: Page, slug: string): Promise<string> {
   await page.getByRole("button", { name: `Continue to ${PROVIDER_NAME}` }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(CONNECTION_URL);
+  await makeConnectionsNotDue(page, workspace.id);
   return connectionIdFrom(page);
 }
 
@@ -164,7 +173,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await expect(consent).toHaveAttribute("aria-invalid", "true");
       await expect(consent).toHaveAccessibleDescription(/Tick this box to continue\./);
 
-      const connectionId = await connectThroughUi(page, workspace.slug);
+      const connectionId = await connectThroughUi(page, workspace);
       await expect(page.getByRole("heading", { level: 1 })).toContainText(PROVIDER_NAME);
       const connected = page.getByRole("status").filter({ hasText: `${PROVIDER_NAME} connected` });
       await expect(connected).toBeVisible();
@@ -236,8 +245,8 @@ ownerTest.describe("connecting a provider as the owner", () => {
   ownerTest("keeps two connections of the same provider separate", async ({ page }) => {
     const workspace = await createTestWorkspace("Connect twice");
     try {
-      const first = await connectThroughUi(page, workspace.slug);
-      const second = await connectThroughUi(page, workspace.slug);
+      const first = await connectThroughUi(page, workspace);
+      const second = await connectThroughUi(page, workspace);
       expect(second).not.toBe(first);
 
       const { data: rows, error } = await adminClient()
@@ -300,7 +309,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
         .select("id")
         .single();
       if (error) throw new Error(`Seeding the project failed (code ${error.code}).`);
-      await connectThroughUi(page, workspace.slug);
+      await connectThroughUi(page, workspace);
 
       const row = page.getByRole("list", { name: "Accounts" }).getByRole("listitem").filter({ hasText: "Example team" });
       const select = row.getByLabel("Project for Example team");
@@ -390,6 +399,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       });
       await startFakeConnect(page, workspace.slug, () => undefined);
       await expect(page).toHaveURL(CONNECTION_URL);
+      await makeConnectionsNotDue(page, workspace.id);
       expect(callback).not.toBe("");
 
       // Replay the exact callback. A consumed state names no workspace, so the route falls back to
@@ -417,7 +427,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
   ownerTest("disconnects after confirming, keeping the history and deleting the credential", async ({ page }) => {
     const workspace = await createTestWorkspace("Disconnect");
     try {
-      const connectionId = await connectThroughUi(page, workspace.slug);
+      const connectionId = await connectThroughUi(page, workspace);
       // Scoped to main and exact: the workspace switcher's name contains "Disconnect" too.
       const main = page.getByRole("main");
       await main.getByRole("button", { name: "Disconnect", exact: true }).click();
@@ -456,7 +466,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
   ownerTest("deletes a connection and its history after a separate confirmation", async ({ page }) => {
     const workspace = await createTestWorkspace("Delete connection");
     try {
-      const connectionId = await connectThroughUi(page, workspace.slug);
+      const connectionId = await connectThroughUi(page, workspace);
       await page.getByRole("main").getByRole("button", { name: "Delete connection and history", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Delete this connection and its history?" });
       await dialog.getByRole("button", { name: "Delete connection and history", exact: true }).click();
