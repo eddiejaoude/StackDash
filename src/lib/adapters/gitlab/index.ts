@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
-import { STANDARD_WEBHOOK_HEADERS, standardWebhookKey, verifyStandardWebhook } from "@/lib/webhooks/standard-webhooks";
+import { STANDARD_WEBHOOK_HEADERS, verifyStandardWebhook } from "@/lib/webhooks/standard-webhooks";
 import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
@@ -790,12 +790,16 @@ function readCursor(raw: string | undefined, ctx: OAuthContext): Date | undefine
  * in constant time. That is a shared secret, not a signature: whoever reads one such delivery's
  * headers can send any body under a new delivery id. A delivery carrying `webhook-signature` is
  * judged by it alone, and only one without it falls back to the token, as GitLab's "Backward
- * compatibility" section describes. An automatic webhook never sends the token, so the fallback
- * gives nothing to whoever reads its deliveries.
+ * compatibility" section describes. So a webhook added by hand must leave GitLab's signing token
+ * empty: one GitLab generated signs with a key StackDash never sees, and is refused (the manual
+ * steps say so). A webhook automatic setup adds never sends the token. Those it added before #512
+ * still do, and on such a connection the token is also the signing key until they are updated (#617).
  *
  * Delivery id: `webhook-id`, which GitLab documents as unique per delivery and the same across its
- * retries, and which equals `Idempotency-Key` (sent since GitLab 17.4, read when `webhook-id` is
- * absent). Not `X-Gitlab-Event-UUID`: webhooks triggered by an earlier webhook share it.
+ * retries, and which equals `Idempotency-Key` (sent since GitLab 17.4). A delivery checked by its
+ * token falls back to `Idempotency-Key` when `webhook-id` is absent; a signed one cannot, because
+ * the signature covers `webhook-id`. Not `X-Gitlab-Event-UUID`: webhooks triggered by an earlier
+ * webhook share it.
  *
  * Account: no delivery names the namespace id `sync` reads, only the project's path, so `parse`
  * matches the path's top-level namespace against the connection's accounts by name (their
@@ -832,7 +836,7 @@ export const webhookWritePermission: FullAccessPermission = {
 
 export const webhookManualSteps = [
   "In GitLab, open a project StackDash reads, then Settings, then Webhooks, and choose Add new webhook. You need the Maintainer or Owner role in the project.",
-  "Paste the address below into URL and the secret below into Secret token.",
+  "Paste the address below into URL and the secret below into Secret token. Leave Signing token empty: StackDash cannot read a token GitLab generates, so deliveries signed with one are refused.",
   "Under Trigger, select Pipeline events, Deployment events, Releases events, and Merge request events, then choose Add webhook.",
   "Repeat for each project you want events from. Projects without the webhook still reach the timeline on the schedule.",
 ] as const;
@@ -852,20 +856,27 @@ function toSource(project: Pick<Project, "id" | "path_with_namespace">): Webhook
 }
 
 // GitLab's `signing_token` must be `whsec_` and the base64 of exactly 32 bytes (Project webhooks API,
-// "Add a webhook to a project"). The connection's secret is 32 random bytes (`newWebhookSecret`).
+// "Add a webhook to a project"). The connection's secret is 32 random bytes as base64url, with no
+// prefix (`newWebhookSecret`).
 const SIGNING_KEY_BYTES = 32;
 
-/** The connection's secret as GitLab's `signing_token`. A secret StackDash did not make is refused. */
+/** The 32 bytes the connection's secret encodes, or null for a secret StackDash did not make. */
+function signingKey(secret: Secret): Buffer | null {
+  const key = Buffer.from(secret.reveal(), "base64url");
+  return key.length === SIGNING_KEY_BYTES ? key : null;
+}
+
+/** The connection's secret as GitLab's `signing_token`. */
 function signingToken(secret: Secret): string {
-  const key = standardWebhookKey(secret);
-  if (key === null || key.length !== SIGNING_KEY_BYTES) throw new TypeError("GitLab signing tokens need a 32-byte webhook secret");
+  const key = signingKey(secret);
+  if (key === null) throw new TypeError("GitLab signing tokens need a 32-byte webhook secret");
   return `whsec_${key.toString("base64")}`;
 }
 
 function verifyWebhook(request: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
   const { headers } = request;
   if (headers.has(STANDARD_WEBHOOK_HEADERS.signature)) {
-    const key = standardWebhookKey(secret);
+    const key = signingKey(secret);
     return verifyStandardWebhook(request, key === null ? [] : [key], STANDARD_WEBHOOK_HEADERS, now);
   }
   const token = headers.get(GITLAB_TOKEN_HEADER);
@@ -878,7 +889,7 @@ function verifyWebhook(request: WebhookRequest, secret: Secret, now: Date): Webh
   return { ok: false, reason: "malformed" };
 }
 
-/** The decoded JSON body, or undefined when it is not JSON. Only read once the token matches. */
+/** The decoded JSON body, or undefined when it is not JSON. Only read once the delivery verifies. */
 function readJsonBody(rawBody: Uint8Array): unknown {
   try {
     return JSON.parse(new TextDecoder().decode(rawBody));
