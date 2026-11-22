@@ -8,6 +8,13 @@
 # failed attempt left behind. Any other failure, such as a migration error, fails at once.
 set -euo pipefail
 
+# `supabase stop --no-backup` deletes the stack's data, so this script refuses to run anywhere but
+# a GitHub Actions runner, whose stack is throwaway.
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  echo "start-supabase.sh runs only in GitHub Actions; run \`supabase start\` locally." >&2
+  exit 2
+fi
+
 max_attempts=3
 transient='Rate exceeded|toomanyrequests|address already in use'
 log="$(mktemp)"
@@ -16,7 +23,10 @@ for attempt in $(seq 1 "${max_attempts}"); do
   if supabase start 2>&1 | tee "${log}"; then
     exit 0
   fi
-  if ! grep -qE "${transient}" "${log}"; then
+  # Classify on the failure itself, the last lines the CLI printed: a pull that hit a rate limit
+  # and then recovered also logs "Rate exceeded" earlier, before a migration error that must not
+  # be retried.
+  if ! tail -n 5 "${log}" | grep -qE "${transient}"; then
     exit 1
   fi
   if [ "${attempt}" -eq "${max_attempts}" ]; then
