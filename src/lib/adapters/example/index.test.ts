@@ -6,6 +6,7 @@ import {
   checkTraffic,
   checkWebhookOutcome,
   createAdapterHarness,
+  dashboardSpendAfterSync,
   HARNESS_CLIENT_ID,
   KIND_CAPABILITY,
   type RecordedRoutes,
@@ -276,6 +277,16 @@ describe("example adapter sync", () => {
       new Date(NOW.getTime() - EVENT_BACKFILL_DAYS * DAY_MS).toISOString(),
     ]);
     expect(harness.requests.every((request) => request.headers.get("authorization") === `Bearer ${ACCESS_TOKEN}`)).toBe(true);
+  });
+
+  it("counts Example Cloud spend once on the dashboard: spend so far, not the projected overage", async () => {
+    const { result } = await syncWith();
+    // billing.json's month_to_date_minor is 1840 cents. The overage projection (1300) is what the
+    // whole period is on course to cost beyond the allowance, declared in `projectedSpend`, not money
+    // spent on top of it; the credit balance and revenue are not spend at all.
+    const MONTH_TO_DATE_MINOR = 1840;
+    const once = [{ currency: "USD", verifiedMinor: MONTH_TO_DATE_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(exampleAdapter, result.metrics, NOW)).toEqual({ provider: once, totals: once });
   });
 
   it("produces the same dedupe keys when the same events are read again", async () => {
