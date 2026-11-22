@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { Logger } from "@/lib/log/logger";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError, RateLimitedError } from "../errors";
@@ -643,7 +644,11 @@ describe("event builders", () => {
 describe("webhooks", () => {
   const descriptor = gitlabAdapter.webhooks;
   if (descriptor === undefined) throw new Error("GitLab declares webhooks");
-  const SECRET = new Secret("synthetic-webhook-secret-0123456789abcdefghijklmno");
+  // A secret shaped like the ones StackDash makes (`newWebhookSecret`: 32 random bytes, base64url).
+  const SECRET_KEY = Buffer.from("synthetic-gitlab-webhook-key-32b");
+  const SECRET = new Secret(SECRET_KEY.toString("base64url"));
+  // The `signing_token` automatic setup sends: `whsec_` and the standard base64 of the 32 bytes.
+  const SIGNING_TOKEN = `whsec_${SECRET_KEY.toString("base64")}`;
   const DELIVERY_ID = "f5e5f430-f57b-4e6e-9fac-d9128cd7232f";
   const connection: WebhookConnection = { accounts: [{ externalId: NAMESPACE_ID, displayName: "group1" }] };
   const encoder = new TextEncoder();
@@ -687,6 +692,62 @@ describe("webhooks", () => {
         ok: false,
         reason: "malformed",
       });
+    });
+
+    // Signed the way GitLab's "Verify the signature" steps and Python example describe: strip
+    // `whsec_`, base64-decode the rest, HMAC-SHA256 over `{webhook-id}.{webhook-timestamp}.{body}`,
+    // base64, prefixed `v1,`. Written out here rather than through the shared verifier's own
+    // signer, so a drift between the two is caught.
+    const gitlabSignature = (signingToken: string, id: string, timestamp: string, body: string) =>
+      `v1,${createHmac("sha256", Buffer.from(signingToken.replace(/^whsec_/, ""), "base64")).update(`${id}.${timestamp}.${body}`).digest("base64")}`;
+    const NOW_SECONDS = String(NOW.getTime() / 1000);
+    const BODY = JSON.stringify(webhookPipeline);
+    const signedHeaders = (overrides: Record<string, string> = {}) => ({
+      "webhook-id": DELIVERY_ID,
+      "webhook-timestamp": NOW_SECONDS,
+      "webhook-signature": gitlabSignature(SIGNING_TOKEN, DELIVERY_ID, NOW_SECONDS, BODY),
+      ...overrides,
+    });
+
+    it("accepts a delivery signed with the signing token automatic setup sends, and takes webhook-id as the delivery id", () => {
+      expect(descriptor.verify(delivery(BODY, signedHeaders()), SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it("accepts one matching entry among several space-separated signatures", () => {
+      const good = gitlabSignature(SIGNING_TOKEN, DELIVERY_ID, NOW_SECONDS, BODY);
+      const request = delivery(BODY, signedHeaders({ "webhook-signature": `v1,${Buffer.alloc(32).toString("base64")} ${good}` }));
+      expect(descriptor.verify(request, SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it.each([
+      ["299 seconds old", -299],
+      ["exactly 300 seconds old", -300],
+      ["300 seconds ahead", 300],
+    ])("accepts a timestamp %s, inside the five minute window (boundary)", (_name, offsetSeconds) => {
+      const timestamp = String(Number(NOW_SECONDS) + offsetSeconds);
+      const headers = signedHeaders({ "webhook-timestamp": timestamp, "webhook-signature": gitlabSignature(SIGNING_TOKEN, DELIVERY_ID, timestamp, BODY) });
+      expect(descriptor.verify(delivery(BODY, headers), SECRET, NOW)).toEqual({ ok: true, deliveryId: DELIVERY_ID });
+    });
+
+    it.each([
+      ["301 seconds old", -301],
+      ["301 seconds ahead", 301],
+    ])("refuses a correctly signed delivery whose timestamp is %s as stale (boundary)", (_name, offsetSeconds) => {
+      const timestamp = String(Number(NOW_SECONDS) + offsetSeconds);
+      const headers = signedHeaders({ "webhook-timestamp": timestamp, "webhook-signature": gitlabSignature(SIGNING_TOKEN, DELIVERY_ID, timestamp, BODY) });
+      expect(descriptor.verify(delivery(BODY, headers), SECRET, NOW)).toEqual({ ok: false, reason: "stale" });
+    });
+
+    it.each([
+      ["signed with another token", { "webhook-signature": gitlabSignature(`whsec_${Buffer.alloc(32, 1).toString("base64")}`, DELIVERY_ID, NOW_SECONDS, BODY) }, "bad_signature"],
+      ["signed over another body", { "webhook-signature": gitlabSignature(SIGNING_TOKEN, DELIVERY_ID, NOW_SECONDS, `${BODY} `) }, "bad_signature"],
+      ["replayed under a new delivery id", { "webhook-id": "a-new-delivery-id" }, "bad_signature"],
+      ["wrongly signed, beside the right secret token", { "webhook-signature": "v1,AAAA", [GITLAB_TOKEN_HEADER]: SECRET.reveal() }, "bad_signature"],
+      ["signed with an empty signature header", { "webhook-signature": "" }, "missing_signature"],
+      ["signed without a timestamp", { "webhook-timestamp": "" }, "missing_signature"],
+      ["signed without a webhook-id", { "webhook-id": "" }, "malformed"],
+    ] as const)("refuses a delivery %s, never falling back to the token (boundary)", (_name, overrides, reason) => {
+      expect(descriptor.verify(delivery(BODY, signedHeaders(overrides)), SECRET, NOW)).toEqual({ ok: false, reason });
     });
   });
 
@@ -795,13 +856,14 @@ describe("webhooks", () => {
       expect(calls).toHaveLength(0);
     });
 
-    it("adds a project webhook with the URL, the secret token, and the four triggers, and no push events", async () => {
+    it("adds a project webhook with the URL, the secret as its signing token, and the four triggers, and no push events", async () => {
       const { ctx, callsTo } = harness({ [`POST ${projectPath}/hooks`]: () => json({ id: 17, url: URL_ }, 201) });
       expect(await setup.create({ credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9" }, ctx)).toEqual({ webhookId: "17" });
       const [call] = callsTo("POST", `${projectPath}/hooks`);
-      expect(JSON.parse(call?.body ?? "{}")).toMatchObject({
+      const body: unknown = JSON.parse(call?.body ?? "{}");
+      expect(body).toMatchObject({
         url: URL_,
-        token: SECRET.reveal(),
+        signing_token: SIGNING_TOKEN,
         enable_ssl_verification: true,
         pipeline_events: true,
         deployment_events: true,
@@ -809,6 +871,18 @@ describe("webhooks", () => {
         merge_requests_events: true,
         push_events: false,
       });
+      // No secret token: GitLab would send it in plain text beside every signed delivery.
+      expect(body).not.toHaveProperty("token");
+    });
+
+    it.each([
+      ["31 bytes", Buffer.alloc(31, 7).toString("base64url")],
+      ["33 bytes", Buffer.alloc(33, 7).toString("base64url")],
+      ["a value that is not base64", "!"],
+    ])("refuses a secret of %s before any request, because GitLab takes only a 32-byte signing token (boundary)", async (_name, value) => {
+      const { ctx, calls } = harness();
+      await expect(setup.create({ credential: writeCredential, url: URL_, secret: new Secret(value), sourceId: "9" }, ctx)).rejects.toThrow(TypeError);
+      expect(calls).toHaveLength(0);
     });
 
     it("reports a project where the user lacks the Maintainer role as a missing permission", async () => {

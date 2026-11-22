@@ -66,8 +66,9 @@ import { WEBHOOK_ENDPOINTS_PER_WORKSPACE } from "./webhook-copy";
  * refresh token at most once, however many sources it covers.
  */
 
-// 32 random bytes, as the providers that take a secret from the caller accept (GitLab allows any
-// string up to 255 characters).
+// 32 random bytes, encoded base64url. GitLab fixes the length: automatic setup sends this secret as
+// its signing token, which must encode exactly 32 bytes (`signingToken` in
+// src/lib/adapters/gitlab/index.ts throws on any other length).
 const SECRET_BYTES = 32;
 // Webhook calls to the provider at once, for a per-source setup or removal. GitLab limits webhook
 // creation per project, not per user, but a hundred calls at once would still be a burst.
