@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const providerError = params.get("error");
     const description = params.get("error_description") ?? "";
     if (NOT_INVITED_PATTERN.test(description)) {
-      // Expected during an invite-only test: no reference id, the message says what to do.
+      // Expected while sign-up is invite only: no reference id, the message says what to do.
       log.info("auth.sign_in_not_invited");
       return signInWithError(request, "not_invited", next);
     }

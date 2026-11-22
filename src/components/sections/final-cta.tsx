@@ -11,7 +11,7 @@ export function FinalCta() {
         </h2>
         <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-muted">
           {site.name} is being built in the open. Star or watch the repository to follow progress, request
-          the integrations you need, and help shape the first release.
+          the integrations you need, and help shape what comes next.
         </p>
         <div className="mt-10 flex justify-center">
           <GitHubButton size="lg" />
