@@ -56,7 +56,8 @@ export default defineConfig({
   // are never due (`notDueForAMonth` in e2e/fixtures/db.ts, #408), and a connection a `chromium`
   // spec creates through the app's connect flow or sample data is made not due once it lands
   // (`makeConnectionsNotDue` in e2e/fixtures/connections.ts, #621). A tick still syncs every
-  // connection that is due, such as one between its connect and that step, and writes connection
+  // connection that is due, such as one between its connect and that step, or a simulated one a
+  // local tick watcher with simulation on has made due again (#626), and writes connection
   // updates and sync events into its workspace, which would break that spec's realtime, dashboard,
   // timeline, and trends assertions at random. So specs that tick live apart: any spec that runs
   // the tick must live in `instance-wide`, which waits for every `chromium` and touch spec to

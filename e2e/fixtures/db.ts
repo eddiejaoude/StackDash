@@ -49,7 +49,8 @@ export function cronSecret(): string {
  * its watcher, or an `instance-wide` spec) would sync the credential-less row mid-test and write
  * sync-failed events and failure counts into the spec's workspace (#408). Only a spec that ticks
  * a seed on purpose leaves it due. A connection the app makes gets it from `makeConnectionsNotDue`
- * in ./connections.ts (#621).
+ * in ./connections.ts (#621). A tick watcher with simulation on still makes simulated connections
+ * due again on each iteration (#626).
  */
 export function notDueForAMonth(): string {
   return new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
