@@ -1,6 +1,6 @@
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { connectSimulated } from "./fixtures/connections";
+import { connectSimulated, makeConnectionsNotDue } from "./fixtures/connections";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
@@ -32,6 +32,7 @@ ownerTest.describe("GitLab connection", () => {
           await expectNoAxeViolations(page);
         },
       });
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("GitLab (example-group)");
       await expectNoAxeViolations(page);
     } finally {

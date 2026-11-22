@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
+import { makeConnectionsNotDue } from "./fixtures/connections";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
 
 /*
@@ -36,6 +37,7 @@ ownerTest.describe("DigitalOcean", () => {
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(CONNECTION_URL);
       await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(page.getByRole("list", { name: "Accounts" }).getByText("Example team", { exact: true })).toBeVisible();
       await expectNoAxeViolations(page);
     } finally {

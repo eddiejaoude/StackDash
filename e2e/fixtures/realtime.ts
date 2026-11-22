@@ -73,8 +73,8 @@ export async function expectSubscribed(channel: LiveChannel): Promise<void> {
     .toBe(true);
 }
 
-// The one column `insertUnheard` reads from a delivered row.
-const InsertedRowSchema = z.object({ id: z.string() });
+// The one column the unheard writes read from every delivered row.
+const DeliveredRowSchema = z.object({ id: z.string() });
 
 // The tables in the `supabase_realtime` publication
 // (supabase/migrations/20261104090000_realtime_publication.sql): the only ones Realtime delivers
@@ -101,21 +101,57 @@ type PublishedTable = "activity_events" | "usage_snapshots" | "connections" | "t
  * Realtime reads the slot in commit order (`pg_logical_slot_get_changes` in the database's
  * `realtime.list_changes`), so every write committed before the insert has been read by then too.
  */
-export async function insertUnheard(
+export function insertUnheard(
   table: PublishedTable,
   workspaceId: string,
   insert: () => Promise<string>,
 ): Promise<string> {
+  return writeUnheard(table, "INSERT", workspaceId, insert, (delivered, id) =>
+    delivered.some((row) => DeliveredRowSchema.parse(row).id === id),
+  );
+}
+
+/**
+ * `insertUnheard` for an update: runs `update`, which updates rows of `table` in the workspace and
+ * returns their ids, and resolves with those ids once Realtime has read the update of every one, so
+ * a page that subscribes afterwards never hears them. An earlier write to the same row can still
+ * arrive on the channel after it subscribes (#226), so `isUpdated` tells a delivered row that
+ * carries this update from one that does not.
+ */
+export function updateUnheard(
+  table: PublishedTable,
+  workspaceId: string,
+  update: () => Promise<readonly string[]>,
+  isUpdated: (row: unknown) => boolean,
+): Promise<readonly string[]> {
+  return writeUnheard(table, "UPDATE", workspaceId, update, (delivered, ids) =>
+    ids.every((id) => delivered.some((row) => DeliveredRowSchema.parse(row).id === id && isUpdated(row))),
+  );
+}
+
+/**
+ * Subscribes a service role channel to `event` on `table` in the workspace, runs `write`, and
+ * resolves with what it returned once `written` finds the write among the rows delivered so far.
+ */
+async function writeUnheard<Written>(
+  table: PublishedTable,
+  event: "INSERT" | "UPDATE",
+  workspaceId: string,
+  write: () => Promise<Written>,
+  written: (delivered: readonly unknown[], result: Written) => boolean,
+): Promise<Written> {
   const admin = adminClient();
   // Join with the service role key, not whatever token the client happens to hold yet (see
   // live-refresh.tsx).
   await admin.realtime.setAuth();
   let state = "joining";
-  const delivered = new Set<string>();
-  const filter = { event: "INSERT", schema: "public", table, filter: `workspace_id=eq.${workspaceId}` } as const;
+  const delivered: unknown[] = [];
+  const filter = { event, schema: "public", table, filter: `workspace_id=eq.${workspaceId}` } as const;
   const channel = admin
     .channel(`e2e-unheard:${randomUUID()}`)
-    .on("postgres_changes", filter, ({ new: row }) => delivered.add(InsertedRowSchema.parse(row).id))
+    .on("postgres_changes", filter, ({ new: row }) => {
+      delivered.push(row);
+    })
     .on("system", {}, (payload: unknown) => {
       if (SubscribedSchema.safeParse(payload).success) state = "subscribed";
     })
@@ -126,13 +162,16 @@ export async function insertUnheard(
     });
   try {
     await expect
-      .poll(() => state, { timeout: LIVE_TIMEOUT_MS, message: "The seed channel's subscription never streamed" })
+      .poll(() => state, { timeout: LIVE_TIMEOUT_MS, message: "The service role channel's subscription never streamed" })
       .toBe("subscribed");
-    const id = await insert();
+    const result = await write();
     await expect
-      .poll(() => delivered.has(id), { timeout: LIVE_TIMEOUT_MS, message: `Realtime never delivered the ${table} insert` })
+      .poll(() => written(delivered, result), {
+        timeout: LIVE_TIMEOUT_MS,
+        message: `Realtime never delivered the ${table} ${event.toLowerCase()}`,
+      })
       .toBe(true);
-    return id;
+    return result;
   } finally {
     await admin.removeChannel(channel);
   }

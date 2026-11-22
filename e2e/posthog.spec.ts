@@ -1,6 +1,6 @@
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { connectSimulated } from "./fixtures/connections";
+import { connectSimulated, makeConnectionsNotDue } from "./fixtures/connections";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
@@ -25,6 +25,7 @@ ownerTest.describe("PostHog", () => {
           await expectNoAxeViolations(page);
         },
       });
+      await makeConnectionsNotDue(page, workspace.id);
       await expect(page.getByRole("list", { name: "Accounts" }).getByText("Example organization", { exact: true })).toBeVisible();
       await expectNoAxeViolations(page);
     } finally {
