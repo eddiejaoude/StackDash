@@ -74,3 +74,44 @@ describe("fakeSupabase update", () => {
     expect(tables.connection_credentials).toEqual(rows);
   });
 });
+
+describe("fakeSupabase cs", () => {
+  const connections = [
+    { id: "both", granted_scopes: ["simulated:read", "usage:read"] },
+    { id: "simulated", granted_scopes: ["simulated:read"] },
+    { id: "none", granted_scopes: [] },
+    { id: "null", granted_scopes: null },
+  ];
+
+  async function containing(scopes: string[]): Promise<string[]> {
+    const { db } = fakeSupabase({ connections });
+    const { data, error } = await db.from("connections").select("id").contains("granted_scopes", scopes);
+    if (error) throw new Error(error.message);
+    return data.map((row) => row.id);
+  }
+
+  it("matches an array column holding the one value (happy path)", async () => {
+    expect(await containing(["simulated:read"])).toEqual(["both", "simulated"]);
+  });
+
+  it("matches only an array holding every listed value, in any order (boundary: several values)", async () => {
+    expect(await containing(["simulated:read", "usage:read"])).toEqual(["both"]);
+    expect(await containing(["usage:read", "simulated:read"])).toEqual(["both"]);
+    expect(await containing(["simulated:read", "billing:read"])).toEqual([]);
+  });
+
+  it("never matches a null cell, not even for no values, as Postgres's null `@>` is not true (boundary: null and empty)", async () => {
+    expect(await containing([])).toEqual(["both", "simulated", "none"]);
+    expect(await containing(["usage:read"])).toEqual(["both"]);
+  });
+
+  it("answers a one value `cs` inside `or`, and a several value one with 400 (boundary: logic list)", async () => {
+    const { db } = fakeSupabase({ connections });
+    const one = await db.from("connections").select("id").or("granted_scopes.cs.{usage:read},id.eq.none");
+    if (one.error) throw new Error(one.error.message);
+    expect(one.data.map((row) => row.id)).toEqual(["both", "none"]);
+    const several = await db.from("connections").select("id").or("granted_scopes.cs.{simulated:read,usage:read},id.eq.none");
+    expect(several.status).toBe(400);
+    expect(several.data).toBeNull();
+  });
+});

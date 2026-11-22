@@ -272,7 +272,8 @@ describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () 
     // that nothing is simulated on the very first tick after connecting.
     const neverScheduled = store.addConnection({ workspace_id: "w1", provider: "vercel", granted_scopes: [SIMULATED_SCOPE] });
     // Parked on purpose (#626) a month out, as the e2e fixtures leave theirs: further than anything
-    // the app schedules, so the watcher leaves it alone. One exactly at the threshold is still made due.
+    // the app schedules, so the watcher leaves it alone. One exactly at the threshold is still made
+    // due; one a millisecond past it is parked.
     const parked = "2026-12-04T21:30:00.000Z";
     const parkedStripe = store.addConnection({ workspace_id: "w2", provider: "stripe", granted_scopes: [SIMULATED_SCOPE], next_sync_at: parked });
     const atThreshold = store.addConnection({
@@ -281,15 +282,27 @@ describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () 
       granted_scopes: [SIMULATED_SCOPE],
       next_sync_at: new Date(NOW.getTime() + PARKED_SYNC_AFTER_MS).toISOString(),
     });
+    const pastThreshold = new Date(NOW.getTime() + PARKED_SYNC_AFTER_MS + 1).toISOString();
+    const justParked = store.addConnection({
+      workspace_id: "w1",
+      provider: "polar",
+      granted_scopes: [SIMULATED_SCOPE],
+      next_sync_at: pastThreshold,
+    });
     expect(await store.markSimulatedSyncsDue(NOW)).toBe(3);
     expect(stripe.next_sync_at).toBe(NOW.toISOString());
     expect(neverScheduled.next_sync_at).toBe(NOW.toISOString());
     expect(atThreshold.next_sync_at).toBe(NOW.toISOString());
+    expect(justParked.next_sync_at).toBe(pastThreshold);
     expect(parkedStripe.next_sync_at).toBe(parked);
     expect(failed.next_sync_at).toBe(later);
     expect(realVercel.next_sync_at).toBe(later);
-    // Every watch iteration asks again; the real and parked connections are still never made due.
-    expect(await store.markSimulatedSyncsDue(new Date(NOW.getTime() + 1000))).toBe(3);
+    // Every watch iteration asks again against its own clock: a second later, the connection a
+    // millisecond past the threshold is within a day and is made due, while the real and month-out
+    // connections are still never made due.
+    const second = new Date(NOW.getTime() + 1000);
+    expect(await store.markSimulatedSyncsDue(second)).toBe(4);
+    expect(justParked.next_sync_at).toBe(second.toISOString());
     expect(realVercel.next_sync_at).toBe(later);
     expect(parkedStripe.next_sync_at).toBe(parked);
   });

@@ -9,12 +9,15 @@ import type { Database } from "@/lib/supabase/database.types";
  * supabase-js client with `fetch` replaced, so a store's queries are the ones it sends in
  * production. It knows the filters `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `like` (Postgres
  * `LIKE`: `_` is any one character, `%` and PostgREST's `*` any run), `is.null`, `not.is.null`,
- * and `cs` on an array column (`.contains(column, [values])`),
+ * and `cs` on an array column (`.contains(column, [values])`, which a null cell never matches),
  * the logic filters `or` and `and` over them (a keyset page's
  * `or=(occurred_at.gt."x",and(occurred_at.eq."x",id.gt.y))`), `order` (asc or desc per column),
  * `offset`, `limit`, `select` by column name, and an exact count (`count: "exact"`, with `head` or
- * without); any other query fails as PostgREST would rather
- * than answer wrongly. A function call (`.rpc(name, args)`) is answered by the test's handler for
+ * without); any other query fails as PostgREST would rather than answer wrongly. One query PostgREST
+ * answers fails here too: a `cs` with more than one value inside an `or` or `and` list
+ * (`or=(tags.cs.{a,b})`) is answered with 400, because the fake splits that list at every top level
+ * comma, the value's own included. A `cs` with one value works there, and any `cs` works as a
+ * filter of its own. A function call (`.rpc(name, args)`) is answered by the test's handler for
  * `name`, and its rows are then filtered, ordered, paged, and selected like a table's, as PostgREST
  * does with a set returning function; a handler that returns scalars (a `setof text` function) is
  * answered as the JSON array of them. Each answered request is recorded with its filters (and a
