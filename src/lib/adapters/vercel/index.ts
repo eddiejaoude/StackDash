@@ -645,8 +645,9 @@ export const vercelAdapter: ProviderAdapter = {
     };
     if (token.team_id !== null) metadata["teamId"] = token.team_id;
 
-    // The token response lists no scopes; the grant is the console configuration, which is what
-    // the adapter requests. No `expiresAt` and no refresh token: the token is long-lived.
+    // The token response lists no scopes, so the grant is recorded as the scopes the adapter
+    // requests. An integration still registered with `project` grants that too; StackDash never
+    // uses it. No `expiresAt` and no refresh token: the token is long-lived.
     return {
       accessToken: new Secret(token.access_token),
       scopes: [...scopes],

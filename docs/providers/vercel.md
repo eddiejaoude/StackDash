@@ -73,7 +73,7 @@ Vercel integration scopes are set once in the Integrations Console (not per auth
 
 `team` only offers Read. `billing` lists only Read endpoints in the scopes table. None of the three at Read level can create, change, or delete anything.
 
-Not requested: `project`. Deployment rows already carry the project name, and the `project` Read scope also reaches project details with environment variable records (`GET /v9/projects/{idOrName}`). An integration registered with `project` at Read keeps working after it is set to None: Vercel applies a removal at once, with no user confirmation, and StackDash reports no missing permission for a grant that still holds it.
+Not requested: `project`. Deployment rows already carry the project name, and the `project` Read scope also reaches project details with environment variable records (`GET /v9/projects/{idOrName}`). Vercel applies the removal of a scope at once, with no user confirmation, and StackDash reports no missing permission for a grant that still holds `project`, so polling keeps working on an integration that was registered with it. Whether the deployment webhooks still arrive without it is not confirmed (see [Unverified](#unverified)).
 
 Scope changes after launch: adding or upgrading a scope sends every affected user and team owner an email and needs their confirmation. Removing or downgrading a scope applies immediately with no confirmation.
 
@@ -233,7 +233,7 @@ From the Limits page (per minute unless noted; scope `user` means per Vercel use
 | `api-teams-get` | 600 | 60 s | user | `GET /v2/teams/{teamId}` |
 | `api-integrations-configuration-get` | 120 | 60 s | user | Reading one integration configuration |
 
-- No limit is listed for `GET /v1/billing/charges` or `GET /v10/projects`. Assume one is enforced.
+- No limit is listed for `GET /v1/billing/charges`. Assume one is enforced.
 - Limits are per endpoint: hitting one does not block others.
 - On a limit, the API returns `429` with `{ "error": { "code": "rate_limited", "message", "limit": { "remaining", "reset", "resetMs", "total" } } }`. `reset` is Unix seconds, `resetMs` Unix milliseconds. StackDash does not read this body: it retries the sync after the `Retry-After` header's delay when the response has one, otherwise after its own exponential backoff.
 - `X-RateLimit-*` response headers are documented only for the analytics API, not for the general REST API.
@@ -300,7 +300,7 @@ The connection page shows each scope's description before redirecting to Vercel.
 - **Billing read** covers all charges for the team, every project included, regardless of which projects the user selected at install [inference: the endpoint is team-scoped and takes no project filter].
 - The token is long-lived with no expiry and no refresh. A leaked token works until the user uninstalls. StackDash encrypts it at rest and never sends it to the browser (Vercel also warns to call the API server side only).
 - The token acts as the installing developer. If that person's role changes, data access changes with it, and if they leave the team, the installation is disabled.
-- StackDash reads `team` only for the team name and slug at connect: deployment rows already carry the project name. Removing a scope later applies without user confirmation; adding one later needs every user to confirm.
+- StackDash reads `team` only for the team name and slug at connect. Removing a scope later applies without user confirmation; adding one later needs every user to confirm.
 
 ## API limitations
 
