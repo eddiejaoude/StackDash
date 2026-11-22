@@ -7,7 +7,7 @@ import { encryptedFromRow, encryptedToColumns, fromBytea, toBytea } from "@/lib/
 import { destinationSecretAad } from "@/lib/data/notification-destinations";
 import { fakeSupabase, type Filter, type IncomingRequest, type Row } from "@/lib/supabase/fake-postgrest";
 
-import { BATCH_SIZE, rotate, sealedTables, summaryLine, type Counts, type SealedTable } from "./rotation";
+import { BATCH_SIZE, rotate, rotateAll, sealedTables, summaryLine, type Counts, type SealedTable } from "./rotation";
 
 /*
  * `npm run keys:rotate` (#35, #153, #606) against a fake PostgREST with the real cipher: every row
@@ -177,8 +177,13 @@ describe.each(TABLES)("rotate on $label", (table) => {
     expect(opened(table, run.storedRow(total - 1))).toBe(plaintextFor(total - 1));
   });
 
-  it("counts a row replaced between its read and its update as skipped and keeps the newer value (boundary: concurrent write)", async () => {
-    const newer = sealUnder(NEW_KEY, "newer-secret-value", table.aad(WORKSPACE_ID, rowId(1)));
+  // Under the current key the newer value differs in key id; under the old key, still current on an
+  // instance not yet redeployed, it differs only in IV. Each half of the compare-and-set is pinned.
+  it.each([
+    { writer: "the current key", key: NEW_KEY, remaining: 0 },
+    { writer: "the old key", key: OLD_KEY, remaining: 1 },
+  ])("counts a row replaced under $writer between its read and its update as skipped and keeps the newer value (boundary: concurrent write)", async ({ key, remaining }) => {
+    const newer = sealUnder(key, "newer-secret-value", table.aad(WORKSPACE_ID, rowId(1)));
     const run = rotation(table, [0, 1, 2].map((index) => sealedRow(table, index)), (request, tables) => {
       // The app writes row 1 (a token refresh) after the rotation read it and before its update lands.
       if (request.method === "PATCH" && request.filters.some(([column, filter]) => column === table.key && filter === `eq.${rowId(1)}`)) {
@@ -188,7 +193,7 @@ describe.each(TABLES)("rotate on $label", (table) => {
     });
 
     expect(await rotate(run.sealed)).toEqual(counts(3, 2, 1, 0));
-    expect(await run.sealed.remaining()).toBe(0);
+    expect(await run.sealed.remaining()).toBe(remaining);
     expect(run.storedRow(1)).toMatchObject(newer);
     expect(opened(table, run.storedRow(1))).toBe("newer-secret-value");
     expect(opened(table, run.storedRow(0))).toBe(plaintextFor(0));
@@ -278,6 +283,30 @@ describe("rotate across both tables", () => {
       { label: "notification_destination_secrets", counts: counts(1, 0, 0, 1) },
     ]);
     expect(fake.tables).toEqual(crossed);
+  });
+});
+
+describe("rotateAll", () => {
+  it.each([
+    { unreadableIn: [], exitCode: 0 },
+    { unreadableIn: ["connection_credentials"], exitCode: 1 },
+    { unreadableIn: ["notification_destination_secrets"], exitCode: 1 },
+    { unreadableIn: ["connection_credentials", "notification_destination_secrets"], exitCode: 1 },
+  ])("prints each table's counts in turn and exits $exitCode with an unreadable row in $unreadableIn (boundary: unreadable rows summed across tables)", async ({ unreadableIn, exitCode }) => {
+    const fake = fakeSupabase(
+      Object.fromEntries(
+        TABLES.map((table) => [table.label, [sealedRow(table, 0), sealedRow(table, 1, unreadableIn.includes(table.label) ? GONE_KEY : OLD_KEY)]]),
+      ),
+    );
+    const printed: string[] = [];
+
+    expect(await rotateAll(sealedTables(fake.db, currentKeyId()), (line) => printed.push(line))).toBe(exitCode);
+    expect(printed).toEqual(
+      TABLES.map((table) => {
+        const unreadable = unreadableIn.includes(table.label) ? 1 : 0;
+        return summaryLine(table.label, counts(2, 2 - unreadable, 0, unreadable), unreadable);
+      }),
+    );
   });
 });
 

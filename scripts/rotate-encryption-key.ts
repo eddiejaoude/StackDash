@@ -29,13 +29,14 @@
  * Each row is updated with a compare-and-set on its old key id and IV, so a secret written
  * concurrently by the app (for example a token refresh) is never overwritten with stale content.
  *
- * The rotation itself is `src/lib/crypto/rotation.ts`, unit tested there; this file only loads the
- * environment, builds the service role client, prints the counts, and sets the exit code.
+ * The rotation, its printed counts, and its exit code are `src/lib/crypto/rotation.ts`, unit tested
+ * there; this file only loads the environment, builds the service role client, prints the key id,
+ * and hands the exit code to the process.
  */
 import { existsSync } from "node:fs";
 
 import { currentKeyId } from "@/lib/crypto/credentials";
-import { rotate, sealedTables, summaryLine } from "@/lib/crypto/rotation";
+import { rotateAll, sealedTables } from "@/lib/crypto/rotation";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 async function main(): Promise<number> {
@@ -45,14 +46,7 @@ async function main(): Promise<number> {
   const keyId = currentKeyId();
   console.log(`Current key id: ${keyId}`);
 
-  let unreadable = 0;
-  for (const table of sealedTables(supabase, keyId)) {
-    const counts = await rotate(table);
-    const remaining = await table.remaining();
-    unreadable += counts.unreadable;
-    console.log(summaryLine(table.label, counts, remaining));
-  }
-  return unreadable > 0 ? 1 : 0;
+  return rotateAll(sealedTables(supabase, keyId), (line) => console.log(line));
 }
 
 main().then(

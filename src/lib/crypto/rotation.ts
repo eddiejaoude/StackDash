@@ -151,3 +151,17 @@ export async function rotate(table: SealedTable): Promise<Counts> {
 export function summaryLine(label: string, counts: Counts, remaining: number | null): string {
   return `${label}: scanned ${counts.scanned}, rotated ${counts.rotated}, skipped ${counts.skipped} (changed concurrently), unreadable ${counts.unreadable}, remaining on old keys ${remaining ?? "unknown"}.`;
 }
+
+/**
+ * Rotates every table in turn and prints one summary line each. Answers the process exit code: 1
+ * when any row in any table was unreadable, since those secrets need reconnecting, else 0.
+ */
+export async function rotateAll(tables: readonly SealedTable[], print: (line: string) => void): Promise<number> {
+  let unreadable = 0;
+  for (const table of tables) {
+    const counts = await rotate(table);
+    unreadable += counts.unreadable;
+    print(summaryLine(table.label, counts, await table.remaining()));
+  }
+  return unreadable > 0 ? 1 : 0;
+}
