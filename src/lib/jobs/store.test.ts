@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
+import { SIMULATED_POLL_INTERVAL_SECONDS, simulatedAdapters } from "@/lib/adapters/simulated";
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { connectionModes, type WebhookOutcome } from "@/lib/adapters/types";
 import { addUtcDays, anomalySnapshotRange, findAnomalies, type AnomalyConnection, type AnomalyRow } from "@/lib/alerts/anomaly";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Constants } from "@/lib/supabase/database.types";
-import { fakeSupabase, MAX_ROWS, type Row } from "@/lib/supabase/fake-postgrest";
+import { fakeSupabase, MAX_ROWS, type Cell, type Row } from "@/lib/supabase/fake-postgrest";
 
+import { BACKOFF_CAP_MS } from "./backoff";
 import {
   ANOMALY_ROW_LIMIT,
   createSupabaseJobStore,
+  PARKED_SYNC_AFTER_MS,
   SUMMARY_ROW_LIMIT,
   WEBHOOK_TARGET_LIMIT,
   webhookOutcomeFromJson,
@@ -319,6 +323,58 @@ describe("createSupabaseJobStore updateConnectionInStatus (#487)", () => {
     });
 
     expect(result).toBe(false);
+  });
+});
+
+describe("createSupabaseJobStore markSimulatedSyncsDue (#626)", () => {
+  const AT = new Date("2026-11-22T12:00:00.000Z");
+  const at = (offsetMs: number) => new Date(AT.getTime() + offsetMs).toISOString();
+  const A_MONTH_MS = 30 * 24 * 60 * 60_000;
+  const connection = (index: number, fields: Readonly<Record<string, Cell>>): Row => ({
+    id: uuid(62601, index),
+    workspace_id: WORKSPACE_ID,
+    status: "active",
+    granted_scopes: [SIMULATED_SCOPE],
+    next_sync_at: at(SIMULATED_POLL_INTERVAL_SECONDS * 1000),
+    ...fields,
+  });
+
+  it.each([
+    { name: "synced, next sync one poll interval out (happy path)", fields: {}, marked: true },
+    { name: "never scheduled", fields: { next_sync_at: null }, marked: true },
+    // A retry inside a job waits on the job's run_after and leaves next_sync_at where it was.
+    { name: "active and retrying in backoff, next sync already passed", fields: { next_sync_at: at(-BACKOFF_CAP_MS) }, marked: true },
+    { name: "next sync exactly at the parked threshold", fields: { next_sync_at: at(PARKED_SYNC_AFTER_MS) }, marked: true },
+    { name: "next sync 1 ms past the parked threshold", fields: { next_sync_at: at(PARKED_SYNC_AFTER_MS + 1) }, marked: false },
+    { name: "parked a month out, as the e2e fixtures leave it", fields: { next_sync_at: at(A_MONTH_MS) }, marked: false },
+    // A failed connection waits out BACKOFF_CAP_MS through the scheduler, as before.
+    { name: "failed and waiting out its backoff", fields: { status: "failed", next_sync_at: at(BACKOFF_CAP_MS) }, marked: false },
+    { name: "a real connection", fields: { granted_scopes: ["read:project"] }, marked: false },
+  ])("makes due only what the app itself scheduled (boundary: $name)", async ({ fields, marked }) => {
+    const row = connection(1, fields);
+    const { db, tables } = fakeSupabase({ connections: [row] });
+    vi.mocked(createAdminClient).mockReturnValue(db);
+
+    const due = await createSupabaseJobStore().markSimulatedSyncsDue(AT);
+
+    expect(due).toBe(marked ? 1 : 0);
+    expect(tables.connections?.[0]?.next_sync_at).toBe(marked ? AT.toISOString() : row.next_sync_at);
+  });
+
+  it("marks the developer's connections and leaves a parked one beside them alone (boundary: many)", async () => {
+    const parked = at(A_MONTH_MS);
+    const { db, tables } = fakeSupabase({
+      connections: [connection(1, {}), connection(2, { next_sync_at: parked }), connection(3, { next_sync_at: null })],
+    });
+    vi.mocked(createAdminClient).mockReturnValue(db);
+
+    expect(await createSupabaseJobStore().markSimulatedSyncsDue(AT)).toBe(2);
+    expect(tables.connections?.map((row) => row.next_sync_at)).toEqual([AT.toISOString(), parked, AT.toISOString()]);
+  });
+
+  it("parks nothing the app schedules for a simulated connection (invariant)", () => {
+    for (const adapter of Object.values(simulatedAdapters)) expect(adapter.pollIntervalSeconds * 1000).toBeLessThan(PARKED_SYNC_AFTER_MS);
+    expect(BACKOFF_CAP_MS).toBeLessThan(PARKED_SYNC_AFTER_MS);
   });
 });
 

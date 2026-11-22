@@ -48,9 +48,12 @@ export function cronSecret(): string {
  * due now (`enqueue_due_syncs`), so any job tick against the same database (`npm run jobs:tick`,
  * its watcher, or an `instance-wide` spec) would sync the credential-less row mid-test and write
  * sync-failed events and failure counts into the spec's workspace (#408). Only a spec that ticks
- * a seed on purpose leaves it due. A connection the app makes gets it from `makeConnectionsNotDue`
- * in ./connections.ts (#621). A tick watcher with simulation on still makes simulated connections
- * due again on each iteration (#626).
+ * a seed on purpose leaves it due. Seeds are inserted directly and have no sync job queued, so the
+ * month out alone keeps them unsynced. A connection the app makes also has its initial sync job
+ * queued, which a tick claims whatever `next_sync_at` says, so it gets this month out, and loses
+ * that job, from `makeConnectionsNotDue` in ./connections.ts (#621). A month is past the day after
+ * which a tick watcher with simulation on stops making a simulated connection due
+ * (`PARKED_SYNC_AFTER_MS` in src/lib/jobs/store.ts, #626).
  */
 export function notDueForAMonth(): string {
   return new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();

@@ -9,9 +9,10 @@ import type { SyncDeps } from "./sync-connection";
  * `npm run jobs:tick -- --watch` (#131), also started by `npm run demo` once it has seeded (#260):
  * runs the normal tick in a loop for local use, so open screens keep updating. With provider
  * simulation on, each iteration first makes the simulated connections due, so they sync every few
- * seconds instead of once a minute, and `--volume` (#383) multiplies how many timeline events they
- * make, so open screens fill faster. Everything it touches (the tick, the clock, sleeping, output,
- * the stop signal) is injected so the loop is tested without a database.
+ * seconds instead of once a minute, apart from any parked more than a day out on purpose, such as
+ * an e2e spec's (#626, PARKED_SYNC_AFTER_MS in ./store), and `--volume` (#383) multiplies how many
+ * timeline events they make, so open screens fill faster. Everything it touches (the tick, the
+ * clock, sleeping, output, the stop signal) is injected so the loop is tested without a database.
  */
 
 export const WATCH_DEFAULT_INTERVAL_SECONDS = 10;
@@ -138,7 +139,7 @@ export type WatchDeps = Readonly<{
   tick: () => Promise<WatchTick>;
   /** Read every iteration: true while this process simulates providers. */
   simulationEnabled: () => boolean;
-  /** Makes the active simulated connections due now and returns how many; zero means none is active. */
+  /** Makes the active simulated connections that are not parked due now and returns how many; zero means none is left to stream. */
   markSimulatedDue: () => Promise<number>;
   now: () => Date;
   /** Waits `ms`, or less when `signal` aborts. */
@@ -199,7 +200,8 @@ export function liveWatchDeps(deps: SyncDeps, print: (line: string) => void): Om
     tick: () => runWatchTick(deps),
     simulationEnabled: isProviderSimulationEnabled,
     // Only connections the simulator made (by their granted scope), never a real connection,
-    // whatever its provider: the simulated adapters refuse real credentials.
+    // whatever its provider: the simulated adapters refuse real credentials. A parked one is left
+    // alone too (PARKED_SYNC_AFTER_MS).
     markSimulatedDue: () => deps.store.markSimulatedSyncsDue(new Date()),
     now: () => new Date(),
     sleep: abortableSleep,
@@ -234,7 +236,7 @@ const SIMULATION_OFF_HINT =
   "Due means hourly for most providers and every 15 minutes for Supabase, and the Example provider adds two events a day. To stream data, add STACKDASH_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher and npm run dev, then connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app.";
 
 const NO_SIMULATED_CONNECTIONS_HINT =
-  "No active simulated connection, so there is nothing to stream. Connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app (they show Simulated), or reconnect the ones that need attention from their connection pages. The Example provider is not simulated.";
+  "No active simulated connection, so there is nothing to stream. Connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app (they show Simulated), or reconnect the ones that need attention from their connection pages. The Example provider is not simulated, and a simulated connection whose next sync is more than a day away, as the e2e specs leave theirs, is left alone.";
 
 /** setTimeout that resolves early, without throwing, when `signal` aborts. */
 export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
