@@ -14,15 +14,16 @@ import {
   amountValues,
   ANNOUNCED_LABELS_MAX,
   barScaleFrom,
-  changedConnectionId,
   changedValueKeys,
   countRange,
   creditValues,
   describeArrivals,
   formatCount,
   LIVE_CONNECTIONS_LISTED,
+  liveChange,
   liveConnectionsText,
   liveStatusText,
+  liveTopic,
   type LiveConnection,
   newEventIds,
   recurringValues,
@@ -287,20 +288,35 @@ describe("liveConnectionsText", () => {
   });
 });
 
-describe("changedConnectionId", () => {
+describe("liveTopic", () => {
+  it("is the workspace's own topic, with no suffix", () => {
+    expect(liveTopic("2f1c0a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b")).toBe("workspace-live:2f1c0a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b");
+  });
+});
+
+describe("liveChange", () => {
+  const changedAt = "2026-11-22T21:09:34.123456+00:00";
+
   it.each([
-    ["activity_events", { id: "e1", connection_id: "c2", provider: "github" }, "c2"],
-    ["usage_snapshots", { id: "s1", connection_id: "c3" }, "c3"],
-    // A connection's own row changes on a sync request or a failed retry: not data received.
-    ["connections", { id: "c1", workspace_id: "w1" }, null],
-    // StackDash's sync-failed event names the connection but no provider sent it.
-    ["activity_events", { id: "e3", connection_id: "c2", provider: null }, null],
-    ["triggered_alerts", { id: "a1", workspace_id: "w1" }, null],
-    ["activity_events", { id: "e2", connection_id: null, provider: "github" }, null],
-    ["activity_events", null, null],
-    ["usage_snapshots", "not a row", null],
-  ])("a %s change with %j brought data from %j", (table, row, expected) => {
-    expect(changedConnectionId(table, row)).toBe(expected);
+    ["provider data from two connections", ["c1", "c2"]],
+    ["one connection", ["c3"]],
+    // A connections row, StackDash's own event, or a triggered alert: no data received.
+    ["no connection", []],
+  ])("reads a change that brought %s", (_case, connectionIds) => {
+    const payload = { id: "m1", table: "usage_snapshots", operation: "INSERT", connection_ids: connectionIds, changed_at: changedAt };
+    expect(liveChange(payload)).toEqual({ changedAt, connectionIds });
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "not a change"],
+    ["no changed_at", { connection_ids: ["c1"] }],
+    ["a changed_at that is no time", { connection_ids: ["c1"], changed_at: "yesterday" }],
+    ["no connection_ids", { changed_at: changedAt }],
+    ["connection_ids that are not a list", { connection_ids: "c1", changed_at: changedAt }],
+    ["a connection id that is not a string", { connection_ids: ["c1", 2], changed_at: changedAt }],
+  ])("reads nothing from a payload with %s", (_case, payload) => {
+    expect(liveChange(payload)).toBeNull();
   });
 });
 
