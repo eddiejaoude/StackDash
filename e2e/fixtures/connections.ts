@@ -74,7 +74,9 @@ const SYNC_SETTLE_TIMEOUT_MS = 30_000;
  * (queued, or running on a lease that has expired), waits for a sync a tick is running to finish,
  * and parks again, since that sync may have rewritten `next_sync_at`. It repeats the last three
  * steps until a park holds: no sync job of theirs is open after it, and every connection still has
- * the parked `next_sync_at`. Before this runs, any tick may sync them.
+ * the parked `next_sync_at`. Deleting a running job on an expired lease can let this return while a
+ * slow tick's sync of it has yet to write `next_sync_at`, and that lease is compared against this
+ * test process's clock, not the database's. Before this runs, any tick may sync them.
  *
  * The writes go through `updateUnheard`, which waits for the final park's update, so a page that
  * subscribes afterwards never hears it or anything written before it: the connect flow's writes,
