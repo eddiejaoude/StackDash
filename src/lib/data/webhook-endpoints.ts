@@ -65,6 +65,8 @@ export type StoredWebhookSource = Readonly<{
   name: string;
   // The webhook StackDash created there, or null for a source known only from its deliveries.
   providerWebhookId: string | null;
+  // That webhook was made by an older build, so the after-sync pass updates it once (#617).
+  providerWebhookOutdated: boolean;
   lastDeliveryAt: Date | null;
 }>;
 
@@ -260,11 +262,18 @@ export async function countWorkspaceWebhookEndpoints(workspaceId: string): Promi
   return count ?? 0;
 }
 
-function sourceFromRow(row: { source_id: string; source_name: string; provider_webhook_id: string | null; last_delivery_at: string | null }): StoredWebhookSource {
+function sourceFromRow(row: {
+  source_id: string;
+  source_name: string;
+  provider_webhook_id: string | null;
+  provider_webhook_outdated: boolean;
+  last_delivery_at: string | null;
+}): StoredWebhookSource {
   return {
     sourceId: row.source_id,
     name: row.source_name,
     providerWebhookId: row.provider_webhook_id,
+    providerWebhookOutdated: row.provider_webhook_outdated,
     lastDeliveryAt: row.last_delivery_at === null ? null : new Date(row.last_delivery_at),
   };
 }
@@ -273,13 +282,31 @@ function sourceFromRow(row: { source_id: string; source_name: string; provider_w
 export async function listWebhookSources(endpointId: string): Promise<StoredWebhookSource[]> {
   const { data, error } = await createAdminClient()
     .from("webhook_sources")
-    .select("source_id, source_name, provider_webhook_id, last_delivery_at")
+    .select("source_id, source_name, provider_webhook_id, provider_webhook_outdated, last_delivery_at")
     .eq("endpoint_id", endpointId)
     .order("source_name", { ascending: true })
     .order("source_id", { ascending: true })
     .limit(WEBHOOK_SOURCES_PER_ENDPOINT);
   if (error) throw new Error(`webhook_sources select failed (code ${error.code}).`);
   return data.map(sourceFromRow);
+}
+
+/**
+ * Clears the outdated mark once the provider's webhook was updated or found gone (#617). Matched on
+ * the webhook id too, so a mark is never cleared for a different webhook than the one updated.
+ */
+export async function markSourceWebhookCurrent({
+  endpointId,
+  sourceId,
+  providerWebhookId,
+}: Readonly<{ endpointId: string; sourceId: string; providerWebhookId: string }>): Promise<void> {
+  const { error } = await createAdminClient()
+    .from("webhook_sources")
+    .update({ provider_webhook_outdated: false })
+    .eq("endpoint_id", endpointId)
+    .eq("source_id", sourceId)
+    .eq("provider_webhook_id", providerWebhookId);
+  if (error) throw new Error(`webhook_sources update failed (code ${error.code}).`);
 }
 
 /**

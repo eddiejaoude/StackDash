@@ -793,7 +793,8 @@ function readCursor(raw: string | undefined, ctx: OAuthContext): Date | undefine
  * compatibility" section describes. So a webhook added by hand must leave GitLab's signing token
  * empty: one GitLab generated signs with a key StackDash never sees, and is refused (the manual
  * steps say so). A webhook automatic setup adds never sends the token. Those it added before #512
- * still do, and on such a connection the token is also the signing key until they are updated (#617).
+ * did, and the first sync after #617 gives each a signing token and clears its secret token
+ * (`updateProjectWebhook`); until then the token is also the signing key on such a connection.
  *
  * Delivery id: `webhook-id`, which GitLab documents as unique per delivery and the same across its
  * retries, and which equals `Idempotency-Key` (sent since GitLab 17.4). A delivery checked by its
@@ -1021,6 +1022,26 @@ async function createProjectWebhook(
   return { webhookId: String(hook.id) };
 }
 
+/**
+ * Gives a webhook automatic setup made before #512 a signing token and clears its secret token, so
+ * GitLab stops sending the secret in plain text (#617). `PUT /projects/:id/hooks/:hook_id` requires
+ * `url`; GitLab sends `X-Gitlab-Token` only for a present token, so an empty one stops it. A webhook
+ * already gone (404) needs nothing.
+ */
+async function updateProjectWebhook(
+  { credential, url, secret, sourceId, webhookId }: Readonly<{ credential: OAuthCredential; url: string; secret: Secret; sourceId: string; webhookId: string }>,
+  ctx: OAuthContext,
+): Promise<void> {
+  const hookUrl = apiUrl(`/projects/${numericId(sourceId, "project")}/hooks/${numericId(webhookId, "webhook")}`);
+  const body = JSON.stringify({ url, signing_token: signingToken(secret), token: "" });
+  try {
+    await fetchNoContent(ctx, hookUrl, { method: "PUT", headers: { ...bearer(credential), "Content-Type": "application/json" }, body });
+  } catch (error) {
+    if (error instanceof InvalidResponseError && error.status === 404) return;
+    throw error;
+  }
+}
+
 /** GitLab documents the delete as idempotent; a webhook already gone (404) is removed all the same. */
 async function removeProjectWebhook(
   { credential, webhookId, sourceId }: Readonly<{ credential: OAuthCredential; webhookId: string; sourceId: string }>,
@@ -1049,6 +1070,7 @@ const webhooks: WebhookDescriptor = {
         listSources: listWebhookSources,
         create: createProjectWebhook,
         remove: removeProjectWebhook,
+        update: updateProjectWebhook,
       },
     },
   },

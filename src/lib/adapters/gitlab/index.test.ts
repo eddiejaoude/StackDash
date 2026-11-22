@@ -904,6 +904,41 @@ describe("webhooks", () => {
       await expect(setup.remove({ credential: writeCredential, webhookId: "17", sourceId: "9" }, ctx)).rejects.toThrow(ProviderUnavailableError);
     });
 
+    describe("update (#617)", () => {
+      const { update } = setup;
+      if (update === undefined) throw new Error("GitLab updates webhooks an older build made");
+      const input = { credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9", webhookId: "17" };
+
+      it("gives the webhook the secret as its signing token and clears its secret token, keeping its URL", async () => {
+        const { ctx, callsTo } = harness({ [`PUT ${projectPath}/hooks/17`]: () => json({ id: 17, url: URL_ }) });
+        await expect(update(input, ctx)).resolves.toBeUndefined();
+        const [call] = callsTo("PUT", `${projectPath}/hooks/17`);
+        // `url` is required by the update; an empty `token` stops GitLab sending X-Gitlab-Token.
+        expect(JSON.parse(call?.body ?? "{}")).toEqual({ url: URL_, signing_token: SIGNING_TOKEN, token: "" });
+      });
+
+      it("treats a webhook already gone (404) as needing nothing", async () => {
+        const { ctx } = harness({ [`PUT ${projectPath}/hooks/17`]: () => json({ message: "404 Not found" }, 404) });
+        await expect(update(input, ctx)).resolves.toBeUndefined();
+      });
+
+      it.each([
+        ["unavailable (503)", 503, ProviderUnavailableError],
+        ["refusing the role (403)", 403, PermissionMissingError],
+      ])("fails when GitLab is %s, so the mark stays and the next sync tries again (boundary)", async (_name, status, error) => {
+        const { ctx } = harness({ [`PUT ${projectPath}/hooks/17`]: () => json({ message: "refused" }, status) });
+        await expect(update(input, ctx)).rejects.toThrow(error);
+      });
+
+      it("refuses ids that are not numbers and a secret that is not 32 bytes before any request (boundary)", async () => {
+        const { ctx, calls } = harness();
+        await expect(update({ ...input, webhookId: "17/../1" }, ctx)).rejects.toThrow(TypeError);
+        await expect(update({ ...input, sourceId: "" }, ctx)).rejects.toThrow(TypeError);
+        await expect(update({ ...input, secret: new Secret(Buffer.alloc(31, 7).toString("base64url")) }, ctx)).rejects.toThrow(TypeError);
+        expect(calls).toHaveLength(0);
+      });
+    });
+
     it("refuses ids that are not numbers before any request (boundary)", async () => {
       const { ctx, calls } = harness();
       await expect(setup.create({ credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9/../1" }, ctx)).rejects.toThrow(TypeError);
