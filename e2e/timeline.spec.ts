@@ -1928,10 +1928,11 @@ ownerTest.describe("timeline event inspector", () => {
           if (first === undefined || second === undefined) throw new Error("Both taps' clicks were recorded, but not read.");
           const gapMs = second.timeStamp - first.timeStamp;
           if (gapMs > TOUCH_REPEAT_WINDOW_MS && attempt < attempts) {
-            inspectorEvidenceTest.info().annotations.push({
-              type: "slow open",
-              description: `Attempt ${attempt}: the second tap came ${Math.round(gapMs)} ms after the first, past the ${TOUCH_REPEAT_WINDOW_MS} ms window, so the attempt started over.`,
-            });
+            const description = `Attempt ${attempt}: the second tap came ${Math.round(gapMs)} ms after the first, past the ${TOUCH_REPEAT_WINDOW_MS} ms window, so the attempt started over.`;
+            inspectorEvidenceTest.info().annotations.push({ type: "slow open", description });
+            // In the job log too: the annotation shows only in the HTML report, and a pass that
+            // started over says something about the runner that should stay visible.
+            console.warn(`[slow open] ${inspectorEvidenceTest.info().title} (${inspectorEvidenceTest.info().project.name}): ${description}`);
             // That second tap followed the link, as a tap past the window should; let its navigation
             // land before the next attempt's own.
             await expect(page).not.toHaveURL(opened);
