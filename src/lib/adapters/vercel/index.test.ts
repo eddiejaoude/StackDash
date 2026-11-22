@@ -10,7 +10,7 @@ import {
   RateLimitedError,
 } from "../errors";
 import { validateAdapterEvents } from "../events";
-import { checkAdapterDeclaration, checkWebhookOutcome } from "../harness";
+import { checkAdapterDeclaration, checkWebhookOutcome, dashboardSpendAfterSync } from "../harness";
 import { validateAdapterMetrics } from "../metrics";
 import {
   Secret,
@@ -386,6 +386,18 @@ describe("vercelAdapter.sync", () => {
       expect(new Headers(call.init?.headers).get("authorization")).toBe(`Bearer ${ACCESS_TOKEN}`);
       expect(call.url.pathname).not.toMatch(/^\/v\d+\/projects\/|\/env/);
     }
+  });
+
+  it("counts Vercel spend once on the dashboard: the total only, not its usage, purchase, and tax parts again", async () => {
+    const result = await vercelAdapter.sync(teamSync, makeCtx(fakeVercel().fetch).ctx);
+    // The parts sit beside the total in the same account, kind, currency, and month, so showing
+    // only the total is the breakdown rule at work, not an absence of parts.
+    expect(amounts(result.metrics)).toMatchObject({ "vercel.spend.usage": 1236, "vercel.spend.purchase": 2000, "vercel.spend.tax": 250 });
+    // billing-charges.jsonl netted once: usage 12.345 + 3 x 0.004, purchase 20, tax 2.5, credit -5.1,
+    // and adjustment -0.25 come to 29.507 USD, 2951 cents. Adding the parts again would show 6437.
+    const TOTAL_MINOR = 2951;
+    const once = [{ currency: "USD", verifiedMinor: TOTAL_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(vercelAdapter, result.metrics, NOW)).toEqual({ provider: once, totals: once });
   });
 
   it("produces identical metric keys and event dedupe keys for duplicate events across two syncs", async () => {

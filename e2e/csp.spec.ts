@@ -14,10 +14,6 @@ import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from ".
 // against the production build, where a prerendered page under the nonce policy would carry
 // unnonced inline scripts and never hydrate.
 
-// The server under test is a production build when CI is set and the dev server otherwise, the same
-// switch as the webServer command in playwright.config.ts.
-const PRODUCTION_BUILD = Boolean(process.env.CI);
-
 const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/=]+'$/;
 
 /** The page's view of the function `watchViolations` exposes to it. */
@@ -33,12 +29,27 @@ function directives(policy: string): Map<string, string[]> {
 }
 
 /**
+ * Whether the server under test is the dev server, asked of the server itself (#238). The policy
+ * src/proxy.ts builds follows the server's NODE_ENV, which `next dev` sets to development and
+ * `next start` to production (Next.js docs, guides/environment-variables, "Good to know"). This
+ * process cannot read the server's environment, and its own CI variable does not say which command
+ * started the server: the guarded local runner unsets CI whatever the config's web server runs.
+ * Only the dev server answers /_next/mcp (guides/mcp: on unless experimental.mcpServer is false);
+ * a production build answers 404 there.
+ */
+async function isDevServer(page: Page): Promise<boolean> {
+  const response = await page.request.get("/_next/mcp");
+  return response.status() !== 404;
+}
+
+/**
  * App routes enforce the landing directives plus the nonce policy. form-action also allows
  * exactly the no-JavaScript sign-in chain (Supabase Auth, then GitHub), because browsers check
  * form-action on every redirect after a form post. The connect form leaves by meta refresh, not a
  * redirect, so no provider origin is listed.
  */
-function expectAppPolicy(policy: string | undefined): void {
+async function expectAppPolicy(page: Page, policy: string | undefined): Promise<void> {
+  const devServer = await isDevServer(page);
   const app = directives(policy ?? "");
   for (const [name, sources] of directives(BASELINE_CSP)) {
     if (name !== "form-action") expect(app.get(name), name).toEqual(sources);
@@ -50,7 +61,7 @@ function expectAppPolicy(policy: string | undefined): void {
   expect(app.get("script-src")).toEqual([
     "'self'",
     expect.stringMatching(NONCE_SOURCE),
-    ...(PRODUCTION_BUILD ? [] : ["'unsafe-eval'"]),
+    ...(devServer ? ["'unsafe-eval'"] : []),
   ]);
   // Live updates (#129) need the Realtime socket.
   expect(app.get("connect-src")).toContain(`${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`);
@@ -87,7 +98,7 @@ async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   const response = await page.goto(path);
   expect(response?.status()).toBe(404);
   const headers = response?.headers() ?? {};
-  expectAppPolicy(headers["content-security-policy"]);
+  await expectAppPolicy(page, headers["content-security-policy"]);
   expect(headers["content-security-policy-report-only"]).toBeUndefined();
   expect(headers["cache-control"]).toContain("no-store");
   await expect(page).toHaveTitle("Page not found · StackDash");
@@ -108,7 +119,7 @@ test.describe("signed out", () => {
     const response = await page.goto("/sign-in");
 
     const headers = response?.headers() ?? {};
-    expectAppPolicy(headers["content-security-policy"]);
+    await expectAppPolicy(page, headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
     // The policy depends on request headers a client can forge (isPlainHttpToLoopback in
     // src/proxy.ts, #597), which is safe only while no cache can hand one client's response to another.
@@ -126,7 +137,7 @@ test.describe("signed out", () => {
 
     expect(response?.status()).toBe(200);
     const headers = response?.headers() ?? {};
-    expectAppPolicy(headers["content-security-policy"]);
+    await expectAppPolicy(page, headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
     await expect(page.getByRole("heading", { level: 1, name: "Unsubscribe from alert emails" })).toBeVisible();
     await expect(page.getByText("This unsubscribe link is incomplete or no longer valid.", { exact: false })).toBeVisible();
@@ -192,7 +203,7 @@ test.describe("signed out", () => {
 
       expect(response?.status()).toBe(200);
       const headers = response?.headers() ?? {};
-      expectAppPolicy(headers["content-security-policy"]);
+      await expectAppPolicy(page, headers["content-security-policy"]);
       expect(headers["content-security-policy-report-only"]).toBeUndefined();
       await expect(page.getByRole("heading", { level: 1, name: "Acme web" })).toBeVisible();
       await expectHydrated(page);
@@ -252,7 +263,7 @@ ownerTest.describe("signed in", () => {
           const response = await page.goto(path);
           expect(response?.status()).toBe(200);
           const headers = response?.headers() ?? {};
-          expectAppPolicy(headers["content-security-policy"]);
+          await expectAppPolicy(page, headers["content-security-policy"]);
           expect(headers["content-security-policy-report-only"]).toBeUndefined();
           await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
           await expectHydrated(page);

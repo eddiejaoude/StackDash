@@ -17,7 +17,14 @@ import type { Database } from "@/lib/supabase/database.types";
  * `name`, and its rows are then filtered, ordered, paged, and selected like a table's, as PostgREST
  * does with a set returning function; a handler that returns scalars (a `setof text` function) is
  * answered as the JSON array of them. Each answered request is recorded with its filters (and a
- * call's arguments), so a test can check what a read asked for, not only how many rows.
+ * call's arguments), so a test can check what a read or an update asked for, not only how many rows.
+ *
+ * An update (`.update(values)` with the same filters) changes the matching rows of the live
+ * `tables` the fake returns, and answers them when `.select(columns)` asks for them; a test may
+ * also replace a table there between requests, as another writer would. `intercept` sees each
+ * request before the fake answers it and may answer it instead, such as with a Postgres error.
+ * Only updates write: an insert, upsert, or delete is answered as a read of the matching rows and
+ * leaves `tables` unchanged, so a test of one must check its request, not the stored rows.
  */
 
 export const MAX_ROWS = 1000;
@@ -37,15 +44,29 @@ export type PageRequest = Readonly<{
   limit: number | null;
   returned: number;
 }>;
+/** A request as it arrives: its HTTP method, table (or `rpc/<name>`), and filters. */
+export type IncomingRequest = Readonly<{ method: string; table: string; filters: readonly Filter[] }>;
+/** Runs before the fake answers a request; a Response returned here is sent instead of the fake's. */
+export type Intercept = (request: IncomingRequest) => Response | undefined;
 
-async function callArgs(input: RequestInfo | URL, init: RequestInit | undefined): Promise<Record<string, unknown>> {
+async function jsonObjectBody(input: RequestInfo | URL, init: RequestInit | undefined): Promise<Record<string, unknown>> {
   const body = input instanceof Request ? await input.text() : init?.body;
   if (typeof body !== "string" || body === "") return {};
   const parsed: unknown = JSON.parse(body);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("The fake PostgREST expects an object of function arguments");
+    throw new Error("The fake PostgREST expects a JSON object body");
   }
   return Object.fromEntries(Object.entries(parsed));
+}
+
+/** An update's values as row cells, or null when a value is not a scalar the fake stores. */
+function updateValues(values: Readonly<Record<string, unknown>>): Row | null {
+  const row: Record<string, Cell> = {};
+  for (const [column, value] of Object.entries(values)) {
+    if (value !== null && typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return null;
+    row[column] = value;
+  }
+  return row;
 }
 
 /** The values of a PostgREST `in.(...)` list; postgrest-js quotes a value only when it must. */
@@ -169,17 +190,26 @@ const RESERVED: Readonly<Record<string, true>> = { select: true, order: true, li
  * A Supabase client over in-memory tables and set returning `functions` that, like PostgREST,
  * returns at most MAX_ROWS rows a request.
  */
-export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, functions: Readonly<Record<string, FunctionHandler>> = {}) {
+export function fakeSupabase(
+  tables: Readonly<Record<string, readonly Row[]>>,
+  functions: Readonly<Record<string, FunctionHandler>> = {},
+  intercept: Intercept = () => undefined,
+) {
+  // An update replaces a table's array here, so the caller's arrays are never written to.
+  const live: Record<string, readonly Row[]> = { ...tables };
   const requests: PageRequest[] = [];
   const fakeFetch: typeof fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
+    const method = input instanceof Request ? input.method : (init?.method ?? "GET");
     const segments = url.pathname.split("/");
     const name = segments.at(-1) ?? "";
     const isCall = segments.at(-2) === "rpc";
     const table = isCall ? `rpc/${name}` : name;
-    const args = isCall ? await callArgs(input, init) : null;
-    const source = isCall ? functions[name]?.(args ?? {}) : tables[name];
     const sent = [...url.searchParams].flatMap(([column, filter]): Filter[] => (RESERVED[column] === true ? [] : [[column, filter]]));
+    const intercepted = intercept({ method, table, filters: sent });
+    if (intercepted !== undefined) return intercepted;
+    const args = isCall ? await jsonObjectBody(input, init) : null;
+    const source = isCall ? functions[name]?.(args ?? {}) : live[name];
     const filters = sent.map(([column, filter]) =>
       column === "and" || column === "or" ? logicTest(column, filter) : columnTest(column, filter),
     );
@@ -196,16 +226,35 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, f
       requests.push({ table, args, filters: sent, offset: 0, limit: null, returned: values.length });
       return new Response(JSON.stringify(values), { status: 200, headers: { "content-type": "application/json" } });
     }
-    let rows = source.filter((row) => filters.every((test) => test?.(row) === true));
-    // `Prefer: count=exact`: the total of the filtered rows, in the header PostgREST answers it in.
+    const matches = (row: Row) => filters.every((test) => test?.(row) === true);
     const prefer = new Headers(input instanceof Request ? input.headers : init?.headers).get("Prefer") ?? "";
+    const columns = (url.searchParams.get("select") ?? "*").split(",");
+    const project = (row: Row) => (columns[0] === "*" ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null])));
+    if (method === "PATCH") {
+      const changes = isCall ? null : updateValues(await jsonObjectBody(input, init));
+      if (changes === null) {
+        return new Response(JSON.stringify({ message: `The fake PostgREST cannot answer ${method} ${url.search} on ${table}` }), { status: 400 });
+      }
+      const updated: Row[] = [];
+      live[name] = source.map((row) => {
+        if (!matches(row)) return row;
+        const next = { ...row, ...changes };
+        updated.push(next);
+        return next;
+      });
+      requests.push({ table, args, filters: sent, offset: 0, limit: null, returned: updated.length });
+      // `.select()` after `.update()` asks for the changed rows (`return=representation`).
+      if (!/return=representation/.test(prefer)) return new Response(null, { status: 204 });
+      return new Response(JSON.stringify(updated.map(project)), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    let rows = source.filter(matches);
+    // `Prefer: count=exact`: the total of the filtered rows, in the header PostgREST answers it in.
     const counted: Record<string, string> = /count=exact/.test(prefer) ? { "content-range": `*/${rows.length}` } : {};
-    if ((input instanceof Request ? input.method : init?.method) === "HEAD") {
+    if (method === "HEAD") {
       requests.push({ table, args, filters: sent, offset: 0, limit: null, returned: 0 });
       return new Response(null, { status: 200, headers: counted });
     }
     const order = url.searchParams.get("order");
-    const columns = (url.searchParams.get("select") ?? "*").split(",");
     // PostgREST orders a function's rows after selecting the columns, so it can order only by a
     // selected column (42703 otherwise, seen on #317); a table orders by any column.
     const unselected = (order ?? "")
@@ -221,7 +270,7 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, f
     const limit = limitParam === null ? null : Number(limitParam);
     // max_rows: whatever the request asked for, never more than this, and no error.
     const page = rows.slice(offset, offset + Math.min(limit ?? MAX_ROWS, MAX_ROWS));
-    const body = page.map((row) => (columns[0] === "*" ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
+    const body = page.map(project);
     requests.push({ table, args, filters: sent, offset, limit, returned: body.length });
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json", ...counted } });
   };
@@ -229,5 +278,5 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>, f
     auth: { persistSession: false, autoRefreshToken: false },
     global: { fetch: fakeFetch },
   });
-  return { db, requests };
+  return { db, requests, tables: live };
 }

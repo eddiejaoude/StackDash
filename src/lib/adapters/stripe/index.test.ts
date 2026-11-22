@@ -6,7 +6,7 @@ import {
   RateLimitedError,
 } from "@/lib/adapters/errors";
 import { validateAdapterEvents } from "@/lib/adapters/events";
-import { checkAdapterDeclaration, checkWebhookOutcome } from "@/lib/adapters/harness";
+import { checkAdapterDeclaration, checkWebhookOutcome, dashboardSpendAfterSync } from "@/lib/adapters/harness";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type WebhookDescriptor, type WebhookRequest } from "@/lib/adapters/types";
 import { signStripeWebhook, STRIPE_SIGNATURE_HEADER, STRIPE_WEBHOOK_TOLERANCE_SECONDS, stripeAdapter, toActivityEvent } from "./index";
@@ -316,6 +316,29 @@ describe("stripeAdapter.sync", () => {
       "customer.subscription.created",
       "customer.subscription.deleted",
     ]);
+  });
+
+  it("counts Stripe spend once on the dashboard: this month's fees per currency, not the rolling 30 days", async () => {
+    const { fetch } = fakeFetch(syncRoutes);
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, context(fetch).ctx);
+    // Each currency's fees twice: this month, and the last 30 days that hold this month's fees too.
+    expect(amounts(result.metrics.filter((metric) => metric.kind === "verified_spend"))).toEqual({
+      "stripe.fees.month.eur": 122,
+      "stripe.fees.month.jpy": 54,
+      "stripe.fees.month.usd": 298,
+      "stripe.fees.last_30_days.eur": 122,
+      "stripe.fees.last_30_days.jpy": 54,
+      "stripe.fees.last_30_days.usd": 473,
+    });
+    // November's fees in balance-transactions.json, per currency: EUR 117 + 5 on the euro charge;
+    // JPY 54; USD 88 + 10 on today's charge (its 50 application fee goes to a platform, not Stripe)
+    // plus the 200 stripe_fee transaction. The 30 days again would add 122, 54, and 473.
+    const once = [
+      { currency: "EUR", verifiedMinor: 117 + 5, estimatedMinor: null },
+      { currency: "JPY", verifiedMinor: 54, estimatedMinor: null },
+      { currency: "USD", verifiedMinor: 88 + 10 + 200, estimatedMinor: null },
+    ];
+    expect(dashboardSpendAfterSync(stripeAdapter, result.metrics, now)).toEqual({ provider: once, totals: once });
   });
 
   it("keeps currencies separate: one metric per currency, key suffix matching the currency", async () => {

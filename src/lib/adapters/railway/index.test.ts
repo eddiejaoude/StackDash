@@ -7,6 +7,7 @@ import {
   RateLimitedError,
 } from "../errors";
 import { validateAdapterEvents, type ActivityEvent } from "../events";
+import { dashboardSpendAfterSync } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { billingMetrics, deploymentEvents, GRAPHQL_URL, PRICING_SOURCE, railwayAdapter } from "./index";
@@ -481,6 +482,21 @@ describe("railwayAdapter.sync", () => {
       "railway.usage.network_egress",
       "railway.usage.volume",
     ]);
+  });
+
+  it("counts Railway spend once on the dashboard: usage so far, not the projected bill", async () => {
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, harness(syncRoutes()).ctx);
+    // The usage so far and the whole period's estimated bill, both in this billing period.
+    const money = result.metrics.filter((item) => item.kind === "verified_spend" || item.kind === "estimated_spend");
+    expect(money.map((item) => [item.metricKey, item.kind, amount(item)])).toEqual([
+      ["railway.spend.usage", "verified_spend", 346],
+      ["railway.estimate.bill", "estimated_spend", 580],
+    ]);
+    // billing.json's currentUsage 3.456 USD rounds once to 346 cents. The bill (580) is what the
+    // whole period is expected to cost, not money spent on top of the usage.
+    const USAGE_MINOR = 346;
+    const once = [{ currency: "USD", verifiedMinor: USAGE_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(railwayAdapter, result.metrics, NOW)).toEqual({ provider: once, totals: once });
   });
 
   it("re-reads an hour before the cursor, and only that far", async () => {
