@@ -5,7 +5,7 @@ import { cache } from "react";
 import { z } from "zod";
 
 import { getCurrentUser } from "@/lib/auth/session";
-import { logError } from "@/lib/log/logger";
+import { log, logError } from "@/lib/log/logger";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import type { WorkspaceRole } from "@/lib/workspaces/permissions";
@@ -107,9 +107,15 @@ export async function rememberWorkspace(workspaceId: string): Promise<void> {
       .update({ last_workspace_id: id })
       .eq("user_id", user.id)
       .or(`last_workspace_id.is.null,last_workspace_id.neq.${id}`);
-    if (error) {
-      // Losing this only means /app opens a different workspace next time, so log and move on.
-      logError("workspaces.remember_failed", error, { workspaceId: id });
+    if (error === null) return;
+    // 42501: the profiles_update_own with check refused the row because the user is no longer a
+    // member of the workspace (it was deleted, or they left it, after this request). Expected:
+    // /app simply opens another workspace next time, so this is degraded but handled.
+    if (error.code === "42501") {
+      log.warn("workspaces.remember_skipped_not_member", { workspaceId: id });
+      return;
     }
+    // Losing this only means /app opens a different workspace next time, so log and move on.
+    logError("workspaces.remember_failed", error, { workspaceId: id });
   });
 }
