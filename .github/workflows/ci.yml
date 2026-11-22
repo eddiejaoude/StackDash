@@ -99,6 +99,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # supabase/config.toml publishes the stack on fixed host ports in the 554xx range, inside
+      # Linux's default ephemeral range (32768 to 60999). An outbound connection, such as an image
+      # pull, that takes one of them as its source port makes Docker's bind fail with "address
+      # already in use" until the socket leaves TIME_WAIT (#527). Reserving the range first keeps
+      # the kernel from handing those ports out; explicit binds still work.
+      - name: Reserve the local Supabase ports
+        run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=55400-55499
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -119,7 +127,7 @@ jobs:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
       - name: Start local Supabase
-        run: supabase start
+        run: bash .github/scripts/start-supabase.sh
 
       # --fail-on defaults to none, which would let lint errors pass silently.
       - name: Lint database
@@ -143,6 +151,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      # Keeps the stack's ports out of the ephemeral range. See the db job.
+      - name: Reserve the local Supabase ports
+        run: sudo sysctl -w net.ipv4.ip_local_reserved_ports=55400-55499
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -167,7 +179,7 @@ jobs:
           version: ${{ env.SUPABASE_CLI_VERSION }}
 
       - name: Start local Supabase
-        run: supabase start
+        run: bash .github/scripts/start-supabase.sh
 
       # Every value here belongs to the throwaway local stack or is generated per run, so the job
       # needs no repository secrets and passes on pull requests from forks.
