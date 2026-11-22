@@ -10,7 +10,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(23);
+select plan(24);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
@@ -132,6 +132,11 @@ select is(
   public.save_created_webhook_source('c3500004-0000-4000-8000-000000000002', '8', 'another/project', 'hook-c'),
   true,
   'a new source records its webhook'
+);
+select is(
+  (select array_agg(provider_webhook_outdated order by source_id) from public.webhook_sources where endpoint_id = 'c3500004-0000-4000-8000-000000000002'),
+  array[false, false],
+  'a webhook the current build records is never marked outdated, so the after-sync pass leaves it alone (#617)'
 );
 select is(
   public.delete_webhook_endpoint('c3500002-0000-4000-8000-000000000001', 'c3500003-0000-4000-8000-000000000002'),
