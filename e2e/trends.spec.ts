@@ -7,8 +7,8 @@ import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The monthly
-// trend past the 10,000 row snapshot read cap is in e2e/trends-long-history.spec.ts: its seed holds
-// up Realtime for every spec beside it, so it runs apart (#621).
+// trend past the 10,000 row snapshot read cap is in e2e/trends-long-history.spec.ts, beside its
+// 22,500 row seed.
 
 const DAY_MS = 86_400_000;
 

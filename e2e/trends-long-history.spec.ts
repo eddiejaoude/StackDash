@@ -4,13 +4,13 @@ import { expect, ownerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 /*
- * The monthly trend of a history longer than the 10,000 row snapshot read cap (#317), kept apart
- * from e2e/trends.spec.ts because of what its seed does to Realtime. The seed writes about 22,500
- * rows to usage_snapshots, a table in the Realtime publication, and Realtime reads every one of them
- * before any live change written after them, in any workspace. In CI that held up live changes for
- * most of a minute, and the specs running beside it that wait 15 s for one failed (#621). So this
- * spec lives alone in the `bulk-writes` Playwright project (playwright.config.ts), which runs after
- * every other spec, and it waits on no live change itself.
+ * The monthly trend of a history longer than the 10,000 row snapshot read cap (#317). The seed writes
+ * about 22,500 usage snapshots in 1,000 row inserts. While live refresh read Postgres Changes,
+ * Realtime read every one of those rows before any live change written after them, in any
+ * workspace, which held live changes up for most of a minute in CI (#621), so this spec ran alone,
+ * after every other. Live refresh now hears one Broadcast per statement, which Realtime streams
+ * apart from the rows (#628): live changes in another workspace reached their tab within 14 ms
+ * while this seed ran, measured on #628. So it runs with the other specs.
  */
 
 const DAY_MS = 86_400_000;
