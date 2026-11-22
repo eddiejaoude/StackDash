@@ -260,8 +260,9 @@ test.describe("hero data-flow constellation in motion", () => {
       );
     // What is drawn, not only the inputs: the rotation in the computed transform, its upper-left
     // 3 by 3 (perspective(1400px) in front of the rotations leaves that part alone). The whole
-    // matrix is not compared: right after load the perspective can still be transitioning in from
-    // none while the stage is already flat, so it is no fixed reference for "flat" (#464).
+    // matrix is not compared: in two CI runs the perspective was still transitioning in right after
+    // load while the stage was already flat, so it is no fixed reference for "flat" (#464). Why the
+    // stage starts from transform none there is not known yet (#623).
     const rotation = () =>
       tilt.evaluate((element) => {
         const { m11, m12, m13, m21, m22, m23, m31, m32, m33 } = new DOMMatrix(getComputedStyle(element).transform);
