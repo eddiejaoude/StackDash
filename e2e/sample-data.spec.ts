@@ -40,13 +40,15 @@ ownerTest.describe("sample data as the owner", () => {
       await page.keyboard.press("Enter");
 
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?sample=added`, { timeout: 60_000 });
-      await makeConnectionsNotDue(page, workspace.id);
       const banner = page.getByRole("status", { name: "Sample data added" });
       await expect(banner).toContainText("labeled Simulated");
       await expect(banner.getByRole("link", { name: "Connections page" })).toHaveAttribute("href", `/w/${workspace.slug}/connections`);
       await expect(page.getByRole("region", { name: "No activity yet" })).toHaveCount(0);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(events.first()).toBeVisible();
+      // The action's redirect rendered this page client side; the step below reloads it, so what
+      // the redirect itself shows is checked first.
+      await makeConnectionsNotDue(page, workspace.id);
       // Every connection is simulated, so the page says it once rather than on every row (#269).
       await expect(page.getByRole("region", { name: "Simulated data" })).toContainText("Every connection in view is simulated");
       await expect(page.getByText("Simulated", { exact: true })).toHaveCount(1);
