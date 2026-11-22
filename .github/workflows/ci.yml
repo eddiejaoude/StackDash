@@ -212,14 +212,6 @@ jobs:
       - name: End-to-end tests
         run: npm run test:e2e
 
-      # TEMPORARY for #618 evidence, reverted before merge: the touch double-tap specs 20 times
-      # each in both touch engines, two workers side by side, on this runner.
-      - name: Repeat the touch double-tap specs (#618 evidence)
-        run: |
-          npx playwright test --project=webkit-touch --project=firefox-touch --grep "at 375px" \
-            --repeat-each 20 --workers=2 --reporter=list 2>&1 | tee repeat-618.log
-          echo "slow open lines: $(grep -c '\[slow open\]' repeat-618.log || true)"
-
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
