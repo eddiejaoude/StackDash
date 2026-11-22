@@ -9,7 +9,7 @@ import {
   RateLimitedError,
 } from "@/lib/adapters/errors";
 import { validateAdapterEvents } from "@/lib/adapters/events";
-import { checkAdapterDeclaration, checkWebhookOutcome } from "@/lib/adapters/harness";
+import { checkAdapterDeclaration, checkWebhookOutcome, dashboardSpendAfterSync } from "@/lib/adapters/harness";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
 import {
   Secret,
@@ -472,6 +472,23 @@ describe("polarAdapter.sync", () => {
       expect(header(call, "polar-version"), call.url.pathname).toBe("2026-10");
       expect(header(call, "authorization")).toBe("Bearer polar_at_fixture_access_1");
     }
+  });
+
+  it("counts Polar spend once on the dashboard: this month's fees, not the revenue they came out of nor the run rates", async () => {
+    const result = await sync(syncRoutes).result;
+    // Every amount in dollars the sync reports: only the fees are money spent.
+    const money = result.metrics.filter((metric) => "currency" in metric && metric.currency === "USD");
+    expect(money.map((metric) => [metric.metricKey, metric.kind])).toEqual([
+      ["polar.revenue.month.usd", "revenue"],
+      ["polar.fees.month.usd", "verified_spend"],
+      ["polar.mrr.usd", "recurring_revenue"],
+      ["polar.arr.usd", "recurring_revenue"],
+    ]);
+    // metrics.json's totals: revenue 54800.5 cents less net revenue 51660.25 cents is 3140.25 cents
+    // of fees, rounded once to 3140.
+    const FEES_MINOR = 3140;
+    const once = [{ currency: "USD", verifiedMinor: FEES_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(polarAdapter, result.metrics, now)).toEqual({ provider: once, totals: once });
   });
 
   it("emits no customer names, emails, addresses, tax ids, metadata, or free text (privacy)", async () => {

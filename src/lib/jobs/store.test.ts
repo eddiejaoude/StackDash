@@ -285,8 +285,8 @@ describe("createSupabaseJobStore listSummaryConnections", () => {
 
 describe("createSupabaseJobStore updateConnectionInStatus (#487)", () => {
   const CONNECTION_ID = uuid(48701, 1);
-  // The fake answers the update with the rows its filters match, as PostgREST does when asked to
-  // return them; it does not apply the patch, which these tests do not read back.
+  // The fake applies the update to the rows its filters match and answers them, as PostgREST does
+  // when asked to return them; these tests read only that answer and the filters sent.
   const connection = (status: string): Row => ({ id: CONNECTION_ID, workspace_id: WORKSPACE_ID, status });
 
   it.each([
