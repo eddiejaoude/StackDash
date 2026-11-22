@@ -908,18 +908,41 @@ describe("webhooks", () => {
       const { update } = setup;
       if (update === undefined) throw new Error("GitLab updates webhooks an older build made");
       const input = { credential: writeCredential, url: URL_, secret: SECRET, sourceId: "9", webhookId: "17" };
+      // The webhook as GitLab answers the update, with what it now holds (GitLab 19.0).
+      const updated = (tokens: Readonly<{ token_present: boolean; signing_token_present: boolean }>) => () =>
+        json({ id: 17, url: URL_, ...tokens });
 
-      it("gives the webhook the secret as its signing token and clears its secret token, keeping its URL", async () => {
-        const { ctx, callsTo } = harness({ [`PUT ${projectPath}/hooks/17`]: () => json({ id: 17, url: URL_ }) });
+      it("sends the URL it is given, the secret as the signing token, and an empty secret token", async () => {
+        const { ctx, callsTo } = harness({ [`PUT ${projectPath}/hooks/17`]: updated({ token_present: false, signing_token_present: true }) });
         await expect(update(input, ctx)).resolves.toBeUndefined();
         const [call] = callsTo("PUT", `${projectPath}/hooks/17`);
         // `url` is required by the update; an empty `token` stops GitLab sending X-Gitlab-Token.
         expect(JSON.parse(call?.body ?? "{}")).toEqual({ url: URL_, signing_token: SIGNING_TOKEN, token: "" });
       });
 
-      it("treats a webhook already gone (404) as needing nothing", async () => {
-        const { ctx } = harness({ [`PUT ${projectPath}/hooks/17`]: () => json({ message: "404 Not found" }, 404) });
+      it.each([
+        ["still holds a secret token", { token_present: true, signing_token_present: true }],
+        ["holds no signing token", { token_present: false, signing_token_present: false }],
+      ])("fails when GitLab answers that the webhook %s, so the mark stays (boundary)", async (_name, tokens) => {
+        const { ctx } = harness({ [`PUT ${projectPath}/hooks/17`]: updated(tokens) });
+        await expect(update(input, ctx)).rejects.toThrow(InvalidResponseError);
+      });
+
+      it("treats a 404 as a deleted webhook when the project is still readable, which needs nothing", async () => {
+        const { ctx, callsTo } = harness({
+          [`PUT ${projectPath}/hooks/17`]: () => json({ message: "404 Not found" }, 404),
+          [`GET ${projectPath}`]: () => json({ id: 9 }),
+        });
         await expect(update(input, ctx)).resolves.toBeUndefined();
+        expect(callsTo("GET", projectPath)).toHaveLength(1);
+      });
+
+      it("fails on a 404 when the project is out of reach too, since the webhook may still send the secret (boundary)", async () => {
+        const { ctx } = harness({
+          [`PUT ${projectPath}/hooks/17`]: () => json({ message: "404 Project Not Found" }, 404),
+          [`GET ${projectPath}`]: () => json({ message: "404 Project Not Found" }, 404),
+        });
+        await expect(update(input, ctx)).rejects.toThrow(InvalidResponseError);
       });
 
       it.each([

@@ -294,8 +294,10 @@ async function createSourceWebhooks(sources: readonly WebhookSource[], input: So
 
 /**
  * Brings each webhook an older build made up to date with the adapter's `update` (#617), and clears
- * its mark once that succeeds. A failure is logged and keeps the mark, so the next sync tries it
- * again; it never stops the pass from adding missing webhooks. Nothing to do for an adapter without
+ * its mark once that succeeds. The URL sent is the instance's public origin, the one the after-sync
+ * `create` uses, so a webhook set up through another origin is pointed there. A failure, of the
+ * update or of clearing the mark, is logged and keeps the mark, so the next sync tries it again;
+ * it never stops the pass from adding missing webhooks. Nothing to do for an adapter without
  * `update`.
  */
 async function updateOutdatedSourceWebhooks(stored: readonly StoredWebhookSource[], input: SourceWebhooksInput): Promise<void> {

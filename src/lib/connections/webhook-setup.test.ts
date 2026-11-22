@@ -466,8 +466,11 @@ describe("one webhook per source (#428)", () => {
     { id: "1002", name: "example-group/api" },
   ];
 
-  /** GitLab's simulated declaration, one webhook per project, with spies for the provider calls. */
-  function withSourceSpies(sources: readonly WebhookSource[] = SOURCES) {
+  /**
+   * GitLab's simulated declaration, one webhook per project, with spies for the provider calls.
+   * `withUpdate: false` declares no `update`, as a per-source provider other than GitLab would.
+   */
+  function withSourceSpies(sources: readonly WebhookSource[] = SOURCES, { withUpdate = true }: Readonly<{ withUpdate?: boolean }> = {}) {
     const adapter = simulatedAdapters.gitlab;
     const webhooks = adapter.webhooks;
     const registration = webhooks?.registration;
@@ -478,7 +481,7 @@ describe("one webhook per source (#428)", () => {
     const create = vi.fn((input: { sourceId: string }) => Promise.resolve({ webhookId: `hook_${input.sourceId}` }));
     const remove = vi.fn<PerSourceWebhookSetup["remove"]>(() => Promise.resolve());
     const update = vi.fn<NonNullable<PerSourceWebhookSetup["update"]>>(() => Promise.resolve());
-    const automatic: PerSourceWebhookSetup = { ...registration.setup.automatic, listSources, create, remove, update };
+    const automatic: PerSourceWebhookSetup = { ...registration.setup.automatic, listSources, create, remove, ...(withUpdate ? { update } : {}) };
     const setup: ConnectionWebhookSetup = { ...registration.setup, secretSource: "stackdash", automatic };
     const spied: ProviderAdapter = { ...adapter, webhooks: { ...webhooks, registration: { kind: "connection", setup } } };
     vi.mocked(getAdapter).mockReturnValue(spied);
@@ -794,14 +797,26 @@ describe("one webhook per source (#428)", () => {
         expect(update).not.toHaveBeenCalled();
       });
 
-      it("keeps the mark and logs a failed update, and still adds the missing webhooks (boundary: GitLab fails)", async () => {
+      it.each([
+        ["the update fails at GitLab", "update"],
+        ["clearing the mark fails after a successful update", "mark"],
+      ] as const)("logs it and still adds the missing webhooks when %s, so the next sync tries again (boundary)", async (_name, failing) => {
         const { update, create } = withSourceSpies();
-        update.mockRejectedValue(new Error("GitLab unavailable"));
-        // Only 1001 is stored, so 1002 is missing and gets its webhook after the failed update.
+        if (failing === "update") update.mockRejectedValue(new Error("GitLab unavailable"));
+        else vi.mocked(markSourceWebhookCurrent).mockRejectedValue(new Error("webhook_sources update failed (code 57014)."));
+        // Only 1001 is stored, so 1002 is missing and gets its webhook after the failure.
+        vi.mocked(listWebhookSources).mockResolvedValue(sources(true).filter((source) => source.sourceId === "1001"));
+        expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
+        expect(markSourceWebhookCurrent).toHaveBeenCalledTimes(failing === "update" ? 0 : 1);
+        expect(logError).toHaveBeenCalledWith("webhook_setup.source_update_failed", expect.any(Error), expect.objectContaining({ sourceId: "1001" }));
+        expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1002"]);
+      });
+
+      it("leaves a marked webhook alone for an adapter without update, and still adds the missing ones (boundary)", async () => {
+        const { create } = withSourceSpies(SOURCES, { withUpdate: false });
         vi.mocked(listWebhookSources).mockResolvedValue(sources(true).filter((source) => source.sourceId === "1001"));
         expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
         expect(markSourceWebhookCurrent).not.toHaveBeenCalled();
-        expect(logError).toHaveBeenCalledWith("webhook_setup.source_update_failed", expect.any(Error), expect.objectContaining({ sourceId: "1001" }));
         expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1002"]);
       });
     });

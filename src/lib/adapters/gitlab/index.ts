@@ -41,10 +41,12 @@ import {
   PipelineHookSchema,
   PipelinesSchema,
   ProjectHookSchema,
+  ProjectIdSchema,
   ProjectsSchema,
   ReleaseHookSchema,
   ReleasesSchema,
   TokenResponseSchema,
+  UpdatedProjectHookSchema,
   UsageResponseSchema,
   UserSchema,
   type Deployment,
@@ -1025,20 +1027,28 @@ async function createProjectWebhook(
 /**
  * Gives a webhook automatic setup made before #512 a signing token and clears its secret token, so
  * GitLab stops sending the secret in plain text (#617). `PUT /projects/:id/hooks/:hook_id` requires
- * `url`; GitLab sends `X-Gitlab-Token` only for a present token, so an empty one stops it. A webhook
- * already gone (404) needs nothing.
+ * `url`, so the webhook is pointed at the URL given, the instance's public origin; GitLab sends
+ * `X-Gitlab-Token` only for a present token, so an empty one stops it. GitLab's answer must report
+ * a signing token and no secret token (`UpdatedProjectHookSchema`), or the update fails.
+ *
+ * A 404 means either the webhook was deleted or the project is out of the user's reach, where the
+ * webhook may still send the secret. `GET /projects/:id` tells them apart: a project the user can
+ * still read means the webhook is gone and needs nothing; one it cannot read fails the update, so
+ * the webhook stays marked and is tried again once access returns.
  */
 async function updateProjectWebhook(
   { credential, url, secret, sourceId, webhookId }: Readonly<{ credential: OAuthCredential; url: string; secret: Secret; sourceId: string; webhookId: string }>,
   ctx: OAuthContext,
 ): Promise<void> {
-  const hookUrl = apiUrl(`/projects/${numericId(sourceId, "project")}/hooks/${numericId(webhookId, "webhook")}`);
+  const projectPath = `/projects/${numericId(sourceId, "project")}`;
+  const hookUrl = apiUrl(`${projectPath}/hooks/${numericId(webhookId, "webhook")}`);
   const body = JSON.stringify({ url, signing_token: signingToken(secret), token: "" });
   try {
-    await fetchNoContent(ctx, hookUrl, { method: "PUT", headers: { ...bearer(credential), "Content-Type": "application/json" }, body });
+    await fetchJson(ctx, hookUrl, { method: "PUT", headers: { ...bearer(credential), "Content-Type": "application/json" }, body }, UpdatedProjectHookSchema);
   } catch (error) {
-    if (error instanceof InvalidResponseError && error.status === 404) return;
-    throw error;
+    if (!(error instanceof InvalidResponseError && error.status === 404)) throw error;
+    // Throws on a 404 for the project itself, which keeps the mark.
+    await fetchJson(ctx, apiUrl(projectPath), { headers: bearer(credential) }, ProjectIdSchema);
   }
 }
 
