@@ -168,6 +168,14 @@ export const ReleaseHookSchema = z.object({
 // `POST /projects/:id/hooks` (https://docs.gitlab.com/api/project_webhooks/). Only the id is kept.
 export const ProjectHookSchema = z.object({ id: z.int().positive() });
 
+// `PUT /projects/:id/hooks/:hook_id` answers with the webhook, whose `token_present` and
+// `signing_token_present` (GitLab 19.0) say what it now holds (#617). Anything but a signing token
+// and no secret token fails the parse, so the webhook stays marked and is tried again.
+export const UpdatedProjectHookSchema = z.object({ token_present: z.literal(false), signing_token_present: z.literal(true) });
+
+// `GET /projects/:id`, read only to tell a deleted webhook from a project out of reach.
+export const ProjectIdSchema = z.object({ id: z.int().positive() });
+
 const nonNegativeNumber = z.number().nonnegative();
 
 /**

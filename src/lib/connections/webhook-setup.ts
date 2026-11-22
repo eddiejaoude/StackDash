@@ -32,6 +32,7 @@ import {
   insertWebhookEndpoint,
   listWebhookSources,
   loadWebhookEndpoint,
+  markSourceWebhookCurrent,
   noteSourceWithoutWebhook,
   replaceWebhookEndpointSecret,
   saveCreatedWebhookSource,
@@ -39,6 +40,7 @@ import {
   WebhookEndpointExistsError,
   WebhookEndpointLimitError,
   type SourceWebhook,
+  type StoredWebhookSource,
 } from "@/lib/data/webhook-endpoints";
 import { log, logError, type LogFields } from "@/lib/log/logger";
 import { messageOrigin } from "@/lib/notifications/links";
@@ -290,6 +292,34 @@ async function createSourceWebhooks(sources: readonly WebhookSource[], input: So
   return { created: sources.length - failures.length, failure: failures[0] };
 }
 
+/**
+ * Brings each webhook an older build made up to date with the adapter's `update` (#617), and clears
+ * its mark once that succeeds. The URL sent is the instance's public origin, the one the after-sync
+ * `create` uses, so a webhook set up through another origin is pointed there. A failure, of the
+ * update or of clearing the mark, is logged and keeps the mark, so the next sync tries it again;
+ * it never stops the pass from adding missing webhooks. Nothing to do for an adapter without
+ * `update`.
+ */
+async function updateOutdatedSourceWebhooks(stored: readonly StoredWebhookSource[], input: SourceWebhooksInput): Promise<void> {
+  const { endpointId, automatic, credential, url, secret, ctx, fields } = input;
+  const update = automatic.update;
+  if (update === undefined) return;
+  const outdated = stored.flatMap((source) =>
+    source.providerWebhookOutdated && source.providerWebhookId !== null ? [{ sourceId: source.sourceId, webhookId: source.providerWebhookId }] : [],
+  );
+  if (outdated.length === 0) return;
+  const failures = await settleInBatches(outdated, async ({ sourceId, webhookId }) => {
+    try {
+      await update({ credential, url, secret, sourceId, webhookId }, ctx);
+      await markSourceWebhookCurrent({ endpointId, sourceId, providerWebhookId: webhookId });
+    } catch (error) {
+      logError("webhook_setup.source_update_failed", error, { ...fields, sourceId });
+      throw error;
+    }
+  });
+  log.info("webhook_setup.sources_updated", { ...fields, outdated: outdated.length, updated: outdated.length - failures.length });
+}
+
 /** Deletes each source's webhook at the provider. Returns the ones still there, and the first failure. */
 async function removeSourceWebhooks(
   automatic: PerSourceWebhookSetup,
@@ -424,7 +454,8 @@ export async function setUpWebhookAutomatically({
  * After a successful sync (#428): gives each source the connection now reads a webhook, for a
  * connection whose webhooks were set up automatically per source, so a project added later gets
  * one on the next sync, and a project whose webhook failed before is tried again. A source with
- * StackDash's webhook recorded is left alone, including one the user deleted at the provider since.
+ * StackDash's webhook recorded is left alone, including one the user deleted at the provider since,
+ * except that one an older build made is updated once first (#617, updateOutdatedSourceWebhooks).
  * The URL is built on the instance's public origin, as other work done from a job is
  * (NEXT_PUBLIC_SITE_URL). Returns how many webhooks it created; throws when every one it tried
  * failed. Returns at once, with no query, for a provider without per-source webhooks.
@@ -458,6 +489,10 @@ export async function addMissingSourceWebhooks(workspaceId: string, connectionId
   const ctx = createOAuthContext(client);
   const credential = await refreshIfExpiring(adapter, loaded, { workspaceId, connectionId }, ctx, refreshDeps);
 
+  const url = webhookUrl(messageOrigin(), provider, endpoint.id);
+  const input: SourceWebhooksInput = { endpointId: endpoint.id, automatic, credential, url, secret: endpoint.secret, ctx, fields };
+  await updateOutdatedSourceWebhooks(stored, input);
+
   const known = new Map(stored.map((source) => [source.sourceId, source]));
   let free = WEBHOOK_SOURCES_PER_ENDPOINT - stored.length;
   const missing = (await automatic.listSources({ credential, externalAccountIds: accountIds }, ctx)).filter((source) => {
@@ -469,8 +504,7 @@ export async function addMissingSourceWebhooks(workspaceId: string, connectionId
   });
   if (missing.length === 0) return 0;
 
-  const url = webhookUrl(messageOrigin(), provider, endpoint.id);
-  const { created, failure } = await createSourceWebhooks(missing, { endpointId: endpoint.id, automatic, credential, url, secret: endpoint.secret, ctx, fields });
+  const { created, failure } = await createSourceWebhooks(missing, input);
   log.info("webhook_setup.sources_added", { ...fields, missing: missing.length, created });
   if (created === 0) throw new Error(`No new ${provider} webhook could be created.`, { cause: failure });
   return created;

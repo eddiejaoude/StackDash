@@ -777,14 +777,14 @@ isOneToOne: false
                   ]
                 },"webhook_sources": {
                   Row: {
-                    "created_at": string,"endpoint_id": string,"last_delivery_at": string | null,"provider_webhook_id": string | null,"source_id": string,"source_name": string,"updated_at": string
+                    "created_at": string,"endpoint_id": string,"last_delivery_at": string | null,"provider_webhook_id": string | null,"provider_webhook_outdated": boolean,"source_id": string,"source_name": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"endpoint_id": string,"last_delivery_at"?: string | null,"provider_webhook_id"?: string | null,"source_id": string,"source_name": string,"updated_at"?: string
+                    "created_at"?: string,"endpoint_id": string,"last_delivery_at"?: string | null,"provider_webhook_id"?: string | null,"provider_webhook_outdated"?: boolean,"source_id": string,"source_name": string,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"endpoint_id"?: string,"last_delivery_at"?: string | null,"provider_webhook_id"?: string | null,"source_id"?: string,"source_name"?: string,"updated_at"?: string
+                    "created_at"?: string,"endpoint_id"?: string,"last_delivery_at"?: string | null,"provider_webhook_id"?: string | null,"provider_webhook_outdated"?: boolean,"source_id"?: string,"source_name"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
