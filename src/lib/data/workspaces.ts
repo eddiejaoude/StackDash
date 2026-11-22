@@ -108,10 +108,12 @@ export async function rememberWorkspace(workspaceId: string): Promise<void> {
       .eq("user_id", user.id)
       .or(`last_workspace_id.is.null,last_workspace_id.neq.${id}`);
     if (error === null) return;
-    // 42501: the profiles_update_own with check refused the row because the user is no longer a
-    // member of the workspace (it was deleted, or they left it, after this request). Expected:
-    // /app simply opens another workspace next time, so this is degraded but handled.
-    if (error.code === "42501") {
+    // The profiles_update_own with check refused the row because the user is no longer a member
+    // of the workspace (it was deleted, or they left it, after this request). Expected: /app simply
+    // opens another workspace next time, so this is degraded but handled. Only the row level
+    // security refusal qualifies: a lost grant or an anonymous request is also 42501 ("permission
+    // denied") and is a real fault.
+    if (error.code === "42501" && error.message.includes("row-level security policy")) {
       log.warn("workspaces.remember_skipped_not_member", { workspaceId: id });
       return;
     }

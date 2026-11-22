@@ -74,6 +74,14 @@ describe("rememberWorkspace", () => {
     expect(logError).toHaveBeenCalledWith("workspaces.remember_failed", error, { workspaceId: WORKSPACE_ID });
   });
 
+  it("logs a 42501 that is not a row level security refusal, such as a lost grant, as an error", async () => {
+    const error = { code: "42501", message: "permission denied for table profiles" };
+    state.result = { error };
+    await remember();
+    expect(warn).not.toHaveBeenCalled();
+    expect(logError).toHaveBeenCalledWith("workspaces.remember_failed", error, { workspaceId: WORKSPACE_ID });
+  });
+
   it("logs nothing when the write succeeds", async () => {
     await remember();
     expect(warn).not.toHaveBeenCalled();
