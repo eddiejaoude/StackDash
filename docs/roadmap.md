@@ -2,7 +2,7 @@
 
 What is being built now, what comes next, and what is planned after that. This page is the public summary of the project board the maintainers plan StackDash on, and it changes when the board does. It names no dates: work moves up or down as priorities change.
 
-Last checked against the board: 2026-11-21.
+Last checked against the board: 2026-11-22.
 
 ## How this page maps to the board
 
@@ -26,7 +26,8 @@ Want something that is not here? Search the issues first, then open a new one: a
 
 ## Now
 
-- **Fixes** to the home page, the sign-in page, and the provider docs, so each says what StackDash does today.
+- **Fewer permissions.** Vercel and Stripe connections stop asking for access StackDash does not use.
+- **Fixes.** The home page's example events, and GitLab webhooks that StackDash adds signed so a forged or replayed delivery is refused, plus test coverage and reliability for connections, spend, key rotation, and CI.
 
 ## Next
 
@@ -60,4 +61,4 @@ Want something that is not here? Search the issues first, then open a new one: a
 - **A light theme**, blocked on a decision: whether to offer a manual switch as well as following the system setting.
 - **An admin console** for the hosted version: a read-only view of a customer's plan and subscription first, then audited impersonation for support.
 - **A blog** with the launch posts, blocked on a decision: whether a self-hosted instance publishes it too.
-- **Fixes and upkeep.** A tab title that goes blank after a save. GitLab webhook deliveries signed rather than checked with a shared token, waiting on a decision about setup by hand. A check that a live Resend callback carries its issuer, and a dependency upgrade, are blocked until something outside the project changes.
+- **Fixes and upkeep.** A tab title that goes blank after a save. A check that a live Resend callback carries its issuer, and a dependency upgrade, are blocked until something outside the project changes.
