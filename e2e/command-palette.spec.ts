@@ -2,7 +2,7 @@ import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { combobox, openWith, option, optionsOfKind, palette, resultCount, trigger } from "./fixtures/palette";
 
 /** A fresh workspace with one Vercel connection, account, and project, and two Vercel events. */
@@ -24,6 +24,7 @@ async function seedPaletteWorkspace(label: string): Promise<TestWorkspace> {
       granted_at: new Date().toISOString(),
       display_name: "Vercel palette team",
       poll_interval_seconds: 3600,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -493,6 +494,7 @@ ownerTest.describe("command palette as the owner", () => {
         mode: "live",
         display_name: "Stripe palette account",
         poll_interval_seconds: 3600,
+        next_sync_at: notDueForAMonth(),
       });
       if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
       await page.goto(`/w/${workspace.slug}/timeline`);

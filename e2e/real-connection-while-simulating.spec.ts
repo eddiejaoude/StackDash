@@ -1,5 +1,5 @@
 import { expect, ownerTest } from "./fixtures/auth";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
 
 /*
  * A real connection while the live providers are simulated (#131): the web server runs with
@@ -23,6 +23,7 @@ ownerTest.describe("real connection while simulating", () => {
           granted_at: new Date().toISOString(),
           display_name: "Vercel (Real team)",
           poll_interval_seconds: 3600,
+          next_sync_at: notDueForAMonth(),
         })
         .select("id")
         .single();

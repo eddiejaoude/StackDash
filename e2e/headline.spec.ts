@@ -4,7 +4,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 // Seeds its own workspace with synthetic data: an Example provider (fake) connection with spend,
 // signups, and deploys, a Stripe connection with revenue, a Supabase connection with signups but
@@ -46,6 +46,7 @@ async function seedHeadline(workspace: TestWorkspace): Promise<Seeded> {
         display_name: `${provider} headline connection`,
         poll_interval_seconds: 3_600,
         last_synced_at: syncedAt,
+        next_sync_at: notDueForAMonth(),
       })),
     )
     .select("id, provider");

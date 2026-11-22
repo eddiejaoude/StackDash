@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { openFilters } from "./fixtures/filters";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The
@@ -28,6 +28,7 @@ async function seedAnomaly(workspace: TestWorkspace): Promise<void> {
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: now.toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

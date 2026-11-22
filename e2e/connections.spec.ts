@@ -2,7 +2,7 @@ import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
 import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
 import { insertUnheard } from "./fixtures/realtime";
@@ -52,6 +52,7 @@ async function insertConnection(workspaceId: string): Promise<string> {
       display_name: `${PROVIDER_NAME} (Seeded team)`,
       authorized_account_label: "Seeded team",
       poll_interval_seconds: 3600,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -571,6 +572,7 @@ viewerTest.describe("connections as a viewer", () => {
           display_name: `${PROVIDER_NAME} (Seeded team)`,
           authorized_account_label: "Seeded team",
           poll_interval_seconds: 3600,
+          next_sync_at: notDueForAMonth(),
         })
         .select("id")
         .single();

@@ -4,7 +4,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(26);
+select plan(28);
 
 -- Test helpers, rolled back with the transaction.
 -- rls_test.affected: rows touched by a statement run as the current role, or -1
@@ -158,6 +158,14 @@ select is(rls_test.affected($$ update public.profiles set display_name = 'Rename
   'profiles: a user can update their own profile');
 select cmp_ok(rls_test.affected($$ update public.profiles set display_name = 'Renamed other' where user_id = 'd0000002-0000-4000-8000-000000000000' $$), '<=', 0,
   'profiles: a user cannot update another user''s profile');
+-- last_workspace_id may only name a workspace the user belongs to. The app treats the refusal
+-- (42501) as expected, so a policy that refused members would go unnoticed without this pair.
+select is(rls_test.affected($$ update public.profiles set last_workspace_id = (select id from rls_test.ids where key = 'team')
+    where user_id = 'd0000001-0000-4000-8000-000000000000' $$), 1,
+  'profiles: a user can point last_workspace_id at a workspace they belong to');
+select is(rls_test.affected($$ update public.profiles set last_workspace_id = (select id from rls_test.ids where key = 'other_personal')
+    where user_id = 'd0000001-0000-4000-8000-000000000000' $$), -1,
+  'profiles: pointing last_workspace_id at a workspace the user does not belong to is refused with 42501');
 
 reset role;
 reset request.jwt.claims;

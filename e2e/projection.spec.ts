@@ -4,7 +4,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only (#167).
 
@@ -30,6 +30,7 @@ async function seedConnection(workspace: TestWorkspace, name: string, externalId
       display_name: name,
       poll_interval_seconds: 86_400,
       last_synced_at: new Date(todayStart - DAY_MS / 2).toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

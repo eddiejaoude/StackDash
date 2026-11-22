@@ -4,7 +4,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only.
 
@@ -39,6 +39,7 @@ async function seedTrends(workspace: TestWorkspace): Promise<SeededTrends> {
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: new Date(now).toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -155,6 +156,7 @@ async function seedLongHistory(workspace: TestWorkspace): Promise<SeededLongHist
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: now.toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -232,6 +234,7 @@ async function seedStoppedAccount(workspace: TestWorkspace): Promise<{ today: st
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: now.toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

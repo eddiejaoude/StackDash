@@ -258,16 +258,26 @@ test.describe("hero data-flow constellation in motion", () => {
       tilt.evaluate((element) =>
         ["--tilt-x", "--tilt-y"].map((name) => Number.parseFloat(element.style.getPropertyValue(name) || "0")),
       );
-    // What is drawn, not only the inputs: the computed transform with no tilt, before any pointer.
-    const drawn = () => tilt.evaluate((element) => getComputedStyle(element).transform);
-    const flat = await drawn();
+    // What is drawn, not only the inputs: the rotation in the computed transform, its upper-left
+    // 3 by 3 (perspective(1400px) in front of the rotations leaves that part alone). The whole
+    // matrix is not compared: in two CI runs the perspective was still transitioning in right after
+    // load while the stage was already flat, so it is no fixed reference for "flat" (#464). Why the
+    // stage starts from transform none there is not known yet (#623).
+    const rotation = () =>
+      tilt.evaluate((element) => {
+        const { m11, m12, m13, m21, m22, m23, m31, m32, m33 } = new DOMMatrix(getComputedStyle(element).transform);
+        // `|| 0` turns -0 into 0, which toEqual tells apart.
+        return [m11, m12, m13, m21, m22, m23, m31, m32, m33].map((value) => value || 0);
+      });
+    const flat = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    expect(await rotation()).toEqual(flat);
     const frame = await tilt.boundingBox();
     if (!frame) throw new Error("The stage has no box");
     const nearRightEdge = { x: frame.x + frame.width * 0.95, y: frame.y + frame.height * 0.5 };
 
     await page.mouse.move(nearRightEdge.x, nearRightEdge.y);
     await expect.poll(async () => (await angles())[0]).toBeGreaterThan(3);
-    await expect.poll(drawn).not.toBe(flat);
+    await expect.poll(rotation).not.toEqual(flat);
 
     // A pull keeps the pointer captured, so moves arrive from far outside the frame.
     const stripe = picture.getByRole("button", { name: /^Stripe\b/ });
@@ -285,7 +295,7 @@ test.describe("hero data-flow constellation in motion", () => {
     await picture.getByRole("button", { name: "Pause animation" }).focus();
     await page.keyboard.press("Enter");
     await expect.poll(angles).toEqual([0, 0]);
-    await expect.poll(drawn).toBe(flat);
+    await expect.poll(rotation).toEqual(flat);
     await page.mouse.move(frame.x + frame.width * 0.9, frame.y + frame.height * 0.1);
     await expect.poll(angles).toEqual([0, 0]);
   });

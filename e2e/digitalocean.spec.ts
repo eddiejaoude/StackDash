@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
 
 /*
  * DigitalOcean (#116), end to end. The web server simulates the live providers
@@ -56,6 +56,7 @@ ownerTest.describe("DigitalOcean", () => {
           granted_at: new Date().toISOString(),
           display_name: "DigitalOcean (Example team)",
           poll_interval_seconds: 3600,
+          next_sync_at: notDueForAMonth(),
         })
         .select("id")
         .single();

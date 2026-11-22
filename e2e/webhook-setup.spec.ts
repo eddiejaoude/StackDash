@@ -12,6 +12,7 @@ import {
   CONNECTION_URL,
   createTestWorkspace,
   deleteTestWorkspace,
+  notDueForAMonth,
   type TestWorkspace,
 } from "./fixtures/db";
 import { postGitLabDelivery, pipelineDeliveryBody, SIMULATED_GITLAB_GROUP } from "./fixtures/gitlab-webhook";
@@ -522,6 +523,7 @@ async function seedGitLabEndpoints(workspace: TestWorkspace, count: number): Pro
       granted_at: new Date().toISOString(),
       display_name: `Seeded ${index}`,
       poll_interval_seconds: 3600,
+      next_sync_at: notDueForAMonth(),
     })),
   );
   if (connectionError) throw new Error(`Seeding connections failed (code ${connectionError.code}).`);

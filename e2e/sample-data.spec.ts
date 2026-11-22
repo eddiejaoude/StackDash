@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
 
 /*
  * "Explore with sample data" (#257): the web server simulates providers (playwright.config.ts), so
@@ -92,6 +92,7 @@ ownerTest.describe("sample data as the owner", () => {
         granted_at: new Date().toISOString(),
         display_name: "Vercel e2e connection",
         poll_interval_seconds: 3600,
+        next_sync_at: notDueForAMonth(),
       });
       if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
 
