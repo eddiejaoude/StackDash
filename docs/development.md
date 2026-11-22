@@ -539,34 +539,26 @@ other specs seed, so a spec that runs it would break them if it ran beside them.
 `e2e/alert-email.spec.ts`, and every `e2e/webhooks*.spec.ts`, among others) live in their own Playwright
 project, `instance-wide`, which depends on the `chromium`, `webkit-touch`, and `firefox-touch`
 projects and so starts only after their specs have finished. `npm run test:e2e` (and CI) runs all
-five projects in that order, with `bulk-writes` (below) last; if a test in an earlier project
-fails, the projects that depend on it are skipped. To run the tick specs locally:
+four projects in that order; if a test in an earlier project fails, the projects that depend on it
+are skipped. To run the tick specs locally:
 
 ```bash
 npx playwright test --project=instance-wide        # runs every chromium spec first, then the tick specs
 npx playwright test --project=instance-wide --no-deps  # only the tick specs, with nothing else running
-npx playwright test --project=chromium              # every spec except the tick specs and the bulk write spec
+npx playwright test --project=chromium              # every spec except the tick specs
 ```
 
 A file filter does not narrow the `chromium` dependency: it still runs in full. A wrapper that
-always passes `--project chromium` skips the tick specs and the bulk write spec; it needs
-`--project instance-wide` and `--project bulk-writes` to include them.
+always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
+include them.
 
-One spec writes so many rows that it runs on its own. `e2e/trends-long-history.spec.ts` seeds about
-22,500 usage snapshots to chart a history longer than the dashboard's snapshot read cap. Realtime
-reads the database's changes in commit order, so a live change written after those rows reaches a
-page only once Realtime has read every one of them: in CI that took most of a minute, and the specs
-beside it that waited for a live change failed. The spec lives in its own project, `bulk-writes`
-(`BULK_WRITE_SPEC` in `playwright.config.ts`), which depends on every other project and so runs
-last, with nothing beside it. If an earlier test fails, it is skipped. That holds within one
-Playwright run only: a second run against the same local Supabase, such as another checkout on its
-own `E2E_PORT`, shares that Realtime, so its live changes stall too while this spec seeds and
-cleans up. To run it locally:
-
-```bash
-npx playwright test --project=bulk-writes            # runs every other project first, the tick specs included
-npx playwright test --project=bulk-writes --no-deps  # only the bulk write spec, with nothing else running
-```
+A spec that writes thousands of rows runs beside the others. Live updates reach a page as one
+Broadcast message per statement, which Realtime streams apart from the rows (see
+[Database schema, Realtime](architecture/schema.md#realtime)), so the 22,500 usage snapshots
+`e2e/trends-long-history.spec.ts` seeds hold up no other spec's live change. The specs wait for the
+channel's database stream before they write (`expectSubscribed` in `e2e/fixtures/realtime.ts`), and
+the local stack needs every migration applied (`supabase migration up`, step 5) for live updates to
+arrive at all.
 
 ## Project layout
 
