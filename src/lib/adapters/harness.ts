@@ -452,9 +452,14 @@ function shown(amounts: readonly CurrencyAmounts[]): ShownSpend[] {
  * projections. `provider` is the connection's card, `totals` the headline. A test pins both to the
  * one total its recorded responses hold, so a breakdown, a shorter window, or a projection counted
  * beside that total fails it.
+ *
+ * The connection row's provider is the `fake` test provider whatever the adapter's id, so an adapter
+ * not registered yet (a copy of the example) is reduced the same way. The dashboard reads a
+ * connection's provider only to order and label cards, never to count spend; the spend rules come
+ * from the metrics and `adapter.projectedSpend`.
  */
 export function dashboardSpendAfterSync(
-  adapter: ProviderAdapter,
+  adapter: ProviderAdapter<string>,
   metrics: readonly AdapterMetric[],
   now: Date,
 ): Readonly<{ provider: ShownSpend[]; totals: ShownSpend[] }> {
@@ -465,7 +470,7 @@ export function dashboardSpendAfterSync(
     connections: [
       {
         id: connection.id,
-        provider: adapter.id,
+        provider: "fake",
         display_name: adapter.displayName,
         status: "active",
         last_synced_at: now.toISOString(),
