@@ -11,18 +11,20 @@ interface PreviewRow {
 }
 
 // Illustrative values only, labeled as such in the UI. Not real provider data. Every row is a
-// first-release integration (issue #11). The GitHub cost rows come from the organization billing
-// usage endpoints the GitHub App in issue #51 reads with "Administration" set to read.
+// figure a built adapter reports, or a budget the user sets (#611): Resend and GitLab report
+// allowances with their reset dates, and the GitHub cost rows come from the organization billing
+// usage endpoints the GitHub App in issue #51 reads with "Administration" set to read (spend per
+// product and SKU; GitHub reports no allowance).
 // Allowances work on every plan, so they come before spend, which only some plans report (#305).
 const limitRows: readonly PreviewRow[] = [
   { provider: "Resend", detail: "Monthly emails · resets in 9 days", source: "Allowance", measure: { kind: "share", percentUsed: 75 } },
-  { provider: "GitHub Actions", detail: "Included minutes · resets in 21 days", source: "Allowance", measure: { kind: "share", percentUsed: 52 } },
+  { provider: "GitLab", detail: "Compute minutes · resets in 9 days", source: "Allowance", measure: { kind: "share", percentUsed: 52 } },
   { provider: "Vercel", detail: "$22.80 of a $25 budget", source: "Budget", measure: { kind: "share", percentUsed: 91 } },
 ];
 const spendRows: readonly PreviewRow[] = [
   { provider: "Stripe", detail: "Processing fees this month", source: "Verified cost", measure: { kind: "amount", amountMinor: 1450 } },
   { provider: "GitHub Copilot", detail: "AI Credits beyond the plan", source: "Verified cost", measure: { kind: "amount", amountMinor: 400 } },
-  { provider: "GitHub Actions", detail: "Larger runner minutes, not in the allowance", source: "Verified cost", measure: { kind: "amount", amountMinor: 240 } },
+  { provider: "GitHub Actions", detail: "Larger runner minutes this month", source: "Verified cost", measure: { kind: "amount", amountMinor: 240 } },
   { provider: "Supabase", detail: "Pro plan price, from published pricing", source: "Estimated cost", measure: { kind: "amount", amountMinor: 2500 } },
 ];
 
