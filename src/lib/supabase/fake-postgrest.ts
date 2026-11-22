@@ -23,6 +23,8 @@ import type { Database } from "@/lib/supabase/database.types";
  * `tables` the fake returns, and answers them when `.select(columns)` asks for them; a test may
  * also replace a table there between requests, as another writer would. `intercept` sees each
  * request before the fake answers it and may answer it instead, such as with a Postgres error.
+ * Only updates write: an insert, upsert, or delete is answered as a read of the matching rows and
+ * leaves `tables` unchanged, so a test of one must check its request, not the stored rows.
  */
 
 export const MAX_ROWS = 1000;
