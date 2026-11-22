@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { readDeliveryId, safeEqual } from "@/lib/webhooks/signature";
+import { STANDARD_WEBHOOK_HEADERS, verifyStandardWebhook } from "@/lib/webhooks/standard-webhooks";
 import type { Achievement } from "../achievements";
 import {
   AuthRevokedError,
@@ -779,16 +780,26 @@ function readCursor(raw: string | undefined, ctx: OAuthContext): Date | undefine
  * on each project the sync reads (needs `api`, the opt-in write access), or added by hand per
  * project. Group webhooks would need a paid GitLab tier, so they are not used.
  *
- * Verification: GitLab sends the secret token back as plain text in `X-Gitlab-Token`, compared here
- * in constant time. It is a shared secret, not a signature over the body: whoever reads one
- * delivery's headers can send any body under a new delivery id, and since the token covers no
- * timestamp, only each event's `dedupeKey` bounds such a replay. GitLab now recommends a signing
- * token (an HMAC over the body) for new webhooks; moving to it changes how setup by hand works and
- * is #512.
+ * Verification (#512): automatic setup creates each webhook with a signing token, the connection's
+ * secret as `whsec_<base64>`, and no secret token. GitLab then signs every delivery the Standard
+ * Webhooks way (HMAC-SHA256 over `{webhook-id}.{webhook-timestamp}.{body}` in `webhook-signature`),
+ * checked with the shared verifier: a forged body or a delivery older than five minutes is refused.
+ * Setup by hand cannot use it, because GitLab's form only generates a signing token and shows it
+ * once, while a connection holds one secret for all its projects; so a webhook added by hand
+ * carries the secret as its secret token, sent back as plain text in `X-Gitlab-Token` and compared
+ * in constant time. That is a shared secret, not a signature: whoever reads one such delivery's
+ * headers can send any body under a new delivery id. A delivery carrying `webhook-signature` is
+ * judged by it alone, and only one without it falls back to the token, as GitLab's "Backward
+ * compatibility" section describes. So a webhook added by hand must leave GitLab's signing token
+ * empty: one GitLab generated signs with a key StackDash never sees, and is refused (the manual
+ * steps say so). A webhook automatic setup adds never sends the token. Those it added before #512
+ * still do, and on such a connection the token is also the signing key until they are updated (#617).
  *
  * Delivery id: `webhook-id`, which GitLab documents as unique per delivery and the same across its
- * retries, and which equals `Idempotency-Key` (sent since GitLab 17.4, read when `webhook-id` is
- * absent). Not `X-Gitlab-Event-UUID`: webhooks triggered by an earlier webhook share it.
+ * retries, and which equals `Idempotency-Key` (sent since GitLab 17.4). A delivery checked by its
+ * token falls back to `Idempotency-Key` when `webhook-id` is absent; a signed one cannot, because
+ * the signature covers `webhook-id`. Not `X-Gitlab-Event-UUID`: webhooks triggered by an earlier
+ * webhook share it.
  *
  * Account: no delivery names the namespace id `sync` reads, only the project's path, so `parse`
  * matches the path's top-level namespace against the connection's accounts by name (their
@@ -825,7 +836,7 @@ export const webhookWritePermission: FullAccessPermission = {
 
 export const webhookManualSteps = [
   "In GitLab, open a project StackDash reads, then Settings, then Webhooks, and choose Add new webhook. You need the Maintainer or Owner role in the project.",
-  "Paste the address below into URL and the secret below into Secret token.",
+  "Paste the address below into URL and the secret below into Secret token. Leave Signing token empty: StackDash cannot read a token GitLab generates, so deliveries signed with one are refused.",
   "Under Trigger, select Pipeline events, Deployment events, Releases events, and Merge request events, then choose Add webhook.",
   "Repeat for each project you want events from. Projects without the webhook still reach the timeline on the schedule.",
 ] as const;
@@ -844,7 +855,30 @@ function toSource(project: Pick<Project, "id" | "path_with_namespace">): Webhook
   return { id: String(project.id), name: shorten(project.path_with_namespace, SOURCE_NAME_MAX) };
 }
 
-function verifyWebhook({ headers }: WebhookRequest, secret: Secret): WebhookVerification {
+// GitLab's `signing_token` must be `whsec_` and the base64 of exactly 32 bytes (Project webhooks API,
+// "Add a webhook to a project"). The connection's secret is 32 random bytes as base64url, with no
+// prefix (`newWebhookSecret`).
+const SIGNING_KEY_BYTES = 32;
+
+/** The 32 bytes the connection's secret encodes, or null for a secret StackDash did not make. */
+function signingKey(secret: Secret): Buffer | null {
+  const key = Buffer.from(secret.reveal(), "base64url");
+  return key.length === SIGNING_KEY_BYTES ? key : null;
+}
+
+/** The connection's secret as GitLab's `signing_token`. */
+function signingToken(secret: Secret): string {
+  const key = signingKey(secret);
+  if (key === null) throw new TypeError("GitLab signing tokens need a 32-byte webhook secret");
+  return `whsec_${key.toString("base64")}`;
+}
+
+function verifyWebhook(request: WebhookRequest, secret: Secret, now: Date): WebhookVerification {
+  const { headers } = request;
+  if (headers.has(STANDARD_WEBHOOK_HEADERS.signature)) {
+    const key = signingKey(secret);
+    return verifyStandardWebhook(request, key === null ? [] : [key], STANDARD_WEBHOOK_HEADERS, now);
+  }
   const token = headers.get(GITLAB_TOKEN_HEADER);
   if (token === null || token === "") return { ok: false, reason: "missing_signature" };
   if (!safeEqual(token, secret.reveal())) return { ok: false, reason: "bad_signature" };
@@ -855,7 +889,7 @@ function verifyWebhook({ headers }: WebhookRequest, secret: Secret): WebhookVeri
   return { ok: false, reason: "malformed" };
 }
 
-/** The decoded JSON body, or undefined when it is not JSON. Only read once the token matches. */
+/** The decoded JSON body, or undefined when it is not JSON. Only read once the delivery verifies. */
 function readJsonBody(rawBody: Uint8Array): unknown {
   try {
     return JSON.parse(new TextDecoder().decode(rawBody));
@@ -975,7 +1009,7 @@ async function createProjectWebhook(
       headers: { ...bearer(credential), "Content-Type": "application/json" },
       body: JSON.stringify({
         url,
-        token: secret.reveal(),
+        signing_token: signingToken(secret),
         name: "StackDash",
         description: "Pipelines, deployments, releases, and merged merge requests for the StackDash timeline.",
         enable_ssl_verification: true,
