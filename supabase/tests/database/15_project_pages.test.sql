@@ -104,11 +104,10 @@ select is(
   'project page functions: all four exist, so the check above is not vacuous');
 
 -- Nothing is public by default: a project has no page until someone turns it on. Only this file's
--- projects are checked, so a page someone turned on in a local database does not fail it (#247).
+-- workspaces are checked, so a page someone turned on in a local database does not fail it (#247).
 select is_empty(
   $$ select project_id from public.project_pages
-     where project_id in ('a9000003-0000-4000-8000-000000000001', 'a9000003-0000-4000-8000-000000000002',
-                          'b9000003-0000-4000-8000-000000000001') $$,
+     where workspace_id in ('a9000002-0000-4000-8000-000000000001', 'b9000002-0000-4000-8000-000000000001') $$,
   'project_pages: creating projects creates no page');
 
 -- ---------------------------------------------------------------------------
