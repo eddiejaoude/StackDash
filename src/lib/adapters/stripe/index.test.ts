@@ -237,7 +237,7 @@ describe("stripeAdapter.detectMissingPermissions", () => {
       missing: ["subscription_read", "balance_read"],
     },
     {
-      name: "grant from the earlier manifest, with invoice_read and payout_read, misses nothing",
+      name: "a listed grant that also holds permissions no longer requested misses nothing",
       scopes: ["event_read", "charge_read", "customer_read", "subscription_read", "invoice_read", "balance_read", "payout_read"],
       missing: [],
     },

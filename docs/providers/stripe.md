@@ -195,7 +195,7 @@ Manifest fields that matter:
 
 A v2 manifest (`stripe-app.yaml`) also exists. It nests the same values under `declarations` (`distribution_type`, `stripe_api_access_type`, `allowed_redirect_uris`, `stripe_api_access.permissions`). `stripe apps migrate` converts v1 to v2. Either works; keep whichever `stripe apps create` produces.
 
-An app uploaded earlier also asked for `invoice_read` and `payout_read`, with older purposes. To match the code: run `stripe apps revoke permission "invoice_read"` and `stripe apps revoke permission "payout_read"`, set the other purposes to the ones above in the manifest, raise `version`, upload, and release the new version (or set it as the external test version). Stripe asks every installed account to reauthorize an app whose permissions changed ([Versions and releases](https://docs.stripe.com/stripe-apps/versions-and-releases)). StackDash needs no new permission, so a connection keeps syncing whether or not its account has reauthorized yet (item 14 in [Unverified](#unverified)).
+An app uploaded earlier also asked for `invoice_read` and `payout_read`, with older purposes. To match the code: run `stripe apps revoke permission "invoice_read"` and `stripe apps revoke permission "payout_read"`, set the other purposes to the ones above in the manifest, raise `version`, upload, and release the new version (or set it as the external test version). Stripe asks every installed account to reauthorize an app whose permissions changed ([Versions and releases](https://docs.stripe.com/stripe-apps/versions-and-releases)). StackDash needs no new permission, so a connection is expected to keep syncing before its account reauthorizes, but Stripe does not document what an install does in that time (item 14 in [Unverified](#unverified)).
 
 Account restrictions for the account that owns the app:
 
@@ -517,11 +517,12 @@ Go. Self-serve OAuth with five read-only permissions. StackDash reads Stripe fee
 
 ## Sources
 
-All checked 2026-10-31, except the webhook pages, checked 2026-11-16, and the mode routing pages ([Handle different modes](https://docs.stripe.com/stripe-apps/handling-modes), [Event behavior depends on install mode](https://docs.stripe.com/stripe-apps/build-backend#event-behavior-depends-on-install-mode), and "Retrieving your endpoint's secret" in [Webhooks](https://docs.stripe.com/webhooks)), checked 2026-11-18.
+All checked 2026-10-31, except the webhook pages, checked 2026-11-16, the mode routing pages ([Handle different modes](https://docs.stripe.com/stripe-apps/handling-modes), [Event behavior depends on install mode](https://docs.stripe.com/stripe-apps/build-backend#event-behavior-depends-on-install-mode), and "Retrieving your endpoint's secret" in [Webhooks](https://docs.stripe.com/webhooks)), checked 2026-11-18, and the versions and permissions pages (`stripe apps revoke permission`, reauthorization on a permission change), checked 2026-11-22.
 
 - [Stripe Apps: OAuth 2.0](https://docs.stripe.com/stripe-apps/api-authentication/oauth)
 - [Stripe Apps: API authentication methods](https://docs.stripe.com/stripe-apps/api-authentication)
 - [Stripe Apps: permissions reference](https://docs.stripe.com/stripe-apps/reference/permissions)
+- [Stripe Apps: versions and releases](https://docs.stripe.com/stripe-apps/versions-and-releases)
 - [Stripe Apps: app manifest reference](https://docs.stripe.com/stripe-apps/reference/app-manifest)
 - [Stripe Apps: create an app](https://docs.stripe.com/stripe-apps/create-app)
 - [Stripe Apps: upload and install your app](https://docs.stripe.com/stripe-apps/upload-install-app)
