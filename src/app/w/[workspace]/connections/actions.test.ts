@@ -6,11 +6,13 @@ import type { WorkspaceMembership } from "@/lib/data/workspaces";
 import type { WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import {
+  assignAccountProject,
   deleteConnection,
   disconnect,
   exploreWithSampleData,
   regenerateWebhookSecret,
   saveWebhookSigningSecret,
+  setAccountIncluded,
   setUpWebhook,
   syncNow,
 } from "./actions";
@@ -57,6 +59,8 @@ function memberAs(role: WorkspaceRole): void {
 
 const FAKE: Row = { id: "57000000-0000-4000-8000-000000000101", provider: "fake", status: "active", last_sync_requested_at: null };
 const GITHUB: Row = { id: "57000000-0000-4000-8000-000000000102", provider: "github", status: "active", last_sync_requested_at: null };
+const ACCOUNT_ID = "57000000-0000-4000-8000-000000000201";
+const PROJECT_ID = "57000000-0000-4000-8000-000000000301";
 const UNAVAILABLE =
   "Example provider is not available on this instance, so this connection cannot sync or be reconnected. Its history stays here until you delete the connection.";
 const QUEUED = { ok: true, message: "Sync queued. New numbers appear within a few minutes." };
@@ -96,9 +100,11 @@ afterEach(() => {
 
 type GuardedAction = (previous: null, formData: FormData) => Promise<unknown>;
 
-// Every action that changes a connection, with a form that passes its schema, so the role check is
-// the only thing left to refuse it.
+// Every action that changes a connection or one of its accounts, with a form that passes its schema,
+// so the role check is the only thing left to refuse it.
 const GUARDED: ReadonlyArray<readonly [string, GuardedAction, Readonly<Record<string, string>>]> = [
+  ["assignAccountProject", assignAccountProject, { accountId: ACCOUNT_ID, projectId: PROJECT_ID }],
+  ["setAccountIncluded", setAccountIncluded, { accountId: ACCOUNT_ID, included: "false" }],
   ["disconnect", disconnect, { connectionId: GITHUB.id }],
   ["deleteConnection", deleteConnection, { connectionId: GITHUB.id }],
   ["exploreWithSampleData", exploreWithSampleData, {}],
