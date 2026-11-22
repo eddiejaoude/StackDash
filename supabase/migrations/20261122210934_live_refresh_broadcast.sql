@@ -46,6 +46,7 @@
 -- 20261112090000_select_policies_membership_set.sql), so a topic of any other shape matches nothing
 -- and no client-chosen text is ever cast. There is no insert policy: no client can send a broadcast
 -- or track presence on a private topic, and the realtime.messages grants stay Supabase's own.
+
 create function public.broadcast_live_change()
   returns trigger
   language plpgsql
