@@ -9,15 +9,15 @@ interface FaqItem {
 const faq: readonly FaqItem[] = [
   {
     question: `Can I use ${site.name} today?`,
-    answer: `Not yet. ${site.name} is in early development and is being built in the open. Follow the GitHub repository to watch progress and hear about the first release.`,
+    answer: `Yes, if you host it yourself. ${site.name} is an early MVP: every integration is built from the provider's documentation and none has been tried with a real account yet. Sign-up is invite only for now, so whoever runs a copy invites each person who signs in. A hosted version is planned. The README shows how to run it on your own computer with simulated data, and the docs cover deploying your own copy.`,
   },
   {
     question: "Is it open source?",
-    answer: "Yes. The core application, integrations included, will be open source under the GNU AGPL v3.0 and self-hostable.",
+    answer: "Yes. The core application, integrations included, is open source under the GNU AGPL v3.0, and you can host it yourself.",
   },
   {
     question: `Does ${site.name} need write access to my accounts?`,
-    answer: `No. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect, and ${site.name} only reads with that access, except to add and delete its own webhook if you choose automatic webhook setup.`,
+    answer: `Not where a provider offers read-only access. It connects through OAuth and asks for read-only access wherever a provider offers it. A few providers only share usage data with broader access; Resend's OAuth, for example, grants full access. Those integrations are labeled Elevated access required before you connect. Polar and GitLab have no read-only way to add a webhook, so automatic webhook setup asks for write access there, and says so first. ${site.name} writes only to add and delete its own webhook, and setting the webhook up by hand asks for no extra access.`,
   },
   {
     question: "Will any of my data be public?",
@@ -32,8 +32,8 @@ const faq: readonly FaqItem[] = [
     answer: `Only where an official way to read it exists. Consumer subscriptions are separate from API billing and most do not offer a documented usage API. ${site.name} will not scrape sessions or ask for your password to fill that gap.`,
   },
   {
-    question: "Which services come first?",
-    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, Sentry, and GitLab, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. ElevenLabs is planned next. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
+    question: "Which services does it connect to?",
+    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, Sentry, and GitLab, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. ElevenLabs is planned later. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
   },
   {
     question: "Will it show OpenAI and Anthropic API spend?",
@@ -41,7 +41,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Is there an API or MCP server?",
-    answer: `The first release includes a read-only REST API with scoped keys, so your own scripts and dashboards can read usage, spend, timeline events, alerts, and connection status. A read-only MCP server on the same keys lets AI assistants such as Claude Code, Claude Desktop, or Cursor answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials. The API and MCP guides are in the docs.`,
+    answer: `Yes. A read-only REST API with scoped keys lets your own scripts and dashboards read usage, spend, timeline events, alerts, and connection status. A read-only MCP server on the same keys lets AI assistants such as Claude Code, Claude Desktop, or Cursor answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials. The API and MCP guides are in the docs.`,
   },
 ];
 

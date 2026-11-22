@@ -7,7 +7,7 @@ import { TICK_BUDGET_MS, TICK_LEASE_SECONDS } from "@/lib/jobs/runner";
 import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError, RateLimitedError } from "../errors";
 import { validateAdapterEvents } from "../events";
-import { checkAdapterDeclaration, checkSyncResult, checkWebhookOutcome } from "../harness";
+import { checkAdapterDeclaration, checkSyncResult, checkWebhookOutcome, dashboardSpendAfterSync } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult, type WebhookDescriptor, type WebhookRequest } from "../types";
 import { monthsToSync } from "./billing";
@@ -556,6 +556,34 @@ describe("sync", () => {
     const { ctx } = harness();
     const result = await githubAdapter.sync(syncInput(), ctx);
     expect(metric(result.metrics, "github.spend.actions")).toMatchObject({ amountMinor: 802 });
+  });
+
+  it("counts GitHub spend once on the dashboard: each product's month, not its SKU rows and daily spend again", async () => {
+    // billing-usage.json's one day, read while that day is still open, so the dashboard would count
+    // the day's spend beside the month if nothing dropped it as part of the month.
+    const openDay = new Date("2026-10-30T12:00:00Z");
+    const result = await githubAdapter.sync(syncInput(), harness({}, { now: openDay }).ctx);
+    // Every level GitHub reports the same money at: the product month, each SKU, and the day.
+    const spend = result.metrics.filter((item) => item.kind === "verified_spend");
+    expect(Object.fromEntries(spend.map((item) => [item.metricKey, "amountMinor" in item ? item.amountMinor : null]))).toEqual({
+      "github.spend.actions": 802,
+      "github.spend.actions.actions_linux": 800,
+      "github.spend.actions.actions_linux_4_core": 0,
+      "github.spend.actions.actions_linux_8_core": 0,
+      "github.spend.actions.actions_linux_16_core": 0,
+      "github.daily_spend.actions": 96,
+      "github.spend.copilot": 100,
+    });
+    expect(metric(result.metrics, "github.daily_spend.actions")?.timeframe).toEqual({
+      type: "period",
+      start: new Date("2026-10-30T00:00:00Z"),
+      end: new Date("2026-10-31T00:00:00Z"),
+    });
+    // Actions' month 8 + 3 x 0.005 = 8.015 USD rounds once to 802 cents, and Copilot's AI credits
+    // add 1.00 USD: 902. The SKU rows (800) and the day (96) again would show 1798.
+    const MONTH_MINOR = 802 + 100;
+    const once = [{ currency: "USD", verifiedMinor: MONTH_MINOR, estimatedMinor: null }];
+    expect(dashboardSpendAfterSync(githubAdapter, result.metrics, openDay)).toEqual({ provider: once, totals: once });
   });
 
   it("emits daily stars, milestones, and new forks after the first sync, with no fork owner data", async () => {

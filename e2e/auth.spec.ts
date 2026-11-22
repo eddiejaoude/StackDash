@@ -30,7 +30,7 @@ test.describe("signed out", () => {
     await expect(page.getByRole("main")).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
-    await expect(page.getByText("StackDash is invite only during the test.")).toBeVisible();
+    await expect(page.getByText("Sign-up to StackDash is invite only for now.")).toBeVisible();
 
     const buttons = page.getByRole("main").getByRole("button");
     await expect(buttons).toHaveCount(1);

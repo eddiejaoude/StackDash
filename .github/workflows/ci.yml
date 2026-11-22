@@ -9,10 +9,13 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch or pull request makes the older run worthless, so cancel it.
+# A newer push to a pull request makes its older run worthless, so cancel it. Every commit on main
+# gets a run of its own that finishes, because a merge right after another would otherwise cancel
+# the first merge's run and leave that commit unchecked (#604): a group shared by pushes to main
+# also cancels a pending run, even with cancel-in-progress off.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Pinned to the CLI that generated src/lib/supabase/database.types.ts, so db:types:check
