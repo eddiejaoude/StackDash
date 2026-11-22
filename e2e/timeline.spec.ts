@@ -1626,6 +1626,10 @@ ownerTest.describe("timeline event inspector", () => {
   // same press counted 1, does what a click does: beside the panel it closes them (#407), and on a
   // link in them it follows the link.
   const AROUND = "Show events around this time";
+  // How many fresh pages the touch double-tap case gets to open the details within the double-tap
+  // window on a loaded runner (#618). One open past the window is runner speed; three in a row is
+  // an open too slow for the case to exist, and fails.
+  const DOUBLE_TAP_ATTEMPTS = 3;
   for (const { name, width, under, secondClickCount, evidence } of [
     { name: "keeps the details open on a double-click on a row beside the panel", width: 1280, under: null, secondClickCount: 2, evidence: "double-click-beside" },
     { name: "closes the details on two separate clicks on a row beside the panel", width: 1280, under: null, secondClickCount: 1, evidence: null },
@@ -1861,16 +1865,10 @@ ownerTest.describe("timeline event inspector", () => {
         await page.setViewportSize({ width: 375, height: 900 });
         await page.emulateMedia({ reducedMotion: "reduce" });
         const timeline = `/w/${workspace.slug}/timeline`;
-        await page.goto(timeline);
-        await expectHydrated(page);
         const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
         const inspector = page.getByRole("dialog", { name: "Event details" });
         const close = inspector.getByRole("button", { name: "Close event" });
         const around = inspector.getByRole("link", { name: AROUND, exact: true });
-        const at = await rowPointUnder(page, trigger, around);
-        expect(await linkTextAt(page, at)).toBe("Synthetic event 1");
-        const opened = await trigger.getAttribute("href");
-        if (opened === null) throw new Error("The row has no href.");
         const renders: string[] = [];
         page.on("request", (request) => {
           if (isRenderRequest(request, timeline)) renders.push(request.url());
@@ -1880,63 +1878,93 @@ ownerTest.describe("timeline event inspector", () => {
         // each entry is final when it arrives.
         const clicks: Array<Readonly<{ detail: number; timeStamp: number; passed: boolean }>> = [];
         await page.exposeFunction("__recordClick", (detail: number, timeStamp: number, passed: boolean) => clicks.push({ detail, timeStamp, passed }));
-        await page.evaluate(() => {
-          const record = Reflect.get(window, "__recordClick") as (detail: number, timeStamp: number, passed: boolean) => void;
-          const passed = new WeakSet<Event>();
-          window.addEventListener("click", (event) => passed.add(event));
-          window.addEventListener("click", (event) => setTimeout(() => record(event.detail, event.timeStamp, passed.has(event))), true);
-        });
         const counts = () => clicks.map(({ detail, passed }) => [detail, passed]);
 
-        await page.touchscreen.tap(at.x, at.y);
-        if (followsLink) {
-          await expect(close).toBeFocused();
-          expect(await linkTextAt(page, at)).toBe(AROUND);
-          const href = await around.getAttribute("href");
-          if (href === null) throw new Error("The link in the details has no href.");
-          // Read after the opening click, so the window has passed once this much more time has.
-          const openedBy = await page.evaluate(() => performance.now());
-          await expect.poll(() => page.evaluate((since) => performance.now() - since, openedBy)).toBeGreaterThan(TOUCH_REPEAT_WINDOW_MS);
+        // The double-tap case exists only while the details open within `TOUCH_REPEAT_WINDOW_MS` of
+        // the first tap: after a slower open, a person's second tap lands on the row instead. A
+        // loaded CI runner has taken a second to open them (#618), and its second tap then rightly
+        // followed the link. So an attempt whose open outlasted the window starts over on a fresh
+        // page, and only an attempt that reached the case is checked. The window itself never moves.
+        const attempts = followsLink ? 1 : DOUBLE_TAP_ATTEMPTS;
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+          await page.goto(timeline);
+          await expectHydrated(page);
+          const at = await rowPointUnder(page, trigger, around);
+          expect(await linkTextAt(page, at)).toBe("Synthetic event 1");
+          const opened = await trigger.getAttribute("href");
+          if (opened === null) throw new Error("The row has no href.");
+          await page.evaluate(() => {
+            const record = Reflect.get(window, "__recordClick") as (detail: number, timeStamp: number, passed: boolean) => void;
+            const passed = new WeakSet<Event>();
+            window.addEventListener("click", (event) => passed.add(event));
+            window.addEventListener("click", (event) => setTimeout(() => record(event.detail, event.timeStamp, passed.has(event))), true);
+          });
+          clicks.length = 0;
+          renders.length = 0;
+
           await page.touchscreen.tap(at.x, at.y);
-          await expect(page).toHaveURL(href);
+          if (followsLink) {
+            await expect(close).toBeFocused();
+            expect(await linkTextAt(page, at)).toBe(AROUND);
+            const href = await around.getAttribute("href");
+            if (href === null) throw new Error("The link in the details has no href.");
+            // Read after the opening click, so the window has passed once this much more time has.
+            const openedBy = await page.evaluate(() => performance.now());
+            await expect.poll(() => page.evaluate((since) => performance.now() - since, openedBy)).toBeGreaterThan(TOUCH_REPEAT_WINDOW_MS);
+            await page.touchscreen.tap(at.x, at.y);
+            await expect(page).toHaveURL(href);
+            await expect(inspector).toBeHidden();
+            await expect.poll(counts, { message: "both taps' clicks went on, each counted 1" }).toEqual([[1, true], [1, true]]);
+            return;
+          }
+          // The details open only once the router has rendered the URL the first tap wrote.
+          // Playwright's taps come 15 to 19 ms apart (#578), which can be before that, and the second
+          // then lands on the row again. The case is a second tap on the open details, so the test
+          // waits for the open, checked every frame in the page rather than by a polling `expect`
+          // whose later retries could outlast `TOUCH_REPEAT_WINDOW_MS`.
+          await page.waitForFunction(() => document.querySelector("dialog[open]") !== null, undefined, { polling: "raf" });
+          await page.touchscreen.tap(at.x, at.y);
+
+          await expect.poll(() => clicks.length).toBe(2);
+          const [first, second] = clicks;
+          if (first === undefined || second === undefined) throw new Error("Both taps' clicks were recorded, but not read.");
+          const gapMs = second.timeStamp - first.timeStamp;
+          if (gapMs > TOUCH_REPEAT_WINDOW_MS && attempt < attempts) {
+            const description = `Attempt ${attempt}: the second tap came ${Math.round(gapMs)} ms after the first, past the ${TOUCH_REPEAT_WINDOW_MS} ms window, so the attempt started over.`;
+            inspectorEvidenceTest.info().annotations.push({ type: "slow open", description });
+            // In the job log too: the annotation shows only in the HTML report, and a pass that
+            // started over says something about the runner that should stay visible.
+            console.warn(`[slow open] ${inspectorEvidenceTest.info().title} (${inspectorEvidenceTest.info().project.name}): ${description}`);
+            // That second tap followed the link, as a tap past the window should; let its navigation
+            // land before the next attempt's own.
+            await expect(page).not.toHaveURL(opened);
+            continue;
+          }
+          expect(gapMs, `the second tap came within the double-tap window (attempt ${attempt} of ${attempts})`).toBeLessThanOrEqual(TOUCH_REPEAT_WINDOW_MS);
+          // Both taps counted 1, as #592 measured in these engines, so the count rule alone would not
+          // have stopped the second.
+          expect(counts(), "the first tap's click went on and the second's was stopped, each counted 1").toEqual([[1, true], [1, false]]);
+          // The details are still open, so the second tap landed on a link it could have followed.
+          expect(await linkTextAt(page, at)).toBe(AROUND);
+          // Visible rather than `toHaveJSProperty("open", true)`: reading the dialog's `open` that way
+          // crashed Playwright's Firefox page here, with the details still open.
+          await expect(inspector).toBeVisible();
+          await expect(page).toHaveURL(opened);
+          // The second press's default is prevented, so it leaves focus where the open put it.
+          await expect(close).toBeFocused();
+          await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+          await expectNoAxeViolations(page);
+          // By now a followed link would have asked for the page it leads to.
+          expect(renders, "the second tap followed a link in the details").toEqual([]);
+          await expect(inspector).toBeVisible();
+          await expect(page).toHaveURL(opened);
+          // Still usable from the keyboard: Escape closes the details and focus returns to the row.
+          await page.keyboard.press("Escape");
           await expect(inspector).toBeHidden();
-          await expect.poll(counts, { message: "both taps' clicks went on, each counted 1" }).toEqual([[1, true], [1, true]]);
+          await expect(trigger).toBeFocused();
+          await expect(page).toHaveURL(timeline);
           return;
         }
-        // The details open only once the router has rendered the URL the first tap wrote.
-        // Playwright's taps come 15 to 19 ms apart (#578), which can be before that, and the second
-        // then lands on the row again. The case is a second tap on the open details, so the test
-        // waits for the open, checked every frame in the page rather than by a polling `expect`
-        // whose later retries could outlast `TOUCH_REPEAT_WINDOW_MS`.
-        await page.waitForFunction(() => document.querySelector("dialog[open]") !== null, undefined, { polling: "raf" });
-        await page.touchscreen.tap(at.x, at.y);
-
-        await expect.poll(() => clicks.length).toBe(2);
-        const [first, second] = clicks;
-        if (first === undefined || second === undefined) throw new Error("Both taps' clicks were recorded, but not read.");
-        expect(second.timeStamp - first.timeStamp, "the second tap came within the double-tap window").toBeLessThanOrEqual(TOUCH_REPEAT_WINDOW_MS);
-        // Both taps counted 1, as #592 measured in these engines, so the count rule alone would not
-        // have stopped the second.
-        expect(counts(), "the first tap's click went on and the second's was stopped, each counted 1").toEqual([[1, true], [1, false]]);
-        // The details are still open, so the second tap landed on a link it could have followed.
-        expect(await linkTextAt(page, at)).toBe(AROUND);
-        // Visible rather than `toHaveJSProperty("open", true)`: reading the dialog's `open` that way
-        // crashed Playwright's Firefox page here, with the details still open.
-        await expect(inspector).toBeVisible();
-        await expect(page).toHaveURL(opened);
-        // The second press's default is prevented, so it leaves focus where the open put it.
-        await expect(close).toBeFocused();
-        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
-        await expectNoAxeViolations(page);
-        // By now a followed link would have asked for the page it leads to.
-        expect(renders, "the second tap followed a link in the details").toEqual([]);
-        await expect(inspector).toBeVisible();
-        await expect(page).toHaveURL(opened);
-        // Still usable from the keyboard: Escape closes the details and focus returns to the row.
-        await page.keyboard.press("Escape");
-        await expect(inspector).toBeHidden();
-        await expect(trigger).toBeFocused();
-        await expect(page).toHaveURL(timeline);
       } finally {
         await deleteTestWorkspace(workspace);
       }
