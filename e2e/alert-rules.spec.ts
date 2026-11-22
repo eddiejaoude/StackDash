@@ -4,7 +4,7 @@ import type { Page } from "@playwright/test";
 import { openCreateForm } from "./fixtures/alerts";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
 
@@ -26,6 +26,7 @@ async function seedAllowanceConnection(workspace: TestWorkspace): Promise<void> 
       granted_at: new Date().toISOString(),
       display_name: "Fake team",
       poll_interval_seconds: 3600,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

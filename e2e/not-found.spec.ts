@@ -4,7 +4,14 @@ import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, personalWorkspace, type TestWorkspace } from "./fixtures/db";
+import {
+  adminClient,
+  createTestWorkspace,
+  deleteTestWorkspace,
+  notDueForAMonth,
+  personalWorkspace,
+  type TestWorkspace,
+} from "./fixtures/db";
 import { insertUnheard } from "./fixtures/realtime";
 
 // A missing item inside a workspace the user belongs to names the item and links to its list
@@ -23,7 +30,14 @@ function seedConnection(workspace: TestWorkspace): Promise<string> {
   return insertUnheard("connections", workspace.id, async () => {
     const { data, error } = await adminClient()
       .from("connections")
-      .insert({ workspace_id: workspace.id, provider: "fake", status: "active", display_name: "Fake (Deleted team)", poll_interval_seconds: 3600 })
+      .insert({
+        workspace_id: workspace.id,
+        provider: "fake",
+        status: "active",
+        display_name: "Fake (Deleted team)",
+        poll_interval_seconds: 3600,
+        next_sync_at: notDueForAMonth(),
+      })
       .select("id")
       .single();
     if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);

@@ -43,6 +43,17 @@ export function cronSecret(): string {
   return z.string().min(32).parse(process.env.CRON_SECRET);
 }
 
+/**
+ * The `next_sync_at` every seeded active connection gets: a month out. A connection with none is
+ * due now (`enqueue_due_syncs`), so any job tick against the same database (`npm run jobs:tick`,
+ * its watcher, or an `instance-wide` spec) would sync the credential-less row mid-test and write
+ * sync-failed events and failure counts into the spec's workspace (#408). Only a spec that ticks
+ * a seed on purpose leaves it due.
+ */
+export function notDueForAMonth(): string {
+  return new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
+}
+
 async function userIdByEmail(admin: Admin, email: string): Promise<string> {
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (error) throw new Error(`Listing users failed: ${error.message}`);

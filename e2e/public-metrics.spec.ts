@@ -3,7 +3,7 @@ import { request as playwrightRequest, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Each test creates its own workspace and seeds only inside it, so tests run in any order.
@@ -33,8 +33,7 @@ async function seedStarredProject(workspace: TestWorkspace): Promise<string> {
       granted_at: new Date().toISOString(),
       display_name: "GitHub",
       poll_interval_seconds: 3600,
-      // Far in the future, so no tick another spec runs ever syncs this credential-less row.
-      next_sync_at: new Date(now.getTime() + 30 * DAY_MS).toISOString(),
+      next_sync_at: notDueForAMonth(),
       last_synced_at: new Date(now.getTime() - 5 * 60_000).toISOString(),
     })
     .select("id")

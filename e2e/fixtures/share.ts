@@ -2,7 +2,7 @@ import { expect, request as playwrightRequest, type APIRequestContext } from "@p
 
 import { Constants, type Database } from "../../src/lib/supabase/database.types";
 
-import { adminClient, type TestWorkspace } from "./db";
+import { adminClient, notDueForAMonth, type TestWorkspace } from "./db";
 
 /*
  * Synthetic data for the badge, card, and year in review specs (#149, #151, #262): one project with
@@ -104,8 +104,7 @@ export async function seedShareProject(workspace: TestWorkspace, name = "Acme we
           ...(provider === "stripe" ? { mode: "live" as const } : {}),
           display_name: provider,
           poll_interval_seconds: 3600,
-          // Far in the future, so no tick another spec runs ever syncs this credential-less row.
-          next_sync_at: new Date(now + 30 * DAY_MS).toISOString(),
+          next_sync_at: notDueForAMonth(),
           last_synced_at: synced,
         })
         .select("id")

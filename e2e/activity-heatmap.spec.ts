@@ -2,7 +2,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only.
 
@@ -36,6 +36,7 @@ async function seedConnection(workspace: TestWorkspace): Promise<Seeded> {
       display_name: "Fake heatmap account",
       poll_interval_seconds: 3_600,
       last_synced_at: new Date().toISOString(),
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

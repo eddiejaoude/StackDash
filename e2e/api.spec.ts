@@ -9,6 +9,7 @@ import {
   adminClient,
   createTestWorkspace,
   deleteTestWorkspace,
+  notDueForAMonth,
   seedApiKeys,
   seededKey,
   type TestWorkspace,
@@ -43,8 +44,7 @@ async function seedWorkspaceData(workspace: TestWorkspace): Promise<Seeded> {
       granted_at: new Date().toISOString(),
       display_name: "API fake",
       poll_interval_seconds: 3600,
-      // Never due, so a sync elsewhere in the run leaves this workspace alone.
-      next_sync_at: "2999-01-01T00:00:00Z",
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

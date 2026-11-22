@@ -1,6 +1,6 @@
 import type { Database } from "../../src/lib/supabase/database.types";
 
-import { adminClient, type TestWorkspace } from "./db";
+import { adminClient, notDueForAMonth, type TestWorkspace } from "./db";
 
 /*
  * Synthetic data for the stale data spec (#267): a workspace whose every connection last synced
@@ -55,8 +55,7 @@ export async function seedStaleWorkspace(workspace: TestWorkspace, staleDays = 3
         granted_at: new Date().toISOString(),
         display_name: `${provider} stale connection`,
         poll_interval_seconds: 3_600,
-        // Far in the future, so no tick another spec runs ever syncs this credential-less row.
-        next_sync_at: new Date(now + 30 * DAY_MS).toISOString(),
+        next_sync_at: notDueForAMonth(),
         last_synced_at: syncedAt.toISOString(),
       })),
     )

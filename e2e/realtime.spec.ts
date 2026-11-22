@@ -18,7 +18,7 @@ import {
   type SyntheticUser,
 } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { expectTopRowFits } from "./fixtures/header";
 import {
   deliveredEvent,
@@ -34,12 +34,6 @@ import {
 
 // Live updates (#129): a row written after the page loaded appears without a reload. Every test
 // seeds its own workspaces, and the rows go in with the service role, the way a sync writes them.
-
-// A seeded connection with no next_sync_at is due for a sync, so a job tick run against the same
-// database (`npm run jobs:tick`, its watcher, or an instance-wide spec) would sync it mid-test and
-// write sync-failed events into the workspace. `seedConnection` and the provider chip test's GitHub
-// connection are scheduled a month out, as the fixtures do; the seeds still due are #408.
-const notDueForAMonth = () => new Date(Date.now() + 30 * 24 * 60 * 60_000).toISOString();
 
 // The static highlight of `.arrival-pulse` under reduced motion: --accent-soft (src/app/globals.css).
 const CORAL_TINT = "rgba(255, 93, 59, 0.12)";
@@ -1078,6 +1072,8 @@ ownerTest.describe("arriving data", () => {
             poll_interval_seconds: 3_600,
             created_at: new Date(connectedFrom + index * 60_000).toISOString(),
             granted_at: new Date(connectedFrom + index * 60_000).toISOString(),
+            // Every row, not only the active ones: the test sets the GitHub row active later.
+            next_sync_at: notDueForAMonth(),
           })),
         )
         .select("id, display_name");

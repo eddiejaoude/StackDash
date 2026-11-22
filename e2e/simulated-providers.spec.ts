@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 
 /*
  * Simulated providers (#131), end to end: the web server runs with STACKDASH_SIMULATE_PROVIDERS=1
@@ -81,6 +81,8 @@ async function seedRealConnection(workspace: TestWorkspace): Promise<void> {
       granted_at: new Date().toISOString(),
       display_name: REAL_CONNECTION,
       poll_interval_seconds: 3600,
+      // Seeded after this spec's ticks and asserted unsynced, so another spec's tick must leave it be.
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

@@ -1,4 +1,4 @@
-import { adminClient, type TestWorkspace } from "./db";
+import { adminClient, notDueForAMonth, type TestWorkspace } from "./db";
 
 // Public project pages (#150): a project with stored history, seeded with the service role inside
 // one test workspace, so specs never depend on each other's data.
@@ -21,8 +21,7 @@ async function seedAccount(workspace: TestWorkspace, projectId: string, provider
       granted_at: new Date().toISOString(),
       display_name: provider === "github" ? "GitHub" : "Vercel",
       poll_interval_seconds: 3600,
-      // Far in the future, so no tick another spec runs ever syncs this credential-less row.
-      next_sync_at: new Date(now.getTime() + 30 * DAY_MS).toISOString(),
+      next_sync_at: notDueForAMonth(),
       last_synced_at: new Date(now.getTime() - 5 * 60_000).toISOString(),
     })
     .select("id")
@@ -117,8 +116,7 @@ export async function seedIncludedAccounts(workspace: TestWorkspace, projectId: 
       granted_at: new Date().toISOString(),
       display_name: "GitHub organizations",
       poll_interval_seconds: 3600,
-      // Far in the future, so no tick another spec runs ever syncs this credential-less row.
-      next_sync_at: new Date(now.getTime() + 30 * DAY_MS).toISOString(),
+      next_sync_at: notDueForAMonth(),
       last_synced_at: new Date(now.getTime() - 5 * 60_000).toISOString(),
     })
     .select("id")

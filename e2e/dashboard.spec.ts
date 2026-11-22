@@ -4,7 +4,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
 // Every test seeds its own workspace with synthetic data: from the fake provider by default, and
@@ -45,6 +45,7 @@ async function seedDashboard(workspace: TestWorkspace): Promise<void> {
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: fresh,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -328,6 +329,7 @@ async function seedSecondProvider(workspace: TestWorkspace): Promise<void> {
       display_name: "GitHub e2e organization",
       poll_interval_seconds: 3_600,
       last_synced_at: fresh,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -476,6 +478,7 @@ async function seedGitHubSpendLevels(workspace: TestWorkspace): Promise<void> {
       display_name: "GitHub billing organization",
       poll_interval_seconds: 3_600,
       last_synced_at: fresh,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -578,6 +581,7 @@ async function seedUnusualDays(workspace: TestWorkspace): Promise<void> {
       display_name: "Fake billing account",
       poll_interval_seconds: 3_600,
       last_synced_at: fresh,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();

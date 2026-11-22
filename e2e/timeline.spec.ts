@@ -10,7 +10,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
@@ -69,6 +69,7 @@ async function seedAccount(
       ...(seed.provider === "stripe" ? { mode: "live" as const } : {}),
       display_name: seed.connectionName,
       poll_interval_seconds: 3600,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
@@ -640,6 +641,7 @@ ownerTest.describe("timeline scope filters", () => {
           granted_at: new Date().toISOString(),
           display_name: "Vercel second connection",
           poll_interval_seconds: 3600,
+          next_sync_at: notDueForAMonth(),
         })
         .select("id")
         .single();

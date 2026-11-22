@@ -5,7 +5,7 @@ import { test, type Browser, type BrowserContext, type Page } from "@playwright/
 import { z } from "zod";
 
 import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
-import { adminClient, personalWorkspace, type Admin } from "./fixtures/db";
+import { adminClient, notDueForAMonth, personalWorkspace, type Admin } from "./fixtures/db";
 import { expectTopRowFits } from "./fixtures/header";
 
 /*
@@ -37,6 +37,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
       granted_at: new Date().toISOString(),
       display_name: "Example provider (Example team)",
       poll_interval_seconds: 3600,
+      next_sync_at: notDueForAMonth(),
     })
     .select("id")
     .single();
