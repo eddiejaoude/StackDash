@@ -77,7 +77,9 @@ const DEPLOYMENT_PAGE_LIMIT = 100;
 const DEPLOYMENT_OVERLAP_MS = 60 * 60 * 1000;
 const FIRST_SYNC_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 
-const scopes = ["billing:read", "deployment:read", "project:read", "team:read"] as const;
+// No `project` scope: deployment rows already carry the project name, and that scope also reaches
+// project details with environment variable records (#607).
+const scopes = ["billing:read", "deployment:read", "team:read"] as const;
 
 // Exported, like the spend vocabulary and `deploymentEvent` below, for the local simulator (#131).
 export const eventTypes = [
@@ -561,16 +563,10 @@ export const vercelAdapter: ProviderAdapter = {
         "Deployments, which on Vercel also includes build logs, file lists, and the file structure of each deployment. Build logs can contain secrets. StackDash only lists deployments.",
     },
     {
-      scope: "project:read",
-      access: "read",
-      description:
-        "Projects, which on Vercel also includes project details with environment variable records. StackDash never reads project details or environment variables.",
-    },
-    {
       scope: "team:read",
       access: "read",
       description:
-        "Team name and plan. Also allows listing team members; StackDash never reads the member list.",
+        "Team name. Also allows reading the team's plan and listing its members; StackDash reads only the team name and slug.",
     },
   ],
   dataCollected: [

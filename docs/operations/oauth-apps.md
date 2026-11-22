@@ -21,8 +21,8 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 |---|---|---|---|---|
 | GitHub OAuth app (sign-in) | GitHub, Settings, Developer settings, OAuth Apps | `https://<project-ref>.supabase.co/auth/v1/callback` | `read:user user:email` (requested by the sign-in page) | Entered in Supabase Auth, not in the app |
 | GitHub App | GitHub, Settings, Developer settings, GitHub Apps | `<SITE_URL>/api/connections/github/callback` (callback and setup URL); webhook `<SITE_URL>/api/webhooks/github` | Metadata read, Issues read, Pull requests read, Organization Administration read, Account Plan read | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_WEBHOOK_SECRET` |
-| Vercel Integration | Vercel, Integrations Console | `<SITE_URL>/api/connections/vercel/callback` | `billing`, `deployment`, `project`, `team` at Read | `VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, `VERCEL_INTEGRATION_SLUG` |
-| Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional), `STRIPE_WEBHOOK_SECRET` (optional), `STRIPE_WEBHOOK_TEST_SECRET` (optional) |
+| Vercel Integration | Vercel, Integrations Console | `<SITE_URL>/api/connections/vercel/callback` | `billing`, `deployment`, `team` at Read | `VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`, `VERCEL_INTEGRATION_SLUG` |
+| Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `balance_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional), `STRIPE_WEBHOOK_SECRET` (optional), `STRIPE_WEBHOOK_TEST_SECRET` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
 | DigitalOcean OAuth app | DigitalOcean control panel, API, OAuth Applications | `<SITE_URL>/api/connections/digitalocean/callback` | `billing:read`, `actions:read`, `app:read`, `droplet:read`, `account:read` (sent with each authorize request) | `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` |
@@ -73,13 +73,13 @@ Settings that must match the code:
 
 - Create it in the Vercel team that should own it: **Integrations, Integrations Console, Create**.
 - **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`. It is a single field, so one integration serves one origin.
-- **API Scopes**: `billing` Read, `deployment` Read, `project` Read, `team` Read. Everything else None.
+- **API Scopes**: `billing` Read, `deployment` Read, `team` Read. Everything else None. An integration registered earlier with `project` Read: set `project` to None; Vercel applies a removal to every installation at once, with no confirmation.
 - **Webhook URL**: `<SITE_URL>/api/webhooks/vercel`, with only `deployment.succeeded`, `deployment.error`, and `integration-configuration.removed` ticked. Leave it empty on a local development integration, which no delivery can reach. See [Vercel, Webhooks](../providers/vercel.md#webhooks).
 - **Configuration URL**: empty.
 
 Variables: `VERCEL_CLIENT_ID` (`oac_...`), `VERCEL_CLIENT_SECRET` (from **Credentials**; **Rotate Secret** is there too; it also verifies webhook deliveries, so rotating it changes the webhook key at once), `VERCEL_INTEGRATION_SLUG` (the URL Slug, used to build `https://vercel.com/integrations/<slug>/new`).
 
-Adding or upgrading a scope later emails every installer for confirmation, so register with exactly these four.
+Adding or upgrading a scope later emails every installer for confirmation, so register with exactly these three.
 
 ## Stripe App
 

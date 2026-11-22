@@ -299,8 +299,14 @@ describe("vercelAdapter.detectMissingPermissions", () => {
   it("reports the scopes absent from an empty or partial grant", () => {
     expect(vercelAdapter.detectMissingPermissions({ scopes: [] })).toEqual(vercelAdapter.oauth.scopes);
     expect(
-      vercelAdapter.detectMissingPermissions({ scopes: ["deployment:read", "project:read", "team:read"] }),
+      vercelAdapter.detectMissingPermissions({ scopes: ["deployment:read", "team:read"] }),
     ).toEqual(["billing:read"]);
+  });
+
+  it("reports nothing for a grant from before the project scope was dropped", () => {
+    expect(
+      vercelAdapter.detectMissingPermissions({ scopes: ["billing:read", "deployment:read", "project:read", "team:read"] }),
+    ).toEqual([]);
   });
 });
 
