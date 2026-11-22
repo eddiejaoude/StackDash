@@ -11,7 +11,7 @@ import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { MemoryJobStore } from "./memory-store";
 import { TICK_CLAIM_LIMIT, type TickResult } from "./runner";
-import type { EventRow } from "./store";
+import { PARKED_SYNC_AFTER_MS, type EventRow } from "./store";
 import type { SyncDeps } from "./sync-connection";
 import {
   abortableSleep,
@@ -256,7 +256,7 @@ describe("countingEventWrites", () => {
 });
 
 describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () => {
-  it("makes every active simulated connection due and counts them, never touching a real one of the same provider", async () => {
+  it("makes every active simulated connection that is not parked due and counts them, never touching a real one of the same provider", async () => {
     const store = new MemoryJobStore(() => NOW);
     const later = "2026-11-04T21:31:00.000Z";
     const simulated = { granted_scopes: [SIMULATED_SCOPE], next_sync_at: later };
@@ -271,14 +271,27 @@ describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () 
     // Just connected: never scheduled, already due. It still counts, so the watcher is not told
     // that nothing is simulated on the very first tick after connecting.
     const neverScheduled = store.addConnection({ workspace_id: "w1", provider: "vercel", granted_scopes: [SIMULATED_SCOPE] });
-    expect(await store.markSimulatedSyncsDue(NOW)).toBe(2);
+    // Parked on purpose (#626) a month out, as the e2e fixtures leave theirs: further than anything
+    // the app schedules, so the watcher leaves it alone. One exactly at the threshold is still made due.
+    const parked = "2026-12-04T21:30:00.000Z";
+    const parkedStripe = store.addConnection({ workspace_id: "w2", provider: "stripe", granted_scopes: [SIMULATED_SCOPE], next_sync_at: parked });
+    const atThreshold = store.addConnection({
+      workspace_id: "w1",
+      provider: "resend",
+      granted_scopes: [SIMULATED_SCOPE],
+      next_sync_at: new Date(NOW.getTime() + PARKED_SYNC_AFTER_MS).toISOString(),
+    });
+    expect(await store.markSimulatedSyncsDue(NOW)).toBe(3);
     expect(stripe.next_sync_at).toBe(NOW.toISOString());
     expect(neverScheduled.next_sync_at).toBe(NOW.toISOString());
+    expect(atThreshold.next_sync_at).toBe(NOW.toISOString());
+    expect(parkedStripe.next_sync_at).toBe(parked);
     expect(failed.next_sync_at).toBe(later);
     expect(realVercel.next_sync_at).toBe(later);
-    // Every watch iteration asks again; the real connection is still never made due.
-    expect(await store.markSimulatedSyncsDue(new Date(NOW.getTime() + 1000))).toBe(2);
+    // Every watch iteration asks again; the real and parked connections are still never made due.
+    expect(await store.markSimulatedSyncsDue(new Date(NOW.getTime() + 1000))).toBe(3);
     expect(realVercel.next_sync_at).toBe(later);
+    expect(parkedStripe.next_sync_at).toBe(parked);
   });
 
   it("counts zero when only real connections exist", async () => {

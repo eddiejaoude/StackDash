@@ -55,10 +55,11 @@ const ScheduledRowSchema = z.object({ next_sync_at: z.string() });
  * connection, or sample data. The app makes each one due at once (src/lib/connections/connect.ts
  * sets `next_sync_at` to now, so the first sync runs right away), and any job tick against the same
  * database (`npm run jobs:tick`, its watcher, or an `instance-wide` spec) would sync it mid-test,
- * as it would a due seed (#408). Only a spec that syncs it on purpose leaves it due. One limit: a
- * tick watcher with simulation on (`npm run jobs:tick -- --watch`) makes every active simulated
- * connection due again on each iteration (`markSimulatedSyncsDue`), these included, so it still
- * syncs them mid-test (#626).
+ * as it would a due seed (#408). Only a spec that syncs it on purpose leaves it due. A tick watcher
+ * with simulation on (`npm run jobs:tick -- --watch`) makes every active simulated connection due
+ * on each iteration, but leaves one parked more than a day out alone (`PARKED_SYNC_AFTER_MS` in
+ * src/lib/jobs/store.ts, #626), so these stay out of its reach once this has run; before it, any
+ * tick may sync them.
  *
  * The update goes through `updateUnheard`, so a page that subscribes afterwards never hears it or
  * the connect flow's own writes before it. The page already open may have heard them and would

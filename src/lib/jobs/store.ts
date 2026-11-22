@@ -141,14 +141,28 @@ export type RecordWebhookDeliveryInput = Readonly<{
   simulated: boolean;
 }>;
 
+// markSimulatedSyncsDue leaves alone a simulated connection whose next sync is more than this far
+// past the watcher's clock (#626): one parked on purpose, such as an e2e spec's, which
+// `notDueForAMonth` and `makeConnectionsNotDue` move a month out so no tick syncs it mid-test.
+// Nothing in the app schedules a sync that far out: connecting sets next_sync_at to now, a sync
+// that succeeds sets it one poll interval out (a minute for a simulated connection, an hour at most
+// for any adapter), a retry inside a job waits on the job's run_after and leaves next_sync_at where
+// it was, and a connection that fails waits BACKOFF_CAP_MS (an hour) in `failed`, a status the
+// watcher never touches. So only a deliberate write lands past a day, with a wide margin either
+// side. Chosen over scoping the watcher to one user's workspaces, which `npm run demo` and every
+// developer would then have to pass, and over recognizing e2e workspaces, which would name test
+// accounts in app code; this rule also lets anyone park a connection by hand the same way.
+export const PARKED_SYNC_AFTER_MS = 24 * 60 * 60_000;
+
 export interface JobStore {
   /** Queues a sync for every due connection (see enqueue_due_syncs). Returns how many were queued. */
   enqueueDueSyncs(limit: number): Promise<number>;
   /**
    * Makes every active connection the simulator made (`granted_scopes` holds SIMULATED_SCOPE) due
-   * at `at`, so the next schedule queues it. Real connections are never touched, whatever their
-   * provider. Only `npm run jobs:tick -- --watch` calls it (#131). Returns how many active
-   * simulated connections are due after the call, so zero means there is nothing to stream.
+   * at `at`, so the next schedule queues it, unless its next sync is more than
+   * PARKED_SYNC_AFTER_MS after `at` (parked on purpose). Real connections are never touched,
+   * whatever their provider. Only `npm run jobs:tick -- --watch` calls it (#131). Returns how many
+   * it made due, so zero means there is nothing to stream.
    */
   markSimulatedSyncsDue(at: Date): Promise<number>;
   /** Queues one sync unless one is already open. False also when the connection is not in the workspace. */
@@ -382,15 +396,17 @@ export function createSupabaseJobStore(): JobStore {
 
     async markSimulatedSyncsDue(at) {
       const due = at.toISOString();
-      // Every active simulated connection, including ones already due or never scheduled. Moving
-      // those to `at` keeps them due as long as the watcher's clock is not ahead of the database's
-      // now() (both are this machine locally); the count then answers "is anything active to
-      // stream", which the watch loop reports when the answer is no.
+      const parkedAfter = new Date(at.getTime() + PARKED_SYNC_AFTER_MS).toISOString();
+      // Every active simulated connection that is not parked, including ones already due or never
+      // scheduled. Moving those to `at` keeps them due as long as the watcher's clock is not ahead
+      // of the database's now() (both are this machine locally); the count then answers "is
+      // anything active to stream", which the watch loop reports when the answer is no.
       const { data, error } = await db
         .from("connections")
         .update({ next_sync_at: due })
         .contains("granted_scopes", [SIMULATED_SCOPE])
         .eq("status", "active")
+        .or(`next_sync_at.is.null,next_sync_at.lte."${parkedAfter}"`)
         .select("id");
       if (error) throw failure("mark simulated syncs due", error);
       return data.length;

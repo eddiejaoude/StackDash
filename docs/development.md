@@ -273,6 +273,12 @@ It is for local use only: the app refuses it on a Vercel production deployment.
    to 50 `webhook` jobs on top), and prints one line per tick with the time and the number of jobs
    synced, events written, and failures. Press Ctrl+C to stop it after the current tick.
 
+   It leaves alone a simulated connection whose next sync is more than a day away. The app never
+   schedules one that far out (a simulated connection syncs every minute, and a failed one is
+   retried within an hour), so only a deliberate change puts it there: the Playwright specs park
+   their connections a month out so a watcher running beside them does not sync them mid-test, and
+   you can park one of yours the same way by setting its `next_sync_at` further out.
+
    It reads `.env.local` once, when it starts: if you add the flag while a watcher is already
    running, stop it and start it again.
 
@@ -303,7 +309,8 @@ If nothing new appears:
   and `npm run dev`.
 - It says "No active simulated connection": connect providers from step 2, or open the ones that
   need attention and reconnect them; a simulated connection that needs attention is not synced.
-  The Example provider from step 8 is not simulated.
+  The Example provider from step 8 is not simulated, and a simulated connection parked more than a
+  day out is left alone.
 - A simulated GitHub connection made before GitHub received webhooks fails every sync with an
   invalid response: its account id changed to a number, like a real GitHub account id. Disconnect
   it and connect GitHub again.

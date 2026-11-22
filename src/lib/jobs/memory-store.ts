@@ -6,6 +6,7 @@ import type { Tables } from "@/lib/supabase/database.types";
 
 import { dailySummaryJobKey } from "./daily-summary";
 import {
+  PARKED_SYNC_AFTER_MS,
   WEBHOOK_TARGET_LIMIT,
   type AnomalySettings,
   type ClaimedJob,
@@ -178,9 +179,11 @@ export class MemoryJobStore implements JobStore {
   }
 
   async markSimulatedSyncsDue(at: Date): Promise<number> {
+    const parkedAfter = at.getTime() + PARKED_SYNC_AFTER_MS;
     let due = 0;
     for (const row of this.connections) {
       if (row.status !== "active" || !isSimulatedConnection(row)) continue;
+      if (row.next_sync_at !== null && new Date(row.next_sync_at).getTime() > parkedAfter) continue;
       row.next_sync_at = at.toISOString();
       due += 1;
     }
