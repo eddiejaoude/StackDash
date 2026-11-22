@@ -1,8 +1,11 @@
 import type { Page } from "@playwright/test";
 
+import type { Database } from "../src/lib/supabase/database.types";
+
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { tick } from "./fixtures/webhook-ticks";
 
 /*
  * Earning an achievement (#413), end to end: a sync earns it and writes exactly one "Achievement
@@ -10,38 +13,52 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
  *
  * A real sync is the trigger, the way production earns achievements: Sentry connects simulated
  * through the dev consent screen (the web server runs with STACKDASH_SIMULATE_PROVIDERS=1), its
- * three example projects become accounts, and those are assigned to a StackDash project before the
- * first sync. POST /api/jobs/tick then syncs the connection, and the runner evaluates the project's
- * achievements right after (src/lib/jobs/sync-connection.ts). Every simulated Sentry project
- * releases every 20 minutes, so the 30 minute backfill always holds a release, which earns "First
- * Sentry release recorded" (sentry.releases.first). The tick is instance-wide, so this spec lives in
- * the `instance-wide` Playwright project (playwright.config.ts), like simulated-sentry.spec.ts.
+ * three example projects become accounts, and those are assigned to a StackDash project. A job tick
+ * then syncs the connection, and the runner evaluates the project's achievements right after
+ * (src/lib/jobs/sync-connection.ts). Every simulated Sentry project releases every 20 minutes, so
+ * the 30 minute backfill always holds a release, which earns "First Sentry release recorded"
+ * (sentry.releases.first). The tick is instance-wide, so this spec lives in the `instance-wide`
+ * Playwright project (playwright.config.ts), like simulated-sentry.spec.ts, where the specs running
+ * beside it tick too (`tickUntilSynced`).
  */
 
 const ACHIEVEMENT_ID = "sentry.releases.first";
 const ACHIEVEMENT_TITLE = "First Sentry release recorded";
 const EARNED_TYPE_ID = "stackdash.achievement_earned";
 
-/** Ticks until the workspace's Sentry connection has synced after `after` (or at all). */
-async function tickUntilSynced(page: Page, workspace: TestWorkspace, after: string | null): Promise<string> {
-  const authorization = `Bearer ${cronSecret()}`;
-  let syncedAt = "";
+type SyncJob = Pick<Database["public"]["Tables"]["sync_jobs"]["Row"], "id" | "status">;
+
+/** The workspace's sync jobs, which are its one connection's, whichever tick queued them. */
+async function syncJobs(workspace: TestWorkspace): Promise<SyncJob[]> {
+  const { data, error } = await adminClient().from("sync_jobs").select("id, status").eq("workspace_id", workspace.id).eq("kind", "sync").limit(100);
+  if (error) throw new Error(`Reading the sync jobs failed (code ${error.code}).`);
+  return data;
+}
+
+/**
+ * Makes the Sentry connection due, then ticks until a sync queued after this call has succeeded
+ * (#474). The specs beside this one tick too, and any tick runs this connection's syncs, the first
+ * of which is queued as it connects (src/lib/connections/connect.ts): one that runs before the
+ * accounts are assigned finds no project to earn for and schedules the next sync a minute out, so
+ * this spec's own tick finds nothing due; and one still running has written last_synced_at before
+ * it evaluates achievements. A job queued after this call began reads everything written before
+ * it, and it succeeds only after its evaluation (src/lib/jobs/runner.ts). Each attempt makes the
+ * connection due again, because a sync already queued or running when the call began moves
+ * next_sync_at when it ends.
+ */
+async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<void> {
+  const earlier = new Set((await syncJobs(workspace)).map((job) => job.id));
   await expect(async () => {
-    const response = await page.request.post("/api/jobs/tick", { headers: { Authorization: authorization }, timeout: 120_000 });
-    expect(response.status()).toBe(200);
-    const { data, error } = await adminClient()
+    const { error } = await adminClient()
       .from("connections")
-      .select("last_synced_at")
+      .update({ next_sync_at: new Date(Date.now() - 60_000).toISOString() })
       .eq("workspace_id", workspace.id)
-      .eq("provider", "sentry")
-      .limit(1);
-    if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
-    const last = data[0]?.last_synced_at ?? null;
-    expect(last).not.toBeNull();
-    if (after !== null) expect(Date.parse(last ?? "")).toBeGreaterThan(Date.parse(after));
-    syncedAt = last ?? "";
+      .eq("provider", "sentry");
+    if (error) throw new Error(`Making the connection due failed (code ${error.code}).`);
+    await tick(page);
+    const later = (await syncJobs(workspace)).filter((job) => !earlier.has(job.id));
+    expect(later.map((job) => job.status)).toContain("succeeded");
   }).toPass({ timeout: 90_000 });
-  return syncedAt;
 }
 
 /** A project holding every account in the workspace (the Sentry connection's three). */
@@ -106,7 +123,7 @@ ownerTest.describe("earning achievements", () => {
       await connectSimulated(page, workspace.slug, "Sentry");
       const projectId = await assignAccountsToProject(workspace);
 
-      const firstSync = await tickUntilSynced(page, workspace, null);
+      await tickUntilSynced(page, workspace);
       const first = await earned(workspace, projectId);
       const release = first.achievements.find((achievement) => achievement.achievement_id === ACHIEVEMENT_ID);
       expect(release).toBeDefined();
@@ -134,14 +151,8 @@ ownerTest.describe("earning achievements", () => {
       const entries = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(entries.filter({ hasText: ACHIEVEMENT_TITLE })).toHaveCount(1);
 
-      // Sync again: make the connection due and tick until it has synced once more.
-      const { error: dueError } = await adminClient()
-        .from("connections")
-        .update({ next_sync_at: new Date(Date.now() - 60_000).toISOString() })
-        .eq("workspace_id", workspace.id)
-        .eq("provider", "sentry");
-      if (dueError) throw new Error(`Making the connection due failed (code ${dueError.code}).`);
-      await tickUntilSynced(page, workspace, firstSync);
+      // Sync again, once the first sync has finished.
+      await tickUntilSynced(page, workspace);
 
       const second = await earned(workspace, projectId);
       expectOneEntryEach(second, projectId);
