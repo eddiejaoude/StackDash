@@ -22,6 +22,9 @@ const INSTANCE_WIDE_SPECS = [
   "webhooks*.spec.ts",
 ];
 
+// The spec that writes thousands of rows to a table Realtime publishes; see `projects` below.
+const BULK_WRITE_SPEC = "trends-long-history.spec.ts";
+
 // Pass this process's environment through (CI sets the Supabase variables here). Locally the dev
 // server loads .env.local itself, and variables already set here take precedence over it.
 const inherited = Object.fromEntries(
@@ -70,11 +73,17 @@ export default defineConfig({
   // Tests tagged `@touch` run only in the touch projects, which run nothing else: WebKit and Firefox
   // count each tap of a double-tap 1 where Chromium counts the second 2 (#578), so a touch rule is
   // proved in the engines that need it. Firefox has no `isMobile`.
+  // A bulk write to a table in the Realtime publication stalls every live change after it, in every
+  // workspace: Realtime reads the replication slot in commit order through one poller, and checks
+  // each change against the subscriptions to its table (`realtime.apply_rls`) before the next. The
+  // 22,500 usage snapshots e2e/trends-long-history.spec.ts seeds held live changes up for most of a
+  // minute in CI, failing the specs beside it that wait 15 s for one (#621). So that spec runs alone
+  // in `bulk-writes`, after every other project, and waits on no live change itself.
   projects: [
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: INSTANCE_WIDE_SPECS,
+      testIgnore: [...INSTANCE_WIDE_SPECS, BULK_WRITE_SPEC],
       grepInvert: /@touch/,
     },
     {
@@ -84,15 +93,21 @@ export default defineConfig({
       dependencies: ["chromium", "webkit-touch", "firefox-touch"],
     },
     {
+      name: "bulk-writes",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: BULK_WRITE_SPEC,
+      dependencies: ["chromium", "webkit-touch", "firefox-touch", "instance-wide"],
+    },
+    {
       name: "webkit-touch",
       use: { ...devices["Desktop Safari"], hasTouch: true, isMobile: true },
-      testIgnore: INSTANCE_WIDE_SPECS,
+      testIgnore: [...INSTANCE_WIDE_SPECS, BULK_WRITE_SPEC],
       grep: /@touch/,
     },
     {
       name: "firefox-touch",
       use: { ...devices["Desktop Firefox"], hasTouch: true },
-      testIgnore: INSTANCE_WIDE_SPECS,
+      testIgnore: [...INSTANCE_WIDE_SPECS, BULK_WRITE_SPEC],
       grep: /@touch/,
     },
   ],
