@@ -526,10 +526,11 @@ server needs neither in `.env.local`.
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
 (`INSTANCE_WIDE_SPECS` in `playwright.config.ts`: `e2e/simulated-providers.spec.ts`,
-`e2e/alert-email.spec.ts`, and every `e2e/webhooks*.spec.ts`, among others) live in a second Playwright
-project, `instance-wide`, which depends on the `chromium` project and so starts only after every
-other spec has finished. `npm run test:e2e` (and CI) runs both projects in that order; if a
-`chromium` test fails, the `instance-wide` specs are skipped. To run the tick specs locally:
+`e2e/alert-email.spec.ts`, and every `e2e/webhooks*.spec.ts`, among others) live in their own Playwright
+project, `instance-wide`, which depends on the `chromium`, `webkit-touch`, and `firefox-touch`
+projects and so starts only after their specs have finished. `npm run test:e2e` (and CI) runs all
+five projects in that order, with `bulk-writes` (below) last; if a test in an earlier project
+fails, the projects that depend on it are skipped. To run the tick specs locally:
 
 ```bash
 npx playwright test --project=instance-wide        # runs every chromium spec first, then the tick specs
@@ -547,7 +548,10 @@ reads the database's changes in commit order, so a live change written after tho
 page only once Realtime has read every one of them: in CI that took most of a minute, and the specs
 beside it that waited for a live change failed. The spec lives in its own project, `bulk-writes`
 (`BULK_WRITE_SPEC` in `playwright.config.ts`), which depends on every other project and so runs
-last, with nothing beside it. If an earlier test fails, it is skipped. To run it locally:
+last, with nothing beside it. If an earlier test fails, it is skipped. That holds within one
+Playwright run only: a second run against the same local Supabase, such as another checkout on its
+own `E2E_PORT`, shares that Realtime, so its live changes stall too while this spec seeds and
+cleans up. To run it locally:
 
 ```bash
 npx playwright test --project=bulk-writes            # runs every other project first, the tick specs included
