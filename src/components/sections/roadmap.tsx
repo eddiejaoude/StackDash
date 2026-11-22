@@ -11,7 +11,7 @@ interface Phase {
 
 const phases: readonly Phase[] = [
   {
-    name: "First release",
+    name: "Available now",
     summary:
       "One timeline and one alert across your stack, with stats you choose to share and an API and MCP server to read it all.",
     items: [
@@ -70,8 +70,8 @@ export function Roadmap() {
     <Section
       id="roadmap"
       eyebrow="Roadmap"
-      title="Small first release, clear next steps"
-      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose, and you can host it yourself today. The full roadmap says what is being built now and what comes next."
+      title="What works today, and what comes next"
+      intro="Today you can host it yourself and get the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose. The full roadmap says what is being built now and what comes next."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

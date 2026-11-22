@@ -67,7 +67,7 @@ An app registered before webhooks: add the webhook, the two repository permissio
 
 ## Vercel Integration
 
-Reads team plan, billing charges, deployments, and projects. Full steps, including the required profile fields: [Vercel, Self-hosted registration steps](../providers/vercel.md#self-hosted-registration-steps). Scopes and what they also allow: [Vercel, Scopes requested](../providers/vercel.md#scopes-requested) and [Permission risks](../providers/vercel.md#permission-risks).
+Reads the team name, billing charges, and deployments. Full steps, including the required profile fields: [Vercel, Self-hosted registration steps](../providers/vercel.md#self-hosted-registration-steps). Scopes and what they also allow: [Vercel, Scopes requested](../providers/vercel.md#scopes-requested) and [Permission risks](../providers/vercel.md#permission-risks).
 
 Settings that must match the code:
 
@@ -83,14 +83,14 @@ Adding or upgrading a scope later emails every installer for confirmation, so re
 
 ## Stripe App
 
-Reads revenue, fees, payouts, subscriptions, and payment and customer events. A Stripe App is built and uploaded with the Stripe CLI; it exists only to request permissions and issue OAuth tokens. Full steps: [Stripe, Self-hosted setup](../providers/stripe.md#self-hosted-setup) and the manifest in [Packaging the Stripe App](../providers/stripe.md#packaging-the-stripe-app). Permissions and what they also allow: [Stripe, Permissions](../providers/stripe.md#permissions).
+Reads fees and revenue, and payment, refund, customer, and subscription events. A Stripe App is built and uploaded with the Stripe CLI; it exists only to request permissions and issue OAuth tokens. Full steps: [Stripe, Self-hosted setup](../providers/stripe.md#self-hosted-setup) and the manifest in [Packaging the Stripe App](../providers/stripe.md#packaging-the-stripe-app). Permissions and what they also allow: [Stripe, Permissions](../providers/stripe.md#permissions).
 
 Settings that must match the code:
 
 - Owner account: a Stripe account used only for the app, without Connect enabled. One account owns at most one public app.
 - `stripe-app.json`: `distribution_type` `public`, `stripe_api_access_type` `oauth` (fixed after the first upload), `allowed_redirect_uris` `["<SITE_URL>/api/connections/stripe/callback"]` (HTTPS for live mode).
 - Permissions, added with `stripe apps grant permission`: `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read`. Nothing else.
-- After `stripe apps upload`: in the Dashboard, **Created apps**, select the app, **Set external test version**, **Access**: **Anyone with the link**. Up to 25 external testers can install an unpublished app; MVP testers are added this way ([External testers and review](../providers/stripe.md#external-testers-and-review)). Testers need the Apps administrator role on their Stripe account.
+- After `stripe apps upload`: in the Dashboard, **Created apps**, select the app, **Set external test version**, **Access**: **Anyone with the link**. Up to 25 external testers can install an unpublished app; until the app is published, every user is added this way ([External testers and review](../providers/stripe.md#external-testers-and-review)). Testers need the Apps administrator role on their Stripe account.
 - Webhooks, optional: one endpoint in the owner account's live mode, **Developers**, **Webhooks**, at `<SITE_URL>/api/webhooks/stripe`, with **Listen to events on Connected accounts** and the eight events listed in [Stripe, Webhooks](../providers/stripe.md#webhooks), and, to push test mode installs' events too, a second endpoint with the same settings at the same URL in the owner account's test mode. Each delivery reaches only connections of its own mode.
 
 Variables: `STRIPE_APP_CLIENT_ID` (the `client_id` in the OAuth install link), `STRIPE_APP_SECRET_KEY` (live secret key `sk_live_...` of the owner account; Stripe Apps have no client secret, and a restricted key does not work), `STRIPE_APP_TEST_SECRET_KEY` (`sk_test_...`, only to accept installs from the test mode link), `STRIPE_WEBHOOK_SECRET` (the live mode webhook endpoint's signing secret `whsec_...`, only to receive live mode webhooks), and `STRIPE_WEBHOOK_TEST_SECRET` (the test mode webhook endpoint's signing secret `whsec_...`, only to receive test mode webhooks). With both webhook secrets empty, Stripe is on polling alone.

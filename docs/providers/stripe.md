@@ -2,7 +2,7 @@
 
 Provider id: `stripe`. Verification: documentation only.
 
-StackDash reads your Stripe revenue, Stripe fees, payouts, subscriptions, and payment and customer events, to show them next to your costs. It installs as a Stripe App with seven read-only permissions and never writes to Stripe. This is separate from StackDash billing its own customers.
+StackDash reads your Stripe fees and revenue, and payment, refund, customer, and subscription events, to show them next to your costs. It installs as a Stripe App with seven read-only permissions and never writes to Stripe. This is separate from StackDash billing its own customers.
 
 All facts below come from Stripe's documentation, checked 2026-10-31. Anything not confirmed by a doc is in [Unverified](#unverified).
 
@@ -48,7 +48,7 @@ https://marketplace.stripe.com/oauth/v2/authorize?client_id=${clientId}&redirect
 
 Links differ by where the app is installed:
 
-- External test links (the **External test** or **External testing** section of the app in the Dashboard) work before the app is published. Use these for the MVP test.
+- External test links (the **External test** or **External testing** section of the app in the Dashboard) work before the app is published. Use these until it is.
 - Public links (the **Settings** tab) only work after the app is published to the Stripe App Marketplace. App review needs the live mode public link.
 - There are separate links for live mode, the legacy test mode sandbox, and general sandboxes. Send each tester the link for the environment they will install into.
 
@@ -72,28 +72,28 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 | Test mode link | App developer account's test mode secret key |
 | Sandbox link | The app's managed sandbox secret key |
 
-- Stripe's docs say to carry the link type in `state`. StackDash should store the environment server-side in the pending connection row keyed by `state`, so `state` stays an opaque token.
+- Stripe's docs say to carry the link type in `state`. StackDash does not: `state` stays an opaque token. StackDash exchanges the code with the live mode key and, if Stripe refuses it and `STRIPE_APP_TEST_SECRET_KEY` is set, again with the test mode key, then records the mode from `livemode` in the response.
 - Stripe warns that a restricted key, an access token, or a refresh token in place of the secret key fails with a permissions error. So the exchange needs a full secret key, not a restricted key. See [Permission risks](#permission-risks).
 
 Response fields:
 
 | Field | Use |
 |---|---|
-| `access_token` | Bearer token for API calls. Encrypt at rest. Never log |
-| `refresh_token` | Encrypt at rest. Never log |
+| `access_token` | Bearer token for API calls. Stored encrypted. Never logged |
+| `refresh_token` | Stored encrypted. Never logged |
 | `stripe_user_id` | The connected account id (`acct_...`). The connection's external id |
-| `livemode` | `true` for live mode installs. Store it and show it in the UI |
+| `livemode` | `true` for live mode installs. Stored with the credential. A test mode account's name in StackDash ends in "(test mode)" |
 | `scope` | Documented value is `stripe_apps` |
 | `token_type` | `bearer` |
-| `stripe_publishable_key` | Not needed. Do not store |
+| `stripe_publishable_key` | Not read or stored |
 
-The response has no `expires_in`. Compute `accessTokenExpiresAt` as the time of the exchange plus 1 hour.
+The response has no `expires_in`. StackDash sets the access token's expiry to the time of the exchange plus 1 hour.
 
 ### API calls
 
-Send the access token as the API key. Stripe's own check is `curl https://api.stripe.com/v1/customers -u "{{ ACCESS_TOKEN }}"`, which is Basic auth with the token as username. With an HTTP client, `Authorization: Bearer <access_token>` is the equivalent. The token is already scoped to the installing account, so no `Stripe-Account` header is needed.
+The access token is the API key. Stripe's own check is `curl https://api.stripe.com/v1/customers -u "{{ ACCESS_TOKEN }}"`, which is Basic auth with the token as username. StackDash sends the equivalent, `Authorization: Bearer <access_token>`. The token is already scoped to the installing account, so StackDash sends no `Stripe-Account` header.
 
-Pin the API version with the `Stripe-Version` header. The API reference examples on 2026-10-31 use `2026-10-28.endive`.
+StackDash pins the API version with the `Stripe-Version` header to `2026-10-28.endive`, the version the API reference examples used on 2026-10-31.
 
 ### Refresh
 
@@ -106,22 +106,22 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 
 - Access tokens expire after 1 hour. Refresh tokens expire after 1 year.
 - Every refresh returns a new refresh token and the previous one expires. The new one is valid for a year from then, so a connection that syncs at least once a year never hits refresh token expiry.
-- Because the old refresh token dies on use, **refreshes for one connection must be serialized**. Two workers refreshing at once means one of them uses a dead token and the connection looks revoked. Take a per-connection lock, re-read the stored tokens inside the lock, refresh only if still needed, and write the new access token, refresh token, and expiry in one transaction before releasing the lock.
-- If the write after a successful refresh fails, the stored refresh token is already dead. Treat that as a reconnect-needed state rather than retrying with the old token.
-- Use the same environment's secret key that was used for the original exchange.
+- Because the old refresh token dies on use, **refreshes for one connection are serialized**. Two workers refreshing at once would mean one of them uses a dead token and the connection looks revoked. StackDash takes the connection's refresh lock, re-reads the stored credential inside it, refreshes only if still needed, and saves the new access token, refresh token, and expiry in one write before releasing the lock.
+- If the save after a successful refresh fails, the stored refresh token is already dead. StackDash logs it (`credential_refresh.not_saved`) and does not retry with the old token: the connection asks to be reconnected on its next sync.
+- Refreshes use the secret key of the environment recorded at the exchange. A test mode install falls back to `STRIPE_APP_SECRET_KEY` when `STRIPE_APP_TEST_SECRET_KEY` is not set.
 
 ### Test mode, live mode, and sandboxes
 
 - A connection is one Stripe account in one environment, and live and test data never mix. Polled data comes from each connection's own mode's key, and each webhook delivery reaches only connections of the mode its `livemode` names (see [Webhooks](#webhooks)). StackDash records a connection's mode beside it (`connections.mode`) when the grant completes.
 - `livemode=false` on objects and events does not say which kind of sandbox it came from.
-- Sandbox installs of a public app need `sandbox_install_compatible: true` in the manifest and use the managed sandbox keys. The MVP does not need general sandbox installs. Live mode plus, for development, the legacy test mode link is enough.
+- Sandbox installs of a public app need `sandbox_install_compatible: true` in the manifest and use the managed sandbox keys. StackDash does not support general sandbox installs: it has no setting for a managed sandbox key. It supports live mode and, for development, the legacy test mode link.
 
 ### Disconnect and uninstall
 
 - Users uninstall the app in the Stripe Dashboard: **Settings** > **Installed apps**, the app's menu, **Uninstall**. Only an administrator can do this.
 - Stripe sends `apps.install.deleted` and `account.application.deauthorized` when an account uninstalls the app. On API versions before 2026-09-30 the install events are named `app.install.created`, `app.install.updated`, and `app.install.deleted`. StackDash receives both uninstall events (and the older name) by webhook for live mode and test mode installs, and marks the account's connections of that mode as needing a reconnect at once (see [Webhooks](#webhooks)).
 - Stripe documents no token revocation endpoint for Stripe Apps OAuth. Connect's `POST https://connect.stripe.com/oauth/deauthorize` is documented for Connect OAuth only; do not use it here (see [Unverified](#unverified)).
-- So in the MVP, "Disconnect" in StackDash deletes the stored tokens and synced Stripe data, then tells the user to uninstall the app in the Stripe Dashboard to remove StackDash's access on Stripe's side.
+- So "Disconnect" in StackDash deletes the stored tokens, keeps the Stripe history already synced, and tells the user to uninstall the app in the Stripe Dashboard to remove StackDash's access on Stripe's side.
 - An instance without the webhook secret for a mode (`STRIPE_WEBHOOK_SECRET` for live mode, `STRIPE_WEBHOOK_TEST_SECRET` for test mode, unless the account installed the app in both modes, whose test mode events also reach the live endpoint) gets no uninstall event for that mode: the uninstall shows up as a failed refresh or a failed API call with a valid token, and the next sync marks the connection as needing reconnection and stops syncing it. Uninstalling one mode's install never marks the other mode's connection of the same account.
 
 ### External testers and review
@@ -195,7 +195,7 @@ Manifest fields that matter:
 | `stripe_api_access_type` | `oauth` | Cannot be changed after the first upload |
 | `allowed_redirect_uris` | Callback URLs | The first entry is the default redirect |
 | `permissions` | Array of `{ permission, purpose }` | `purpose` is shown to the installing user |
-| `sandbox_install_compatible` | Omit for the MVP | Only for general sandbox installs |
+| `sandbox_install_compatible` | Omit | Only for general sandbox installs, which StackDash does not support |
 
 A v2 manifest (`stripe-app.yaml`) also exists. It nests the same values under `declarations` (`distribution_type`, `stripe_api_access_type`, `allowed_redirect_uris`, `stripe_api_access.permissions`). `stripe apps migrate` converts v1 to v2. Either works; keep whichever `stripe apps create` produces.
 
@@ -210,12 +210,12 @@ Account restrictions for the account that owns the app:
 | Permission | Why StackDash needs it | What it also allows |
 |---|---|---|
 | `event_read` | Poll `GET /v1/events` for the timeline | Lists and retrieves all event types. Event payloads embed full objects, including customer emails and billing details |
-| `charge_read` | Charges and refunds for revenue and refund counts | Full charge objects, including `billing_details` and `receipt_email` |
+| `charge_read` | The `charge.*` payment and refund events on the timeline | Full charge objects, including `billing_details` and `receipt_email` |
 | `customer_read` | Customer events for "new customer" | Full customer records: names, emails, phone numbers, addresses |
-| `subscription_read` | Subscription counts and created or canceled events | Full subscription objects |
-| `invoice_read` | Paid invoice amounts | Invoices include `customer_email`, `customer_name`, and more |
-| `balance_read` | Current balance and balance transactions (fees) | Balance only |
-| `payout_read` | Payout amounts and dates | Payout objects, including the destination bank account id |
+| `subscription_read` | The subscription created and ended events | Full subscription objects |
+| `invoice_read` | Not used: StackDash does not read invoices | Invoices include `customer_email`, `customer_name`, and more |
+| `balance_read` | Balance transactions, for fees and revenue. StackDash does not read the current balance | Balance only |
+| `payout_read` | Not used: StackDash does not read payouts | Payout objects, including the destination bank account id |
 
 No write permission is requested. `balance_transaction_source_read` is not requested: StackDash does not expand `source` on balance transactions.
 
@@ -227,9 +227,14 @@ No write permission is requested. `balance_transaction_source_read` is not reque
 
 ### Disclosure copy
 
-Shown before connecting:
+The connect screen lists the seven permissions, each with its purpose from the manifest above, then this under **Data collected**. Those purposes are not all accurate yet: `invoice_read` and `payout_read` describe reads StackDash does not make, `balance_read` names the current balance, which StackDash does not read (see [Permissions](#permissions)), and `customer_read` and `subscription_read` describe counts that StackDash only shows as timeline events.
 
-> StackDash asks for read-only access to your Stripe account: events, payments and refunds, customers, subscriptions, invoices, balance, and payouts. Stripe does not offer narrower access, so this includes your customers' names and emails. StackDash stores only amounts, currencies, dates, statuses, and Stripe ids. It never stores customer names, emails, addresses, or card details. You can remove access at any time by uninstalling the app in your Stripe Dashboard.
+- Stripe fees per currency, this month and last 30 days
+- Revenue net of refunds per currency, this month and last 30 days
+- Payment, refund, new customer, and subscription events with Stripe ids, dates, and each payment's amount and currency
+- Never customer names, emails, addresses, or card details
+
+> Tokens are encrypted and stay on the server. You can disconnect at any time, and the provider's own settings let you revoke access too.
 
 ## Data
 
@@ -237,57 +242,55 @@ All list endpoints share cursor pagination: `limit` (1 to 100, default 10), `sta
 
 | Metric or event | Endpoint | Key fields | Label |
 |---|---|---|---|
-| Stripe fees | `GET /v1/balance_transactions` | `fee`, `fee_details[].amount`, `fee_details[].currency`, `fee_details[].type`, `currency`, `created` | Verified, spending |
-| Gross and net volume | `GET /v1/balance_transactions` | `amount`, `net`, `type`, `reporting_category`, `currency`, `created`, `status`, `available_on` | Verified, revenue |
-| Payments and refunds | `GET /v1/charges` | `id`, `amount`, `amount_captured`, `amount_refunded`, `currency`, `status`, `paid`, `refunded`, `created`, `balance_transaction` | Verified, revenue |
-| Paid invoices | `GET /v1/invoices` | `id`, `amount_paid`, `total`, `currency`, `status`, `created`, `period_start`, `period_end` | Verified, revenue |
-| Subscriptions | `GET /v1/subscriptions?status=all` | `id`, `status`, `currency`, `created`, `start_date`, `canceled_at`, `ended_at` | Verified, count |
-| Balance | `GET /v1/balance` | `available[].amount`, `available[].currency`, `pending[].amount`, `pending[].currency` | Verified, point in time |
-| Payouts | `GET /v1/payouts` | `id`, `amount`, `currency`, `status`, `arrival_date`, `created`, `method` | Verified |
-| Timeline events | `GET /v1/events` | `id`, `type`, `created`, `livemode`, `data.object.id`, plus the allowlisted fields of the object | Verified |
+| Stripe fees (`stripe.fees.<window>.<currency>`) | `GET /v1/balance_transactions` | `fee_details[].amount`, `fee_details[].currency`, `fee_details[].type`, `type`, `amount`, `currency`, `created` | Verified, spending |
+| Revenue net of refunds (`stripe.revenue.<window>.<currency>`) | `GET /v1/balance_transactions` | `amount`, `type`, `currency`, `created` | Verified, revenue |
+| Timeline events | `GET /v1/events` | `id`, `type`, `created`, `data.object.id`, plus the allowlisted fields of the object | Verified |
+
+`<window>` is `month` (this calendar month, UTC) or `last_30_days`, and `<currency>` is the lowercase currency code. StackDash does not call `GET /v1/charges`, `GET /v1/invoices`, `GET /v1/subscriptions`, `GET /v1/balance`, or `GET /v1/payouts`: fees and revenue come from balance transactions alone, and customers and subscriptions appear only as timeline events.
 
 ### Fees
 
 - `fee` is the total fee on a balance transaction in the smallest currency unit, positive when assessed. `fee_details` breaks it down: each entry has `amount`, `currency`, `type`, `application`, and `description`. Documented `type` values: `application_fee`, `payment_method_passthrough_fee`, `stripe_fee`, `tax`, `withheld_tax`.
-- StackDash's "Stripe fees" is the sum of `fee_details[].amount` where `type` is `stripe_fee` or `payment_method_passthrough_fee`, plus `tax` on those fees, grouped by `currency`. Keep `application_fee` separate: that goes to a Connect platform, not Stripe.
-- Some fees arrive as their own balance transactions with `type` `stripe_fee`, `stripe_fx_fee`, or `tax_fee` and a negative `amount`. Count those too, as `-amount`, so fees billed outside a charge are not missed.
-- Balance transactions are in the account's settlement currency. If a charge is in EUR and the account settles in USD, the balance transaction is in USD with an `exchange_rate`. Do not store `exchange_rate` (a float) and never convert currencies.
+- StackDash's "Stripe fees" is the sum of `fee_details[].amount` where `type` is `stripe_fee`, `payment_method_passthrough_fee`, or `tax`, grouped by `currency`. `application_fee` is not counted: that goes to a Connect platform, not Stripe.
+- Some fees arrive as their own balance transactions with `type` `stripe_fee`, `stripe_fx_fee`, or `tax_fee` and a negative `amount`. StackDash counts those too, as `-amount`, so fees billed outside a charge are not missed. Fee credits net into the total, and a currency whose fees net to a credit gets no fee figure for that window.
+- Balance transactions are in the account's settlement currency. If a charge is in EUR and the account settles in USD, the balance transaction is in USD with an `exchange_rate`. StackDash does not read `exchange_rate` (a float) and never converts currencies.
 
 ### Revenue
 
-- For the 30-day revenue card, use balance transactions with `type` `charge` or `payment` (gross `amount`) and `refund` or `payment_refund` (negative `amount`), grouped by settlement `currency`. They line up with fees in the same currency.
-- Charges give presentment-currency amounts and payment counts. Paid invoices give subscription revenue. Show each with its own currency and never sum across currencies or across sources, because an invoice payment also creates a charge.
+- Revenue is the sum of balance transactions with `type` `charge` or `payment` (gross `amount`) and `refund` or `payment_refund` (negative `amount`), per settlement `currency`, for this month and the last 30 days. They line up with fees in the same currency.
+- StackDash does not read charges or invoices for revenue: an invoice payment also creates a charge, so adding the sources would count it twice. Totals are never summed across currencies.
+- Each sync reads every balance transaction since the earlier of the start of the month and 30 days ago, up to 10 pages of 100. An account with more than 1,000 in that span gets no fee or revenue figures from that sync, rather than partial ones.
 
 ### Timeline events by polling
 
-`GET /v1/events` with `types[]` (up to 20 names; `type` and `types` cannot be combined):
+`GET /v1/events` with `types[]` set to these six (up to 20 names; `type` and `types` cannot be combined):
 
-| Stripe event type | Timeline entry | Object fields to keep |
+| Stripe event type | Timeline entry | Object fields read |
 |---|---|---|
-| `payment_intent.succeeded` | Payment succeeded | `id`, `amount`, `amount_received`, `currency`, `created` |
-| `payment_intent.payment_failed` | Payment failed | `id`, `amount`, `currency`, `created`, `last_payment_error.code` |
-| `customer.created` | New customer | `id`, `created` only |
-| `customer.subscription.created` | Subscription created | `id`, `status`, `currency`, `created` |
-| `customer.subscription.deleted` | Subscription ended | `id`, `status`, `currency`, `canceled_at`, `ended_at` |
-| `charge.refunded` | Refund, full or partial | `id`, `amount`, `amount_refunded`, `currency`, `refunded`, `created` |
+| `charge.succeeded` | Payment succeeded | `id`, `amount`, `currency` |
+| `charge.failed` | Payment failed | `id`, `amount`, `currency`, `failure_code` |
+| `charge.refunded` | Payment refunded, or partially refunded | `id`, `amount`, `amount_refunded`, `currency`, `refunded` |
+| `customer.created` | New customer | `id` only |
+| `customer.subscription.created` | Subscription created | `id`, `status` |
+| `customer.subscription.deleted` | Subscription ended | `id`, `status` |
 
 The adapter polls `charge.succeeded`, `charge.failed`, and `charge.refunded` for payments (Unverified item 1), reading `amount`, `amount_refunded`, `currency`, `refunded`, and `failure_code` from the charge. Payment titles carry the amount and its currency, formatted with the currency's own number of minor digits, one payment at a time and never summed: "Payment succeeded: $49.00", "Payment failed: ¥1,900", "Payment refunded: €49.00", and "Payment partially refunded: $9.00 of $49.00 so far". Stripe sends `charge.refunded` for every refund of a charge and `amount_refunded` is the running total, so a partial refund's title says "so far". A charge without an amount or currency gets the title alone. A failed payment's body is its `failure_code` as a plain sentence ("The card issuer declined the payment."); a code StackDash does not list reads "Stripe gave a reason StackDash does not recognize. Open the payment in your Stripe Dashboard to see it." The code itself is never shown.
 
 Polling algorithm:
 
-1. First sync: `created[gte]` = now minus 30 days, `limit=100`, page with `starting_after` = last id of the previous page until `has_more` is `false`.
-2. Later syncs: `created[gte]` = the `created` of the newest stored event. Timestamps are whole seconds, so overlap at the boundary is expected. Dedupe on the Stripe event id with a unique constraint on (connection, event id).
-3. `/v1/events` only goes back 30 days. If a connection has not synced for more than 30 days, events in the gap are gone. Record the gap instead of pretending the timeline is complete. On an instance that receives webhooks for the connection's mode, an event delivered by webhook is stored when it happens, so the gap only loses what a delivery also missed.
-4. Each event's `data` is rendered in the API version that was current when the event was created (`api_version`), not the pinned `Stripe-Version`. The zod schema must accept only the few fields above and ignore everything else, so older shapes still parse.
-5. `data.object` is a full snapshot that contains personal data. Parse it with an allowlist schema and drop the raw payload immediately. Never log it.
+1. First sync: `created[gte]` = now minus 30 days, `limit=100`, page with `starting_after` = last id of the previous page until `has_more` is `false`. A sync reads at most 10 pages (1,000 events); past that, the oldest events of its window are skipped and the sync logs it.
+2. Later syncs: `created[gte]` = the `created` of the newest event seen. Timestamps are whole seconds, so overlap at the boundary is expected. StackDash dedupes on the Stripe event id: a workspace stores each event id once.
+3. `/v1/events` only goes back 30 days. If a connection has not synced for more than 30 days, events in the gap are gone. StackDash logs the gap and reads from 30 days back. On an instance that receives webhooks for the connection's mode, an event delivered by webhook is stored when it happens, so the gap only loses what a delivery also missed.
+4. Each event's `data` is rendered in the API version that was current when the event was created (`api_version`), not the pinned `Stripe-Version`. The schemas accept only the few fields above and ignore everything else, so older shapes still parse.
+5. `data.object` is a full snapshot that contains personal data. StackDash parses it with an allowlist schema and drops the raw payload at once. It is never logged.
 
 ### Units, granularity, freshness
 
-- Amounts: integers in the smallest currency unit. Zero-decimal currencies (for example JPY) have no minor unit, so `100` means 100 yen. Store as `amountMinor` plus currency; formatting needs the currency's exponent.
-- Currency: Stripe returns lowercase three-letter ISO codes. Normalize to uppercase ISO 4217 at the boundary.
-- Timestamps: Unix seconds, UTC. `available_on` and `arrival_date` are dates expressed as timestamps.
-- Granularity: per object. StackDash aggregates by UTC day.
-- Freshness: the API reflects objects as soon as they exist. A balance transaction has `status` `pending` until its `available_on`, but its `fee` is already set. Freshness on the dashboard equals the sync interval.
+- Amounts: integers in the smallest currency unit. Zero-decimal currencies (for example JPY) have no minor unit, so `100` means 100 yen. StackDash stores `amountMinor` plus currency and formats it with the currency's exponent.
+- Currency: Stripe returns lowercase three-letter ISO codes. StackDash normalizes them to uppercase ISO 4217 at the parse boundary.
+- Timestamps: Unix seconds, UTC.
+- Granularity: per object. StackDash totals fees and revenue per currency over two windows: this calendar month (UTC) and the last 30 days.
+- Freshness: the API reflects objects as soon as they exist. A balance transaction has `status` `pending` until its `available_on`, but its `fee` is already set, and StackDash counts pending transactions too. StackDash syncs hourly, so fees and revenue are up to an hour old. Timeline events arrive within a minute where the instance receives webhooks for the connection's mode.
 
 ## Achievements
 
@@ -312,19 +315,18 @@ Counts only, never amounts. The payment and subscription ladder is the same on P
 
 - Global: 100 requests per second per account in live mode, 25 in sandboxes. Most endpoints also have a limit of 25 requests per second each.
 - Concurrency: about 50 in-flight requests in live mode. List requests are the expensive kind.
-- Exceeded limits return `429` with a `Stripe-Rate-Limited-Reason` header: `global-rate`, `endpoint-rate`, `global-concurrency`, `endpoint-concurrency`, or `resource-specific`. A `429` without that header is a lock timeout (`code: lock_timeout`). Retry both with exponential backoff and jitter.
-- **Read request allocation:** an account's read requests must average no more than 500 per transaction over a rolling 30 days, with a minimum of 10,000 read requests per month. A quiet account with few payments has about 10,000 reads a month. Polling 4 endpoints every 15 minutes is about 11,500 a month, which is over. Sync hourly with one request per endpoint when nothing changed (about 3,000 to 4,500 a month), and fetch the balance less often. Which account this allocation is charged to for Stripe Apps OAuth calls is not documented (see [Unverified](#unverified)).
-- Every outbound call has a timeout. 10 seconds per request is a reasonable default for list calls with `limit=100`.
+- Exceeded limits return `429` with a `Stripe-Rate-Limited-Reason` header: `global-rate`, `endpoint-rate`, `global-concurrency`, `endpoint-concurrency`, or `resource-specific`. A `429` without that header is a lock timeout (`code: lock_timeout`). StackDash retries the sync later for both, after `Retry-After` when Stripe sends one, otherwise with exponential backoff and full jitter.
+- **Read request allocation:** an account's read requests must average no more than 500 per transaction over a rolling 30 days, with a minimum of 10,000 read requests per month. A quiet account with few payments has about 10,000 reads a month. StackDash syncs hourly, and each sync lists balance transactions and events, one request each while each fits in a page of 100: about 1,440 reads a month for a quiet account. A busy account needs more pages, and its transactions raise its allocation. Which account this allocation is charged to for Stripe Apps OAuth calls is not documented (see [Unverified](#unverified)).
+- Every outbound call times out after 15 seconds.
 
 ## Privacy
 
-Store only:
+StackDash stores only:
 
-- Connection: `stripe_user_id`, `livemode`, `scope`, encrypted `access_token` and `refresh_token`, `accessTokenExpiresAt`, connected at, last synced at.
-- Ids of Stripe objects StackDash shows or dedupes on: event (`evt_`), charge (`ch_`), payment intent (`pi_`), balance transaction (`txn_`), invoice (`in_`), subscription (`sub_`), payout (`po_`), customer (`cus_`, only as the object id of a `customer.created` event).
-- Amounts in minor units and their currency: `amount`, `amount_captured`, `amount_refunded`, `amount_received`, `amount_paid`, `total`, `fee`, `net`, `fee_details[].amount`, `fee_details[].currency`, balance `available` and `pending` amounts, payout `amount`.
-- Timestamps: `created`, `available_on`, `arrival_date`, `start_date`, `canceled_at`, `ended_at`, `period_start`, `period_end`.
-- Enums and flags: event `type`, `status`, `paid`, `refunded`, balance transaction `type` and `reporting_category`, `fee_details[].type`, payout `method`, `last_payment_error.code`, charge `failure_code`.
+- Connection: `stripe_user_id`, `livemode`, `scope`, encrypted `access_token` and `refresh_token`, the access token's expiry, connected at, last synced at.
+- Stripe event ids (`evt_`), as the timeline's dedupe key. No other Stripe object id is stored.
+- Stripe fees and revenue net of refunds, as totals in minor units per currency, for this month and the last 30 days.
+- Per timeline event: its type, its `created` time, and its title. A payment title carries the charge's `amount`, or for a refund `amount_refunded` and `amount`, with its currency. A failed payment's body is a fixed sentence chosen by `failure_code`, never the code itself.
 
 Never store, never log:
 
@@ -335,7 +337,7 @@ Never store, never log:
 - Raw event payloads and raw API responses.
 - `exchange_rate` (a float, and not needed).
 
-A unit test asserts that the stored row types for this adapter contain none of the forbidden field names, and that parsing a fixture full of personal data yields rows without it.
+A unit test syncs fixtures full of synthetic personal data and asserts that the metrics and events the adapter emits contain none of it, and none of the forbidden field names.
 
 ## Webhooks
 
@@ -351,7 +353,7 @@ StackDash receives Stripe's webhooks for live mode and test mode installs throug
 | Mode | Every event and uninstall names its mode from the event's `livemode`, and reaches only connections of that mode, in every workspace that includes the account. A delivery only the test mode secret verifies must be a test mode one, or it is refused with `422`, so that secret can never reach a live connection. StackDash records a connection's mode when it is granted, and the database refuses a connected Stripe connection without one, so every connection a delivery can reach has its mode |
 | Uninstall | `apps.install.deleted` (`app.install.deleted` on endpoints pinned before 2026-09-30) and `account.application.deauthorized`, in either mode. Either marks the account's connections of that mode as needing a reconnect at once. A connection granted again after the event's `created` time (a reconnect) is left to its next sync, because deliveries arrive late and out of order |
 | Ignored | Events without `account` (the app owner's own account), event types the timeline does not show, and an object the allowlist rejects. Each is acknowledged so Stripe stops retrying, and none is stored. A rejected object is logged by event type only, and the next sync fails on the same event, which is where it surfaces |
-| Not pushed | Fees, revenue, balances, and payouts stay polled |
+| Not pushed | Fees and revenue stay polled |
 
 The payment events are the `charge.*` ones the sync polls (Unverified item 1), not `payment_intent.*`: a payment intent event is a different Stripe event with its own id, so pushing it beside a polled charge event would show one payment twice.
 
@@ -494,9 +496,9 @@ App install object, from the `apps.install.created` webhook event:
 
 ## Unverified
 
-Confirm these with a test app and a test account before or while building the adapter:
+Not yet confirmed with a test app and a test account:
 
-1. **Event permissions for `payment_intent.*`.** Stripe says each event type needs at least one matching permission, but the event to permission table did not render in the docs. `payment_intent.succeeded` and `payment_intent.payment_failed` may need `payment_intent_read`, which is not in the agreed list. If so, either add `payment_intent_read` (read-only) or use `charge.succeeded` and `charge.failed`, which `charge_read` covers.
+1. **Event permissions for `payment_intent.*`.** Stripe says each event type needs at least one matching permission, but the event to permission table did not render in the docs. `payment_intent.succeeded` and `payment_intent.payment_failed` may need `payment_intent_read`, which StackDash does not request. So StackDash uses `charge.succeeded`, `charge.failed`, and `charge.refunded` for payments, which `charge_read` covers.
 2. Whether `event_read` alone returns every event type from `GET /v1/events`, or only those whose object permissions are also granted.
 3. Which account's read allocation (500 reads per transaction, 10,000 a month minimum) is charged for Stripe Apps OAuth calls: the installing account or the app developer account.
 4. Whether the `client_id` is the same across live, test mode, and sandbox install links, and its format.
@@ -512,7 +514,7 @@ Confirm these with a test app and a test account before or while building the ad
 
 ## Go or no-go
 
-Go. Self-serve OAuth with read-only permissions, 25 testers before review, and fees, revenue, payouts, and events all reachable with the token. Confirm items 1 to 3 in [Unverified](#unverified) with a test app before building the event sync.
+Go. Self-serve OAuth with seven read-only permissions. StackDash reads Stripe fees and revenue net of refunds per currency from balance transactions, and payment, refund, customer, and subscription events, by hourly polling and, where the instance has the signing secrets, by webhook. Limits a user can trip on: installing needs Apps administrator rights on the Stripe account; until the app is published, at most 25 accounts can install it from the external test link; only live mode and test mode installs work, not general sandboxes; an account with more than 1,000 balance transactions since the earlier of the start of the month and 30 days ago gets no fee or revenue figures; and events more than 30 days old cannot be read. Items 1 to 3 in [Unverified](#unverified) are still open.
 
 ## Sources
 

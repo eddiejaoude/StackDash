@@ -227,7 +227,7 @@ test.describe("docs", () => {
   test("keyboard focus follows the home page roadmap to the full roadmap", async ({ page }) => {
     // The fragment makes the roadmap section the starting point of sequential focus navigation.
     await page.goto("/#roadmap");
-    const fullRoadmap = page.getByRole("region", { name: "Small first release, clear next steps" }).getByRole("link", {
+    const fullRoadmap = page.getByRole("region", { name: "What works today, and what comes next" }).getByRole("link", {
       name: "Read the full roadmap",
     });
 

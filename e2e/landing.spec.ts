@@ -117,7 +117,7 @@ test.describe("landing page", () => {
 
     const integrations = page.locator("#integrations");
     const built = await integrations
-      .getByRole("region", { name: "First" })
+      .getByRole("region", { name: "Available" })
       .getByRole("listitem")
       .allTextContents();
     // "GitHub and GitHub Actions" is one connection, listed as GitHub in the spend list.
@@ -131,7 +131,7 @@ test.describe("landing page", () => {
     }
 
     // Boundary: a planned provider gets no spend line until its adapter is built.
-    const planned = await integrations.getByRole("region", { name: "Next" }).getByRole("listitem").allTextContents();
+    const planned = await integrations.getByRole("region", { name: "Planned" }).getByRole("listitem").allTextContents();
     expect(planned.length).toBeGreaterThan(0);
     for (const provider of planned) expect(spendProviders).not.toContain(provider);
 
