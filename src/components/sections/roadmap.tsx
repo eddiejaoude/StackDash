@@ -42,7 +42,7 @@ const phases: readonly Phase[] = [
     name: "Coming next",
     summary: "What is being built now and what follows it.",
     items: [
-      "More providers pushing events within a minute",
+      "A page for each integration, and guides to common questions",
       "A hosted version, with open sign-up and a public demo",
       "A shorter path from sign-in to a useful timeline",
     ],

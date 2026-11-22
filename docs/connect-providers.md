@@ -27,9 +27,9 @@ The steps, with the buttons as StackDash names them, are in [Getting started, co
 | Railway | Viewer access to the workspaces you pick, and your Railway sign-in | Billing shows only when Railway lets your role read it; deployments sync either way | [Railway](providers/railway.md) |
 | Resend | Full access, because Resend has no read-only scope that covers usage | Full access also allows sending email and changing your Resend team, so StackDash asks you to tick the agreement before it sends you to Resend | [Resend](providers/resend.md) |
 | Sentry | A Sentry integration with three read-only scopes | Until Sentry publishes an integration, only the organization that registered it can install it. On your own site, that is the organization you registered it under | [Sentry](providers/sentry.md) |
-| Stripe | A Stripe App with seven read-only permissions | One connection is one Stripe account in one mode, live or test. Test mode installs work only when the site has a test mode key set | [Stripe](providers/stripe.md) |
+| Stripe | A Stripe App with five read-only permissions | One connection is one Stripe account in one mode, live or test. Test mode installs work only when the site has a test mode key set | [Stripe](providers/stripe.md) |
 | Supabase | Three read-only scopes | StackDash never reads your database rows, only counts and timestamps | [Supabase](providers/supabase.md) |
-| Vercel | A Vercel Integration with four scopes at Read level | One connection covers one team or Hobby account. Billing is available on Pro and Enterprise teams only | [Vercel](providers/vercel.md) |
+| Vercel | A Vercel Integration with three scopes at Read level | One connection covers one team or Hobby account. Billing is available on Pro and Enterprise teams only | [Vercel](providers/vercel.md) |
 
 Every provider page starts with how far its claims have been checked: against the provider's documentation only, or with a real account. The docs index shows the same status on each provider's card.
 

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 
 import type { APIRequestContext, APIResponse } from "@playwright/test";
 
@@ -63,5 +63,32 @@ export function postGitLabDelivery(
     "webhook-id": deliveryId,
   };
   if (token !== null) headers[GITLAB_TOKEN_HEADER] = token;
+  return request.post(new URL(url).pathname, { data: body, headers });
+}
+
+/**
+ * POSTs `body` as a webhook from automatic setup sends it (#512): signed in `webhook-signature` with
+ * the connection's secret as the signing token, the way GitLab's "Verify the signature" steps
+ * describe (HMAC-SHA256 over `{webhook-id}.{webhook-timestamp}.{body}`, keyed by the secret's 32
+ * bytes), and no `X-Gitlab-Token`. `signature` and `token` override the header and add the token.
+ */
+export function postSignedGitLabDelivery(
+  request: APIRequestContext,
+  url: string,
+  secret: string,
+  body: string,
+  overrides: Readonly<{ signature?: string; token?: string }> = {},
+): Promise<APIResponse> {
+  const deliveryId = randomUUID();
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = `v1,${createHmac("sha256", Buffer.from(secret, "base64url")).update(`${deliveryId}.${timestamp}.${body}`).digest("base64")}`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Gitlab-Event": "Pipeline Hook",
+    "webhook-id": deliveryId,
+    "webhook-timestamp": timestamp,
+    "webhook-signature": overrides.signature ?? signature,
+  };
+  if (overrides.token !== undefined) headers[GITLAB_TOKEN_HEADER] = overrides.token;
   return request.post(new URL(url).pathname, { data: body, headers });
 }

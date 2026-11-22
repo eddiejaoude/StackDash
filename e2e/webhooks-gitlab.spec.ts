@@ -3,7 +3,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
-import { pipelineDeliveryBody, pipelineIid, postGitLabDelivery, SIMULATED_GITLAB_GROUP } from "./fixtures/gitlab-webhook";
+import { pipelineDeliveryBody, pipelineIid, postGitLabDelivery, postSignedGitLabDelivery, SIMULATED_GITLAB_GROUP } from "./fixtures/gitlab-webhook";
 import { anonymous } from "./fixtures/share";
 import { storedCopies, tickUntilStored } from "./fixtures/webhook-ticks";
 
@@ -55,6 +55,16 @@ ownerTest.describe("GitLab webhooks", () => {
         expect(refused.status()).toBe(401);
         expect(await refused.json()).toEqual({ error: "unauthorized" });
       }
+
+      // Signed as a webhook from automatic setup sends it (#512): the same secret verifies the
+      // signature. A wrong signature is refused even beside the right token, because a signed
+      // delivery is judged by its signature alone.
+      const signed = await postSignedGitLabDelivery(gitlab, url, secret, body);
+      expect(signed.status()).toBe(202);
+      expect(await signed.json()).toEqual({ status: "accepted" });
+      const forged = await postSignedGitLabDelivery(gitlab, url, secret, body, { signature: "v1,AAAA", token: secret });
+      expect(forged.status()).toBe(401);
+      expect(await forged.json()).toEqual({ error: "unauthorized" });
 
       // Stored under the key a poll of the same pipeline uses, with the provider prefix every stored
       // event carries (adapterEventDedupeKey, src/lib/jobs/ingest.ts).

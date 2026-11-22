@@ -2,7 +2,7 @@
 
 Provider id: `vercel`. Verification: documentation only. Docs checked 2026-10-31; webhook docs checked 2026-11-16.
 
-StackDash reads your Vercel billing charges and deployments for one team or Hobby account. It installs as a Vercel Integration with four scopes, all at Read level, and billing is available on Pro and Enterprise teams only.
+StackDash reads your Vercel billing charges and deployments for one team or Hobby account. It installs as a Vercel Integration with three scopes, all at Read level, and billing is available on Pro and Enterprise teams only.
 
 StackDash connects to Vercel through a **Vercel Integration** (a "connectable account" integration, external installation flow). The integration gets a long-lived access token for one Vercel scope (a team or a Hobby account), limited to the API scopes chosen in the Integrations Console. StackDash uses it to poll billing charges (FOCUS format) and deployments, and it receives Vercel's deployment and uninstall webhooks so a finished deployment reaches the timeline within a minute (see [Webhooks](#webhooks)).
 
@@ -69,10 +69,11 @@ Vercel integration scopes are set once in the Integrations Console (not per auth
 |---|---|---|---|---|
 | `billing` | Read | Yes | Usage and cost charges. **Only available to Pro and Enterprise teams** | `GET /v1/billing/charges`, `GET /v1/billing/contract-commitments` |
 | `deployment` | Read | Yes | Deployment events for the timeline | `GET /v6/deployments` (listed by the scopes page; the reference documents `GET /v7/deployments`), `GET /v13/deployments/{idOrUrl}`, `GET /v2/deployments/{idOrUrl}/events`, `GET /v6/deployments/{id}/files`, `GET /v2/deployments/{id}/aliases` |
-| `project` | Read | Yes | Requested, but StackDash calls no project endpoint (see Projects below) | `GET /v9/projects` (scopes page; the reference documents `GET /v10/projects`), `GET /v9/projects/{idOrName}`, project domain reads |
 | `team` | Read | Yes | Team name and slug for the connection label | `GET /v2/teams/{teamId}`, `GET /v2/teams/{teamId}/members` |
 
-`team` only offers Read. `billing` lists only Read endpoints in the scopes table. None of the four at Read level can create, change, or delete anything.
+`team` only offers Read. `billing` lists only Read endpoints in the scopes table. None of the three at Read level can create, change, or delete anything.
+
+Not requested: `project`. Deployment rows already carry the project name, and the `project` Read scope also reaches project details with environment variable records (`GET /v9/projects/{idOrName}`). Vercel applies the removal of a scope at once, with no user confirmation, and StackDash reports no missing permission for a grant that still holds `project`, so polling keeps working on an integration that was registered with it. Whether the deployment webhooks still arrive without it is not confirmed (see [Unverified](#unverified)).
 
 Scope changes after launch: adding or upgrading a scope sends every affected user and team owner an email and needs their confirmation. Removing or downgrading a scope applies immediately with no confirmation.
 
@@ -185,7 +186,7 @@ Freshness: live API data. The first sync reads the last 7 days. Each later sync 
 
 ### 5. Projects
 
-StackDash calls no project endpoint. The list is `GET /v10/projects` (scope `project`). Query: `since`, `until` (updated time, ms), `from` (continuation), `limit`, `search`, `teamId`. The body is either an array or `{ projects, pagination }`.
+StackDash does not request the `project` scope and calls no project endpoint. The list is `GET /v10/projects` (scope `project`). Query: `since`, `until` (updated time, ms), `from` (continuation), `limit`, `search`, `teamId`. The body is either an array or `{ projects, pagination }`.
 
 `GET /v9/projects/{idOrName}` returns an `env` array of environment variable records (`key`, `value`, `decrypted`, `target`, and more). StackDash never calls it, and an adapter test fails if a sync requests any project detail or environment variable path (see Permission risks).
 
@@ -232,7 +233,7 @@ From the Limits page (per minute unless noted; scope `user` means per Vercel use
 | `api-teams-get` | 600 | 60 s | user | `GET /v2/teams/{teamId}` |
 | `api-integrations-configuration-get` | 120 | 60 s | user | Reading one integration configuration |
 
-- No limit is listed for `GET /v1/billing/charges` or `GET /v10/projects`. Assume one is enforced.
+- No limit is listed for `GET /v1/billing/charges`. Assume one is enforced.
 - Limits are per endpoint: hitting one does not block others.
 - On a limit, the API returns `429` with `{ "error": { "code": "rate_limited", "message", "limit": { "remaining", "reset", "resetMs", "total" } } }`. `reset` is Unix seconds, `resetMs` Unix milliseconds. StackDash does not read this body: it retries the sync after the `Retry-After` header's delay when the response has one, otherwise after its own exponential backoff.
 - `X-RateLimit-*` response headers are documented only for the analytics API, not for the general REST API.
@@ -294,12 +295,12 @@ The adapter records nothing else: canceled deployments, promotion (`readySubstat
 The connection page shows each scope's description before redirecting to Vercel. The risks behind them:
 
 - **Deployment read is broad.** Vercel describes it as retrieving deployments "including build logs, a list of files and builds, and the file structure for a specific deployment". The token can list deployed files and read build logs, which can include secrets that leak into logs. StackDash calls only the list endpoint.
-- **Project read exposes environment variable records.** `GET /v9/projects/{idOrName}` is in the `project` Read scope and its response includes an `env` array with `key`, `value`, and a `decrypted` flag. Whether values come back decrypted for an integration token is not documented. StackDash never calls that endpoint, and an adapter test fails if it does.
+- **Project read would expose environment variable records.** `GET /v9/projects/{idOrName}` is in the `project` Read scope and its response includes an `env` array with `key`, `value`, and a `decrypted` flag. StackDash does not request that scope, and an adapter test fails if a sync calls any project path.
 - **Team read includes member listing** (`GET /v2/teams/{teamId}/members`), so names and emails of teammates are reachable. StackDash does not call it.
 - **Billing read** covers all charges for the team, every project included, regardless of which projects the user selected at install [inference: the endpoint is team-scoped and takes no project filter].
 - The token is long-lived with no expiry and no refresh. A leaked token works until the user uninstalls. StackDash encrypts it at rest and never sends it to the browser (Vercel also warns to call the API server side only).
 - The token acts as the installing developer. If that person's role changes, data access changes with it, and if they leave the team, the installation is disabled.
-- StackDash calls no `project` endpoint, and reads `team` only for the team name and slug at connect: deployment rows already carry the project name. Removing a scope later applies without user confirmation; adding one later needs every user to confirm.
+- StackDash reads `team` only for the team name and slug at connect. Removing a scope later applies without user confirmation; adding one later needs every user to confirm.
 
 ## API limitations
 
@@ -320,7 +321,7 @@ Every StackDash deployment registers its own Vercel integration, because the cli
 1. In the Vercel dashboard, pick the team that will own the integration, open **Integrations**, then **Integrations Console**, then **Create**.
 2. Fill in the required profile fields: **Name** (max 64 characters), **URL Slug** (max 32), **Developer**, **Contact email**, **Support contact email** (public), **Short Description** (max 40), **Logo** (square PNG, at least 256 px, not transparent), **Category** (for example Dev Tools), **Website**, **Documentation URL**, **EULA URL**, **Privacy Policy URL**, **Support URL**, **Overview** (max 768), and at least one **Feature media** image (16:9, 1920x1080 PNG).
 3. **Redirect URL**: `<SITE_URL>/api/connections/vercel/callback`, where `<SITE_URL>` is the public origin of the StackDash deployment (for local development use `http://localhost:3000/api/connections/vercel/callback` in a separate integration).
-4. **API Scopes**: set `billing` to Read, `deployment` to Read, `project` to Read, `team` to Read, everything else to None.
+4. **API Scopes**: set `billing` to Read, `deployment` to Read, `team` to Read, everything else to None. An integration registered earlier with `project` at Read: set it to None; Vercel applies the removal to every installation at once, with no confirmation.
 5. **Webhook URL**: `<SITE_URL>/api/webhooks/vercel`, with the events `deployment.succeeded`, `deployment.error`, and `integration-configuration.removed` ticked and no others. Like the Redirect URL it is a single field, so one integration serves one origin; leave it empty for a local development integration, which no delivery can reach. Leave **Configuration URL** empty.
 6. Accept the Vercel Integrations Marketplace Agreement and submit.
 7. Copy the client (integration) id and the client secret from the **Credentials** section at the bottom of the integration settings. **Rotate Secret** is available there.
@@ -482,11 +483,11 @@ Could not be confirmed from documentation on 2026-10-31. Check each with a test 
 - Decimal precision of `BilledCost` and `EffectiveCost` (sub-cent values or not), and whether they arrive as JSON numbers or strings in practice.
 - Exact key names inside `Tags` for the project id and name.
 - Whether `GET /v1/billing/contract-commitments` returns the $20 Pro commitment or an empty body for Pro.
-- Rate limits for `GET /v1/billing/charges` and `GET /v10/projects`.
+- Rate limits for `GET /v1/billing/charges`.
 - Maximum `limit` for `GET /v7/deployments`, and that `pagination.next` is meant to be passed as `until`.
-- Whether the `deployment` and `project` Read scopes, documented against `/v6/deployments` and `/v9/projects`, also authorize `/v7/deployments` and `/v10/projects`.
-- Whether deployment and project listing is restricted to the projects selected at install, and whether billing charges are (presumed not).
-- Whether `GET /v9/projects/{idOrName}` returns decrypted environment variable values to an integration token.
+- Whether the `deployment` Read scope, documented against `/v6/deployments`, also authorizes `/v7/deployments`.
+- Whether deployment listing is restricted to the projects selected at install, and whether billing charges are (presumed not).
+- That the `deployment.succeeded` and `deployment.error` webhooks still arrive for an integration without the `project` scope. The webhook docs tie no event to a scope.
 - Whether a newly created Community integration needs a Vercel review before users outside the owning team can install it.
 - Whether the installation deep link `https://vercel.com/d/dashboard/integrations/{slug}/{installationId}` (documented for native integrations) also works for connectable account integrations, which would make a better "uninstall in Vercel" link.
 - That a delivery's account id (`payload.team.id`, otherwise `payload.user.id`) equals the external account the connection stored: the team id for a team install, and the token response's `user_id` for a Hobby account. Check in particular that a Hobby account's deliveries send a null team (`team: null` or `team: { id: null }`, both accepted) rather than a team id the token exchange did not return; otherwise every Hobby delivery, uninstalls included, finds no connection (`webhook.no_targets`).
@@ -528,4 +529,4 @@ All checked 2026-10-31.
 
 ## Go or no-go
 
-**Go.** StackDash connects through a Vercel Integration with four read-only scopes and a long-lived token with no refresh. It records finished deployments (succeeded and failed) from hourly polling and from webhooks, and month-to-date billed spend by charge category from the FOCUS billing charges. The limits a user can trip on: billing needs a Pro or Enterprise team and an installer with an Owner, Member, Developer, Security, Billing, or Enterprise Viewer role, so a Hobby account or a Viewer install gets deployments only; spend is USD only; the `deployment` and `project` read scopes reach build logs, files, and environment variable records that StackDash never calls; and the installation is disabled if the installing developer leaves the team. Nothing has been checked against a live Vercel account (see [Unverified](#unverified)).
+**Go.** StackDash connects through a Vercel Integration with three read-only scopes and a long-lived token with no refresh. It records finished deployments (succeeded and failed) from hourly polling and from webhooks, and month-to-date billed spend by charge category from the FOCUS billing charges. The limits a user can trip on: billing needs a Pro or Enterprise team and an installer with an Owner, Member, Developer, Security, Billing, or Enterprise Viewer role, so a Hobby account or a Viewer install gets deployments only; spend is USD only; the `deployment` read scope reaches build logs and files that StackDash never calls; and the installation is disabled if the installing developer leaves the team. Nothing has been checked against a live Vercel account (see [Unverified](#unverified)).

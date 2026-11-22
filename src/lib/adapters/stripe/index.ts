@@ -96,16 +96,28 @@ const permissions: readonly Permission[] = [
     access: "read",
     description: "Read payment, customer, subscription, and refund events to show them on your StackDash timeline",
   },
-  { scope: "charge_read", access: "read", description: "Read payment and refund amounts to show revenue" },
+  {
+    scope: "charge_read",
+    access: "read",
+    description: "Show succeeded, failed, and refunded payments on your StackDash timeline",
+  },
   {
     scope: "customer_read",
     access: "read",
-    description: "Count new customers. StackDash does not store customer names or emails",
+    description: "Show new customers on your StackDash timeline. StackDash does not store customer names or emails",
   },
-  { scope: "subscription_read", access: "read", description: "Count new and canceled subscriptions" },
-  { scope: "invoice_read", access: "read", description: "Read paid invoice amounts to show revenue" },
-  { scope: "balance_read", access: "read", description: "Read your balance and Stripe fees" },
-  { scope: "payout_read", access: "read", description: "Read payout amounts and dates" },
+  {
+    scope: "subscription_read",
+    access: "read",
+    description: "Show new and canceled subscriptions on your StackDash timeline",
+  },
+  {
+    scope: "balance_read",
+    access: "read",
+    description: "Read balance transactions to total Stripe fees and revenue. StackDash does not read your current balance",
+  },
+  // No `invoice_read` or `payout_read`: revenue comes from balance transactions, and no payout is
+  // shown (#608).
 ];
 
 const requestedScopes = permissions.map((permission) => permission.scope);

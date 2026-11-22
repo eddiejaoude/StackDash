@@ -235,7 +235,7 @@ ownerTest.describe("webhook setup panel", () => {
             .getByRole("listitem")
             .filter({
               hasText:
-                "Paste the address below into URL and the secret below into Secret token.",
+                "Paste the address below into URL and the secret below into Secret token. Leave Signing token empty: StackDash cannot read a token GitLab generates, so deliveries signed with one are refused.",
             }),
         ).toBeVisible();
         await expect(
