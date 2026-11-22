@@ -15,6 +15,7 @@ import {
   insertWebhookEndpoint,
   listWebhookSources,
   loadWebhookEndpoint,
+  markSourceWebhookCurrent,
   WEBHOOK_SOURCES_PER_ENDPOINT,
   WebhookEndpointExistsError,
   WebhookEndpointLimitError,
@@ -220,29 +221,53 @@ describe("webhook setup (#426)", () => {
 });
 
 describe("webhook sources (#428)", () => {
-  it("lists the endpoint's own sources by name, with the webhook StackDash created and the last delivery", async () => {
-    const source = (id: string, endpointId: string, name: string, providerWebhookId: string | null, lastDeliveryAt: string | null): Row => ({
-      endpoint_id: endpointId,
-      source_id: id,
-      source_name: name,
-      provider_webhook_id: providerWebhookId,
-      last_delivery_at: lastDeliveryAt,
-    });
+  const source = (id: string, endpointId: string, name: string, providerWebhookId: string | null, lastDeliveryAt: string | null, outdated = false): Row => ({
+    endpoint_id: endpointId,
+    source_id: id,
+    source_name: name,
+    provider_webhook_id: providerWebhookId,
+    provider_webhook_outdated: outdated,
+    last_delivery_at: lastDeliveryAt,
+  });
+
+  it("lists the endpoint's own sources by name, with the webhook StackDash created, whether it is outdated, and the last delivery", async () => {
     const { db, requests } = fakeSupabase({
       webhook_sources: [
         source("10", ENDPOINT_ID, "group1/web", null, "2026-11-16T10:00:00.000Z"),
-        source("9", ENDPOINT_ID, "group1/api", "17", null),
+        source("9", ENDPOINT_ID, "group1/api", "17", null, true),
         source("11", "28100000-0000-4000-8000-000000000009", "other/app", "18", null),
       ],
     });
     vi.mocked(createAdminClient).mockReturnValue(db);
 
     expect(await listWebhookSources(ENDPOINT_ID)).toEqual([
-      { sourceId: "9", name: "group1/api", providerWebhookId: "17", lastDeliveryAt: null },
-      { sourceId: "10", name: "group1/web", providerWebhookId: null, lastDeliveryAt: new Date("2026-11-16T10:00:00.000Z") },
+      { sourceId: "9", name: "group1/api", providerWebhookId: "17", providerWebhookOutdated: true, lastDeliveryAt: null },
+      { sourceId: "10", name: "group1/web", providerWebhookId: null, providerWebhookOutdated: false, lastDeliveryAt: new Date("2026-11-16T10:00:00.000Z") },
     ]);
     // Bounded by what the table may hold for one endpoint.
     expect(requests.map((request) => request.limit)).toEqual([WEBHOOK_SOURCES_PER_ENDPOINT]);
+  });
+
+  it("clears the outdated mark of the one webhook updated, and not of a webhook that replaced it since (#617, boundary)", async () => {
+    const OTHER_ENDPOINT = "28100000-0000-4000-8000-000000000009";
+    const { db, tables } = fakeSupabase({
+      webhook_sources: [
+        source("9", ENDPOINT_ID, "group1/api", "17", null, true),
+        source("10", ENDPOINT_ID, "group1/web", "21", null, true),
+        source("9", OTHER_ENDPOINT, "group1/api", "17", null, true),
+      ],
+    });
+    vi.mocked(createAdminClient).mockReturnValue(db);
+
+    await markSourceWebhookCurrent({ endpointId: ENDPOINT_ID, sourceId: "9", providerWebhookId: "17" });
+    // Source 10 now holds webhook 21, not the 20 that was updated: its mark stays.
+    await markSourceWebhookCurrent({ endpointId: ENDPOINT_ID, sourceId: "10", providerWebhookId: "20" });
+
+    expect(tables.webhook_sources?.map((row) => [row.endpoint_id, row.source_id, row.provider_webhook_outdated])).toEqual([
+      [ENDPOINT_ID, "9", false],
+      [ENDPOINT_ID, "10", true],
+      [OTHER_ENDPOINT, "9", true],
+    ]);
   });
 
   it("lists none for an endpoint without sources (boundary: empty)", async () => {

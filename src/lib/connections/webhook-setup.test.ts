@@ -26,6 +26,7 @@ import {
   insertWebhookEndpoint,
   listWebhookSources,
   loadWebhookEndpoint,
+  markSourceWebhookCurrent,
   noteSourceWithoutWebhook,
   saveCreatedWebhookSource,
   WEBHOOK_SOURCES_PER_ENDPOINT,
@@ -70,6 +71,7 @@ vi.mock("@/lib/data/webhook-endpoints", async (importOriginal) => {
     insertWebhookEndpoint: vi.fn(),
     listWebhookSources: vi.fn(),
     loadWebhookEndpoint: vi.fn(),
+    markSourceWebhookCurrent: vi.fn(),
     noteSourceWithoutWebhook: vi.fn(),
     replaceWebhookEndpointSecret: vi.fn(),
     saveCreatedWebhookSource: vi.fn(),
@@ -464,8 +466,11 @@ describe("one webhook per source (#428)", () => {
     { id: "1002", name: "example-group/api" },
   ];
 
-  /** GitLab's simulated declaration, one webhook per project, with spies for the provider calls. */
-  function withSourceSpies(sources: readonly WebhookSource[] = SOURCES) {
+  /**
+   * GitLab's simulated declaration, one webhook per project, with spies for the provider calls.
+   * `withUpdate: false` declares no `update`, as a per-source provider other than GitLab would.
+   */
+  function withSourceSpies(sources: readonly WebhookSource[] = SOURCES, { withUpdate = true }: Readonly<{ withUpdate?: boolean }> = {}) {
     const adapter = simulatedAdapters.gitlab;
     const webhooks = adapter.webhooks;
     const registration = webhooks?.registration;
@@ -475,17 +480,19 @@ describe("one webhook per source (#428)", () => {
     const listSources = vi.fn(() => Promise.resolve([...sources]));
     const create = vi.fn((input: { sourceId: string }) => Promise.resolve({ webhookId: `hook_${input.sourceId}` }));
     const remove = vi.fn<PerSourceWebhookSetup["remove"]>(() => Promise.resolve());
-    const automatic: PerSourceWebhookSetup = { ...registration.setup.automatic, listSources, create, remove };
+    const update = vi.fn<NonNullable<PerSourceWebhookSetup["update"]>>(() => Promise.resolve());
+    const automatic: PerSourceWebhookSetup = { ...registration.setup.automatic, listSources, create, remove, ...(withUpdate ? { update } : {}) };
     const setup: ConnectionWebhookSetup = { ...registration.setup, secretSource: "stackdash", automatic };
     const spied: ProviderAdapter = { ...adapter, webhooks: { ...webhooks, registration: { kind: "connection", setup } } };
     vi.mocked(getAdapter).mockReturnValue(spied);
-    return { adapter: spied, setup, listSources, create, remove };
+    return { adapter: spied, setup, listSources, create, remove, update };
   }
 
   beforeEach(() => {
     vi.mocked(saveCreatedWebhookSource).mockResolvedValue(true);
     vi.mocked(noteSourceWithoutWebhook).mockResolvedValue(true);
     vi.mocked(listWebhookSources).mockResolvedValue([]);
+    vi.mocked(markSourceWebhookCurrent).mockResolvedValue();
     vi.mocked(loadCredential).mockResolvedValue(WRITE);
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", ORIGIN);
   });
@@ -690,7 +697,9 @@ describe("one webhook per source (#428)", () => {
 
     it("gives a project the sync reads since setup its webhook, on the instance's address with the stored secret", async () => {
       const { create } = withSourceSpies();
-      vi.mocked(listWebhookSources).mockResolvedValue([{ sourceId: "1001", name: "example-group/web", providerWebhookId: "hook_1001", lastDeliveryAt: null }]);
+      vi.mocked(listWebhookSources).mockResolvedValue([
+        { sourceId: "1001", name: "example-group/web", providerWebhookId: "hook_1001", providerWebhookOutdated: false, lastDeliveryAt: null },
+      ]);
       expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
       expect(create.mock.calls.map(([input]) => input)).toEqual([
         { credential: WRITE, url: webhookUrl(ORIGIN, "gitlab", ENDPOINT.id), secret: ENDPOINT.secret, sourceId: "1002" },
@@ -703,9 +712,13 @@ describe("one webhook per source (#428)", () => {
         sourceId: `9${index}`,
         name: `g/p${index}`,
         providerWebhookId: `hook_9${index}`,
+        providerWebhookOutdated: false,
         lastDeliveryAt: null,
       }));
-      vi.mocked(listWebhookSources).mockResolvedValue([...full, { sourceId: "1001", name: "example-group/web", providerWebhookId: null, lastDeliveryAt: null }]);
+      vi.mocked(listWebhookSources).mockResolvedValue([
+        ...full,
+        { sourceId: "1001", name: "example-group/web", providerWebhookId: null, providerWebhookOutdated: false, lastDeliveryAt: null },
+      ]);
       // The endpoint is at its limit: 1001 already has a row, and 1002 would need a new one.
       expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
       expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1001"]);
@@ -741,10 +754,71 @@ describe("one webhook per source (#428)", () => {
     it("asks nothing more when every project has its webhook (boundary: none missing)", async () => {
       const { create } = withSourceSpies();
       vi.mocked(listWebhookSources).mockResolvedValue(
-        SOURCES.map((source) => ({ sourceId: source.id, name: source.name, providerWebhookId: `hook_${source.id}`, lastDeliveryAt: null })),
+        SOURCES.map((source) => ({ sourceId: source.id, name: source.name, providerWebhookId: `hook_${source.id}`, providerWebhookOutdated: false, lastDeliveryAt: null })),
       );
       expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(0);
       expect(create).not.toHaveBeenCalled();
+    });
+
+    describe("webhooks an older build made (#617)", () => {
+      // 1001 holds a webhook made before #616 and 1002 one made since; both are projects the sync reads.
+      const sources = (outdated: boolean) => [
+        { sourceId: "1001", name: "example-group/web", providerWebhookId: "hook_1001", providerWebhookOutdated: outdated, lastDeliveryAt: null },
+        { sourceId: "1002", name: "example-group/api", providerWebhookId: "hook_1002", providerWebhookOutdated: false, lastDeliveryAt: null },
+      ];
+
+      it("updates each marked webhook once, with the address and secret create gets, then clears its mark", async () => {
+        const { update, create } = withSourceSpies();
+        vi.mocked(listWebhookSources).mockResolvedValue(sources(true));
+        expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(0);
+        expect(update.mock.calls.map(([input]) => input)).toEqual([
+          { credential: WRITE, url: webhookUrl(ORIGIN, "gitlab", ENDPOINT.id), secret: ENDPOINT.secret, sourceId: "1001", webhookId: "hook_1001" },
+        ]);
+        expect(markSourceWebhookCurrent).toHaveBeenCalledExactlyOnceWith({ endpointId: ENDPOINT.id, sourceId: "1001", providerWebhookId: "hook_1001" });
+        expect(create).not.toHaveBeenCalled();
+      });
+
+      it("calls nothing when no webhook is marked (boundary: every sync after the first)", async () => {
+        const { update } = withSourceSpies();
+        vi.mocked(listWebhookSources).mockResolvedValue(sources(false));
+        expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(0);
+        expect(update).not.toHaveBeenCalled();
+        expect(markSourceWebhookCurrent).not.toHaveBeenCalled();
+      });
+
+      it("skips a marked source that holds no webhook, since there is nothing to update (boundary)", async () => {
+        const { update, create } = withSourceSpies();
+        vi.mocked(listWebhookSources).mockResolvedValue([
+          { sourceId: "1001", name: "example-group/web", providerWebhookId: null, providerWebhookOutdated: true, lastDeliveryAt: null },
+        ]);
+        // 1001 gets a new webhook as a missing one instead, and so does 1002.
+        expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(2);
+        expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1001", "1002"]);
+        expect(update).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ["the update fails at GitLab", "update"],
+        ["clearing the mark fails after a successful update", "mark"],
+      ] as const)("logs it and still adds the missing webhooks when %s, so the next sync tries again (boundary)", async (_name, failing) => {
+        const { update, create } = withSourceSpies();
+        if (failing === "update") update.mockRejectedValue(new Error("GitLab unavailable"));
+        else vi.mocked(markSourceWebhookCurrent).mockRejectedValue(new Error("webhook_sources update failed (code 57014)."));
+        // Only 1001 is stored, so 1002 is missing and gets its webhook after the failure.
+        vi.mocked(listWebhookSources).mockResolvedValue(sources(true).filter((source) => source.sourceId === "1001"));
+        expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
+        expect(markSourceWebhookCurrent).toHaveBeenCalledTimes(failing === "update" ? 0 : 1);
+        expect(logError).toHaveBeenCalledWith("webhook_setup.source_update_failed", expect.any(Error), expect.objectContaining({ sourceId: "1001" }));
+        expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1002"]);
+      });
+
+      it("leaves a marked webhook alone for an adapter without update, and still adds the missing ones (boundary)", async () => {
+        const { create } = withSourceSpies(SOURCES, { withUpdate: false });
+        vi.mocked(listWebhookSources).mockResolvedValue(sources(true).filter((source) => source.sourceId === "1001"));
+        expect(await addMissingSourceWebhooks(WORKSPACE_ID, CONNECTION_ID, "gitlab")).toBe(1);
+        expect(markSourceWebhookCurrent).not.toHaveBeenCalled();
+        expect(create.mock.calls.map(([input]) => input.sourceId)).toEqual(["1002"]);
+      });
     });
 
     it("throws when every missing webhook fails, so the sync logs it (boundary: GitLab fails)", async () => {

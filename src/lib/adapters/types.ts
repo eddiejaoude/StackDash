@@ -224,6 +224,16 @@ export type PerSourceWebhookSetup = Readonly<{
     ctx: OAuthContext,
   ): Promise<Readonly<{ webhookId: string }>>;
   remove(input: RemoveWebhookInput & Readonly<{ sourceId: string }>, ctx: OAuthContext): Promise<void>;
+  // Optional (#617). Brings a webhook an older build created up to what `create` makes now (GitLab:
+  // a signing token in place of the secret token). Called after a sync for each webhook the
+  // database marks outdated (`webhook_sources.provider_webhook_outdated`), with the secret and the
+  // URL the after-sync `create` gets: the instance's public origin, so a webhook set up through
+  // another origin is pointed there. Resolves once the webhook is current or known to be gone, which
+  // clears the mark; rejects whenever that is not certain, which keeps it for the next sync.
+  update?(
+    input: Pick<CreateWebhookInput, "credential" | "url"> & Readonly<{ secret: Secret; sourceId: string; webhookId: string }>,
+    ctx: OAuthContext,
+  ): Promise<void>;
 }>;
 
 /**
