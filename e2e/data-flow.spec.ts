@@ -352,7 +352,9 @@ test.describe("hero data-flow constellation on load", () => {
           withoutStylesheet.resolve(transform),
         );
         // As soon as the parser has added the stage, compute its style, which also lets the
-        // stylesheet through.
+        // stylesheet through. This needs the parser to reach the stage while the stylesheet is
+        // held: a parser-blocking script ahead of it would wait on the stylesheet too, and the hold
+        // would then show as page.goto timing out.
         await page.addInitScript(() => {
           new MutationObserver((_records, observer) => {
             const stage = document.querySelector('[data-testid="flow-tilt"]');
@@ -371,6 +373,7 @@ test.describe("hero data-flow constellation on load", () => {
       if (styledBeforeStylesheet) expect(await withoutStylesheet.promise).toBe("none");
       const stage = await atLoad.promise;
       if (!stage) throw new Error("The stage was not in the page at load");
+      expect(stage.rest, "the stage's rest transform is its perspective, not none").not.toBe("none");
       expect(stage.transform).toBe(stage.rest);
       expect(stage.animations).toBe(0);
     });
