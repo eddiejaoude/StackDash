@@ -275,9 +275,12 @@ It is for local use only: the app refuses it on a Vercel production deployment.
 
    It leaves alone a simulated connection whose next sync is more than a day away. The app never
    schedules one that far out (a simulated connection syncs every minute, and a failed one is
-   retried within an hour), so only a deliberate change puts it there: the Playwright specs park
-   their connections a month out so a watcher running beside them does not sync them mid-test, and
-   you can park one of yours the same way by setting its `next_sync_at` further out.
+   retried an hour later), so only a deliberate change puts it there. Parking does not cancel a
+   sync already queued or running for the connection, and a sync that succeeds moves its next sync
+   back to a minute away, so a park holds once no sync of that connection is queued or running.
+   The Playwright specs park their connections a month out, delete their queued syncs, wait for a
+   running one to finish, and park them again, so a watcher running beside them does not sync them
+   mid-test. You can park one of yours the same way by setting its `next_sync_at` further out.
 
    It reads `.env.local` once, when it starts: if you add the flag while a watcher is already
    running, stop it and start it again.

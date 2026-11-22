@@ -143,7 +143,11 @@ export type RecordWebhookDeliveryInput = Readonly<{
 
 // markSimulatedSyncsDue leaves alone a simulated connection whose next sync is more than this far
 // past the watcher's clock (#626): one parked on purpose, such as an e2e spec's, which
-// `notDueForAMonth` and `makeConnectionsNotDue` move a month out so no tick syncs it mid-test.
+// `notDueForAMonth` and `makeConnectionsNotDue` move a month out. Parking only stops the watcher
+// and enqueue_due_syncs from queueing a sync: claim_sync_jobs claims a queued job whatever
+// next_sync_at says, and that sync's success moves next_sync_at back a minute out. So
+// `makeConnectionsNotDue` also deletes the connection's queued sync jobs, waits out a running one,
+// and parks again.
 // Nothing in the app schedules a sync that far out: connecting sets next_sync_at to now, a sync
 // that succeeds sets it one poll interval out (a minute for a simulated connection, an hour at most
 // for any adapter), a retry inside a job waits on the job's run_after and leaves next_sync_at where
