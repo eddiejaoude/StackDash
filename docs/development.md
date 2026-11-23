@@ -494,7 +494,11 @@ Packages that `package.json` pins together get one pull request per major: `next
 `eslint-config-next`, and `react` with `react-dom`, `@types/react`, and `@types/react-dom`.
 `@types/node` stays on the Node major in `.nvmrc` (22): raise the `ignore` bound in
 `.github/dependabot.yml` when the Node version goes up. Security updates open as soon as an
-advisory lands, outside that schedule.
+advisory lands, outside that schedule. The `overrides` block in `package.json` resolves the ESLint
+peer of `eslint-plugin-import`, `eslint-plugin-jsx-a11y`, and `eslint-plugin-react` to the root
+ESLint (`$eslint`), because their latest releases list peer ranges that stop at ESLint 9 although
+`eslint-config-next` supports ESLint 10, so remove each entry once its plugin publishes a peer range
+that includes ESLint 10.
 
 ### End-to-end tests
 
