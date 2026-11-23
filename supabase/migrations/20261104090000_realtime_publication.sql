@@ -18,7 +18,9 @@
 -- bound to a user), access_invites (invited email addresses), or any other service only table.
 -- They are closed to anon and authenticated, so Realtime would deliver nothing, but publishing
 -- them still streams their rows through the replication slot for no reader.
--- supabase/tests/database/07_realtime_publication.test.sql pins the exact list.
+-- supabase/tests/database/07_realtime_publication.test.sql pins the exact list. Since
+-- 20261123085405_live_refresh_broadcast_contract.sql the publication holds no table and live
+-- refresh reads Broadcast instead; 07 pins it empty.
 --
 -- Replica identity stays the default (primary key). Inserts and updates carry the whole new row,
 -- which is what the workspace_id filter and the select policy are checked against, so no change is
