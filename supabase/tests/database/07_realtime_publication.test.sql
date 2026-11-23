@@ -1,67 +1,36 @@
--- Realtime publication (issue #129): the workspace screens refresh live from a private Broadcast
--- (41_live_refresh_broadcast.test.sql). These tables stay published for one release, so a rollback
--- to the previous build, which used Postgres Changes, keeps live refresh. Anything else in
--- supabase_realtime streams its rows through the replication slot, so this file fails CI the moment
--- a migration publishes another table, above all the credential, OAuth state, and invite tables.
+-- Realtime publication (issues #129, #628, #635): the workspace screens refresh live from one private
+-- Broadcast per statement (20261122210934_live_refresh_broadcast.sql,
+-- 41_live_refresh_broadcast.test.sql), not from Postgres Changes, so supabase_realtime publishes no
+-- table (20261123085405_live_refresh_broadcast_contract.sql). The empty publication is pinned
+-- because any table added to it would stream its rows through the replication slot to every client
+-- that subscribes to Postgres Changes on it, one message per row, each spending the project's
+-- message limit that live refresh shares (#627). So this file fails CI the moment a migration
+-- publishes a table, above all the credential, OAuth state, and invite tables.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(4);
+select plan(2);
 
--- A FOR ALL TABLES publication would include every service only table, whatever the list says.
+-- A FOR ALL TABLES publication would include every table without listing one. One row also proves
+-- the publication exists, so the check below cannot pass for want of it.
 select results_eq(
   $$
-    select puballtables, pubinsert, pubupdate
+    select puballtables
     from pg_catalog.pg_publication
     where pubname = 'supabase_realtime'
   $$,
-  $$ values (false, true, true) $$,
-  'realtime publication: supabase_realtime exists, lists its tables, and publishes inserts and updates'
-);
-
-select results_eq(
-  $$
-    -- name columns carry collation "C"; cast to the default collation so the
-    -- row comparison against the text literals below is well defined.
-    select (schemaname || '.' || tablename)::text collate "default"
-    from pg_catalog.pg_publication_tables
-    where pubname = 'supabase_realtime'
-    order by 1
-  $$,
-  $$
-    values
-      ('public.activity_events'), ('public.connections'),
-      ('public.triggered_alerts'), ('public.usage_snapshots')
-  $$,
-  'realtime publication: exactly activity_events, connections, triggered_alerts, and usage_snapshots are published'
+  $$ values (false) $$,
+  'realtime publication: supabase_realtime exists and publishes only the tables it lists'
 );
 
 select is_empty(
   $$
-    select tablename::text
+    select (schemaname || '.' || tablename)::text
     from pg_catalog.pg_publication_tables
     where pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename in ('connection_credentials', 'oauth_states', 'access_invites', 'profiles')
   $$,
-  'realtime publication: connection_credentials, oauth_states, access_invites, and profiles are never published'
-);
-
--- Guards against a vacuous pass of the check above: the excluded tables must still exist under
--- these names, or a rename would make the absence meaningless.
-select results_eq(
-  $$
-    select c.relname::text collate "default"
-    from pg_catalog.pg_class c
-    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public'
-      and c.relkind in ('r', 'p')
-      and c.relname in ('connection_credentials', 'oauth_states', 'access_invites', 'profiles')
-    order by 1
-  $$,
-  $$ values ('access_invites'), ('connection_credentials'), ('oauth_states'), ('profiles') $$,
-  'realtime publication: the never published tables exist under the names checked above'
+  'realtime publication: no table is published, the live tables included, because live refresh reads Broadcast'
 );
 
 select * from finish();
