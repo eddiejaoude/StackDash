@@ -84,6 +84,13 @@ tokens with its built-in ES256 key and publishes the public half at
 them against. There is no key file to create and nothing to add to `.env.local`. A hosted project
 needs one dashboard step instead: [Deploy, JWT signing keys](operations/deploy.md#jwt-signing-keys).
 
+The local stack allows public Realtime channels, and `supabase/config.toml` cannot turn them off: the
+CLI's `[realtime]` section has no such setting, and `supabase config validate` rejects
+`realtime.private_only` as an unknown key. Live refresh joins a private channel either way. The
+end-to-end suite relies on the default: `e2e/realtime.spec.ts` joins a public channel to check that
+a message sent there reaches no private subscriber. A hosted project turns public channels off in
+one dashboard step: [Deploy, turn off public Realtime channels](operations/deploy.md#turn-off-public-realtime-channels).
+
 ### 4. Create `.env.local`
 
 ```bash
