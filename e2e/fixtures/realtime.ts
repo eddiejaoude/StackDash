@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { LIVE_CHANGE_EVENT, liveTopic } from "../../src/lib/realtime/arrivals";
 
-import { adminClient } from "./db";
+import { adminClient, newAdminClient } from "./db";
 
 // A change reaches an open page within a few seconds: Realtime delivery, the refresh debounce, and
 // one server render.
@@ -222,6 +222,11 @@ export function updateUnheard(
  * Joins a service role channel to the workspace's live topic, waits for its database stream, runs
  * `write`, and resolves with what it returned once the channel has received the message for every
  * write time `writtenAt` reads from the result.
+ *
+ * The channel is on a client of its own. A client hands back the channel it already holds for a
+ * topic, and every call for one workspace joins the same topic, so two overlapping calls on the
+ * worker's shared client would share one channel: the second's subscribe would do nothing, and the
+ * first's removal would end both.
  */
 async function writeUnheard<Written>(
   table: LiveMessage["table"],
@@ -230,7 +235,7 @@ async function writeUnheard<Written>(
   write: () => Promise<Written>,
   writtenAt: (result: Written) => Promise<readonly string[]>,
 ): Promise<Written> {
-  const admin = adminClient();
+  const admin = newAdminClient();
   // Join with the service role key, not whatever token the client happens to hold yet (see
   // live-refresh.tsx). The service role bypasses row level security, so the topic's policy admits it.
   await admin.realtime.setAuth();
@@ -269,6 +274,7 @@ async function writeUnheard<Written>(
     return result;
   } finally {
     await admin.removeChannel(channel);
+    await admin.realtime.disconnect();
   }
 }
 

@@ -24,14 +24,22 @@ const envSchema = z.object({
 
 let cached: Admin | undefined;
 
+/** The worker's service role client, shared by every caller in the worker. */
 export function adminClient(): Admin {
-  if (cached !== undefined) return cached;
+  cached ??= newAdminClient();
+  return cached;
+}
+
+/**
+ * A service role client of its own, with its own Realtime socket, for a caller whose channels must
+ * not meet another caller's. The caller disconnects it when done.
+ */
+export function newAdminClient(): Admin {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
   const env = envSchema.parse(process.env);
-  cached = createClient<Database>(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  return createClient<Database>(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  return cached;
 }
 
 /** A connection page URL; group 1 is the connection id. */

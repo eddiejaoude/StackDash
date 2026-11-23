@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Page, Route } from "@playwright/test";
+import type { Page, Route, WebSocketRoute } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -161,26 +161,30 @@ type OutsideChannel = Readonly<{
 }>;
 
 type OutsideApp = Readonly<{
-  join: (workspaceId: string) => OutsideChannel;
+  join: (workspaceId: string, access?: "private" | "public") => OutsideChannel;
   close: () => Promise<void>;
 }>;
 
 /**
  * Joins workspaces' live topics as a signed-in user from outside the app, with whichever workspace
- * ids the test picks: what a hostile client can do. Each topic is a private channel of its own, on
- * one socket, that asks Realtime to acknowledge what it sends.
+ * ids the test picks: what a hostile client can do. Each topic is a channel of its own, private
+ * unless the test asks for a public one, on one socket, that asks Realtime to acknowledge what it
+ * sends. A client hands back the channel it already holds for a topic name, so a test that joins
+ * one name both ways uses two of these.
  */
 async function outsideApp(user: SyntheticUser): Promise<OutsideApp> {
   const supabase = syntheticUserClient(user);
   // Join with the user's access token, not the publishable key alone (see live-refresh.tsx).
   await supabase.realtime.setAuth();
   return {
-    join(workspaceId) {
+    join(workspaceId, access = "private") {
       let state = "joining";
       let refusal: string | undefined;
       const delivered: unknown[] = [];
       const channel = supabase
-        .channel(liveTopic(workspaceId), { config: { private: true, broadcast: { ack: true, replication_ready: true } } })
+        .channel(liveTopic(workspaceId), {
+          config: { private: access === "private", broadcast: { ack: true, replication_ready: true } },
+        })
         .on("broadcast", { event: LIVE_CHANGE_EVENT }, ({ payload }: { payload: unknown }) => {
           delivered.push(payload);
         })
@@ -384,6 +388,7 @@ ownerTest.describe("live updates", () => {
     ]);
     const viewerContext = await browser.newContext({ storageState: STORAGE_STATE.viewer });
     let outside: OutsideApp | undefined;
+    let outsidePublic: OutsideApp | undefined;
     try {
       // The viewer and the outsider belong to `viewers` only, so `ownersOnly` is not theirs.
       const admin = adminClient();
@@ -401,13 +406,16 @@ ownerTest.describe("live updates", () => {
       const viewerPage = await viewerContext.newPage();
       const ownerLive = watchLiveChannel(page, ownersOnly.id);
       const viewerLive = watchLiveChannel(viewerPage, viewers.id);
-      // Whatever reaches the viewer's socket on the `ownersOnly` topic, which the app never joins.
-      const viewerOwnersOnly = watchLiveChannel(viewerPage, ownersOnly.id);
       // The outsider asks for `ownersOnly` by id, which the app never does: only the topic's policy
       // stands between that channel and the workspace's changes.
       outside = await outsideApp(outsider);
       const outsideOwnersOnly = outside.join(ownersOnly.id);
       const outsideViewers = outside.join(viewers.id);
+      // The `viewers` topic name joined as a public channel, which any client with the publishable
+      // key may do. Realtime keeps public and private topics of one name apart, and the database
+      // sends to the private one, which is all LiveRefresh joins.
+      outsidePublic = await outsideApp(outsider);
+      const publicViewers = outsidePublic.join(viewers.id, "public");
       await Promise.all([page.goto(`/w/${ownersOnly.slug}/timeline`), viewerPage.goto(`/w/${viewers.slug}/timeline`)]);
       await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
       await expect(viewerPage.getByRole("heading", { name: "No activity yet" })).toBeVisible();
@@ -415,11 +423,13 @@ ownerTest.describe("live updates", () => {
         expectSubscribed(ownerLive),
         expectSubscribed(viewerLive),
         expect.poll(outsideViewers.state, { timeout: LIVE_TIMEOUT_MS }).toBe("subscribed"),
+        expect.poll(publicViewers.state, { timeout: LIVE_TIMEOUT_MS }).toBe("subscribed"),
         expect.poll(outsideOwnersOnly.state, { timeout: LIVE_TIMEOUT_MS }).toBe(REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR),
       ]);
       expect(outsideOwnersOnly.refusal()).toContain("You do not have permissions to read from this Channel topic");
 
-      // A member sends a change of its own making on the topic: Realtime refuses it.
+      // A member sends a change of its own making on the topic: Realtime refuses it. On the public
+      // channel of the same name Realtime accepts it, and it must reach no private subscriber.
       const forged: LiveMessage = {
         table: "connections",
         operation: "UPDATE",
@@ -427,6 +437,7 @@ ownerTest.describe("live updates", () => {
         changed_at: "2000-01-01T00:00:00+00:00",
       };
       expect(await outsideViewers.send(forged)).toBe("error");
+      expect(await publicViewers.send(forged)).toBe("ok");
 
       const ownerOnlyTitle = `Owner only event ${randomUUID().slice(0, 8)}`;
       const ownerOnlyAt = await insertedAt("activity_events", await insertEvent(ownersOnlyConnection, ownerOnlyTitle));
@@ -446,16 +457,17 @@ ownerTest.describe("live updates", () => {
         .poll(() => deliveredInsert(outsideViewers.delivered(), "activity_events", sentinelAt), { timeout: LIVE_TIMEOUT_MS })
         .toBe(true);
 
-      // Non-members: nothing on the `ownersOnly` topic reached the viewer's socket or the outsider,
-      // whose channel to it Realtime refused, and the viewer's tab and the outsider's `viewers`
-      // channel heard the sentinel and not the owner only event. The forged change reached nobody:
-      // Realtime would have sent it at once, long before the sentinel.
-      expect(viewerOwnersOnly.changes()).toEqual([]);
+      // Non-members: nothing on the `ownersOnly` topic reached the outsider, whose channel to it
+      // Realtime refused, and the viewer's tab and the outsider's `viewers` channel heard the
+      // sentinel and not the owner only event. The forged change, refused on the private channel
+      // and accepted on the public one, reached neither private subscriber: Realtime would have
+      // sent it at once, long before the sentinel.
       expect(outsideOwnersOnly.delivered()).toEqual([]);
       expect(deliveredInsert(viewerLive.changes(), "activity_events", sentinelAt)).toBe(true);
       expect(deliveredInsert(viewerLive.changes(), "activity_events", ownerOnlyAt)).toBe(false);
       expect(deliveredInsert(outsideViewers.delivered(), "activity_events", ownerOnlyAt)).toBe(false);
       expect(viewerLive.changes().filter(({ changed_at }) => changed_at === forged.changed_at)).toEqual([]);
+      expect(outsideViewers.delivered().filter(({ changed_at }) => changed_at === forged.changed_at)).toEqual([]);
       await expect(viewerPage.getByRole("heading", { name: ownerOnlyTitle })).toHaveCount(0);
 
       // The topic alone: the owner is a member of both workspaces, so only the `ownersOnly` topic
@@ -473,7 +485,7 @@ ownerTest.describe("live updates", () => {
       expect(deliveredInsert(ownerLive.changes(), "activity_events", ownerOnlyAt)).toBe(true);
       expect(deliveredInsert(ownerLive.changes(), "activity_events", sentinelAt)).toBe(false);
     } finally {
-      await Promise.all([viewerContext.close(), outside?.close()]);
+      await Promise.all([viewerContext.close(), outside?.close(), outsidePublic?.close()]);
       await Promise.all([deleteTestWorkspace(ownersOnly), deleteTestWorkspace(viewers)]);
       await removeSyntheticUser(outsider);
     }
@@ -687,6 +699,81 @@ ownerTest.describe("arriving data", () => {
       expect(scan.violations).toEqual([]);
       await page.keyboard.press("Escape");
       await expect(page.getByRole("tooltip")).toBeHidden();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("joins again after Realtime closes the channel, logs why, and refreshes once for the gap", async ({ page }) => {
+    // The 10 s wait before LiveRefresh joins again, on top of loading the page.
+    ownerTest.slow();
+    const workspace = await createTestWorkspace("Live rejoin");
+    try {
+      const topic = `realtime:${liveTopic(workspace.id)}`;
+      const path = `/w/${workspace.slug}/timeline`;
+      // Stands in for Realtime: answers every join and heartbeat, and keeps each join of the live
+      // topic so the test can send on it as Realtime would.
+      let server: WebSocketRoute | undefined;
+      const joins: string[] = [];
+      await page.routeWebSocket(/\/realtime\/v1\/websocket/, (socket) => {
+        server = socket;
+        socket.onMessage((message) => {
+          if (typeof message !== "string") return;
+          const [joinRef, ref, frameTopic, event] = FrameSchema.parse(JSON.parse(message));
+          const reply = (payload: unknown) => socket.send(JSON.stringify([joinRef, ref, frameTopic, "phx_reply", payload]));
+          if (event === "heartbeat" || event === "phx_join") reply({ status: "ok", response: {} });
+          if (event === "phx_join" && frameTopic === topic) joins.push(z.string().parse(joinRef));
+        });
+      });
+      // What Realtime sends on the latest join of the live topic.
+      const sendOnLatestJoin = (event: string, payload: unknown) => {
+        const joinRef = joins.at(-1);
+        if (server === undefined || joinRef === undefined) throw new Error("The live topic has no join to send on.");
+        server.send(JSON.stringify([joinRef, joinRef, topic, event, payload]));
+      };
+      const streamReady = { extension: "system", status: "ok", message: "Replication connection established", channel: liveTopic(workspace.id) };
+      const renders: string[] = [];
+      page.on("request", (request) => {
+        if (isRenderRequest(request, path)) renders.push(request.url());
+      });
+      const errors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") errors.push(message.text());
+      });
+
+      await page.goto(path);
+      const indicator = page.getByRole("button", { name: "Live updates" });
+      await expect(indicator).toHaveAccessibleName("Live updates, 0 connected");
+      expect(joins).toHaveLength(1);
+      // The first join's stream is ready: nothing was missed, so nothing refreshes.
+      sendOnLatestJoin("system", streamReady);
+
+      // Realtime gives its reason, then closes the channel.
+      const reason = "Replication connection was not established in time";
+      sendOnLatestJoin("system", { extension: "system", status: "error", message: reason, channel: liveTopic(workspace.id) });
+      sendOnLatestJoin("phx_close", {});
+      await expect(indicator).toHaveAccessibleName("Live updates, offline, 0 connected");
+      await expect
+        .poll(() =>
+          errors.some(
+            (text) =>
+              text.includes('"event":"realtime.subscribe_failed"') &&
+              text.includes(`"status":"${REALTIME_SUBSCRIBE_STATES.CLOSED}"`) &&
+              text.includes(`"reason":"${reason}"`),
+          ),
+        )
+        .toBe(true);
+
+      // LiveRefresh joins again on its own, 10 s later, and the answered join reads Live.
+      await expect.poll(() => joins.length, { timeout: LIVE_TIMEOUT_MS }).toBe(2);
+      await expect(indicator).toHaveAccessibleName("Live updates, 0 connected");
+      // More than the debounce has passed since the first stream was ready, and nothing refreshed.
+      expect(renders).toEqual([]);
+
+      // A change written while the channel was closed was never delivered, so once the new join's
+      // stream is ready the page renders again, once.
+      sendOnLatestJoin("system", streamReady);
+      await expect.poll(() => renders.length, { timeout: LIVE_TIMEOUT_MS }).toBe(1);
     } finally {
       await deleteTestWorkspace(workspace);
     }

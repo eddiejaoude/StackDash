@@ -292,7 +292,11 @@ select results_eq(
 -- ---------------------------------------------------------------------------
 -- Receiving: realtime.authorize is what Realtime runs when a channel joins or sends a new token.
 -- It inserts a probe message per read extension on the topic, reads them back as the role, and
--- tries an insert per write extension; then it rolls all of it back.
+-- tries an insert per write extension; then it rolls all of it back. Realtime's own tenant
+-- migrations create it, not this repository's: it arrived in Realtime v2.141.0 (Supabase CLI
+-- v2.121.0 starts v2.143.4; CLI v2.120.0 starts v2.140.10, which has none, so the tests below fail
+-- there with "function realtime.authorize does not exist"). They pass on Realtime v2.167.0, the
+-- image CLI 3.2.0 starts, which docs/operations/deploy.md asks for.
 -- ---------------------------------------------------------------------------
 select results_eq(
   $$

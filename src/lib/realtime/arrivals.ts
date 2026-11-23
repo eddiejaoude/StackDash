@@ -241,6 +241,25 @@ export function liveChange(payload: unknown): LiveChange | null {
   return { changedAt, connectionIds };
 }
 
+/**
+ * A `system` message Realtime sends on the live channel, read. With `broadcast.replication_ready`,
+ * an `ok` one arrives once the stream that carries the database's messages is up for this join.
+ * An error one arrives just before Realtime closes the channel, and its message says why: an
+ * expired token, a lost membership, a stream that did not start within a minute, or too many
+ * messages per second (`shutdown_response` in Realtime's realtime_channel.ex).
+ */
+export type LiveSystemMessage = Readonly<{ ok: boolean; message: string }>;
+
+/** A channel's system payload, read; null for a payload of another shape or another extension. */
+export function liveSystemMessage(payload: unknown): LiveSystemMessage | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const extension = Reflect.get(payload, "extension");
+  const status = Reflect.get(payload, "status");
+  const message = Reflect.get(payload, "message");
+  if (extension !== "system" || (status !== "ok" && status !== "error") || typeof message !== "string") return null;
+  return { ok: status === "ok", message };
+}
+
 function isStringArray(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
 }

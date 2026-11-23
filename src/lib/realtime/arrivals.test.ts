@@ -23,7 +23,7 @@ import {
   liveChange,
   liveConnectionsText,
   liveStatusText,
-  liveTopic,
+  liveSystemMessage,
   type LiveConnection,
   newEventIds,
   recurringValues,
@@ -288,12 +288,6 @@ describe("liveConnectionsText", () => {
   });
 });
 
-describe("liveTopic", () => {
-  it("is the workspace's own topic, with no suffix", () => {
-    expect(liveTopic("2f1c0a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b")).toBe("workspace-live:2f1c0a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b");
-  });
-});
-
 describe("liveChange", () => {
   const changedAt = "2026-11-22T21:09:34.123456+00:00";
 
@@ -317,6 +311,26 @@ describe("liveChange", () => {
     ["a connection id that is not a string", { connection_ids: ["c1", 2], changed_at: changedAt }],
   ])("reads nothing from a payload with %s", (_case, payload) => {
     expect(liveChange(payload)).toBeNull();
+  });
+});
+
+describe("liveSystemMessage", () => {
+  it.each([
+    ["the stream is ready", "ok", "Replication connection established", true],
+    ["Realtime closes the channel", "error", "Too many messages per second", false],
+  ])("reads the message when %s", (_case, status, message, ok) => {
+    const payload = { extension: "system", status, message, channel: "workspace-live:w1" };
+    expect(liveSystemMessage(payload)).toEqual({ ok, message });
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "not a message"],
+    ["another extension", { extension: "postgres_changes", status: "error", message: "m" }],
+    ["an unknown status", { extension: "system", status: "pending", message: "m" }],
+    ["no message", { extension: "system", status: "error" }],
+  ])("reads nothing from a payload with %s", (_case, payload) => {
+    expect(liveSystemMessage(payload)).toBeNull();
   });
 });
 

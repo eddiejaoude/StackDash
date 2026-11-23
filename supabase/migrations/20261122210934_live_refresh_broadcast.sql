@@ -1,6 +1,7 @@
--- Live refresh through one Broadcast per statement (#628), the expand step. The contract step,
--- 20261122211518_live_refresh_broadcast_contract.sql, takes the four tables out of the
--- supabase_realtime publication.
+-- Live refresh through one Broadcast per statement (#628), the expand step. The four tables below
+-- stay in the supabase_realtime publication for one release, so a rollback to the previous build,
+-- which listens to Postgres Changes on them, keeps live refresh. The app no longer subscribes to
+-- them, and a later migration removes them from the publication.
 --
 -- LiveRefresh (src/components/app/live-refresh.tsx) listened to Postgres Changes on inserts and
 -- updates of activity_events, usage_snapshots, connections, and triggered_alerts, so a write of N
@@ -31,12 +32,16 @@
 --   nothing, because its transition table is empty.
 -- * Security definer, so the message is written as the function's owner whoever wrote the rows: the
 --   service role (syncs, jobs), an admin acknowledging an alert, or a migration. Only the triggers
---   run it.
+--   run it. realtime.messages has row level security on and, by design, no insert policy, so the
+--   insert works only because the owner, postgres, bypasses row level security (it has bypassrls;
+--   on Supabase it is not a superuser). Owned by a role without that, the function sends nothing.
 -- * realtime.send inserts the message into realtime.messages, which Realtime streams to subscribers
 --   from the WAL through a replication connection of its own (publication
 --   supabase_realtime_messages_publication), not through the Postgres Changes poller. A failed
---   insert, such as no partition for today, is caught by realtime.send and raised as a warning, so
---   it never fails the write. Realtime drops message partitions after three days.
+--   insert, such as no partition for today or an owner that cannot bypass row level security, is
+--   caught by realtime.send and raised as a warning, so it never fails the write, and live refresh
+--   stops with no error anywhere else: docs/operations/deploy.md gives the check to run after a
+--   deploy. Realtime drops message partitions after three days.
 --
 -- realtime.messages policy: a member of the workspace, at any role, receives its topic; nobody else
 -- does. Realtime checks it when a channel joins and again whenever the client sends a new access
