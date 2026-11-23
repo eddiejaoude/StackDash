@@ -3,7 +3,7 @@ name: Dependency review
 # Fails a pull request that adds or changes a dependency with a known vulnerability in the GitHub
 # Advisory Database. It diffs the dependency graph between the base and head of the pull request,
 # so it only judges what the pull request introduces; `npm audit` in ci.yml judges the whole tree.
-# Docs: https://github.com/actions/dependency-review-action/blob/v5.0.0/README.md
+# Docs: https://github.com/actions/dependency-review-action/blob/v5.0.1/README.md
 on:
   pull_request:
 
