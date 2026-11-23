@@ -28,7 +28,7 @@ On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase 
 Do these in order: each step needs something an earlier one creates, and [Deploy, overview](deploy.md#overview) says why.
 
 1. **Fork the repository** on GitHub and clone your fork. You deploy from your fork, and you upgrade by bringing new commits into it ([Upgrade](#upgrade)).
-2. **Create the Supabase project and apply the migrations**: [Deploy, steps 1 and 2](deploy.md#1-create-the-production-supabase-project).
+2. **Create the Supabase project, turn off public Realtime channels, and apply the migrations**: [Deploy, steps 1 and 2](deploy.md#1-create-the-production-supabase-project), with [Turn off public Realtime channels](deploy.md#turn-off-public-realtime-channels).
 3. **Configure Supabase Auth**: the site URL, GitHub sign-in, and the invite hook, in [Deploy, step 3](deploy.md#3-configure-supabase-auth).
 4. **Invite yourself** with `npm run invite`: [Deploy, step 4](deploy.md#4-invite-testers).
 5. **Create the Vercel project and set the environment variables**: [Deploy, step 5](deploy.md#5-create-the-vercel-project), with the secrets from [step 6](deploy.md#6-generate-the-deployment-secrets).
@@ -78,6 +78,8 @@ Providers that push events deliver them to `https://<production-host>/api/webhoo
 StackDash has no tagged releases yet. Upgrading means moving your fork to a newer commit of the main repository's `main` branch. Versioned releases, with tags and release notes, will come later; until they do, `main` is what you upgrade to, and the commit history is the change log.
 
 Upgrade often. Migrations follow expand then contract: a change adds the new structure first and removes the old one in a later migration, so the build you are running keeps working while its newer migrations are applied. A jump across many commits can apply both halves at once. The build you are running may then fail from the moment the migrations are applied until the new deployment is live, so keep that gap to minutes and check the app as soon as the deployment is promoted. For example, from `20261118150200_contract_connection_mode.sql` on, the database requires a live or test mode on every connected Stripe connection, so a build that does not record one (a commit without `supabase/migrations/20261118150000_connection_mode.sql`) cannot connect Stripe until the new deployment is live. Reconnecting an existing Stripe connection and every other provider keep working.
+
+One project setting depends on the build too. With public Realtime channels turned off ([Deploy, turn off public Realtime channels](deploy.md#turn-off-public-realtime-channels)), a build without `supabase/migrations/20261122210934_live_refresh_broadcast.sql` gets no live updates, because it listens on public channels and Realtime refuses them. Turn the setting off only once you have upgraded past that migration and will not roll back before it, and turn it back on before such a rollback.
 
 ### Before you upgrade
 
