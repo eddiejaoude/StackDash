@@ -32,7 +32,7 @@ Order matters: the Supabase project must exist before the Vercel environment var
 
 Live refresh uses one private Realtime channel per workspace, `workspace-live:<workspace id>`, which only that workspace's members can join ([Database schema, Realtime](../architecture/schema.md#realtime)). StackDash needs no public channel. Supabase allows them by default, and anyone holding the publishable key, which every page ships, can join a public channel and send on it. Those messages count toward the project's Realtime message limits, the same limits live refresh uses.
 
-In the Supabase dashboard, **Realtime, Settings**: turn off **Allow public access to channels** and save. Realtime then checks every channel join against the row level security policies on `realtime.messages`, and a client that does not join with `private: true` is refused: `PrivateOnly: This project only allows private channels`. That includes a Postgres Changes subscription made on a channel joined without `private: true`, as builds before the private topic made them. The Broadcast REST endpoint (`/realtime/v1/api/broadcast`) still accepts a message for a public topic from anyone with the publishable key, and it still counts toward the project's events per second limit, but no client can receive it.
+In the Supabase dashboard, **Realtime, Settings**: turn off **Allow public access to channels** and save. Realtime then checks every channel join against the row level security policies on `realtime.messages`, and a client that does not join with `private: true` is refused: `PrivateOnly: This project only allows private channels`. That includes a Postgres Changes subscription made on a channel joined without `private: true`, as builds before the private topic made them. It does not cover Realtime's Broadcast REST API, which anyone with the publishable key can still use to stop live refresh for a minute at a time: see [What the setting does not stop](#what-the-setting-does-not-stop).
 
 When to turn it off:
 
@@ -49,6 +49,17 @@ curl -fsS -H "Authorization: Bearer $STACKDASH_REALTIME_READ_TOKEN" \
 ```
 
 It prints `true` once public channels are off; `false` or `null` means they are still allowed, and a failed request prints an error and no value. Export the token from your password manager rather than typing it on the command line, so it stays out of shell history.
+
+#### What the setting does not stop
+
+Realtime checks the setting only when a channel joins. Its Broadcast REST API (`/realtime/v1/api/broadcast`), which StackDash never calls, still accepts messages for public topics from anyone holding the publishable key. Nobody receives them, but each one counts toward the project's **Max events per second**, a rolling average over the last minute, and Supabase bills each one as a Realtime message ([Manage Realtime Messages usage](https://supabase.com/docs/guides/platform/manage-your-usage/realtime-messages)). When the average reaches the limit, Realtime drops every broadcast the database sends, live refresh's included, until the average falls back, which takes up to a minute. A page open meanwhile stays joined and still says it is live, the dropped messages are never delivered, and the page shows those changes with the next change that reaches it, or on navigation or reload. A higher limit does not prevent this. Turning public channels off is still worth it: it closes the public channels themselves, whose messages count toward the same limit.
+
+Nothing in StackDash or in the project's settings closes this path: Realtime's settings have no switch for the REST API alone, its policies on `realtime.messages` apply only to messages marked private, a hosted project's API gateway cannot block a path, and the publishable key has to stay in the pages because the browser signs in and opens its Realtime connection with it.
+
+What you can do:
+
+- **Watch the logs.** In the Supabase dashboard, **Logs**, log type **Realtime**: `MessagePerSecondRateLimitReached: Too many messages per second` marks each time the limit trips, and each live message dropped until the average falls back logs `UnableToBroadcastChanges: :too_many_requests`. Log type **API Gateway**, filtered on the pathname `/realtime/v1/api/broadcast`, lists the sender's requests and where they came from, since StackDash makes none.
+- **Rotate the publishable key in an emergency.** In **Settings, API Keys**, create a new publishable key, set it as `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in Vercel, and deploy, because the value is built into the pages. Then delete the old publishable key. A sender that holds the old key is refused from then on. One that reads the key from the new pages is not, so this buys time rather than closing the path. Reload pages opened before the deploy: they still send the old key.
 
 ## 2. Apply the migrations, forward only
 
