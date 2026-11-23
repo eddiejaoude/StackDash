@@ -1,7 +1,8 @@
 -- Live refresh through one Broadcast per statement (#628), the expand step. The four tables below
--- stay in the supabase_realtime publication for one release, so a rollback to the previous build,
--- which listens to Postgres Changes on them, keeps live refresh. The app no longer subscribes to
--- them, and a later migration removes them from the publication.
+-- stay in the supabase_realtime publication for at least one release, so a rollback to the previous
+-- build, which listens to Postgres Changes on them, keeps live refresh. The app no longer subscribes
+-- to them, and the contract step, 20261123085405_live_refresh_broadcast_contract.sql, removes them
+-- from the publication.
 --
 -- LiveRefresh (src/components/app/live-refresh.tsx) listened to Postgres Changes on inserts and
 -- updates of activity_events, usage_snapshots, connections, and triggered_alerts, so a write of N
