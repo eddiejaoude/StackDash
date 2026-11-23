@@ -1,7 +1,8 @@
--- Realtime publication (issue #129): the workspace screens refresh live from Postgres Changes on
--- exactly the tables they read. Anything else in supabase_realtime streams its rows through the
--- replication slot, so this file fails CI the moment a migration publishes another table, above
--- all the credential, OAuth state, and invite tables.
+-- Realtime publication (issue #129): the workspace screens refresh live from a private Broadcast
+-- (41_live_refresh_broadcast.test.sql). These tables stay published for one release, so a rollback
+-- to the previous build, which used Postgres Changes, keeps live refresh. Anything else in
+-- supabase_realtime streams its rows through the replication slot, so this file fails CI the moment
+-- a migration publishes another table, above all the credential, OAuth state, and invite tables.
 begin;
 
 create extension if not exists pgtap with schema extensions;

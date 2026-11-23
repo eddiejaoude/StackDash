@@ -46,7 +46,7 @@ export async function connectSimulated(
   await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
 }
 
-// What `makeConnectionsNotDue` reads from a delivered or re-read connection row.
+// What `makeConnectionsNotDue` reads from a re-read connection row.
 const ScheduledRowSchema = z.object({ next_sync_at: z.string() });
 
 // How long `makeConnectionsNotDue` waits for a sync a tick is running to finish. A simulated sync
@@ -78,20 +78,18 @@ const SYNC_SETTLE_TIMEOUT_MS = 30_000;
  * slow tick's sync of it has yet to write `next_sync_at`, and that lease is compared against this
  * test process's clock, not the database's. Before this runs, any tick may sync them.
  *
- * The writes go through `updateUnheard`, which waits for the final park's update, so a page that
- * subscribes afterwards never hears it or anything written before it: the connect flow's writes,
- * and those of a sync that ran in the meantime. The page already open may have heard them and
- * would render again at a moment the test does not choose (#179, #448), so it is reloaded, at the
- * same address, and comes back without that refresh pending.
+ * The writes go through `updateUnheard`, which waits for the message of the last write to each
+ * parked connection, the final park's or a sync's after it, so a page that subscribes afterwards
+ * never hears it or anything written before it: the connect flow's writes, and those of a sync that
+ * ran in the meantime. The page already open may have heard them and would render again at a
+ * moment the test does not choose (#179, #448), so it is reloaded, at the same address, and comes
+ * back without that refresh pending.
  */
 export async function makeConnectionsNotDue(page: Page, workspaceId: string): Promise<void> {
   const admin = adminClient();
-  // Each park writes a later `next_sync_at` than the one before, so the Realtime wait can tell the
-  // final park's update from an earlier one that is delivered late (#226).
-  let parkedUntilMs = Date.parse(notDueForAMonth());
+  const parkedUntilMs = Date.parse(notDueForAMonth());
 
   async function park(): Promise<readonly string[]> {
-    parkedUntilMs += 1;
     const { data, error } = await admin
       .from("connections")
       .update({ next_sync_at: new Date(parkedUntilMs).toISOString() })
@@ -135,24 +133,16 @@ export async function makeConnectionsNotDue(page: Page, workspaceId: string): Pr
     }).length;
   }
 
-  await updateUnheard(
-    "connections",
-    workspaceId,
-    async () => {
-      let parked = await park();
-      await expect(async () => {
-        await deleteClaimableSyncJobs(parked);
-        expect(await openSyncJobCount(parked), "A tick is still running a sync of these connections").toBe(0);
-        parked = await park();
-        expect(await openSyncJobCount(parked), "A sync job of these connections opened during the park").toBe(0);
-        expect(await parkedCount(parked), "A sync rewrote next_sync_at during the park").toBe(parked.length);
-      }).toPass({ timeout: SYNC_SETTLE_TIMEOUT_MS });
-      return parked;
-    },
-    (row) => {
-      const scheduled = ScheduledRowSchema.safeParse(row);
-      return scheduled.success && Date.parse(scheduled.data.next_sync_at) === parkedUntilMs;
-    },
-  );
+  await updateUnheard("connections", workspaceId, async () => {
+    let parked = await park();
+    await expect(async () => {
+      await deleteClaimableSyncJobs(parked);
+      expect(await openSyncJobCount(parked), "A tick is still running a sync of these connections").toBe(0);
+      parked = await park();
+      expect(await openSyncJobCount(parked), "A sync job of these connections opened during the park").toBe(0);
+      expect(await parkedCount(parked), "A sync rewrote next_sync_at during the park").toBe(parked.length);
+    }).toPass({ timeout: SYNC_SETTLE_TIMEOUT_MS });
+    return parked;
+  });
   await page.reload();
 }
