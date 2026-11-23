@@ -704,7 +704,7 @@ ownerTest.describe("arriving data", () => {
     }
   });
 
-  ownerTest("joins again after Realtime closes the channel, logs why, and refreshes once for the gap", async ({ page }) => {
+  ownerTest("joins again after Realtime closes the channel, logs why, and refreshes for the gap", async ({ page }) => {
     // The 10 s wait before LiveRefresh joins again, on top of loading the page.
     ownerTest.slow();
     const workspace = await createTestWorkspace("Live rejoin");
@@ -745,10 +745,8 @@ ownerTest.describe("arriving data", () => {
       const indicator = page.getByRole("button", { name: "Live updates" });
       await expect(indicator).toHaveAccessibleName("Live updates, 0 connected");
       expect(joins).toHaveLength(1);
-      // The first join's stream is ready: nothing was missed, so nothing refreshes.
-      sendOnLatestJoin("system", streamReady);
-
-      // Realtime gives its reason, then closes the channel.
+      // The first join's database stream never comes up: Realtime gives its reason, then closes
+      // the channel. Nothing could have been delivered since the page rendered.
       const reason = "Replication connection was not established in time";
       sendOnLatestJoin("system", { extension: "system", status: "error", message: reason, channel: liveTopic(workspace.id) });
       sendOnLatestJoin("phx_close", {});
@@ -767,11 +765,11 @@ ownerTest.describe("arriving data", () => {
       // LiveRefresh joins again on its own, 10 s later, and the answered join reads Live.
       await expect.poll(() => joins.length, { timeout: LIVE_TIMEOUT_MS }).toBe(2);
       await expect(indicator).toHaveAccessibleName("Live updates, 0 connected");
-      // More than the debounce has passed since the first stream was ready, and nothing refreshed.
+      // The new stream is not ready yet, so nothing has refreshed.
       expect(renders).toEqual([]);
 
-      // A change written while the channel was closed was never delivered, so once the new join's
-      // stream is ready the page renders again, once.
+      // A change written while no stream was up was never delivered, so once the new join's stream
+      // is ready the page renders again.
       sendOnLatestJoin("system", streamReady);
       await expect.poll(() => renders.length, { timeout: LIVE_TIMEOUT_MS }).toBe(1);
     } finally {

@@ -45,8 +45,10 @@
 --
 -- realtime.messages policy: a member of the workspace, at any role, receives its topic; nobody else
 -- does. Realtime checks it when a channel joins and again whenever the client sends a new access
--- token, by inserting probe rows with the joined topic and reading them back as the user
--- (realtime.authorize), so the policy reads the row's own topic. It compares that text with the
+-- token or the token expires, by inserting probe rows with the joined topic and reading them back as
+-- the user (realtime.authorize), so the policy reads the row's own topic. A removed member therefore
+-- keeps receiving the topic, which carries no row data, until then: at most one hour, the access
+-- token lifetime (jwt_expiry in supabase/config.toml). It compares the topic text with the
 -- caller's workspaces through current_user_workspace_ids (the select policy helper since
 -- 20261112090000_select_policies_membership_set.sql), so a topic of any other shape matches nothing
 -- and no client-chosen text is ever cast. There is no insert policy: no client can send a broadcast

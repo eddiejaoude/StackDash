@@ -105,9 +105,9 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     let channel: RealtimeChannel | undefined;
     let rejoinTimer: number | undefined;
     let active = true;
-    // Whether a join of this mount has had its database stream ready. A later join follows a close
-    // or a channel error, and a change written in between was never delivered.
-    let streamReadyBefore = false;
+    // Whether a join of this mount failed since a database stream was last ready: a change written
+    // in between was never delivered, so the next ready stream refreshes once for it.
+    let missed = false;
     // Why Realtime closed the channel: it sends the reason as a system message just before.
     let closeReason: string | undefined;
     const onSystem = (payload: unknown) => {
@@ -118,8 +118,8 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
         return;
       }
       // Every change committed from here on reaches the channel; one refresh shows those before.
-      if (streamReadyBefore) scheduler.notify();
-      streamReadyBefore = true;
+      if (missed) scheduler.notify();
+      missed = false;
     };
     function subscribe(): void {
       if (!active) return;
@@ -140,6 +140,7 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
           // The cleanup below removed it.
           if (!active) return;
           arrivals?.setStatus("offline");
+          missed = true;
           // One JSON line per failure, shaped like the server logger's (src/lib/log/logger.ts, which
           // is server only), so it reads the same in devtools and in the Playwright console. The
           // fields hold no token; redaction masks one if a future error carries it.
