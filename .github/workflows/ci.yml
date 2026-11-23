@@ -148,14 +148,14 @@ jobs:
   # (docs/internal/hosted-instance.md).
   #
   # Setup and the suite have separate budgets (#641): a slow Ubuntu mirror once stretched the
-  # Playwright install to 20 minutes, and the job's single timeout then cancelled the suite. The
-  # install steps now fail on their own timeouts, and the suite gets its own; the job's timeout is
-  # their sum plus the quick steps. Typical times: system packages under a minute, the suite 9 to
-  # 12 minutes.
+  # Playwright install to 20 minutes, and the job's single timeout then cancelled the suite. Each
+  # slow step now has its own timeout, and the job's is their sum plus about 8 minutes for the
+  # rest (checkout, npm ci, starting Supabase with its retries): 22 + 5 + 20 + 8 = 55. Typical
+  # times: system packages under a minute, browsers under a minute, the suite 9 to 12 minutes.
   e2e:
     name: End-to-end tests
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       # Keeps the stack's ports out of the ephemeral range. See the db job.
       - name: Reserve the local Supabase ports
@@ -175,10 +175,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Three attempts of at most four minutes each (the script says why).
+      # From the runner's Ubuntu mirror. Usually under a minute; the slowest run seen took 20
+      # minutes, which this budget still lets finish. Retrying would not help: apt goes back to the
+      # same mirror.
       - name: Install Playwright system packages
-        timeout-minutes: 14
-        run: bash .github/scripts/install-playwright-deps.sh
+        timeout-minutes: 22
+        run: npx playwright install-deps chromium webkit firefox
 
       # WebKit and Firefox run the `@touch` projects (playwright.config.ts, #578).
       - name: Install Playwright browsers
