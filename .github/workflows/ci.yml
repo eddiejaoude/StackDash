@@ -204,7 +204,7 @@ jobs:
             # Run as root so Playwright calls apt-get itself instead of through sudo: npx, apt-get,
             # and dpkg then share timeout's process group, and a timeout stops all of them.
             status=0
-            sudo env "PATH=${PATH}" timeout --kill-after=30s "$([ "${attempt}" -eq 1 ] && echo 8s || echo "${attempt_minutes}m")" \
+            sudo env "PATH=${PATH}" timeout --kill-after=30s "${attempt_minutes}m" \
               npx playwright install-deps chromium webkit firefox || status=$?
             if [ "${status}" -eq 0 ]; then
               exit 0
