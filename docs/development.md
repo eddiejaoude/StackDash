@@ -26,10 +26,11 @@ OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and 
 - Node.js 22.13 or later in the 22 line, and npm. CI and the hosted app on Vercel both use Node.js
   22, and `.nvmrc` says the same, so `nvm install` installs the latest 22 and selects it. The floor
   comes from `package-lock.json`: `@supabase/supabase-js` and its packages need Node.js 22, Vite and
-  Rolldown (used by Vitest) and `@axe-core/playwright` need 22.12, and `eslint-visitor-keys` 5 (used
-  by typescript-eslint) needs 22.13. The `engines` field in `package.json` holds the same range,
-  `^22.13.0`: Vercel reads it to choose the Node.js version it deploys, so it stays on the version CI
-  tests. On Node.js 24 or later, `npm ci` warns `EBADENGINE` and carries on.
+  Rolldown (used by Vitest) and `@axe-core/playwright` need 22.12, and ESLint 10 with its own
+  packages (`@eslint/*`, `espree`, `eslint-scope`, `eslint-visitor-keys`) needs 22.13. The `engines`
+  field in `package.json` holds the same range, `^22.13.0`: Vercel reads it to choose the Node.js
+  version it deploys, so it stays on the version CI tests. On Node.js 24 or later, `npm ci` warns
+  `EBADENGINE` and carries on.
 - Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
 - The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
   version 3.2 or later, for example `brew install supabase/tap/supabase`. CI pins 3.2.0, the
@@ -501,7 +502,11 @@ Packages that `package.json` pins together get one pull request per major: `next
 `eslint-config-next`, and `react` with `react-dom`, `@types/react`, and `@types/react-dom`.
 `@types/node` stays on the Node major in `.nvmrc` (22): raise the `ignore` bound in
 `.github/dependabot.yml` when the Node version goes up. Security updates open as soon as an
-advisory lands, outside that schedule.
+advisory lands, outside that schedule. The `overrides` block in `package.json` resolves the ESLint
+peer of `eslint-plugin-import`, `eslint-plugin-jsx-a11y`, and `eslint-plugin-react` to the root
+ESLint (`$eslint`), because their latest releases list peer ranges that stop at ESLint 9 although
+`eslint-config-next` supports ESLint 10, so remove each entry once its plugin publishes a peer range
+that includes ESLint 10.
 
 ### End-to-end tests
 
