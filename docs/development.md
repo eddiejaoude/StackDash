@@ -501,8 +501,12 @@ per major update, with at most three npm and two GitHub Actions pull requests op
 Packages that `package.json` pins together get one pull request per major: `next` with
 `eslint-config-next`, and `react` with `react-dom`, `@types/react`, and `@types/react-dom`.
 `@types/node` stays on the Node major in `.nvmrc` (22): raise the `ignore` bound in
-`.github/dependabot.yml` when the Node version goes up. Security updates open as soon as an
-advisory lands, outside that schedule. The `overrides` block in `package.json` resolves the ESLint
+`.github/dependabot.yml` when the Node version goes up. `typescript` is held below 7.0 by a second
+`ignore` entry, because `typescript-eslint` (installed through `eslint-config-next`) does not load
+on TypeScript 7: remove it once the `typescript-eslint` that `eslint-config-next` resolves to
+admits 7 in its `typescript` peer range and typecheck, lint, and build pass on 7. Security updates
+open as soon as an advisory lands, outside that schedule.
+The `overrides` block in `package.json` resolves the ESLint
 peer of `eslint-plugin-import`, `eslint-plugin-jsx-a11y`, and `eslint-plugin-react` to the root
 ESLint (`$eslint`), because their latest releases list peer ranges that stop at ESLint 9 although
 `eslint-config-next` supports ESLint 10, so remove each entry once its plugin publishes a peer range

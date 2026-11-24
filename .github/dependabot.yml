@@ -41,9 +41,11 @@ updates:
       - dependency-name: "@types/node"
         versions:
           - ">=23.0.0"
-      # TypeScript 7 ships no compiler API, so typescript-eslint fails to load and lint exits 2
-      # (#633). Remove this entry once a released typescript-eslint has a typescript peer range
-      # that admits 7 and typecheck, lint, and build pass on 7. 6.x minors and patches still arrive.
+      # TypeScript 7.0 ships no stable JS compiler API, so typescript-eslint (installed through
+      # eslint-config-next, not listed in package.json) throws on load and lint exits 2 (#633).
+      # Remove this entry once the typescript-eslint that eslint-config-next resolves to has a
+      # typescript peer range that admits 7 (typescript-eslint/typescript-eslint#10940) and
+      # typecheck, lint, and build pass on 7. 6.x minors and patches still arrive.
       - dependency-name: "typescript"
         versions:
           - ">=7.0.0"
