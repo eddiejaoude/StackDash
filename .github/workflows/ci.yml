@@ -180,8 +180,10 @@ jobs:
       # and then to run out this step's budget (#645), and the runner's mirror list moves on from it
       # only when a request errors, never because it is slow. So each attempt gets 6 minutes, and a
       # retry points apt at Ubuntu's own archive first. Packages a stopped attempt finished
-      # downloading stay in apt's cache, so a retry fetches only the rest. Three attempts plus
-      # cleanup fit the 22 minutes, which the job's budget above already counts.
+      # downloading stay in apt's cache, so a retry fetches only the rest. The 22 minutes hold three
+      # attempts of 6 minutes plus 30 s of kill grace each (19 min 30 s), two waits of up to 30 s
+      # for a stopped dpkg (1 min), and two `dpkg --configure -a` runs (about 15 s each on a
+      # runner), and the job's budget above already counts them.
       - name: Install Playwright system packages
         timeout-minutes: 22
         run: |
@@ -191,14 +193,27 @@ jobs:
           attempt_minutes=6
           for attempt in $(seq 1 "${max_attempts}"); do
             if [ "${attempt}" -gt 1 ]; then
-              # A stopped attempt can leave dpkg half done. Finishing it here may fail on packages
-              # whose dependencies were never unpacked; the next apt-get install resolves those.
+              # dpkg runs in its own session on apt's pty, outside timeout's process group, so it
+              # outlives a stopped attempt by up to a second or so and holds dpkg's lock until it
+              # exits. Wait for it and apt-get to exit, then finish what dpkg unpacked. That may
+              # fail on packages whose dependencies were never unpacked; the next apt-get install
+              # resolves those.
+              waited=0
+              while pgrep -x 'apt-get|dpkg' > /dev/null; do
+                if [ "${waited}" -ge 30 ]; then
+                  echo "::warning::apt-get or dpkg from the stopped attempt was still running after 30 s, so dpkg may still hold its lock."
+                  break
+                fi
+                sleep 1
+                waited=$((waited + 1))
+              done
               sudo dpkg --configure -a || echo "::warning::dpkg could not finish every package the stopped attempt unpacked; retrying the install."
               printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' \
                 | sudo tee "${mirrors}"
             fi
-            # Run as root so Playwright calls apt-get itself instead of through sudo: npx, apt-get,
-            # and dpkg then share timeout's process group, and a timeout stops all of them.
+            # Run as root so Playwright calls apt-get itself instead of through sudo: Playwright, sh,
+            # and apt-get then share timeout's process group, and a timeout stops all of them. dpkg
+            # does not, which is why a retry first waits for it.
             status=0
             sudo env "PATH=${PATH}" timeout --kill-after=30s "${attempt_minutes}m" \
               npx playwright install-deps chromium webkit firefox || status=$?
