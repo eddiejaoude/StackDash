@@ -191,6 +191,10 @@ jobs:
           mirrors=/etc/apt/apt-mirrors.txt
           max_attempts=3
           attempt_minutes=6
+          echo "temporary: downloading every package first, so attempt 1's 10 s limit lands in dpkg"
+          echo 'APT::Get::Download-Only "true";' | sudo tee /etc/apt/apt.conf.d/99-temporary-download-only
+          sudo env "PATH=${PATH}" node_modules/.bin/playwright install-deps chromium webkit firefox
+          sudo rm /etc/apt/apt.conf.d/99-temporary-download-only
           for attempt in $(seq 1 "${max_attempts}"); do
             if [ "${attempt}" -gt 1 ]; then
               # dpkg runs in its own session on apt's pty, outside timeout's process group, so it
@@ -225,7 +229,7 @@ jobs:
             # starts without npm, which would contact the registry; PATH lets it find the runner's
             # Node.
             status=0
-            sudo env "PATH=${PATH}" timeout --kill-after=30s "$([ "${attempt}" -eq 1 ] && echo 26s || echo "${attempt_minutes}m")" \
+            sudo env "PATH=${PATH}" timeout --kill-after=30s "$([ "${attempt}" -eq 1 ] && echo 10s || echo "${attempt_minutes}m")" \
               node_modules/.bin/playwright install-deps chromium webkit firefox || status=$?
             echo "temporary: attempt ${attempt} status ${status}, apt-get and dpkg still running:"
             ps -o pid,ppid,pgid,sid,etime,args -C apt-get,dpkg || true
