@@ -228,7 +228,8 @@ jobs:
             if [ "${status}" -eq 0 ]; then
               exit 0
             fi
-            if [ "${status}" -eq 124 ]; then
+            # 124 when timeout stopped the attempt, 137 when it had to KILL after the grace period.
+            if [ "${status}" -eq 124 ] || [ "${status}" -eq 137 ]; then
               reason="took longer than ${attempt_minutes} minutes"
             else
               reason="exited with status ${status}"
