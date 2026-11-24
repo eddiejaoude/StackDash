@@ -856,8 +856,8 @@ const CAPPED_PART_NAMES: Record<CappedPart, string> = {
 
 /**
  * The notice in words: why older readings are missing, and from which day each part is whole, in
- * one sentence per day. Days are the UTC dates snapshots are kept by. Europe/London is never behind
- * UTC, so each day starts on the same date there.
+ * one sentence per day. Days are the UTC dates snapshots are kept by, so each says "in UTC", as the
+ * headline strip's windows do (`windowDescription`).
  */
 export function capNoticeText(notice: CapNotice): Readonly<{ title: string; body: string }> {
   const byDay = new Map<string, CappedPart[]>();
@@ -865,7 +865,7 @@ export function capNoticeText(notice: CapNotice): Readonly<{ title: string; body
   const days = [...byDay].map(([day, parts]) => {
     const names = formatList(parts.map((part) => CAPPED_PART_NAMES[part]));
     const verb = parts.length > 1 || parts[0] === "cards" ? "are" : "is";
-    return `${names.charAt(0).toUpperCase()}${names.slice(1)} ${verb} complete from ${day}.`;
+    return `${names.charAt(0).toUpperCase()}${names.slice(1)} ${verb} complete from ${day} in UTC.`;
   });
   return {
     title: "Some older readings are not shown",

@@ -166,7 +166,7 @@ ownerTest.describe("dashboard snapshot read cap", () => {
       await expect(notice).toContainText(
         "This workspace has more readings than the dashboard reads at once, so the oldest are left out.",
       );
-      await expect(notice).toContainText(`The cards and the daily trend are complete from ${completeFrom}.`);
+      await expect(notice).toContainText(`The cards and the daily trend are complete from ${completeFrom} in UTC.`);
       await expect(notice).toContainText("Anything that depends on an older reading can be missing or incomplete.");
       // The headline reads only the spend rows, which fit, so it is not named.
       await expect(notice).not.toContainText("headline");
@@ -207,7 +207,7 @@ ownerTest.describe("dashboard snapshot read cap", () => {
       await expect(monthly).toHaveAttribute("aria-current", "page");
 
       const notice = page.getByRole("region", { name: NOTICE });
-      await expect(notice).toContainText(`The monthly trend is complete from ${completeFrom}.`);
+      await expect(notice).toContainText(`The monthly trend is complete from ${completeFrom} in UTC.`);
       await expect(notice).not.toContainText("cards");
       // In the region that stayed mounted, so a screen reader hears the notice arrive.
       await expect(page.getByRole("status").filter({ has: notice })).toHaveCount(1);

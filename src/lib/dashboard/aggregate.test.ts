@@ -831,9 +831,9 @@ describe("capNotice (#336)", () => {
     const intro = "This workspace has more readings than the dashboard reads at once, so the oldest are left out.";
     const outro = "Anything that depends on an older reading can be missing or incomplete.";
     const cards = capNoticeText({ parts: [{ part: "cards", completeFrom: "2026-10-12" }] });
-    expect(cards).toEqual({ title: "Some older readings are not shown", body: `${intro} The cards are complete from 2026-10-12. ${outro}` });
+    expect(cards).toEqual({ title: "Some older readings are not shown", body: `${intro} The cards are complete from 2026-10-12 in UTC. ${outro}` });
     expect(capNoticeText({ parts: [{ part: "monthly trend", completeFrom: "2026-03-01" }] }).body).toBe(
-      `${intro} The monthly trend is complete from 2026-03-01. ${outro}`,
+      `${intro} The monthly trend is complete from 2026-03-01 in UTC. ${outro}`,
     );
     // The daily trend reads the cards' rows, so the two share a day.
     const several = capNoticeText({
@@ -844,7 +844,7 @@ describe("capNotice (#336)", () => {
       ],
     });
     expect(several.body).toBe(
-      `${intro} The headline is complete from 2026-11-02. The cards and the daily trend are complete from 2026-10-12. ${outro}`,
+      `${intro} The headline is complete from 2026-11-02 in UTC. The cards and the daily trend are complete from 2026-10-12 in UTC. ${outro}`,
     );
     const sameDay = capNoticeText({
       parts: [
@@ -853,7 +853,7 @@ describe("capNotice (#336)", () => {
         { part: "daily trend", completeFrom: "2026-10-12" },
       ],
     });
-    expect(sameDay.body).toBe(`${intro} The headline, the cards, and the daily trend are complete from 2026-10-12. ${outro}`);
+    expect(sameDay.body).toBe(`${intro} The headline, the cards, and the daily trend are complete from 2026-10-12 in UTC. ${outro}`);
     for (const text of [cards.title, cards.body, several.body, sameDay.body]) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });
 });
