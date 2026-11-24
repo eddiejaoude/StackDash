@@ -62,7 +62,6 @@ import {
   EXPAND_TRENDS_PARAM,
   groupTrends,
   toggleExpanded,
-  trendCompleteFrom,
   type TrendGranularity,
 } from "@/lib/dashboard/trends";
 import { recentAnomalies, whatChanged } from "@/lib/dashboard/what-changed";
@@ -205,7 +204,9 @@ async function DashboardContent({
   // the rest, so nothing waits on another read. The empty state below never awaits them, and a
   // rejection can land before a section awaits; Next's process-wide unhandledRejection handler
   // logs either case and carries on, which is accepted here. Do not add a .catch or move these
-  // below the Promise.all, which would serialize the reads.
+  // below the Promise.all, which would serialize the reads. The one exception is the daily trend
+  // read, which the cap notice awaits after the Promise.all: it rests on the cached reads that
+  // `getDashboardData` makes there, so awaiting it waits for nothing new (#336).
   const trendData = getTrendData(workspace.id, trend, now, scope);
   const viewCounts = getTrendEventCounts(workspace.id, trend, now, scope, shown);
   const heatCounts = getActivityHeatmap(workspace.id, view.heat, now, scope);
@@ -300,14 +301,17 @@ async function DashboardContent({
     fallbackCompleteFrom = snapshots.completeFrom;
   }
   // The parts whose snapshot reads stopped at the row cap (#336). The headline counts its last
-  // complete window's read too when it made one. The daily trend reads the cards' rows (#263), so
-  // its part is known now; the monthly trend's is added once its read resolves.
+  // complete window's read too when it made one. Each trend's part comes from `getTrendData`, the
+  // one place it is worked out. The daily trend reads the cards' rows (#263): its promise rests on
+  // the cached `getWorkspaceScope` and `loadDashboardSnapshots` reads already awaited above, so
+  // awaiting it here waits for nothing new and its part is known now. The monthly trend's is added
+  // once its own read resolves, behind a Suspense boundary.
   const capReads: CappedRead[] = [
     { part: "headline", completeFrom: headlineSnapshots.completeFrom },
     { part: "headline", completeFrom: fallbackCompleteFrom },
     { part: "cards", completeFrom: data.completeFrom },
   ];
-  if (trend === "daily") capReads.push({ part: "daily trend", completeFrom: trendCompleteFrom(data.completeFrom, "daily", now) });
+  if (trend === "daily") capReads.push({ part: "daily trend", completeFrom: (await trendData).completeFrom });
 
   // The page's URL is its scope: a new filter, trend period, marker choice, headline window, or
   // heatmap event group resets what counts as changed.
