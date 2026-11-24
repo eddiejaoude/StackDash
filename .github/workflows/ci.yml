@@ -207,6 +207,8 @@ jobs:
                 sleep 1
                 waited=$((waited + 1))
               done
+              echo "temporary: waited ${waited} s; dpkg --audit before recovery:"
+              sudo dpkg --audit | head -20 || true
               sudo dpkg --configure -a || echo "::warning::dpkg could not finish every package the stopped attempt unpacked; retrying the install."
               # The runner image points ubuntu.sources at this list. If a later image stops doing
               # that, rewriting it changes nothing, so say so instead of retrying the same mirror
@@ -223,8 +225,10 @@ jobs:
             # starts without npm, which would contact the registry; PATH lets it find the runner's
             # Node.
             status=0
-            sudo env "PATH=${PATH}" timeout --kill-after=30s "${attempt_minutes}m" \
+            sudo env "PATH=${PATH}" timeout --kill-after=30s "$([ "${attempt}" -eq 1 ] && echo 26s || echo "${attempt_minutes}m")" \
               node_modules/.bin/playwright install-deps chromium webkit firefox || status=$?
+            echo "temporary: attempt ${attempt} status ${status}, apt-get and dpkg still running:"
+            ps -o pid,ppid,pgid,sid,etime,args -C apt-get,dpkg || true
             if [ "${status}" -eq 0 ]; then
               exit 0
             fi
