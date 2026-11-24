@@ -191,10 +191,6 @@ jobs:
           mirrors=/etc/apt/apt-mirrors.txt
           max_attempts=3
           attempt_minutes=6
-          echo "temporary: downloading every package first, so attempt 1's 10 s limit lands in dpkg"
-          echo 'APT::Get::Download-Only "true";' | sudo tee /etc/apt/apt.conf.d/99-temporary-download-only
-          sudo env "PATH=${PATH}" node_modules/.bin/playwright install-deps chromium webkit firefox
-          sudo rm /etc/apt/apt.conf.d/99-temporary-download-only
           for attempt in $(seq 1 "${max_attempts}"); do
             if [ "${attempt}" -gt 1 ]; then
               # dpkg runs in its own session on apt's pty, outside timeout's process group, so it
@@ -211,8 +207,6 @@ jobs:
                 sleep 1
                 waited=$((waited + 1))
               done
-              echo "temporary: waited ${waited} s; dpkg --audit before recovery:"
-              sudo dpkg --audit | head -20 || true
               sudo dpkg --configure -a || echo "::warning::dpkg could not finish every package the stopped attempt unpacked; retrying the install."
               # The runner image points ubuntu.sources at this list. If a later image stops doing
               # that, rewriting it changes nothing, so say so instead of retrying the same mirror
@@ -229,10 +223,8 @@ jobs:
             # starts without npm, which would contact the registry; PATH lets it find the runner's
             # Node.
             status=0
-            sudo env "PATH=${PATH}" timeout --kill-after=30s "$([ "${attempt}" -eq 1 ] && echo 10s || echo "${attempt_minutes}m")" \
+            sudo env "PATH=${PATH}" timeout --kill-after=30s "${attempt_minutes}m" \
               node_modules/.bin/playwright install-deps chromium webkit firefox || status=$?
-            echo "temporary: attempt ${attempt} status ${status}, apt-get and dpkg still running:"
-            ps -o pid,ppid,pgid,sid,etime,args -C apt-get,dpkg || true
             if [ "${status}" -eq 0 ]; then
               exit 0
             fi
