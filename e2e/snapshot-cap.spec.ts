@@ -209,7 +209,7 @@ ownerTest.describe("dashboard snapshot read cap", () => {
       const notice = page.getByRole("region", { name: NOTICE });
       await expect(notice).toContainText(`The monthly trend is complete from ${completeFrom} in UTC.`);
       await expect(notice).not.toContainText("cards");
-      // In the region that stayed mounted, so a screen reader hears the notice arrive.
+      // It lands inside the polite live region. This checks only that, not what a screen reader announces.
       await expect(page.getByRole("status").filter({ has: notice })).toHaveCount(1);
       await waitForTrends(page);
       await expectNoAxeViolations(page);
