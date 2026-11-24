@@ -376,6 +376,76 @@ ownerTest.describe("live updates", () => {
     }
   });
 
+  // Route-aware refresh (#650): a change refreshes only the pages that read its table. The
+  // connections page reads no triggered alerts, so an alert does not render it again, and the live
+  // indicator still says when the alert arrived. The dashboard reads them: Back shows it from
+  // Next.js's history cache as rendered before the alert, so it refreshes once.
+  ownerTest("records a change the page does not read without refreshing it, and refreshes the page Back returns to", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Live route aware");
+    try {
+      // Alert rules are not a live table, so this seed sends nothing.
+      const { data: rule, error: ruleError } = await adminClient()
+        .from("alert_rules")
+        .insert({ workspace_id: workspace.id, kind: "allowance_percent", scope: "workspace", threshold_percent: 100 })
+        .select("id")
+        .single();
+      if (ruleError) throw new Error(`Seeding a rule failed (code ${ruleError.code}).`);
+      const dashboardPath = `/w/${workspace.slug}/dashboard`;
+      const connectionsPath = `/w/${workspace.slug}/connections`;
+      const renders: string[] = [];
+      page.on("request", (request) => {
+        for (const path of [dashboardPath, connectionsPath]) if (isRenderRequest(request, path)) renders.push(path);
+      });
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(dashboardPath);
+      const alerts = page.getByRole("region", { name: "Alerts", exact: true });
+      await expect(alerts).toContainText("No unacknowledged alerts");
+      await expectSubscribed(live);
+
+      await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Connections" }).click();
+      await expect(page).toHaveURL(connectionsPath);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connections");
+      const navigated = renders.filter((path) => path === connectionsPath).length;
+
+      const { error: alertError } = await adminClient().from("triggered_alerts").insert({
+        workspace_id: workspace.id,
+        rule_id: rule.id,
+        cycle_key: "2026-11-01",
+        observed_value: 104,
+        provider: "fake",
+        threshold_label: "100 percent",
+        is_estimated: false,
+        message: "Example provider build minutes is at 104 percent of the allowance.",
+      });
+      if (alertError) throw new Error(`Inserting a triggered alert failed (code ${alertError.code}).`);
+      await expect
+        .poll(() => live.changes().some((change) => change.table === "triggered_alerts"), { timeout: LIVE_TIMEOUT_MS })
+        .toBe(true);
+      const alertChange = live.changes().find((change) => change.table === "triggered_alerts");
+      if (alertChange === undefined) throw new Error("The triggered alert's change was not delivered.");
+
+      // The indicator records the batch, which is when its refresh would start: the tooltip says
+      // when the alert was written.
+      await page.getByRole("button", { name: /^Live updates/ }).focus();
+      await expect(page.getByRole("tooltip").locator("time")).toHaveAttribute("datetime", alertChange.changed_at, {
+        timeout: LIVE_TIMEOUT_MS,
+      });
+
+      await page.goBack();
+      await expect(page).toHaveURL(dashboardPath);
+      await expect(alerts).toContainText("1 unacknowledged alert", { timeout: LIVE_TIMEOUT_MS });
+      // One render: the refresh for the alert. Back itself asked the server for nothing.
+      expect(renders.filter((path) => path === dashboardPath)).toHaveLength(1);
+      // Refreshes start in order, so one of the connections page for the alert would have gone
+      // out before the dashboard's.
+      expect(renders.filter((path) => path === connectionsPath)).toHaveLength(navigated);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   // Each workspace's changes go to a private topic of its own (#628). Realtime admits a channel to
   // it only for a member of the workspace, and lets no client send on it, so neither a tab of
   // another workspace nor a client outside the app hears a workspace that is not theirs, and nobody
