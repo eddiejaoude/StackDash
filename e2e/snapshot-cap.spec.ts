@@ -3,7 +3,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 import { expect, ownerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
-import { HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 /*
  * The dashboard's one notice when a snapshot read stops at its 10,000 row cap, newest first (#336).
@@ -16,7 +16,6 @@ import { HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 const DAY_MS = 86_400_000;
 const BATCH = 1000;
 const NOTICE = "Some older readings are not shown";
-const EVIDENCE = process.env.PW_PR_EVIDENCE === "1";
 
 type SnapshotInsert = Database["public"]["Tables"]["usage_snapshots"]["Insert"];
 
