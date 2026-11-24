@@ -210,18 +210,58 @@ export type LiveConnectionsRead =
   | Readonly<{ state: "failed"; reference: string }>;
 
 /**
- * The connection a realtime change brought provider data from (#392): the `connection_id` of a
- * usage snapshot or of an activity event a provider sent. Null for everything else, because none
- * of it is data received from the connection: a `connections` row changes on a sync request, a
- * failed retry, or a demo tick; StackDash's own events (a sync failure carries the connection with
- * a null `provider`) and `triggered_alerts` come from StackDash; and a payload of another shape.
+ * The private Broadcast topic of a workspace's live changes. The database sends one message on it
+ * for each statement that writes the workspace's synced rows, and only the workspace's members may
+ * join it (supabase/migrations/20261122210934_live_refresh_broadcast.sql, #628).
  */
-export function changedConnectionId(table: string, row: unknown): string | null {
-  if (table !== "activity_events" && table !== "usage_snapshots") return null;
-  if (typeof row !== "object" || row === null) return null;
-  if (table === "activity_events" && typeof Reflect.get(row, "provider") !== "string") return null;
-  const id = Reflect.get(row, "connection_id");
-  return typeof id === "string" ? id : null;
+export function liveTopic(workspaceId: string): string {
+  return `workspace-live:${workspaceId}`;
+}
+
+/** The Broadcast event of every live change. */
+export const LIVE_CHANGE_EVENT = "change";
+
+/**
+ * What one live change tells the page: when its write happened (`changed_at`, the transaction's
+ * start on the database clock) and which connections it brought provider data from (#392). The
+ * database decides which: the connection of a usage snapshot or of an activity event a provider
+ * sent. None of the rest is data received from a connection: a `connections` row changes on a sync
+ * request, a failed retry, or a demo tick; StackDash's own events (a sync failure carries the
+ * connection with a null provider) and triggered alerts come from StackDash.
+ */
+export type LiveChange = Readonly<{ changedAt: string; connectionIds: readonly string[] }>;
+
+/** A live change's payload, read; null for a payload of another shape. */
+export function liveChange(payload: unknown): LiveChange | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const changedAt = Reflect.get(payload, "changed_at");
+  const connectionIds = Reflect.get(payload, "connection_ids");
+  if (typeof changedAt !== "string" || Number.isNaN(Date.parse(changedAt))) return null;
+  if (!isStringArray(connectionIds)) return null;
+  return { changedAt, connectionIds };
+}
+
+/**
+ * A `system` message Realtime sends on the live channel, read. With `broadcast.replication_ready`,
+ * an `ok` one arrives once the stream that carries the database's messages is up for this join.
+ * An error one arrives just before Realtime closes the channel, and its message says why: an
+ * expired token, a lost membership, a stream that did not start within a minute, or too many
+ * messages per second (`shutdown_response` in Realtime's realtime_channel.ex).
+ */
+export type LiveSystemMessage = Readonly<{ ok: boolean; message: string }>;
+
+/** A channel's system payload, read; null for a payload of another shape or another extension. */
+export function liveSystemMessage(payload: unknown): LiveSystemMessage | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const extension = Reflect.get(payload, "extension");
+  const status = Reflect.get(payload, "status");
+  const message = Reflect.get(payload, "message");
+  if (extension !== "system" || (status !== "ok" && status !== "error") || typeof message !== "string") return null;
+  return { ok: status === "ok", message };
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
 }
 
 /** How a counted number prints: a trend measure, or a percentage on a 0 to 100 scale. */

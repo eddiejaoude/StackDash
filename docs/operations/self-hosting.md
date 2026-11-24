@@ -28,7 +28,7 @@ On your own computer: Git, Node.js 22.13 or later in the 22 line, the [Supabase 
 Do these in order: each step needs something an earlier one creates, and [Deploy, overview](deploy.md#overview) says why.
 
 1. **Fork the repository** on GitHub and clone your fork. You deploy from your fork, and you upgrade by bringing new commits into it ([Upgrade](#upgrade)).
-2. **Create the Supabase project and apply the migrations**: [Deploy, steps 1 and 2](deploy.md#1-create-the-production-supabase-project).
+2. **Create the Supabase project, turn off public Realtime channels, and apply the migrations**: [Deploy, steps 1 and 2](deploy.md#1-create-the-production-supabase-project), with [Turn off public Realtime channels](deploy.md#turn-off-public-realtime-channels).
 3. **Configure Supabase Auth**: the site URL, GitHub sign-in, and the invite hook, in [Deploy, step 3](deploy.md#3-configure-supabase-auth).
 4. **Invite yourself** with `npm run invite`: [Deploy, step 4](deploy.md#4-invite-testers).
 5. **Create the Vercel project and set the environment variables**: [Deploy, step 5](deploy.md#5-create-the-vercel-project), with the secrets from [step 6](deploy.md#6-generate-the-deployment-secrets).
@@ -78,6 +78,8 @@ Providers that push events deliver them to `https://<production-host>/api/webhoo
 StackDash has no tagged releases yet. Upgrading means moving your fork to a newer commit of the main repository's `main` branch. Versioned releases, with tags and release notes, will come later; until they do, `main` is what you upgrade to, and the commit history is the change log.
 
 Upgrade often. Migrations follow expand then contract: a change adds the new structure first and removes the old one in a later migration, so the build you are running keeps working while its newer migrations are applied. A jump across many commits can apply both halves at once. The build you are running may then fail from the moment the migrations are applied until the new deployment is live, so keep that gap to minutes and check the app as soon as the deployment is promoted. For example, from `20261118150200_contract_connection_mode.sql` on, the database requires a live or test mode on every connected Stripe connection, so a build that does not record one (a commit without `supabase/migrations/20261118150000_connection_mode.sql`) cannot connect Stripe until the new deployment is live. Reconnecting an existing Stripe connection and every other provider keep working.
+
+Live updates depend on the build too. From `supabase/migrations/20261123085405_live_refresh_broadcast_contract.sql` on, a build without `supabase/migrations/20261122210934_live_refresh_broadcast.sql` gets no live updates, because the tables it listens to are no longer published. If one upgrade applies both migrations, the build you are running stops updating live from the moment the migrations are applied until the new deployment is live. Its pages show new data when you navigate or reload, and no data is lost. The public Realtime channels setting ([Deploy, turn off public Realtime channels](deploy.md#turn-off-public-realtime-channels)) makes no difference to such a build once the contract migration has run, so turn public channels off if they are still on, and keep them off.
 
 ### Before you upgrade
 
@@ -154,3 +156,5 @@ Upgrade often. Migrations follow expand then contract: a change adds the new str
 ### Roll back
 
 Migrations are never rolled back: a bad migration is fixed with a newer one. Roll back the app instead, to the deployment you ran before, with Vercel's [Instant Rollback](https://vercel.com/docs/instant-rollback). Expand then contract keeps the previous deployment working against the newer schema when the upgrade was a short step. After a long jump, a migration may have removed something the older build still reads, so check the app after rolling back. Until you deploy a build that matches the database, `/app/admin` shows the database migrations as **Ahead**. After an Instant Rollback, Vercel stops putting new pushes to the production branch live until you promote a deployment again, as its documentation describes.
+
+Once `supabase/migrations/20261123085405_live_refresh_broadcast_contract.sql` has run, a deployment without `20261122210934_live_refresh_broadcast.sql` gets no live updates, because the tables it listens to are no longer published. Keep public Realtime channels off, and turn them off if they are still on: allowing them would not change that. Its pages show new data when you navigate or reload, and no data is lost.

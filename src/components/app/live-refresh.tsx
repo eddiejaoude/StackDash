@@ -6,31 +6,15 @@ import { useEffect, useRef, useTransition } from "react";
 
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
-import { changedConnectionId } from "@/lib/realtime/arrivals";
+import { LIVE_CHANGE_EVENT, liveChange, liveSystemMessage, liveTopic } from "@/lib/realtime/arrivals";
 import { createRefreshHolds, createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
-import type { Database } from "@/lib/supabase/database.types";
 
-// The sync-written tables the workspace screens read, and exactly the tables the realtime
-// publication holds (supabase/migrations/20261104090000_realtime_publication.sql). The user-edited
-// tables the screens also read refresh through the Server Function that edits them.
-const LIVE_TABLES = [
-  "activity_events",
-  "usage_snapshots",
-  "connections",
-  "triggered_alerts",
-] as const satisfies readonly (keyof Database["public"]["Tables"])[];
-
-const LIVE_EVENTS = ["INSERT", "UPDATE"] as const;
-
-/** What onChange reads from a postgres_changes payload; `new` is the whole row (default replica identity). */
-type LiveChange = Readonly<{ commit_timestamp: string; table: string; new: unknown }>;
-
-// Realtime hands back an existing channel for a topic it still holds, and a removed channel stays
-// held until the server acknowledges the leave. A subscription made inside that window (leaving a
-// workspace and coming straight back) would attach to the departing channel and never join, so
-// every mount gets a topic of its own.
-let mountCount = 0;
+// realtime-js joins again on its own after a channel error or a timed out join, but not after
+// Realtime closes the channel (`phx_close`): when the access token expired or lost the workspace,
+// or its database stream did not start within a minute. LiveRefresh joins again itself after this
+// long, the longest of realtime-js's own waits between joins.
+const REJOIN_AFTER_CLOSE_MS = 10_000;
 
 // One LiveRefresh runs per page, so the page's holds live beside it.
 const holds = createRefreshHolds();
@@ -48,15 +32,22 @@ export function holdLiveRefresh(): () => void {
 /**
  * Refreshes the current workspace page when a sync writes rows for this workspace (#129), so the
  * Server Components read again and no row data is copied into client state. The one exception is
- * an id: the connection each usage snapshot or provider event came from, which the store keeps
- * with the last batch that brought it so the indicator can say which connection is receiving
- * (#392). One channel per
- * workspace, removed when the workspace layout unmounts or the workspace changes. Realtime checks
- * every change against the subscriber's select policy, so a member only hears about their own
- * workspace; the filter keeps a member of several workspaces from hearing about the others.
+ * an id: the connection each change brought provider data from, which the store keeps with the last
+ * batch that brought it so the indicator can say which connection is receiving (#392).
  *
- * Renders nothing. If the subscription fails, the failure is logged at error level and the page
- * behaves as it did before live updates: it shows new data on the next navigation or reload.
+ * It listens to the workspace's private Broadcast topic (`liveTopic`), where the database sends one
+ * message for each statement that inserts or updates the workspace's activity events, usage
+ * snapshots, connections, or triggered alerts, whatever its row count (#628,
+ * supabase/migrations/20261122210934_live_refresh_broadcast.sql). Realtime lets a channel join the
+ * topic only when the signed-in user is a member of the workspace (the realtime.messages select
+ * policy), checks again whenever the client sends a new access token, and lets no client send on
+ * it. One channel per workspace, removed when the workspace layout unmounts or the workspace
+ * changes.
+ *
+ * Renders nothing. If the subscription fails, the failure is logged at error level, with
+ * Realtime's reason when it closed the channel, and the page behaves as it did before live
+ * updates: it shows new data on the next navigation or reload. It joins again, and once a later
+ * join's database stream is ready it refreshes once, for the changes written while it was away.
  * It tells the ArrivalProvider whether the channel is live, when each batch arrives, and which
  * connections it brought data from, which the live indicator in the header shows (#171, #392).
  *
@@ -84,14 +75,14 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   useEffect(() => {
     // The browser client is a singleton, so this channel shares the one socket of the page.
     const supabase = createClient();
-    // The newest commit among the changes delivered so far: the database's clock, not the browser's.
-    let lastCommitAt: string | null = null;
-    // The connections that sent provider data since the last refresh (changedConnectionId), for the
+    // When the newest change delivered so far was written: the database's clock, not the browser's.
+    let lastChangeAt: string | null = null;
+    // The connections that sent provider data since the last refresh (LiveChange), for the
     // indicator's list (#392).
     let changedConnections = new Set<string>();
     const scheduler = createRefreshScheduler({
       refresh: () => {
-        arrivals?.arrived(lastCommitAt, changedConnections);
+        arrivals?.arrived(lastChangeAt, changedConnections);
         changedConnections = new Set();
         startRefresh(() => refresh());
       },
@@ -101,56 +92,88 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const onPauseChange = () => scheduler.pauseChanged();
     document.addEventListener("visibilitychange", onPauseChange);
     const stopHearingReleases = holds.onReleased(onPauseChange);
-    const onChange = ({ commit_timestamp: committedAt, table, new: row }: LiveChange) => {
-      if (lastCommitAt === null || Date.parse(committedAt) > Date.parse(lastCommitAt)) lastCommitAt = committedAt;
-      const connectionId = changedConnectionId(table, row);
-      if (connectionId !== null) changedConnections.add(connectionId);
+    // Every message is a write to refresh for; one of another shape adds nothing to the indicator.
+    const onChange = ({ payload }: { payload: unknown }) => {
+      const change = liveChange(payload);
+      if (change !== null) {
+        if (lastChangeAt === null || Date.parse(change.changedAt) > Date.parse(lastChangeAt)) lastChangeAt = change.changedAt;
+        for (const connectionId of change.connectionIds) changedConnections.add(connectionId);
+      }
       scheduler.notify();
     };
 
     let channel: RealtimeChannel | undefined;
+    let rejoinTimer: number | undefined;
     let active = true;
+    // Whether a join of this mount failed since a database stream was last ready: a change written
+    // in between was never delivered, so the next ready stream refreshes once for it.
+    let missed = false;
+    // Why Realtime closed the channel: it sends the reason as a system message just before.
+    let closeReason: string | undefined;
+    const onSystem = (payload: unknown) => {
+      const message = liveSystemMessage(payload);
+      if (message === null) return;
+      if (!message.ok) {
+        closeReason = message.message;
+        return;
+      }
+      // Every change committed from here on reaches the channel; one refresh shows those before.
+      if (missed) scheduler.notify();
+      missed = false;
+    };
     function subscribe(): void {
       if (!active) return;
-      const filter = `workspace_id=eq.${workspaceId}`;
-      channel = supabase.channel(`workspace-live:${workspaceId}:${++mountCount}`);
-      for (const table of LIVE_TABLES) {
-        for (const event of LIVE_EVENTS) {
-          channel.on("postgres_changes", { event, schema: "public", table, filter }, onChange);
-        }
-      }
-      channel.subscribe((status, error) => {
-        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) arrivals?.setStatus("live");
-        if (status !== REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR && status !== REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
-          return;
-        }
-        arrivals?.setStatus("offline");
-        // One JSON line per failure, shaped like the server logger's (src/lib/log/logger.ts, which
-        // is server only), so it reads the same in devtools and in the Playwright console. The
-        // fields hold no token; redaction masks one if a future error carries it.
-        console.error(
-          JSON.stringify({
-            ...redactFields({ workspaceId, status, error }),
-            level: "error",
-            event: "realtime.subscribe_failed",
-          }),
-        );
-      });
+      // `replication_ready` makes Realtime send a `system` message once the replication connection
+      // that carries the database's messages is up, which `onSystem` and the e2e fixtures wait for
+      // (e2e/fixtures/realtime.ts), and close the channel if that connection is not up within a
+      // minute. The close shows as offline below, rather than a channel that says live and can
+      // receive nothing.
+      channel = supabase
+        .channel(liveTopic(workspaceId), { config: { private: true, broadcast: { replication_ready: true } } })
+        .on("broadcast", { event: LIVE_CHANGE_EVENT }, onChange)
+        .on("system", {}, onSystem)
+        .subscribe((status, error) => {
+          if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) {
+            arrivals?.setStatus("live");
+            return;
+          }
+          // The cleanup below removed it.
+          if (!active) return;
+          arrivals?.setStatus("offline");
+          missed = true;
+          // One JSON line per failure, shaped like the server logger's (src/lib/log/logger.ts, which
+          // is server only), so it reads the same in devtools and in the Playwright console. The
+          // fields hold no token; redaction masks one if a future error carries it.
+          console.error(
+            JSON.stringify({
+              ...redactFields({ workspaceId, status, error, reason: closeReason }),
+              level: "error",
+              event: "realtime.subscribe_failed",
+            }),
+          );
+          closeReason = undefined;
+          if (status === REALTIME_SUBSCRIBE_STATES.CLOSED) rejoinTimer = window.setTimeout(subscribe, REJOIN_AFTER_CLOSE_MS);
+        });
     }
 
-    // The join message carries whatever access token the realtime client holds at subscribe time.
-    // supabase-js fills it asynchronously (from getSession, on connect and on the initial auth
-    // event), so a channel created first can join with the publishable key alone, and Realtime then
-    // checks every change as anon and delivers nothing. setAuth() with no argument loads the signed
-    // in user's token through that same getSession callback and keeps the client refreshing it on
-    // every heartbeat. If it fails, subscribing still leaves the decision to Realtime and RLS.
+    // The join message carries whatever access token the realtime client holds at subscribe time,
+    // and a private channel is checked against it. supabase-js fills it asynchronously (from
+    // getSession, on connect and on the initial auth event), so a channel created first can join
+    // with the publishable key alone, which Realtime refuses on this topic. setAuth() with no
+    // argument loads the signed in user's token through that same getSession callback and keeps
+    // the client refreshing it on every heartbeat, as Supabase's Broadcast guide requires
+    // (https://supabase.com/docs/guides/realtime/subscribing-to-database-changes). If it fails,
+    // subscribing still leaves the decision to Realtime and the policy.
     void supabase.realtime.setAuth().then(subscribe, subscribe);
 
     return () => {
       active = false;
+      window.clearTimeout(rejoinTimer);
       scheduler.dispose();
       document.removeEventListener("visibilitychange", onPauseChange);
       stopHearingReleases();
+      // removeChannel takes the channel out of the client's list before it returns, so a mount that
+      // follows straight after, which joins the same topic, gets a new channel rather than this one.
       if (channel !== undefined) void supabase.removeChannel(channel);
       arrivals?.setStatus("connecting");
     };

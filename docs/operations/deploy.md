@@ -28,6 +28,39 @@ Order matters: the Supabase project must exist before the Vercel environment var
 2. Save the database password in your password manager. A connection string needs it (step 2), and it is never stored in the repository or in Vercel.
 3. Note the project ref (the subdomain of `https://<project-ref>.supabase.co`, also under Project Settings, General).
 
+### Turn off public Realtime channels
+
+Live refresh uses one private Realtime channel per workspace, `workspace-live:<workspace id>`, which only that workspace's members can join ([Database schema, Realtime](../architecture/schema.md#realtime)). StackDash needs no public channel. Supabase allows them by default, and anyone holding the publishable key, which every page ships, can join a public channel and send on it. Those messages count toward the project's Realtime message limits, the same limits live refresh uses.
+
+In the Supabase dashboard, **Realtime, Settings**: turn off **Allow public access to channels** and save. Realtime then checks every channel join against the row level security policies on `realtime.messages`, and a client that does not join with `private: true` is refused: `PrivateOnly: This project only allows private channels`. That includes a Postgres Changes subscription made on a channel joined without `private: true`, as builds before the private topic made them. It does not cover Realtime's Broadcast REST API, which anyone with the publishable key can still use to stop live refresh for a minute at a time: see [What the setting does not stop](#what-the-setting-does-not-stop).
+
+When to turn it off:
+
+- **A new project**: right away. No older build has run against it.
+- **An existing project**: once step 2 has applied `supabase/migrations/20261123085405_live_refresh_broadcast_contract.sql`. From that migration on, a build without `supabase/migrations/20261122210934_live_refresh_broadcast.sql` gets no live updates whatever this setting says, because the tables it listened to are no longer published, so no build or rollback target needs public channels. Before it, such a build subscribes to Postgres Changes on channels joined without `private: true`, which Realtime refuses once the setting is off.
+
+Saving any setting on that page disconnects every connected client, as Supabase's [Realtime settings](https://supabase.com/docs/guides/realtime/settings) page warns. Open pages rejoin on their own within seconds, then refresh once for anything written while they were disconnected.
+
+Check the setting with the Management API field `private_only`. This guide changes it in the dashboard and only reads it through the API. The request needs `jq` and an access token: create a fine-grained token from **Account, Access Tokens** in the dashboard, limited to this project with read access to the Realtime config (the `realtime_config_read` permission), rather than using a full-access token. Keep it in its own variable, not `SUPABASE_ACCESS_TOKEN`: the Supabase CLI reads that one in place of `supabase login`, so a token limited to the Realtime config left there makes step 2's `supabase link` fail.
+
+```bash
+curl -fsS -H "Authorization: Bearer $STACKDASH_REALTIME_READ_TOKEN" \
+  https://api.supabase.com/v1/projects/<project-ref>/config/realtime | jq .private_only
+```
+
+It prints `true` once public channels are off; `false` or `null` means they are still allowed, and a failed request prints an error and no value. Export the token from your password manager rather than typing it on the command line, so it stays out of shell history.
+
+#### What the setting does not stop
+
+Realtime checks the setting only when a channel joins. Its Broadcast REST API (`/realtime/v1/api/broadcast`), which StackDash never calls, still accepts messages for public topics from anyone holding the publishable key. Nobody receives them, but each one counts toward the project's **Max events per second**, a rolling average over the last minute, and Supabase bills each one as a Realtime message ([Manage Realtime Messages usage](https://supabase.com/docs/guides/platform/manage-your-usage/realtime-messages)). When the average reaches the limit, Realtime drops every broadcast the database sends, live refresh's included, until the average falls back, which takes up to a minute. A page open meanwhile stays joined and still says it is live, the dropped messages are never delivered, and the page shows those changes with the next change that reaches it, or on navigation or reload. A higher limit does not prevent this. Turning public channels off is still worth it: it closes the public channels themselves, whose messages count toward the same limit.
+
+Nothing in StackDash or in the project's settings closes this path: Realtime's settings have no switch for the REST API alone, its policies on `realtime.messages` apply only to messages marked private, a hosted project's API gateway cannot block a path, and the publishable key has to stay in the pages because the browser opens its Realtime connection with it.
+
+What you can do:
+
+- **Watch the logs.** In the Supabase dashboard, **Logs**, log type **Realtime**: `MessagePerSecondRateLimitReached: Too many messages per second` marks each time the limit trips, and each live message dropped until the average falls back logs `UnableToBroadcastChanges: :too_many_requests`. Log type **API Gateway**, filtered on the pathname `/realtime/v1/api/broadcast`, lists the sender's requests and where they came from, since StackDash makes none.
+- **Rotate the publishable key in an emergency.** In **Project Settings, API Keys**, create a new publishable key, set it as `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` in Vercel, and deploy, because the value is built into the pages. Then delete the old publishable key. A sender that holds the old key is refused from then on. One that reads the key from the new pages is not, so this buys time rather than closing the path. Pages opened before the deploy still use the old key, so their live updates stop until they are reloaded.
+
 ## 2. Apply the migrations, forward only
 
 Schema changes are migrations in the repository, migrations are forward only and applied with `supabase migration up`, and there is **no `supabase db push` to a remote** and no schema change made by hand in the dashboard. A bad migration is fixed with a new migration. Never run `supabase db reset` against a remote, and never load `supabase/seed.sql` into production (it creates local test users).
@@ -263,6 +296,8 @@ Run every check against the production URL and write down the deployment URL you
   Both must print `401`.
 - [ ] **The scheduler runs.** In the Supabase SQL editor, recent `pg_cron` runs succeed and ticks get `200` responses; [Jobs](jobs.md) lists the queries.
 - [ ] **A sync runs.** Connect one provider in a test workspace (needs that provider's app from [OAuth apps](oauth-apps.md)), then select **Sync now** or wait for the schedule. The connection shows a recent "last synced" time and `public.sync_jobs` has a `succeeded` row for it.
+- [ ] **Live updates are sent.** After that sync, in the Supabase SQL editor, `select count(*) from realtime.messages where topic like 'workspace-live:%' and inserted_at > now() - interval '1 hour';` returns more than `0`. If it returns `0`, look for a `realtime.send` warning in the database logs: a failed send is only a warning there, so open pages stop updating live and nothing in the app reports it.
+- [ ] **Realtime is private only.** The check in [Turn off public Realtime channels](#turn-off-public-realtime-channels) prints `true` (anything else means public channels are still allowed), and a timeline open in a second tab updates without a reload when a **Sync now** finishes.
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
 - [ ] **Instance overview.** Sign in as an address in `STACKDASH_SUPER_ADMIN_EMAILS` and open `https://<production-host>/app/admin`: it says nothing needs attention, the scheduler is running, and the database migrations are up to date. Signed in as anyone else, the same address answers page not found.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.

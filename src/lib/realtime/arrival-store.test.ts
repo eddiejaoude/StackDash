@@ -43,7 +43,7 @@ describe("createArrivalStore", () => {
     expect(store.batch()).not.toBe(batch);
   });
 
-  it("counts every batch and keeps the newest commit time: an older, equal, or unknown one does not replace it", () => {
+  it("counts every batch and keeps the newest write time: an older, equal, or unknown one does not replace it", () => {
     const { store, listener } = setup();
     store.arrived("2026-11-05T10:00:01.000Z", NO_CONNECTIONS);
     expect(store.live().lastArrivalAt).toBe("2026-11-05T10:00:01.000Z");

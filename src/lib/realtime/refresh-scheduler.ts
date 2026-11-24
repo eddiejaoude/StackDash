@@ -1,12 +1,13 @@
 /**
  * When to refresh a workspace page after Realtime reports a change (#129).
  *
- * A sync writes rows in a burst: a snapshot per metric, an event per provider event, then the
- * connection's status. Refreshing per row would re-render the page dozens of times, so changes are
- * coalesced with a trailing debounce, and a maximum wait stops a continuous stream from putting
- * the refresh off forever. A hidden tab does not refresh at all; it refreshes once when it becomes
- * visible again, so a background tab never re-renders for nobody. A page can hold refreshes the
- * same way (`createRefreshHolds`): changes wait until the last hold is released, then refresh once.
+ * A sync writes in a burst of statements: its snapshots, its events, then the connection's status,
+ * each one message (#628). Refreshing per message would re-render the page several times for one
+ * sync, so changes are coalesced with a trailing debounce, and a maximum wait stops a continuous
+ * stream from putting the refresh off forever. A hidden tab does not refresh at all; it refreshes
+ * once when it becomes visible again, so a background tab never re-renders for nobody. A page can
+ * hold refreshes the same way (`createRefreshHolds`): changes wait until the last hold is
+ * released, then refresh once.
  *
  * The maximum wait bounds latency, not load: every refresh renders the whole workspace route on
  * the server again, and nothing in the router stops a second one starting before the first has

@@ -20,7 +20,7 @@ import type { LiveStatus } from "./arrivals";
 
 export type LiveState = Readonly<{
   status: LiveStatus;
-  /** Commit time of the newest change Realtime delivered, from the database clock. */
+  /** When the newest change Realtime delivered was written, from the database clock. */
   lastArrivalAt: string | null;
 }>;
 
@@ -51,8 +51,8 @@ export type ArrivalStore = Readonly<{
   batch: () => ArrivalBatch;
   setStatus: (status: LiveStatus) => void;
   /**
-   * A batch of changes arrived and the page is refreshing; `at` is its newest commit time and
-   * `connectionIds` the connections that sent provider data in it (see `changedConnectionId`).
+   * A batch of changes arrived and the page is refreshing; `at` is when its newest change was
+   * written and `connectionIds` the connections that sent provider data in it (see `LiveChange`).
    */
   arrived: (at: string | null, connectionIds: ReadonlySet<string>) => void;
   /** A component that marks data is in view until the returned function runs. */
@@ -84,7 +84,7 @@ export function createArrivalStore(): ArrivalStore {
       changed();
     },
     arrived(at, connectionIds) {
-      // The newest commit wins: batches can be announced out of commit order.
+      // The newest write wins: batches can be announced out of write order.
       if (at !== null && (live.lastArrivalAt === null || Date.parse(at) > Date.parse(live.lastArrivalAt))) {
         live = { ...live, lastArrivalAt: at };
       }
