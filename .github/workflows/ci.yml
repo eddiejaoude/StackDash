@@ -208,6 +208,12 @@ jobs:
                 waited=$((waited + 1))
               done
               sudo dpkg --configure -a || echo "::warning::dpkg could not finish every package the stopped attempt unpacked; retrying the install."
+              # The runner image points ubuntu.sources at this list. If a later image stops doing
+              # that, rewriting it changes nothing, so say so instead of retrying the same mirror
+              # without a trace.
+              if ! grep -rqs "mirror+file:${mirrors}" /etc/apt/sources.list /etc/apt/sources.list.d; then
+                echo "::warning::apt on this runner image no longer reads ${mirrors}, so this retry uses the same mirror as the last attempt."
+              fi
               printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' \
                 | sudo tee "${mirrors}"
             fi
