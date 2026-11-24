@@ -175,12 +175,51 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # From the runner's Ubuntu mirror. Usually under a minute; the slowest run seen took 20
-      # minutes, which this budget still lets finish. Retrying would not help: apt goes back to the
-      # same mirror.
+      # From the runner's Ubuntu mirror, usually in under a minute. That mirror has served packages
+      # slowly enough to take 20 minutes (#641) and then to run out this step's budget (#645), and
+      # a rerun on the same mirror meets the same slowness. So each attempt gets 6 minutes and a
+      # retry moves apt to other mirrors. Packages a stopped attempt finished downloading stay in
+      # apt's cache, so a retry fetches only the rest. Three attempts plus cleanup fit the 22
+      # minutes, which the job's budget above already counts.
       - name: Install Playwright system packages
         timeout-minutes: 22
-        run: npx playwright install-deps chromium webkit firefox
+        run: |
+          set -euo pipefail
+          mirrors=/etc/apt/apt-mirrors.txt
+          max_attempts=3
+          # A request that stays silent for 30 s fails and is retried, and a request that fails
+          # moves on to the next mirror in the list (apt-transport-mirror(1)).
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-network
+          for attempt in $(seq 1 "${max_attempts}"); do
+            if [ "${attempt}" -gt 1 ]; then
+              # A stopped attempt can leave dpkg half done. Finishing it here may fail on packages
+              # whose dependencies were never unpacked; the next apt-get install resolves those.
+              sudo dpkg --configure -a || echo "::warning::dpkg could not finish every package the stopped attempt unpacked; retrying the install."
+              if [ "${attempt}" -eq 2 ]; then
+                first=http://azure.archive.ubuntu.com/ubuntu/ second=http://archive.ubuntu.com/ubuntu/
+              else
+                first=http://archive.ubuntu.com/ubuntu/ second=http://azure.archive.ubuntu.com/ubuntu/
+              fi
+              printf '%s\tpriority:1\n%s\tpriority:2\n' "${first}" "${second}" | sudo tee "${mirrors}"
+            fi
+            # Run as root so Playwright calls apt-get itself instead of through sudo: npx, apt-get,
+            # and dpkg then share timeout's process group, and a timeout stops all of them.
+            status=0
+            sudo env "PATH=${PATH}" timeout --kill-after=30s 6m \
+              npx playwright install-deps chromium webkit firefox || status=$?
+            if [ "${status}" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "${status}" -eq 124 ]; then
+              reason="took longer than 6 minutes"
+            else
+              reason="exited with status ${status}"
+            fi
+            echo "::warning::Installing the Playwright system packages ${reason} (attempt ${attempt} of ${max_attempts})."
+          done
+          echo "::error::Installing the Playwright system packages failed ${max_attempts} times, on the runner's Ubuntu mirror and on two others. See the warnings above."
+          exit 1
 
       # WebKit and Firefox run the `@touch` projects (playwright.config.ts, #578).
       - name: Install Playwright browsers
