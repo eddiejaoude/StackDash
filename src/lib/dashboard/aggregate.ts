@@ -809,3 +809,66 @@ export function staleNoticeText(notice: StaleNotice, now: Date): Readonly<{ titl
     body: `${count} of ${notice.total} connections in view have not synced since ${since}: ${names}. Their figures on this page are from then or earlier.`,
   };
 }
+
+/**
+ * The parts of the dashboard that a snapshot read with a row cap feeds (#336), in page order: the
+ * headline strip, the cards (the billing period totals, By provider, and By project), and the trend
+ * the page shows.
+ */
+export const CAPPED_PARTS = ["headline", "cards", "daily trend", "monthly trend"] as const;
+export type CappedPart = (typeof CAPPED_PARTS)[number];
+
+/** One read behind a part, and the first UTC day from which the part is whole: null when it is whole throughout. */
+export type CappedRead = Readonly<{ part: CappedPart; completeFrom: string | null }>;
+
+/**
+ * The dashboard's one notice when a snapshot read stopped at its row cap (#336), in place of a line
+ * on every card, as the stale notice is (#267): each part whose read stopped, in page order, with
+ * the first UTC day from which it is whole.
+ */
+export type CapNotice = Readonly<{ parts: readonly Readonly<{ part: CappedPart; completeFrom: string }>[] }>;
+
+/** The later of two reads' first whole days, so rows from it on are whole in both; null when neither stopped. */
+export function laterCompleteFrom(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a > b ? a : b;
+}
+
+/**
+ * The notice for the page's reads, or null when every part is whole. A part read more than once
+ * (the headline's window to date and its last complete window) is whole from the later day.
+ */
+export function capNotice(reads: readonly CappedRead[]): CapNotice | null {
+  const parts = CAPPED_PARTS.flatMap((part) => {
+    const completeFrom = reads.reduce<string | null>((day, read) => (read.part === part ? laterCompleteFrom(day, read.completeFrom) : day), null);
+    return completeFrom === null ? [] : [{ part, completeFrom }];
+  });
+  return parts.length === 0 ? null : { parts };
+}
+
+const CAPPED_PART_NAMES: Record<CappedPart, string> = {
+  headline: "the headline",
+  cards: "the cards",
+  "daily trend": "the daily trend",
+  "monthly trend": "the monthly trend",
+};
+
+/**
+ * The notice in words: why older readings are missing, and from which day each part is whole, in
+ * one sentence per day. Days are the UTC dates snapshots are kept by. Europe/London is never behind
+ * UTC, so each day starts on the same date there.
+ */
+export function capNoticeText(notice: CapNotice): Readonly<{ title: string; body: string }> {
+  const byDay = new Map<string, CappedPart[]>();
+  for (const { part, completeFrom } of notice.parts) byDay.set(completeFrom, [...(byDay.get(completeFrom) ?? []), part]);
+  const days = [...byDay].map(([day, parts]) => {
+    const names = formatList(parts.map((part) => CAPPED_PART_NAMES[part]));
+    const verb = parts.length > 1 || parts[0] === "cards" ? "are" : "is";
+    return `${names.charAt(0).toUpperCase()}${names.slice(1)} ${verb} complete from ${day}.`;
+  });
+  return {
+    title: "Some older readings are not shown",
+    body: `This workspace has more readings than the dashboard reads at once, so the oldest are left out. ${days.join(" ")} Anything that depends on an older reading can be missing or incomplete.`,
+  };
+}

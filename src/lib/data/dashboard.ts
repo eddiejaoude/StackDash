@@ -2,10 +2,11 @@ import "server-only";
 
 import { cache } from "react";
 
+import { addUtcDays } from "@/lib/alerts/anomaly";
 import type { AccountInput, ConnectionInput, ProjectInput, SnapshotInput } from "@/lib/dashboard/aggregate";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
-import { readAllPages } from "@/lib/supabase/paging";
+import { readAllPages, type PagedRows } from "@/lib/supabase/paging";
 import { createClient } from "@/lib/supabase/server";
 
 /** The workspace's connections, included accounts, and projects: what the scope filter offers. */
@@ -15,12 +16,26 @@ export type WorkspaceScope = Readonly<{
   projects: ProjectInput[];
 }>;
 
-export type DashboardData = WorkspaceScope & Readonly<{ snapshots: SnapshotInput[] }>;
+/**
+ * A snapshot read's rows, newest first, and the first UTC day from which they are whole (#336): null
+ * when the read holds every row from its start. A read stopped at the cap may hold only some rows
+ * of its oldest day, so it is whole only from the day after.
+ */
+export type SnapshotRead = Readonly<{ rows: SnapshotInput[]; completeFrom: string | null }>;
+
+/** `snapshots` are whole from `completeFrom` (`SnapshotRead`), which the dashboard's notice names (#336). */
+export type DashboardData = WorkspaceScope & Readonly<{ snapshots: SnapshotInput[]; completeFrom: string | null }>;
 
 // Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap. The monthly
 // trend's rollup (`loadMonthlySnapshots`) has the same cap, but counts one row per account, metric,
 // and month, so it is reached only past about 770 account and metric pairs.
 const SNAPSHOT_MAX_ROWS = 10_000;
+
+/** A paged read, newest first, as a `SnapshotRead`. A stopped read holds SNAPSHOT_MAX_ROWS rows, so it has an oldest row. */
+function snapshotRead({ rows, complete }: PagedRows<SnapshotInput>): SnapshotRead {
+  const oldest = rows.at(-1);
+  return { rows, completeFrom: complete || oldest === undefined ? null : addUtcDays(oldest.snapshot_date, 1) };
+}
 
 // Bounds for the small lists. A workspace in the MVP has a handful of each. The dashboard's "Sync
 // now" (#267) queues at most as many connections as it lists.
@@ -47,16 +62,17 @@ export type SnapshotReadFilters = Readonly<{
 
 /**
  * The workspace's snapshots dated `sinceDate` or later, newest first, as one paged query on the
- * `(workspace_id, snapshot_date desc)` index. `purpose` names the caller in the truncation warning.
+ * `(workspace_id, snapshot_date desc)` index, and the first day the read holds in full (#336).
+ * `purpose` names the caller in the truncation warning.
  */
 export async function loadSnapshots(
   workspaceId: string,
   sinceDate: string,
   purpose: string,
   { kinds, metricKeys }: SnapshotReadFilters = {},
-): Promise<SnapshotInput[]> {
+): Promise<SnapshotRead> {
   const supabase = await createClient();
-  const { rows, complete } = await readAllPages(async (from, to) => {
+  const read = await readAllPages(async (from, to) => {
     let query = supabase
       .from("usage_snapshots")
       .select(SNAPSHOT_COLUMNS)
@@ -71,21 +87,23 @@ export async function loadSnapshots(
     if (error) throw new Error("Failed to load usage snapshots", { cause: error });
     return data;
   }, SNAPSHOT_MAX_ROWS);
-  // Newest first, so what was left out is the oldest history; current values are still shown.
-  if (!complete) log.warn("dashboard.snapshots_truncated", { workspaceId, purpose, rows: rows.length });
-  return rows;
+  // Newest first, so what was left out is the oldest history; current values are still shown, and
+  // the dashboard names the day from which each part is whole (#336).
+  if (!read.complete) log.warn("dashboard.snapshots_truncated", { workspaceId, purpose, rows: read.rows.length });
+  return snapshotRead(read);
 }
 
 /**
  * Each account's latest snapshot per metric, currency or unit, and UTC month from `sinceDate`, newest
- * first: everything the monthly trend sums (#317). Grouped in the database
- * (`usage_snapshot_monthly_latest`), so the read grows with months, not days, and a long history no
- * longer pushes the oldest months past the cap. The function reads nothing for a non-member. Every
- * page runs the grouping again, about 15 ms for 13 months of 105 daily metrics (#317).
+ * first: everything the monthly trend sums (#317), and the first day the read holds in full (#336).
+ * Grouped in the database (`usage_snapshot_monthly_latest`), so the read grows with months, not
+ * days, and a long history no longer pushes the oldest months past the cap. The function reads
+ * nothing for a non-member. Every page runs the grouping again, about 15 ms for 13 months of 105
+ * daily metrics (#317).
  */
-export async function loadMonthlySnapshots(workspaceId: string, sinceDate: string): Promise<SnapshotInput[]> {
+export async function loadMonthlySnapshots(workspaceId: string, sinceDate: string): Promise<SnapshotRead> {
   const supabase = await createClient();
-  const { rows, complete } = await readAllPages(async (from, to) => {
+  const read = await readAllPages(async (from, to) => {
     const { data, error } = await supabase
       .rpc("usage_snapshot_monthly_latest", { p_workspace_id: workspaceId, p_since: sinceDate })
       // PostgREST orders a function's rows only by selected columns, so the tiebreak needs `id`.
@@ -97,8 +115,8 @@ export async function loadMonthlySnapshots(workspaceId: string, sinceDate: strin
     return data;
   }, SNAPSHOT_MAX_ROWS);
   // Newest first, so what was left out is the oldest months.
-  if (!complete) log.warn("dashboard.snapshots_truncated", { workspaceId, purpose: "monthly trend", rows: rows.length });
-  return rows;
+  if (!read.complete) log.warn("dashboard.snapshots_truncated", { workspaceId, purpose: "monthly trend", rows: read.rows.length });
+  return snapshotRead(read);
 }
 
 /**
@@ -106,10 +124,10 @@ export async function loadMonthlySnapshots(workspaceId: string, sinceDate: strin
  * (#263). The dashboard's cards and the daily trend charts both need these rows, so
  * `getDashboardData` and `getTrendData` share this one read instead of each issuing their own; the
  * key is the primitive pair, so callers must pass the same `snapshotWindowStart(now)` string.
- * Callers must not mutate the returned array, which every caller in the request shares.
+ * Callers must not mutate the returned rows, which every caller in the request shares.
  */
 export const loadDashboardSnapshots = cache(
-  (workspaceId: string, sinceDate: string): Promise<SnapshotInput[]> => loadSnapshots(workspaceId, sinceDate, "dashboard"),
+  (workspaceId: string, sinceDate: string): Promise<SnapshotRead> => loadSnapshots(workspaceId, sinceDate, "dashboard"),
 );
 
 /**
@@ -150,14 +168,15 @@ export const getWorkspaceScope = cache(async (workspaceId: string): Promise<Work
 
 /**
  * Everything the dashboard reduces, narrowed to `scope`: connections, included accounts, projects
- * (all of them, for names), and snapshots dated `sinceDate` or later (see `snapshotWindowStart`).
- * The snapshots come from `loadDashboardSnapshots`, so the trend charts reuse them without a second
- * query (#263). Call only after `requireWorkspace` has confirmed membership.
+ * (all of them, for names), and snapshots dated `sinceDate` or later (see `snapshotWindowStart`),
+ * whole from `completeFrom`. The read is the whole workspace's, so a narrower scope is whole from
+ * the same day. The snapshots come from `loadDashboardSnapshots`, so the trend charts reuse them
+ * without a second query (#263). Call only after `requireWorkspace` has confirmed membership.
  */
 export async function getDashboardData(workspaceId: string, sinceDate: string, scope: ScopeFilters): Promise<DashboardData> {
-  const [workspaceScope, snapshots] = await Promise.all([
+  const [workspaceScope, { rows, completeFrom }] = await Promise.all([
     getWorkspaceScope(workspaceId),
     loadDashboardSnapshots(workspaceId, sinceDate),
   ]);
-  return { ...applyScope({ ...workspaceScope, snapshots }, scope), projects: workspaceScope.projects };
+  return { ...applyScope({ ...workspaceScope, snapshots: rows }, scope), projects: workspaceScope.projects, completeFrom };
 }

@@ -2,7 +2,7 @@ import "server-only";
 
 import { snapshotWindowStart, type ConnectionInput, type SnapshotInput } from "@/lib/dashboard/aggregate";
 import { eventCountBucket, markerTypeIds, markerWindowStart, type EventCountRow, type MarkerCategory } from "@/lib/dashboard/markers";
-import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
+import { trendCompleteFrom, trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +10,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getWorkspaceScope, loadDashboardSnapshots, loadMonthlySnapshots } from "./dashboard";
 import { resolveTimelineScope } from "./timeline";
 
-export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: SnapshotInput[] }>;
+/** `completeFrom`: the first UTC day from which the chart is whole after its read stopped at the row cap, or null (#336). */
+export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: SnapshotInput[]; completeFrom: string | null }>;
 
 /**
  * Snapshot history for the trend charts, narrowed to `scope` with the same rules as the dashboard,
@@ -28,7 +29,9 @@ export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: Sn
  *   oldest months.
  * The headline strip still reads its money and signup rows on its own (`getHeadlineSnapshots`
  * says why). The unique key `(external_account_id, metric_key, snapshot_date)` means each row is
- * already the latest value of its day. Call only after `requireWorkspace` has confirmed membership.
+ * already the latest value of its day. A read stopped at the row cap is whole only from a later
+ * day, which `completeFrom` names for the chart. Call only after `requireWorkspace` has confirmed
+ * membership.
  */
 export async function getTrendData(
   workspaceId: string,
@@ -36,14 +39,18 @@ export async function getTrendData(
   now: Date,
   scope: ScopeFilters,
 ): Promise<TrendData> {
-  const [workspaceScope, snapshots] = await Promise.all([
+  const [workspaceScope, read] = await Promise.all([
     getWorkspaceScope(workspaceId),
     granularity === "daily"
       ? loadDashboardSnapshots(workspaceId, snapshotWindowStart(now))
       : loadMonthlySnapshots(workspaceId, trendWindowStart(now)),
   ]);
-  const scoped = applyScope({ ...workspaceScope, snapshots }, scope);
-  return { connections: scoped.connections, snapshots: scoped.snapshots };
+  const scoped = applyScope({ ...workspaceScope, snapshots: read.rows }, scope);
+  return {
+    connections: scoped.connections,
+    snapshots: scoped.snapshots,
+    completeFrom: trendCompleteFrom(read.completeFrom, granularity, now),
+  };
 }
 
 // The database groups by the chart's bucket, so there is at most one row per bucket and type id

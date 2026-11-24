@@ -1,11 +1,11 @@
 import "server-only";
 
-import type { SnapshotInput } from "@/lib/dashboard/aggregate";
+import { laterCompleteFrom } from "@/lib/dashboard/aggregate";
 import type { DateRange, EventCount, HeadlineEvents, HeadlineEventTypes, HeadlineWindows } from "@/lib/dashboard/headline";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { createClient } from "@/lib/supabase/server";
 
-import { getWorkspaceScope, loadSnapshots } from "./dashboard";
+import { getWorkspaceScope, loadSnapshots, type SnapshotRead } from "./dashboard";
 
 const DAY_MS = 86_400_000;
 
@@ -17,23 +17,27 @@ const DAY_MS = 86_400_000;
  * history do not count toward the read cap. The cap still applies (`loadSnapshots`, 10,000 rows
  * each, newest first): past it the oldest days are left out, so the previous window is named
  * unavailable and the figures lose their comparison, with a `dashboard.snapshots_truncated`
- * warning. Call only after `requireWorkspace` has confirmed membership.
+ * warning. `completeFrom` is then the later of the two reads' first whole days, which the
+ * dashboard's notice names (#336). Call only after `requireWorkspace` has confirmed membership.
  */
 export async function getHeadlineSnapshots(
   workspaceId: string,
   scope: ScopeFilters,
   windows: HeadlineWindows,
   eventTypes: HeadlineEventTypes,
-): Promise<SnapshotInput[]> {
+): Promise<SnapshotRead> {
   const since = new Date(Date.parse(`${windows.previous.start}T00:00:00.000Z`) - DAY_MS).toISOString().slice(0, 10);
   const [workspaceScope, money, dailyTotals] = await Promise.all([
     getWorkspaceScope(workspaceId),
     loadSnapshots(workspaceId, since, "headline money", { kinds: ["revenue", "verified_spend", "estimated_spend"] }),
     eventTypes.signupDailyTotals.length === 0
-      ? []
+      ? { rows: [], completeFrom: null }
       : loadSnapshots(workspaceId, since, "headline signups", { kinds: ["usage"], metricKeys: eventTypes.signupDailyTotals }),
   ]);
-  return applyScope({ ...workspaceScope, snapshots: [...money, ...dailyTotals] }, scope).snapshots;
+  return {
+    rows: applyScope({ ...workspaceScope, snapshots: [...money.rows, ...dailyTotals.rows] }, scope).snapshots,
+    completeFrom: laterCompleteFrom(money.completeFrom, dailyTotals.completeFrom),
+  };
 }
 
 /**

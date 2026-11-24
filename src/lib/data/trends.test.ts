@@ -2,12 +2,14 @@ import type * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { snapshotWindowStart } from "@/lib/dashboard/aggregate";
+import type { HeadlineEventTypes, HeadlineWindows } from "@/lib/dashboard/headline";
 import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
 import { EMPTY_SCOPE } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
 import { fakeSupabase, type PageRequest, type Row } from "@/lib/supabase/fake-postgrest";
 
 import { getDashboardData } from "./dashboard";
+import { getHeadlineSnapshots } from "./headline";
 import { getTrendData } from "./trends";
 
 /*
@@ -15,7 +17,8 @@ import { getTrendData } from "./trends";
  * (src/lib/supabase/fake-postgrest.ts) under the real supabase-js client, so the filters, order,
  * and range are the ones the data layer sends. The fake records each request's filters, so the
  * tests check the date bounds of every `usage_snapshots` read rather than which builder methods
- * were called.
+ * were called. The same fake checks the first whole day of each of the dashboard's capped reads
+ * (#336): the cards, the headline, and the monthly trend.
  */
 
 type Primitive = string | number | boolean | null;
@@ -224,5 +227,116 @@ describe("getTrendData monthly rollup paging (#317)", () => {
     expect(trends.snapshots).toHaveLength(1);
     expect(monthlyCalls()).toHaveLength(1);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("the first whole day of each capped dashboard read (#336)", () => {
+  const SIGNUP_TOTALS = "posthog.signups.daily";
+  // The current week from Monday 2026-11-09 against the same days of the week before, so the
+  // headline reads from 2026-11-01, the day before the previous window.
+  const WINDOWS: HeadlineWindows = {
+    kind: "week",
+    complete: false,
+    current: { start: "2026-11-09", end: "2026-11-10" },
+    previous: { start: "2026-11-02", end: "2026-11-03" },
+  };
+  const eventTypes = (signupDailyTotals: readonly string[]): HeadlineEventTypes => ({
+    signups: [],
+    deploys: [],
+    failedDeploys: [],
+    signupDailyTotals,
+  });
+
+  /**
+   * `count` rows newest first, as `make` builds them: 9,000 on the newest of `days`, the next 1,000
+   * on the next, and any more on the oldest, which a read stopped at the 10,000 row cap never reaches.
+   */
+  function spread(count: number, days: readonly [string, string, string], make: (date: string, suffix: string) => Row): Row[] {
+    const [newest, older, oldest] = days;
+    return Array.from({ length: count }, (_, index) =>
+      make(index < 9_000 ? newest : index < 10_000 ? older : oldest, String(index).padStart(5, "0")),
+    );
+  }
+
+  /** Verified spend, one metric per row, so each is its own row in the daily and the monthly reads. */
+  function metricRow(date: string, suffix: string): Row {
+    return { ...snapshot(date), id: `row-${suffix}`, metric_key: `github.metric_${suffix}.count` };
+  }
+
+  /** A day's signup total, one account per row. */
+  function signupRow(date: string, suffix: string): Row {
+    return {
+      ...snapshot(date),
+      id: `signup-${suffix}`,
+      external_account_id: `account-${suffix}`,
+      metric_key: SIGNUP_TOTALS,
+      kind: "usage",
+      amount_minor: null,
+      currency: null,
+      value: 1,
+      unit: "signups",
+    };
+  }
+
+  let warn: MockInstance<typeof log.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  // A full last page cannot say whether more rows follow, so the read at the cap is called cut and
+  // its oldest day may be partial: the read is whole from the day after.
+  const CAP_CASES = [
+    { case: "just under the cap", rows: 9_999, cut: false },
+    { case: "at the cap", rows: 10_000, cut: true },
+    { case: "over the cap", rows: 10_001, cut: true },
+  ];
+
+  it.each(CAP_CASES)("cards and daily trend, $case ($rows rows): whole from the day after the oldest day read", async ({ rows, cut }) => {
+    seed(spread(rows, ["2026-11-10", "2026-10-15", "2026-10-01"], metricRow));
+    const { dashboard, trends } = await dashboardRequest("daily");
+    expect(dashboard.snapshots).toHaveLength(Math.min(rows, 10_000));
+    expect(dashboard.completeFrom).toBe(cut ? "2026-10-16" : null);
+    // The daily chart reads the same rows (#263), and 2026-10-16 is inside its 30 days.
+    expect(trends.completeFrom).toBe(dashboard.completeFrom);
+  });
+
+  it("cards: the daily chart stays whole when the read stopped before its first day", async () => {
+    seed(spread(10_000, ["2026-11-10", "2026-10-05", "2026-10-01"], metricRow));
+    const { dashboard, trends } = await dashboardRequest("daily");
+    expect(dashboard.completeFrom).toBe("2026-10-06");
+    // The chart's first day is 2026-10-13.
+    expect(trends.completeFrom).toBeNull();
+  });
+
+  it.each(CAP_CASES)("monthly trend, $case ($rows rollup rows): whole from the month after the oldest month read", async ({ rows, cut }) => {
+    seed([], spread(rows, ["2026-10-31", "2026-02-14", "2025-12-15"], metricRow));
+    const trends = await getTrendData(WORKSPACE, "monthly", NOW, EMPTY_SCOPE);
+    expect(trends.snapshots).toHaveLength(Math.min(rows, 10_000));
+    // February was read only in part, so March is the first whole month.
+    expect(trends.completeFrom).toBe(cut ? "2026-03-01" : null);
+  });
+
+  it.each(CAP_CASES)("headline, $case ($rows money rows): whole from the day after the oldest day read", async ({ rows, cut }) => {
+    seed(spread(rows, ["2026-11-10", "2026-11-05", "2026-11-02"], metricRow));
+    const headline = await getHeadlineSnapshots(WORKSPACE, EMPTY_SCOPE, WINDOWS, eventTypes([]));
+    expect(headline.rows).toHaveLength(Math.min(rows, 10_000));
+    expect(headline.completeFrom).toBe(cut ? "2026-11-06" : null);
+  });
+
+  it.each([
+    { case: "both stopped: the later of their days", money: 10_000, signups: 10_000, completeFrom: "2026-11-09" },
+    { case: "only the money read stopped", money: 10_000, signups: 9_999, completeFrom: "2026-11-06" },
+    { case: "only the signup read stopped", money: 9_999, signups: 10_000, completeFrom: "2026-11-09" },
+    { case: "neither stopped", money: 9_999, signups: 9_999, completeFrom: null },
+  ])("headline with daily signup totals, $case", async ({ money, signups, completeFrom }) => {
+    seed([
+      ...spread(money, ["2026-11-10", "2026-11-05", "2026-11-02"], metricRow),
+      ...spread(signups, ["2026-11-10", "2026-11-08", "2026-11-02"], signupRow),
+    ]);
+    const headline = await getHeadlineSnapshots(WORKSPACE, EMPTY_SCOPE, WINDOWS, eventTypes([SIGNUP_TOTALS]));
+    expect(headline.completeFrom).toBe(completeFrom);
   });
 });

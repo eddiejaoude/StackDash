@@ -33,7 +33,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("./dashboard", () => ({
   getWorkspaceScope: async () => scope.current,
-  loadSnapshots: async () => [],
+  loadSnapshots: async () => ({ rows: [], completeFrom: null }),
 }));
 
 const WORKSPACE_ID = "34600000-0000-4000-8000-000000000001";
