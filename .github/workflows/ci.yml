@@ -219,10 +219,12 @@ jobs:
             fi
             # Run as root so Playwright calls apt-get itself instead of through sudo: Playwright, sh,
             # and apt-get then share timeout's process group, and a timeout stops all of them. dpkg
-            # does not, which is why a retry first waits for it.
+            # does not, which is why a retry first waits for it. The binary `npm ci` installed
+            # starts without npm, which would contact the registry; PATH lets it find the runner's
+            # Node.
             status=0
             sudo env "PATH=${PATH}" timeout --kill-after=30s "${attempt_minutes}m" \
-              npx playwright install-deps chromium webkit firefox || status=$?
+              node_modules/.bin/playwright install-deps chromium webkit firefox || status=$?
             if [ "${status}" -eq 0 ]; then
               exit 0
             fi
