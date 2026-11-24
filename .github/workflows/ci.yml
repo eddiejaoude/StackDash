@@ -189,10 +189,6 @@ jobs:
           mirrors=/etc/apt/apt-mirrors.txt
           max_attempts=3
           attempt_minutes=6
-          # A request that stays silent for 30 s fails and is retried, and a request that fails
-          # moves on to the next mirror in the list (apt-transport-mirror(1)).
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
-            | sudo tee /etc/apt/apt.conf.d/80-ci-network
           for attempt in $(seq 1 "${max_attempts}"); do
             if [ "${attempt}" -gt 1 ]; then
               # A stopped attempt can leave dpkg half done. Finishing it here may fail on packages
