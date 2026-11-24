@@ -175,12 +175,69 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # From the runner's Ubuntu mirror. Usually under a minute; the slowest run seen took 20
-      # minutes, which this budget still lets finish. Retrying would not help: apt goes back to the
-      # same mirror.
+      # From the runner's regional Ubuntu mirror (Azure's or EC2's, depending on the host), usually
+      # in under a minute. That mirror has served packages slowly enough to take 20 minutes (#641)
+      # and then to run out this step's budget (#645), and the runner's mirror list moves on from it
+      # only when a request errors, never because it is slow. So each attempt gets 6 minutes, and a
+      # retry points apt at Ubuntu's own archive first. Packages a stopped attempt finished
+      # downloading stay in apt's cache, so a retry fetches only the rest. The 22 minutes hold three
+      # attempts of 6 minutes plus 30 s of kill grace each (19 min 30 s), two waits of up to 30 s
+      # for a stopped dpkg (1 min), and two `dpkg --configure -a` runs (about 15 s each on a
+      # runner), and the job's budget above already counts them.
       - name: Install Playwright system packages
         timeout-minutes: 22
-        run: npx playwright install-deps chromium webkit firefox
+        run: |
+          set -euo pipefail
+          mirrors=/etc/apt/apt-mirrors.txt
+          max_attempts=3
+          attempt_minutes=6
+          for attempt in $(seq 1 "${max_attempts}"); do
+            if [ "${attempt}" -gt 1 ]; then
+              # dpkg runs in its own session on apt's pty, outside timeout's process group, so it
+              # outlives a stopped attempt by up to a second or so and holds dpkg's lock until it
+              # exits. Wait for it and apt-get to exit, then finish what dpkg unpacked. That may
+              # fail on packages whose dependencies were never unpacked; the next apt-get install
+              # resolves those.
+              waited=0
+              while pgrep -x 'apt-get|dpkg' > /dev/null; do
+                if [ "${waited}" -ge 30 ]; then
+                  echo "::warning::apt-get or dpkg from the stopped attempt was still running after 30 s, so dpkg may still hold its lock."
+                  break
+                fi
+                sleep 1
+                waited=$((waited + 1))
+              done
+              sudo dpkg --configure -a || echo "::warning::dpkg could not finish every package the stopped attempt unpacked; retrying the install."
+              # The runner image points ubuntu.sources at this list. If a later image stops doing
+              # that, rewriting it changes nothing, so say so instead of retrying the same mirror
+              # without a trace.
+              if ! grep -rqs "mirror+file:${mirrors}" /etc/apt/sources.list /etc/apt/sources.list.d; then
+                echo "::warning::apt on this runner image no longer reads ${mirrors}, so this retry uses the same mirror as the last attempt."
+              fi
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' \
+                | sudo tee "${mirrors}"
+            fi
+            # Run as root so Playwright calls apt-get itself instead of through sudo: Playwright, sh,
+            # and apt-get then share timeout's process group, and a timeout stops all of them. dpkg
+            # does not, which is why a retry first waits for it. The binary `npm ci` installed
+            # starts without npm, which would contact the registry; PATH lets it find the runner's
+            # Node.
+            status=0
+            sudo env "PATH=${PATH}" timeout --kill-after=30s "${attempt_minutes}m" \
+              node_modules/.bin/playwright install-deps chromium webkit firefox || status=$?
+            if [ "${status}" -eq 0 ]; then
+              exit 0
+            fi
+            # 124 when timeout stopped the attempt, 137 when it had to KILL after the grace period.
+            if [ "${status}" -eq 124 ] || [ "${status}" -eq 137 ]; then
+              reason="took longer than ${attempt_minutes} minutes"
+            else
+              reason="exited with status ${status}"
+            fi
+            echo "::warning::Installing the Playwright system packages ${reason} (attempt ${attempt} of ${max_attempts})."
+          done
+          echo "::error::Installing the Playwright system packages failed ${max_attempts} times, first from the runner's Ubuntu mirror, then from archive.ubuntu.com. See the warnings above."
+          exit 1
 
       # WebKit and Firefox run the `@touch` projects (playwright.config.ts, #578).
       - name: Install Playwright browsers
@@ -188,6 +245,7 @@ jobs:
         run: npx playwright install chromium webkit firefox
 
       - name: Set up Supabase CLI
+        id: supabase-cli
         uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
@@ -247,6 +305,8 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # Only once the CLI is set up: after an earlier step fails, `supabase stop` would add a
+      # second error, `supabase: command not found`, on top of the real one (#645).
       - name: Stop local Supabase
-        if: always()
+        if: always() && steps.supabase-cli.outcome == 'success'
         run: supabase stop
