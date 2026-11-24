@@ -16,16 +16,22 @@ import {
   barScaleFrom,
   changedValueKeys,
   countRange,
+  createPendingChanges,
   creditValues,
   describeArrivals,
   formatCount,
   LIVE_CONNECTIONS_LISTED,
+  LIVE_TABLES,
   liveChange,
   liveConnectionsText,
   liveStatusText,
   liveSystemMessage,
+  liveTablesRead,
+  type LiveChange,
   type LiveConnection,
+  type LiveTable,
   newEventIds,
+  type PendingChanges,
   recurringValues,
   summarizeLiveConnections,
   usageBarClass,
@@ -298,7 +304,28 @@ describe("liveChange", () => {
     ["no connection", []],
   ])("reads a change that brought %s", (_case, connectionIds) => {
     const payload = { id: "m1", table: "usage_snapshots", operation: "INSERT", connection_ids: connectionIds, changed_at: changedAt };
-    expect(liveChange(payload)).toEqual({ changedAt, connectionIds });
+    expect(liveChange(payload)).toEqual({ changedAt, connectionIds, table: "usage_snapshots" });
+  });
+
+  it.each(LIVE_TABLES)("reads a change to %s", (table) => {
+    const payload = { id: "m1", table, operation: "UPDATE", connection_ids: [], changed_at: changedAt };
+    expect(liveChange(payload)?.table).toBe(table);
+  });
+
+  // Still a change the indicator records, of a table every page refreshes for.
+  it.each([
+    ["a table this build does not know", "project_achievements"],
+    ["a table named in another case", "Connections"],
+    ["an empty table name", ""],
+    ["a table that is not a string", 7],
+    ["a null table", null],
+  ])("reads %s as an unknown table", (_case, table) => {
+    const payload = { table, operation: "INSERT", connection_ids: ["c1"], changed_at: changedAt };
+    expect(liveChange(payload)).toEqual({ changedAt, connectionIds: ["c1"], table: null });
+  });
+
+  it("reads a change with no table as an unknown table", () => {
+    expect(liveChange({ connection_ids: [], changed_at: changedAt })).toEqual({ changedAt, connectionIds: [], table: null });
   });
 
   it.each([
@@ -311,6 +338,170 @@ describe("liveChange", () => {
     ["a connection id that is not a string", { connection_ids: ["c1", 2], changed_at: changedAt }],
   ])("reads nothing from a payload with %s", (_case, payload) => {
     expect(liveChange(payload)).toBeNull();
+  });
+});
+
+const EVERY_TABLE: readonly LiveTable[] = ["activity_events", "usage_snapshots", "connections", "triggered_alerts"];
+
+describe("liveTablesRead", () => {
+  // Every page: what it reads itself, and the layout's connections.
+  it.each<[string, readonly LiveTable[]]>([
+    ["/w/acme/dashboard", EVERY_TABLE],
+    ["/w/acme/timeline", ["activity_events", "connections"]],
+    ["/w/acme/alerts", ["triggered_alerts", "connections"]],
+    ["/w/acme/alerts/settings", ["usage_snapshots", "connections"]],
+    ["/w/acme/connections", ["connections"]],
+    ["/w/acme/connections/0b8f6c1e-4d2a-4f7b-9a51-3c2e8d7f6a10", ["connections"]],
+    ["/w/acme/connections/new/github", ["connections"]],
+    ["/w/acme/projects", ["connections"]],
+    ["/w/acme/projects/p1/achievements", ["activity_events", "connections"]],
+    ["/w/acme/projects/p1/public-metrics", ["activity_events", "usage_snapshots", "connections"]],
+    ["/w/acme/settings", ["connections"]],
+    ["/w/acme/year/2026", ["activity_events", "usage_snapshots", "connections"]],
+  ])("reads the tables of %s", (pathname, tables) => {
+    expect([...liveTablesRead(pathname)].sort()).toEqual([...tables].sort());
+  });
+
+  // Unmatched: a not-found page in the shell, or any path no entry names, refreshes for every table.
+  it.each([
+    ["a page no entry names", "/w/acme/billing"],
+    ["a path one segment past a page", "/w/acme/connections/c1/accounts"],
+    ["a path one segment short of a page", "/w/acme/projects/p1"],
+    ["the workspace's own path, which only redirects", "/w/acme"],
+    ["a trailing slash", "/w/acme/timeline/"],
+    ["an empty workspace segment", "/w//timeline"],
+    ["an empty connection segment", "/w/acme/connections/new/"],
+    ["another letter case", "/w/acme/Timeline"],
+    ["a path outside a workspace", "/account"],
+    ["the root", "/"],
+    ["an empty path", ""],
+  ])("reads every table on %s", (_case, pathname) => {
+    expect([...liveTablesRead(pathname)].sort()).toEqual([...EVERY_TABLE].sort());
+  });
+});
+
+describe("createPendingChanges", () => {
+  const DASHBOARD = "/w/acme/dashboard";
+  const TIMELINE = "/w/acme/timeline";
+  const CONNECTIONS = "/w/acme/connections";
+
+  function change(table: LiveTable | null, changedAt = "2026-11-24T10:00:00.000000+00:00", connectionIds: string[] = []): LiveChange {
+    return { changedAt, connectionIds, table };
+  }
+
+  it("takes nothing from a batch that heard nothing", () => {
+    expect(createPendingChanges().take(DASHBOARD)).toEqual({ arrival: null, refresh: false });
+  });
+
+  it("refreshes for a change to a table the page reads and records when and from where it arrived", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("usage_snapshots", "2026-11-24T10:00:00.000000+00:00", ["c1"]));
+    expect(pending.take(DASHBOARD)).toEqual({
+      arrival: { at: "2026-11-24T10:00:00.000000+00:00", connectionIds: new Set(["c1"]) },
+      refresh: true,
+    });
+  });
+
+  it("records a change to a table the page does not read without refreshing it", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts", "2026-11-24T10:00:00.000000+00:00"));
+    expect(pending.take(CONNECTIONS)).toEqual({
+      arrival: { at: "2026-11-24T10:00:00.000000+00:00", connectionIds: new Set() },
+      refresh: false,
+    });
+  });
+
+  it("refreshes for a batch that mixes a table the page reads with one it does not, and records both", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("usage_snapshots", "2026-11-24T10:00:02.000000+00:00", ["c1"]));
+    pending.heard(change("activity_events", "2026-11-24T10:00:01.000000+00:00", ["c2"]));
+    // The timeline reads the events, not the snapshots; the newest write is the snapshots', heard first.
+    expect(pending.take(TIMELINE)).toEqual({
+      arrival: { at: "2026-11-24T10:00:02.000000+00:00", connectionIds: new Set(["c1", "c2"]) },
+      refresh: true,
+    });
+  });
+
+  it.each([
+    ["a payload of another shape", (pending: PendingChanges) => pending.heard(null)],
+    ["a table this build does not know", (pending: PendingChanges) => pending.heard(change(null))],
+    ["changes missed while the channel was down", (pending: PendingChanges) => pending.missed()],
+  ])("refreshes every page for %s, as every page did for every change", (_case, hear) => {
+    for (const pathname of [CONNECTIONS, "/w/acme/settings", "/w/acme/projects"]) {
+      const pending = createPendingChanges();
+      hear(pending);
+      const due = pending.take(pathname);
+      expect(due.refresh).toBe(true);
+      expect(due.arrival).not.toBeNull();
+    }
+  });
+
+  it("records a payload of another shape as an arrival with no time and no connection", () => {
+    const pending = createPendingChanges();
+    pending.heard(null);
+    expect(pending.take(CONNECTIONS).arrival).toEqual({ at: null, connectionIds: new Set() });
+  });
+
+  it.each(EVERY_TABLE)("refreshes a path no page matches for a change to %s", (table) => {
+    const pending = createPendingChanges();
+    pending.heard(change(table));
+    expect(pending.take("/w/acme/billing").refresh).toBe(true);
+  });
+
+  it("starts every batch empty", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("activity_events", "2026-11-24T10:00:00.000000+00:00", ["c1"]));
+    pending.take(TIMELINE);
+    expect(pending.take(TIMELINE)).toEqual({ arrival: null, refresh: false });
+  });
+
+  it("needs nothing for a step in history when no change was skipped", () => {
+    const pending = createPendingChanges();
+    expect(pending.traversed()).toBe(false);
+    pending.heard(change("connections"));
+    pending.take(CONNECTIONS);
+    expect(pending.traversed()).toBe(false);
+  });
+
+  it("refreshes a page a step in history returns to, once, when it reads a table a skipped change wrote", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts"));
+    expect(pending.take(CONNECTIONS).refresh).toBe(false);
+
+    // Back to the dashboard, which was rendered before the alert and reads it. Nothing new arrived.
+    expect(pending.traversed()).toBe(true);
+    expect(pending.take(DASHBOARD)).toEqual({ arrival: null, refresh: true });
+    // That refresh emptied the history cache, so the next step needs nothing.
+    expect(pending.traversed()).toBe(false);
+  });
+
+  it("keeps a skipped table through a step to a page that does not read it, for a later step to one that does", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts"));
+    pending.take(CONNECTIONS);
+    expect(pending.traversed()).toBe(true);
+    expect(pending.take(TIMELINE).refresh).toBe(false);
+    expect(pending.traversed()).toBe(true);
+    expect(pending.take("/w/acme/alerts").refresh).toBe(true);
+  });
+
+  it("does not refresh for a skipped table without a step in history, even on a page that reads it", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts"));
+    pending.take(CONNECTIONS);
+    // A link to the dashboard renders it from the server: no step back or forward, nothing to refresh.
+    pending.heard(change("activity_events"));
+    expect(pending.take(CONNECTIONS).refresh).toBe(false);
+    expect(pending.traversed()).toBe(true);
+  });
+
+  it("forgets the skipped tables once any refresh runs", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts"));
+    pending.take(CONNECTIONS);
+    pending.heard(change("connections"));
+    expect(pending.take(CONNECTIONS).refresh).toBe(true);
+    expect(pending.traversed()).toBe(false);
   });
 });
 

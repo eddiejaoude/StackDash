@@ -22,6 +22,7 @@ import type {
 } from "@/lib/dashboard/aggregate";
 import type { TrendMeasure } from "@/lib/dashboard/trends";
 import { formatMoney, formatPercent, formatQuantity } from "@/lib/format";
+import type { Database } from "@/lib/supabase/database.types";
 
 /** How long a changed item keeps its highlight and its "Updated" or "New" label. */
 export const ARRIVAL_HIGHLIGHT_MS = 4_000;
@@ -222,23 +223,186 @@ export function liveTopic(workspaceId: string): string {
 export const LIVE_CHANGE_EVENT = "change";
 
 /**
- * What one live change tells the page: when its write happened (`changed_at`, the transaction's
- * start on the database clock) and which connections it brought provider data from (#392). The
- * database decides which: the connection of a usage snapshot or of an activity event a provider
- * sent. None of the rest is data received from a connection: a `connections` row changes on a sync
- * request, a failed retry, or a demo tick; StackDash's own events (a sync failure carries the
- * connection with a null provider) and triggered alerts come from StackDash.
+ * The tables whose inserts and updates the database broadcasts on a workspace's live topic, one
+ * message per statement (supabase/migrations/20261122210934_live_refresh_broadcast.sql).
  */
-export type LiveChange = Readonly<{ changedAt: string; connectionIds: readonly string[] }>;
+export const LIVE_TABLES = [
+  "activity_events",
+  "usage_snapshots",
+  "connections",
+  "triggered_alerts",
+] as const satisfies readonly (keyof Database["public"]["Tables"])[];
+
+export type LiveTable = (typeof LIVE_TABLES)[number];
+
+function isLiveTable(value: unknown): value is LiveTable {
+  return LIVE_TABLES.some((table) => table === value);
+}
+
+/**
+ * What one live change tells the page: when its write happened (`changed_at`, the transaction's
+ * start on the database clock), which connections it brought provider data from (#392), and the
+ * table it wrote, which decides the pages that refresh for it (#650). The database decides the
+ * connections: the connection of a usage snapshot or of an activity event a provider sent. None of
+ * the rest is data received from a connection: a `connections` row changes on a sync request, a
+ * failed retry, or a demo tick; StackDash's own events (a sync failure carries the connection with
+ * a null provider) and triggered alerts come from StackDash. `table` is null for a table this build
+ * does not know, such as one a later migration broadcasts, and every page refreshes for that.
+ */
+export type LiveChange = Readonly<{ changedAt: string; connectionIds: readonly string[]; table: LiveTable | null }>;
 
 /** A live change's payload, read; null for a payload of another shape. */
 export function liveChange(payload: unknown): LiveChange | null {
   if (typeof payload !== "object" || payload === null) return null;
   const changedAt = Reflect.get(payload, "changed_at");
   const connectionIds = Reflect.get(payload, "connection_ids");
+  const table = Reflect.get(payload, "table");
   if (typeof changedAt !== "string" || Number.isNaN(Date.parse(changedAt))) return null;
   if (!isStringArray(connectionIds)) return null;
-  return { changedAt, connectionIds };
+  return { changedAt, connectionIds, table: isLiveTable(table) ? table : null };
+}
+
+// The workspace layout's own read, on every page: its live indicator and command palette read the
+// workspace's connections (`getWorkspaceScope` in src/app/w/[workspace]/layout.tsx), and
+// `router.refresh()` renders the layout again with the page.
+const LAYOUT_TABLES: readonly LiveTable[] = ["connections"];
+
+/**
+ * The live tables each workspace page reads itself, beside its layout's (#650). A route names the
+ * page's folder under src/app, where a bracketed segment matches any one segment. The tables are
+ * those of every query the page's Server Components run, including those read through a view, a
+ * database function, or a table kept by an activity_events or usage_snapshots trigger. The year
+ * slides (`year/[year]/[slide]`) are a route handler that no refresh renders, so they have no entry.
+ */
+const PAGE_TABLES: readonly Readonly<{ route: string; tables: readonly LiveTable[] }>[] = [
+  // Trends, the heatmap, headline numbers, the cards, unacknowledged alerts, and recent anomalies.
+  { route: "/w/[workspace]/dashboard", tables: ["activity_events", "usage_snapshots", "connections", "triggered_alerts"] },
+  // Events and their counts per connection. A project achievement has no message of its own: the
+  // statement that records it inserts an activity_events row too (record_project_achievements), so
+  // the events stand for the achievements here and on the achievements page.
+  { route: "/w/[workspace]/timeline", tables: ["activity_events", "connections"] },
+  { route: "/w/[workspace]/alerts", tables: ["triggered_alerts"] },
+  // Allowance metrics, currencies, budget spend, and the anomaly metrics come from usage snapshots.
+  { route: "/w/[workspace]/alerts/settings", tables: ["usage_snapshots", "connections"] },
+  { route: "/w/[workspace]/connections", tables: ["connections"] },
+  { route: "/w/[workspace]/connections/[connectionId]", tables: ["connections"] },
+  { route: "/w/[workspace]/connections/new/[provider]", tables: ["connections"] },
+  { route: "/w/[workspace]/projects", tables: [] },
+  { route: "/w/[workspace]/projects/[projectId]/achievements", tables: ["activity_events"] },
+  // The public metrics' values, read through the metric store, as on the year in review.
+  { route: "/w/[workspace]/projects/[projectId]/public-metrics", tables: ["activity_events", "usage_snapshots", "connections"] },
+  { route: "/w/[workspace]/settings", tables: [] },
+  { route: "/w/[workspace]/year/[year]", tables: ["activity_events", "usage_snapshots", "connections"] },
+];
+
+function matchesRoute(route: string, pathname: string): boolean {
+  const expected = route.split("/");
+  const actual = pathname.split("/");
+  return (
+    expected.length === actual.length &&
+    expected.every((segment, index) => {
+      const value = actual[index];
+      return segment.startsWith("[") ? value !== undefined && value !== "" : segment === value;
+    })
+  );
+}
+
+/**
+ * The live tables the page at `pathname` reads, its layout's included. A path that matches no
+ * page, such as a not-found page in the workspace shell, reads every table, so it refreshes for
+ * every change, as every page did before #650.
+ */
+export function liveTablesRead(pathname: string): ReadonlySet<LiveTable> {
+  const page = PAGE_TABLES.find(({ route }) => matchesRoute(route, pathname));
+  return new Set(page === undefined ? LIVE_TABLES : [...LAYOUT_TABLES, ...page.tables]);
+}
+
+/** What the changes due at once ask of the page (`PendingChanges.take`). */
+export type DueChanges = Readonly<{
+  /**
+   * What the live indicator records: when the newest change was written and the connections that
+   * sent provider data. null when no change arrived, only a step back or forward in history.
+   */
+  arrival: Readonly<{ at: string | null; connectionIds: ReadonlySet<string> }> | null;
+  /** Whether the page reads a table the changes may have written, so it refreshes. */
+  refresh: boolean;
+}>;
+
+export type PendingChanges = Readonly<{
+  /** A message arrived on the live topic: its change, or null for a payload of another shape. */
+  heard: (change: LiveChange | null) => void;
+  /** Changes may have been written to any table while the channel was down. */
+  missed: () => void;
+  /**
+   * The browser went back or forward. Next.js then shows the page from its history cache, as it was
+   * last rendered, without asking the server, and a refresh is what empties that cache
+   * (`invalidateBfCache` in node_modules/next/dist/client/components/segment-cache/bfcache.js). A
+   * change whose batch refreshed nothing can be missing from it, so the page refreshes if it reads
+   * a table such a change wrote. Returns whether there is one, so a batch is worth scheduling.
+   */
+  traversed: () => boolean;
+  /** Ends the batch for the page at `pathname` and says what it asks of that page. */
+  take: (pathname: string) => DueChanges;
+}>;
+
+/**
+ * The live changes a page heard since its last batch, and the tables of the changes it skipped
+ * since its last refresh (#650). A batch refreshes the page only when one of its changes wrote a
+ * table the page reads (`liveTablesRead`), but the live indicator records every batch all the same.
+ * A payload of another shape, a table this build does not know, and changes missed while the
+ * channel was down could have written any table, so they refresh every page. Changes collect
+ * until the batch is taken, however long the scheduler defers it (a hidden tab, a hold, a running
+ * refresh), so a change a page reads is never dropped for one it does not read.
+ */
+export function createPendingChanges(): PendingChanges {
+  let arrived = false;
+  let newestAt: string | null = null;
+  let connectionIds = new Set<string>();
+  let tables = new Set<LiveTable>();
+  let anyTable = false;
+  let returned = false;
+  let skipped = new Set<LiveTable>();
+
+  return {
+    heard(change) {
+      arrived = true;
+      if (change === null) {
+        anyTable = true;
+        return;
+      }
+      if (newestAt === null || Date.parse(change.changedAt) > Date.parse(newestAt)) newestAt = change.changedAt;
+      for (const connectionId of change.connectionIds) connectionIds.add(connectionId);
+      if (change.table === null) anyTable = true;
+      else tables.add(change.table);
+    },
+    missed() {
+      arrived = true;
+      anyTable = true;
+    },
+    traversed() {
+      if (skipped.size === 0) return false;
+      returned = true;
+      return true;
+    },
+    take(pathname) {
+      const read = liveTablesRead(pathname);
+      const refresh =
+        anyTable ||
+        [...tables].some((table) => read.has(table)) ||
+        (returned && [...skipped].some((table) => read.has(table)));
+      const due: DueChanges = { arrival: arrived ? { at: newestAt, connectionIds } : null, refresh };
+      // A refresh clears the history cache of every page, so nothing skipped before it is stale.
+      if (refresh) skipped = new Set();
+      else for (const table of tables) skipped.add(table);
+      arrived = false;
+      newestAt = null;
+      connectionIds = new Set();
+      tables = new Set();
+      anyTable = false;
+      returned = false;
+      return due;
+    },
+  };
 }
 
 /**

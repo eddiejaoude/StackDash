@@ -16,6 +16,9 @@
  * refresh is running and one is waiting. A refresh that never settles stops counting as running
  * after `REFRESH_MAX_IN_FLIGHT_MS`, so a stalled request delays live updates but cannot stop them.
  *
+ * When the changes are due, the page decides whether they need a refresh at all: one that reads
+ * none of the tables they wrote starts none (#650), and the next changes do not wait behind it.
+ *
  * Pure apart from the timers, so the component owns the browser APIs and the tests use fake timers.
  */
 
@@ -31,8 +34,11 @@ export const REFRESH_MAX_WAIT_MS = 3_000;
 export const REFRESH_MAX_IN_FLIGHT_MS = 15_000;
 
 export type RefreshSchedulerOptions = {
-  /** Starts a refresh. The caller reports its end with `settled()`. */
-  refresh: () => void;
+  /**
+   * The changes are due: starts a refresh and returns true, or returns false when none of them
+   * needs one. The caller reports the end of a refresh it started with `settled()`.
+   */
+  refresh: () => boolean;
   /**
    * Whether refreshes must wait right now: the tab is hidden (`document.visibilityState`), or the
    * page holds them (`RefreshHolds.held`).
@@ -90,9 +96,9 @@ export function createRefreshScheduler({ refresh, isPaused }: RefreshSchedulerOp
       queued = true;
       return;
     }
+    if (!refresh()) return;
     inFlight = true;
     inFlightTimer = setTimeout(settle, REFRESH_MAX_IN_FLIGHT_MS);
-    refresh();
   }
 
   function settle(): void {

@@ -2,7 +2,7 @@ import { expect, type Page, type Request } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { LIVE_CHANGE_EVENT, liveTopic } from "../../src/lib/realtime/arrivals";
+import { LIVE_CHANGE_EVENT, LIVE_TABLES, liveTopic } from "../../src/lib/realtime/arrivals";
 
 import { adminClient, newAdminClient } from "./db";
 
@@ -22,7 +22,7 @@ export const StreamReadySchema = z.object({ extension: z.literal("system"), stat
 // one of the live tables (supabase/migrations/20261122210934_live_refresh_broadcast.sql), less the
 // id realtime.send adds.
 export const LiveMessageSchema = z.object({
-  table: z.enum(["activity_events", "usage_snapshots", "connections", "triggered_alerts"]),
+  table: z.enum(LIVE_TABLES),
   operation: z.enum(["INSERT", "UPDATE"]),
   connection_ids: z.array(z.string()),
   changed_at: z.string(),
