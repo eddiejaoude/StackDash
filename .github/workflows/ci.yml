@@ -227,6 +227,7 @@ jobs:
         run: npx playwright install chromium webkit firefox
 
       - name: Set up Supabase CLI
+        id: supabase-cli
         uses: supabase/setup-cli@689adcfb80d947100a1eab127289b97d1fb07b13 # v3.2.0
         with:
           version: ${{ env.SUPABASE_CLI_VERSION }}
@@ -286,6 +287,8 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # Only once the CLI is set up: after an earlier step fails, `supabase stop` would add a
+      # second error, `supabase: command not found`, on top of the real one (#645).
       - name: Stop local Supabase
-        if: always()
+        if: always() && steps.supabase-cli.outcome == 'success'
         run: supabase stop
