@@ -41,6 +41,12 @@ updates:
       - dependency-name: "@types/node"
         versions:
           - ">=23.0.0"
+      # TypeScript 7 ships no compiler API, so typescript-eslint fails to load and lint exits 2
+      # (#633). Remove this entry once a released typescript-eslint has a typescript peer range
+      # that admits 7 and typecheck, lint, and build pass on 7. 6.x minors and patches still arrive.
+      - dependency-name: "typescript"
+        versions:
+          - ">=7.0.0"
     # A group pull request counts as one, so the minor and patch group leaves room for two major
     # pull requests (single or grouped) at a time.
     open-pull-requests-limit: 3
