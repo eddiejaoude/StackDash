@@ -13,6 +13,8 @@ import {
   aggregateDashboard,
   allowanceGroups,
   allowanceUsage,
+  capNotice,
+  capNoticeText,
   countedSnapshots,
   dropSubWindows,
   dropSupersededBreakdowns,
@@ -20,6 +22,7 @@ import {
   hasSimulatedSource,
   isCurrentPeriod,
   isStale,
+  laterCompleteFrom,
   latestSnapshots,
   percentUsed,
   providerCardFields,
@@ -781,6 +784,77 @@ describe("withStaleNotice (#267)", () => {
       "2 of 3 connections in view have not synced since 2026-10-13 10:00 BST: Fake account and GitHub org. Their figures on this page are from then or earlier.",
     );
     for (const text of [all.title, all.body, most.body]) expect(text).not.toMatch(/[\u2013\u2014!]/);
+  });
+});
+
+describe("capNotice (#336)", () => {
+  it.each([
+    { case: "no reads", reads: [] },
+    { case: "every read whole", reads: [{ part: "headline", completeFrom: null }, { part: "cards", completeFrom: null }, { part: "daily trend", completeFrom: null }] },
+  ] as const)("shows no notice (boundary: $case)", ({ reads }) => {
+    expect(capNotice(reads)).toBeNull();
+  });
+
+  it("names each part whose read stopped, in page order whatever the order of the reads", () => {
+    expect(
+      capNotice([
+        { part: "monthly trend", completeFrom: "2026-03-01" },
+        { part: "cards", completeFrom: "2026-10-12" },
+        { part: "headline", completeFrom: null },
+      ]),
+    ).toEqual({
+      parts: [
+        { part: "cards", completeFrom: "2026-10-12" },
+        { part: "monthly trend", completeFrom: "2026-03-01" },
+      ],
+    });
+  });
+
+  it("takes the later day of a part read twice, as the headline's window to date and last complete window are", () => {
+    const read = (completeFrom: string | null) => ({ part: "headline", completeFrom }) as const;
+    expect(capNotice([read("2026-10-26"), read("2026-10-20")])?.parts).toEqual([{ part: "headline", completeFrom: "2026-10-26" }]);
+    expect(capNotice([read(null), read("2026-10-20")])?.parts).toEqual([{ part: "headline", completeFrom: "2026-10-20" }]);
+  });
+
+  it.each([
+    { case: "neither stopped", a: null, b: null, later: null },
+    { case: "only the first stopped", a: "2026-10-20", b: null, later: "2026-10-20" },
+    { case: "only the second stopped", a: null, b: "2026-10-20", later: "2026-10-20" },
+    { case: "the same day", a: "2026-10-20", b: "2026-10-20", later: "2026-10-20" },
+    { case: "across a month and a year", a: "2026-12-31", b: "2027-01-01", later: "2027-01-01" },
+  ])("laterCompleteFrom: $case", ({ a, b, later }) => {
+    expect(laterCompleteFrom(a, b)).toBe(later);
+    expect(laterCompleteFrom(b, a)).toBe(later);
+  });
+
+  it("says which parts are incomplete and from which day, one sentence per day, in page order", () => {
+    const intro = "This workspace has more readings than the dashboard reads at once, so the oldest are left out.";
+    const outro = "Anything that depends on an older reading can be missing or incomplete.";
+    const cards = capNoticeText({ parts: [{ part: "cards", completeFrom: "2026-10-12" }] });
+    expect(cards).toEqual({ title: "Some older readings are not shown", body: `${intro} The cards are complete from 2026-10-12 in UTC. ${outro}` });
+    expect(capNoticeText({ parts: [{ part: "monthly trend", completeFrom: "2026-03-01" }] }).body).toBe(
+      `${intro} The monthly trend is complete from 2026-03-01 in UTC. ${outro}`,
+    );
+    // The daily trend reads the cards' rows, so the two share a day.
+    const several = capNoticeText({
+      parts: [
+        { part: "headline", completeFrom: "2026-11-02" },
+        { part: "cards", completeFrom: "2026-10-12" },
+        { part: "daily trend", completeFrom: "2026-10-12" },
+      ],
+    });
+    expect(several.body).toBe(
+      `${intro} The headline is complete from 2026-11-02 in UTC. The cards and the daily trend are complete from 2026-10-12 in UTC. ${outro}`,
+    );
+    const sameDay = capNoticeText({
+      parts: [
+        { part: "headline", completeFrom: "2026-10-12" },
+        { part: "cards", completeFrom: "2026-10-12" },
+        { part: "daily trend", completeFrom: "2026-10-12" },
+      ],
+    });
+    expect(sameDay.body).toBe(`${intro} The headline, the cards, and the daily trend are complete from 2026-10-12 in UTC. ${outro}`);
+    for (const text of [cards.title, cards.body, several.body, sameDay.body]) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });
 });
 

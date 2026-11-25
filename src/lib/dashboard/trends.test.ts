@@ -14,9 +14,11 @@ import {
   TREND_DAYS,
   TREND_MONTHS,
   trendBuckets,
+  trendCompleteFrom,
   trendSummary,
   trendWindowStart,
   type TrendConnection,
+  type TrendGranularity,
   type TrendPoint,
   type TrendRow,
 } from "./trends";
@@ -73,6 +75,33 @@ describe("trendBuckets and trendWindowStart", () => {
   it("uses the UTC date just before and after midnight", () => {
     expect(trendBuckets("daily", new Date("2026-01-15T23:59:59.999Z")).at(-1)).toBe("2026-01-15");
     expect(trendBuckets("daily", new Date("2026-01-16T00:00:00.000Z")).at(-1)).toBe("2026-01-16");
+  });
+});
+
+describe("trendCompleteFrom (#336)", () => {
+  it.each<TrendGranularity>(["daily", "monthly"])("%s: a whole read leaves the chart whole", (granularity) => {
+    expect(trendCompleteFrom(null, granularity, NOW)).toBeNull();
+  });
+
+  // The daily chart runs from 2025-12-17 to 2026-01-15.
+  it.each([
+    { case: "a day inside the chart", completeFrom: "2026-01-02", expected: "2026-01-02" },
+    { case: "the chart's second day, so its first is partial", completeFrom: "2025-12-18", expected: "2025-12-18" },
+    { case: "the chart's first day, so every day shown is whole", completeFrom: "2025-12-17", expected: null },
+    { case: "a day before the chart", completeFrom: "2025-12-01", expected: null },
+  ])("daily: $case", ({ completeFrom, expected }) => {
+    expect(trendCompleteFrom(completeFrom, "daily", NOW)).toBe(expected);
+  });
+
+  // The monthly chart runs from January 2025 to January 2026.
+  it.each([
+    { case: "mid month, so that month is partial and the next is the first whole one", completeFrom: "2025-06-15", expected: "2025-07-01" },
+    { case: "a month's first day, so the month before it is the partial one", completeFrom: "2025-06-01", expected: "2025-06-01" },
+    { case: "the last day of a year", completeFrom: "2025-12-31", expected: "2026-01-01" },
+    { case: "the chart's second day, so its first month is partial", completeFrom: "2025-01-02", expected: "2025-02-01" },
+    { case: "the chart's first day, so every month shown is whole", completeFrom: "2025-01-01", expected: null },
+  ])("monthly: $case", ({ completeFrom, expected }) => {
+    expect(trendCompleteFrom(completeFrom, "monthly", NOW)).toBe(expected);
   });
 });
 

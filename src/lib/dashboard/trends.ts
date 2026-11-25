@@ -108,6 +108,21 @@ export function trendBuckets(granularity: TrendGranularity, now: Date): string[]
   );
 }
 
+/**
+ * The first UTC day from which a trend chart is whole (#336), from `completeFrom`, the first day its
+ * read holds in full, or null when every bucket the chart shows is whole. A bucket is whole only
+ * when every day of it is, so a month is whole from the first day of the month after a partly
+ * read one.
+ */
+export function trendCompleteFrom(completeFrom: string | null, granularity: TrendGranularity, now: Date): string | null {
+  if (completeFrom === null) return null;
+  const [firstBucket = ""] = trendBuckets(granularity, now);
+  if (granularity === "daily") return completeFrom > firstBucket ? completeFrom : null;
+  const day = new Date(`${completeFrom}T00:00:00.000Z`);
+  const month = day.getUTCDate() === 1 ? completeFrom : isoDate(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 1));
+  return month.slice(0, 7) > firstBucket ? month : null;
+}
+
 function measureOf(row: TrendRow): TrendMeasure | null {
   if (row.currency !== null && row.amount_minor !== null) return { type: "money", currency: row.currency };
   if (row.unit !== null && row.value !== null) return { type: "quantity", unit: row.unit };

@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ActivityHeatmapSection, ActivityHeatmapSkeleton } from "@/components/dashboard/activity-heatmap";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
+import { CapNotice } from "@/components/dashboard/cap-notice";
 import { DashboardView, renderedSeries, TrendsSection, TrendsSkeleton } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { StaleNotice } from "@/components/dashboard/stale-notice";
@@ -29,7 +30,7 @@ import {
 } from "@/lib/adapters/registry";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { offeredProviderIds } from "@/lib/connections/provider-availability";
-import { aggregateDashboard, type ProviderId, snapshotWindowStart, withStaleNotice } from "@/lib/dashboard/aggregate";
+import { aggregateDashboard, type CappedRead, type ProviderId, snapshotWindowStart, withStaleNotice } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
   chooseHeadline,
@@ -203,7 +204,9 @@ async function DashboardContent({
   // the rest, so nothing waits on another read. The empty state below never awaits them, and a
   // rejection can land before a section awaits; Next's process-wide unhandledRejection handler
   // logs either case and carries on, which is accepted here. Do not add a .catch or move these
-  // below the Promise.all, which would serialize the reads.
+  // below the Promise.all, which would serialize the reads. The one exception is the daily trend
+  // read, which the cap notice awaits after the Promise.all: it rests on the cached reads that
+  // `getDashboardData` makes there, so awaiting it waits for nothing new (#336).
   const trendData = getTrendData(workspace.id, trend, now, scope);
   const viewCounts = getTrendEventCounts(workspace.id, trend, now, scope, shown);
   const heatCounts = getActivityHeatmap(workspace.id, view.heat, now, scope);
@@ -283,18 +286,32 @@ async function DashboardContent({
     revenueProviders: revenueProviderIds,
     spendProviders: spendProviderIds,
   };
-  const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots, events: headlineEvents });
+  const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots.rows, events: headlineEvents });
   // Only when the window to date has no figure because a connection in view is stale: the last
   // complete window, whose reads depend on the strip above, so they run after it.
   const lastComplete = fallbackWindows(strip, data.connections, now);
   let fallback: HeadlineStripData | null = null;
+  let fallbackCompleteFrom: string | null = null;
   if (lastComplete !== null) {
     const [snapshots, events] = await Promise.all([
       getHeadlineSnapshots(workspace.id, scope, lastComplete, eventTypes),
       getHeadlineEvents(workspace.id, scope, lastComplete, eventTypes),
     ]);
-    fallback = buildHeadline({ ...headlineInput, windows: lastComplete, snapshots, events });
+    fallback = buildHeadline({ ...headlineInput, windows: lastComplete, snapshots: snapshots.rows, events });
+    fallbackCompleteFrom = snapshots.completeFrom;
   }
+  // The parts whose snapshot reads stopped at the row cap (#336). The headline counts its last
+  // complete window's read too when it made one. Each trend's part comes from `getTrendData`, the
+  // one place it is worked out. The daily trend reads the cards' rows (#263): its promise rests on
+  // the cached `getWorkspaceScope` and `loadDashboardSnapshots` reads already awaited above, so
+  // awaiting it here waits for nothing new and its part is known now. The monthly trend's is added
+  // once its own read resolves, behind a Suspense boundary.
+  const capReads: CappedRead[] = [
+    { part: "headline", completeFrom: headlineSnapshots.completeFrom },
+    { part: "headline", completeFrom: fallbackCompleteFrom },
+    { part: "cards", completeFrom: data.completeFrom },
+  ];
+  if (trend === "daily") capReads.push({ part: "daily trend", completeFrom: (await trendData).completeFrom });
 
   // The page's URL is its scope: a new filter, trend period, marker choice, headline window, or
   // heatmap event group resets what counts as changed.
@@ -304,6 +321,7 @@ async function DashboardContent({
       {notice === null ? null : (
         <StaleNotice notice={notice} now={now} workspaceSlug={workspace.slug} canSync={canPerform(role, "manage_connections")} />
       )}
+      <DashboardCapNotice reads={capReads} trend={trend} trendData={trendData} />
       <DashboardView
         view={dashboard}
         projections={projectDashboard(input)}
@@ -359,6 +377,42 @@ async function DashboardContent({
       />
     </ArrivalScope>
   );
+}
+
+/**
+ * The page's one notice when a snapshot read stopped at its row cap (#336), in a live region that
+ * stays mounted, so a notice that arrives after the rest of the page is announced. With the daily
+ * trend every part is known at once. The monthly trend reads its own rows behind Trends' boundary
+ * (#263), so its part joins behind a boundary of its own, which shows the parts already known
+ * while that read runs.
+ */
+function DashboardCapNotice({
+  reads,
+  trend,
+  trendData,
+}: {
+  /** Every part's read but the monthly trend's. */
+  reads: readonly CappedRead[];
+  trend: TrendGranularity;
+  trendData: Promise<TrendData>;
+}) {
+  return (
+    <LiveRegion tone="status">
+      {trend === "daily" ? (
+        <CapNotice reads={reads} />
+      ) : (
+        <Suspense fallback={<CapNotice reads={reads} />}>
+          <MonthlyCapNotice reads={reads} trendData={trendData} />
+        </Suspense>
+      )}
+    </LiveRegion>
+  );
+}
+
+/** The notice once the monthly trend's read resolves, with that read's part (#336). */
+async function MonthlyCapNotice({ reads, trendData }: { reads: readonly CappedRead[]; trendData: Promise<TrendData> }) {
+  const { completeFrom } = await trendData;
+  return <CapNotice reads={[...reads, { part: "monthly trend", completeFrom }]} />;
 }
 
 /**
