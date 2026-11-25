@@ -6,7 +6,7 @@ import { useEffect, useEffectEvent, useRef, useTransition } from "react";
 
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
-import { createPendingChanges, LIVE_CHANGE_EVENT, liveChange, liveSystemMessage, liveTopic } from "@/lib/realtime/arrivals";
+import { createPendingChanges, LIVE_CHANGE_EVENT, liveChange, liveSystemMessage, type LiveTable, liveTopic } from "@/lib/realtime/arrivals";
 import { createRefreshHolds, createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 
@@ -18,6 +18,11 @@ const REJOIN_AFTER_CLOSE_MS = 10_000;
 
 // One LiveRefresh runs per page, so the page's holds live beside it.
 const holds = createRefreshHolds();
+
+// The tables each workspace's skipped batches wrote since its last refresh (#650), kept beside the
+// holds rather than in the channel's effect, which cleans up whenever the page leaves the workspace
+// shell: a step back into the shell, then another within it, can land on a page cached before them.
+const skippedTables = new Map<string, Set<LiveTable>>();
 
 /**
  * Makes live refreshes wait until the returned function runs; the changes that arrive meanwhile
@@ -89,7 +94,9 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const supabase = createClient();
     // What the changes delivered since the last batch wrote, when, and from which connections, on
     // the database's clock, and the tables of the batches that refreshed nothing (#650).
-    const pending = createPendingChanges();
+    const skipped = skippedTables.get(workspaceId) ?? new Set<LiveTable>();
+    skippedTables.set(workspaceId, skipped);
+    const pending = createPendingChanges(skipped);
     const scheduler = createRefreshScheduler({
       refresh: () => {
         const due = pending.take(currentPathname());

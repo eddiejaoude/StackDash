@@ -360,8 +360,12 @@ export type PendingChanges = Readonly<{
  * channel was down could have written any table, so they refresh every page. Changes collect
  * until the batch is taken, however long the scheduler defers it (a hidden tab, a hold, a running
  * refresh), so a change a page reads is never dropped for one it does not read.
+ *
+ * The skipped tables are kept in `skipped`, which can outlive this object: LiveRefresh keeps one
+ * set per workspace for the life of the document, so it still knows them once the workspace shell
+ * mounts it again, as a step back into the shell from a page outside it does.
  */
-export function createPendingChanges(): PendingChanges {
+export function createPendingChanges(skipped = new Set<LiveTable>()): PendingChanges {
   let arrived = false;
   let newestAt: string | null = null;
   let connectionIds = new Set<string>();
@@ -369,7 +373,6 @@ export function createPendingChanges(): PendingChanges {
   let anyTable = false;
   // A step in history landed on a page that reads a table a change wrote since the last refresh.
   let landedStale = false;
-  let skipped = new Set<LiveTable>();
 
   return {
     heard(change) {
@@ -400,7 +403,7 @@ export function createPendingChanges(): PendingChanges {
       if (refresh) {
         // A refresh clears the history cache of every page, so nothing skipped before it is stale,
         // and neither is the page a step in history landed on.
-        skipped = new Set();
+        skipped.clear();
         landedStale = false;
       } else {
         for (const table of tables) skipped.add(table);

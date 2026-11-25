@@ -526,6 +526,31 @@ describe("createPendingChanges", () => {
     expect(pending.take(CONNECTIONS).refresh).toBe(true);
     expect(pending.traversed(DASHBOARD)).toBe(false);
   });
+
+  // LiveRefresh keeps one set per workspace, so a new mount after the workspace shell was left and
+  // returned to still knows what the mount before it skipped.
+  it("hands the skipped tables to a later instance over the same set, until a refresh clears them", () => {
+    const skipped = new Set<LiveTable>();
+    const before = createPendingChanges(skipped);
+    before.heard(change("triggered_alerts"));
+    expect(before.take(CONNECTIONS).refresh).toBe(false);
+
+    // Back from the Account page lands on the connections page, which reads none of them, and
+    // Back again on the dashboard, rendered before the alert.
+    const after = createPendingChanges(skipped);
+    expect(after.traversed(CONNECTIONS)).toBe(false);
+    expect(after.traversed(DASHBOARD)).toBe(true);
+    expect(after.take(DASHBOARD)).toEqual({ arrival: null, refresh: true });
+    expect(createPendingChanges(skipped).traversed(DASHBOARD)).toBe(false);
+  });
+
+  it("does not hand the skipped tables to an instance with a set of its own", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts"));
+    pending.take(CONNECTIONS);
+    expect(createPendingChanges().traversed(DASHBOARD)).toBe(false);
+    expect(createPendingChanges(new Set()).traversed(DASHBOARD)).toBe(false);
+  });
 });
 
 describe("liveSystemMessage", () => {
