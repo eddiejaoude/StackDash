@@ -1,4 +1,4 @@
-import { expect, type Page, type Request } from "@playwright/test";
+import { expect, type Page, type Request, type WebSocket } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -101,10 +101,14 @@ export type LiveChannel = Readonly<{
  *
  * A new join (LiveRefresh remounting, or the client rejoining) clears `subscribed` until that
  * join's stream is ready, so a wait after it is not satisfied by the channel that went before.
+ * So does a new document (`page.goto`, `page.reload`) and a close of the socket (the client
+ * reconnecting), and only the socket opened after either can set it again (#652).
  */
 export function watchLiveChannel(page: Page, workspaceId: string): LiveChannel {
   const topic = `realtime:${liveTopic(workspaceId)}`;
   let subscribed = false;
+  // The page's current Realtime socket, the one whose channel `subscribed` describes.
+  let current: WebSocket | null = null;
   let left = false;
   // Parsed when read, so a payload of another shape fails the test that reads it.
   const changes: unknown[] = [];
@@ -115,8 +119,23 @@ export function watchLiveChannel(page: Page, workspaceId: string): LiveChannel {
     return frame.success && frame.data[2] === topic ? frame.data : null;
   }
 
+  // A new document joins once it hydrates, after `page.goto` or `page.reload` resolves, so the
+  // navigation request is what clears `subscribed`. The old document's socket is no signal:
+  // Playwright stops tracking a page's sockets when the next document commits
+  // (frameCommittedNewDocumentNavigation in playwright-core), so it never reports that one closing.
+  // A client-side navigation keeps the socket and sends no navigation request.
+  page.on("request", (request) => {
+    if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return;
+    current = null;
+    subscribed = false;
+  });
+
   page.on("websocket", (socket) => {
     if (!socket.url().includes("/realtime/v1/websocket")) return;
+    // A reconnect can open the new socket before the old one's close is reported; the old
+    // channel's ready state must not carry over until the new socket joins.
+    current = socket;
+    subscribed = false;
     socket.on("framereceived", ({ payload }) => {
       if (typeof payload !== "string") {
         const broadcast = broadcastFrame(payload);
@@ -124,12 +143,19 @@ export function watchLiveChannel(page: Page, workspaceId: string): LiveChannel {
         return;
       }
       const frame = textFrame(payload);
-      if (frame?.[3] === "system" && StreamReadySchema.safeParse(frame[4]).success) subscribed = true;
+      if (socket === current && frame?.[3] === "system" && StreamReadySchema.safeParse(frame[4]).success) {
+        subscribed = true;
+      }
     });
     socket.on("framesent", ({ payload }) => {
       const event = textFrame(payload)?.[3];
       if (event === "phx_join") subscribed = false;
       if (event === "phx_leave") left = true;
+    });
+    socket.on("close", () => {
+      if (socket !== current) return;
+      current = null;
+      subscribed = false;
     });
   });
 
