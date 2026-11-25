@@ -252,12 +252,14 @@ Provider webhooks use the same queue. The webhook route verifies a delivery and 
 
 An open workspace page updates when a sync writes to the tables its screens read: the database sends a Broadcast message, and the page reads again. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`, `anomaly_mutes`) and `workspace_members`; none of them sends one. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not make them send messages to make a screen live.
 
-| Table | What a change to it refreshes |
+| Table | What the screens show from it |
 |---|---|
-| `activity_events` | New events on the timeline and the dashboard |
-| `usage_snapshots` | Spend, revenue, recurring revenue, usage, and allowances on the dashboard and its trends |
-| `connections` | Sync status, last synced time, and errors on the connection pages and the dashboard, and the connection count and list in the header's live indicator |
-| `triggered_alerts` | The alerts page and the dashboard alerts summary |
+| `activity_events` | Events, their counts, and the project achievements recorded with them |
+| `usage_snapshots` | Spend, revenue, recurring revenue, usage, and allowances, and their trends |
+| `connections` | Sync status, last synced time, and errors, and the connection count and list in the header's live indicator |
+| `triggered_alerts` | Triggered alerts and whether they are acknowledged |
+
+Which pages read each table, and so refresh when it changes, is listed in one place: `PAGE_TABLES` in `src/lib/realtime/arrivals.ts`, read through `liveTablesRead` (see below).
 
 Each of these tables has an after insert and an after update statement level trigger that runs `broadcast_live_change`. For each workspace a statement wrote, it sends one message with `realtime.send` on the private topic `workspace-live:<workspace id>`, whatever the statement's row count: a sync that inserts 25,000 events sends one. The event is `change`, and the payload names the table, the operation (`INSERT` or `UPDATE`), `connection_ids`, and `changed_at`, plus the message id `realtime.send` adds, and carries no row data. `connection_ids` are the connections the statement brought provider data from: the connection of every usage snapshot, and of every activity event with a provider. `changed_at` is the start of the write's transaction, the time its rows' `created_at` and `updated_at` take. An upsert sends one message for the rows it inserted and one for those it updated, a statement that writes no row sends nothing, and deletes send nothing, because no screen listens for them. The function is security definer, so the message is written whoever wrote the rows. `realtime.send` stores it in `realtime.messages`, whose daily partitions Realtime drops after three days, and Realtime streams it from the write-ahead log to the topic's subscribers through a replication connection of its own; an insert that fails becomes a warning and never fails the write.
 
