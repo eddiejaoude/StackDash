@@ -324,7 +324,10 @@ export type DueChanges = Readonly<{
    * sent provider data. null when no change arrived, only a step back or forward in history.
    */
   arrival: Readonly<{ at: string | null; connectionIds: ReadonlySet<string> }> | null;
-  /** Whether the page reads a table the changes may have written, so it refreshes. */
+  /**
+   * Whether the page reads a table the changes may have written, or a step in history landed on a
+   * page that does (`PendingChanges.traversed`), so it refreshes.
+   */
   refresh: boolean;
 }>;
 
@@ -334,13 +337,17 @@ export type PendingChanges = Readonly<{
   /** Changes may have been written to any table while the channel was down. */
   missed: () => void;
   /**
-   * The browser went back or forward. Next.js then shows the page from its history cache, as it was
-   * last rendered, without asking the server, and a refresh is what empties that cache
-   * (`invalidateBfCache` in node_modules/next/dist/client/components/segment-cache/bfcache.js). A
-   * change whose batch refreshed nothing can be missing from it, so the page refreshes if it reads
-   * a table such a change wrote. Returns whether there is one, so a batch is worth scheduling.
+   * The browser went back or forward to the page at `pathname` (the location on `popstate`).
+   * Next.js shows that page from its history cache, as it was last rendered, without asking the
+   * server, and a refresh is what empties that cache (`invalidateBfCache` in
+   * node_modules/next/dist/client/components/segment-cache/bfcache.js). A change that has refreshed
+   * nothing yet, skipped or still in this batch, can be missing from it, so when the page reads a
+   * table such a change wrote, the next batch refreshes, whatever page it is taken for: it can come
+   * due before React renders the step, and Next.js applies the step to its router state at once
+   * (`ACTION_RESTORE` in app-router-instance.js), so the refresh still reaches the page the step
+   * landed on. Returns whether the page needs it, so a batch is worth scheduling.
    */
-  traversed: () => boolean;
+  traversed: (pathname: string) => boolean;
   /** Ends the batch for the page at `pathname` and says what it asks of that page. */
   take: (pathname: string) => DueChanges;
 }>;
@@ -360,7 +367,8 @@ export function createPendingChanges(): PendingChanges {
   let connectionIds = new Set<string>();
   let tables = new Set<LiveTable>();
   let anyTable = false;
-  let returned = false;
+  // A step in history landed on a page that reads a table a change wrote since the last refresh.
+  let landedStale = false;
   let skipped = new Set<LiveTable>();
 
   return {
@@ -379,27 +387,29 @@ export function createPendingChanges(): PendingChanges {
       arrived = true;
       anyTable = true;
     },
-    traversed() {
-      if (skipped.size === 0) return false;
-      returned = true;
-      return true;
+    traversed(pathname) {
+      const read = liveTablesRead(pathname);
+      const stale = [...skipped, ...tables].some((table) => read.has(table));
+      if (stale) landedStale = true;
+      return stale;
     },
     take(pathname) {
       const read = liveTablesRead(pathname);
-      const refresh =
-        anyTable ||
-        [...tables].some((table) => read.has(table)) ||
-        (returned && [...skipped].some((table) => read.has(table)));
+      const refresh = anyTable || landedStale || [...tables].some((table) => read.has(table));
       const due: DueChanges = { arrival: arrived ? { at: newestAt, connectionIds } : null, refresh };
-      // A refresh clears the history cache of every page, so nothing skipped before it is stale.
-      if (refresh) skipped = new Set();
-      else for (const table of tables) skipped.add(table);
+      if (refresh) {
+        // A refresh clears the history cache of every page, so nothing skipped before it is stale,
+        // and neither is the page a step in history landed on.
+        skipped = new Set();
+        landedStale = false;
+      } else {
+        for (const table of tables) skipped.add(table);
+      }
       arrived = false;
       newestAt = null;
       connectionIds = new Set();
       tables = new Set();
       anyTable = false;
-      returned = false;
       return due;
     },
   };

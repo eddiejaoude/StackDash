@@ -440,12 +440,20 @@ describe("createRefreshScheduler with pending changes", () => {
       pending.heard({ changedAt: "2026-11-24T10:00:00.000000+00:00", connectionIds: [], table });
       scheduler.notify();
     }
-    /** Back or Forward to `to`, as LiveRefresh hears it on `popstate`. */
-    function stepInHistory(to: string): void {
-      page.pathname = to;
-      if (pending.traversed()) scheduler.notify();
+    /**
+     * Back or Forward to `to`, as LiveRefresh hears it on `popstate`: the browser's location names
+     * `to` at once, and the pathname React renders stays on the page it left until the router
+     * renders the step.
+     */
+    function popState(to: string): void {
+      if (pending.traversed(to)) scheduler.notify();
     }
-    return { page, holds, pending, arrivals, routerRefresh, scheduler, hear, stepInHistory };
+    /** Back or Forward to `to`, rendered before the next batch is due. */
+    function stepInHistory(to: string): void {
+      popState(to);
+      page.pathname = to;
+    }
+    return { page, holds, pending, arrivals, routerRefresh, scheduler, hear, popState, stepInHistory };
   }
 
   it("refreshes a page once for a change to a table it reads, and records the arrival", () => {
@@ -586,5 +594,33 @@ describe("createRefreshScheduler with pending changes", () => {
     stepInHistory(TIMELINE);
     vi.runAllTimers();
     expect(routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the page Back lands on when the max wait ends a batch before the router renders it", () => {
+    const { page, arrivals, routerRefresh, hear, popState } = setupPage(CONNECTIONS);
+    hear("triggered_alerts");
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    // Events the connections page does not read keep arriving faster than the debounce, so the
+    // max wait ends their batch.
+    const interval = REFRESH_DEBOUNCE_MS / 3;
+    let elapsed = 0;
+    while (elapsed < REFRESH_MAX_WAIT_MS - interval) {
+      hear("activity_events");
+      vi.advanceTimersByTime(interval);
+      elapsed += interval;
+    }
+    expect(routerRefresh).not.toHaveBeenCalled();
+
+    // Back to the dashboard just before the max wait: the batch is taken while React still renders
+    // the connections page.
+    popState(DASHBOARD);
+    vi.advanceTimersByTime(REFRESH_MAX_WAIT_MS - elapsed);
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+    expect(arrivals).toHaveLength(2);
+
+    // The router renders the dashboard, which that refresh reached: nothing more is due.
+    page.pathname = DASHBOARD;
+    vi.runAllTimers();
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 });

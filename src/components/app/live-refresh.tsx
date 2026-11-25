@@ -48,8 +48,9 @@ export function holdLiveRefresh(): () => void {
  * layout's connections included (`liveTablesRead` in src/lib/realtime/arrivals.ts, #650): an alert
  * acknowledged while the connections page shows re-renders nothing there. The live indicator still
  * records every batch. Back and Forward show a page from Next.js's history cache, which a refresh
- * empties, so a page they return to refreshes once if it reads a table that a skipped change wrote
- * after the last refresh (`PendingChanges.traversed`).
+ * empties, so a page they land on refreshes once if it reads a table that a change wrote after the
+ * last refresh without refreshing anything, decided on `popstate` from the page the browser's
+ * location names, not from the pathname React renders later (`PendingChanges.traversed`).
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level, with
  * Realtime's reason when it closed the channel, and the page behaves as it did before live
@@ -110,9 +111,10 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
       pending.heard(liveChange(payload));
       scheduler.notify();
     };
-    // Back or Forward can show a page cached before a change that refreshed nothing.
+    // Back or Forward can show a page cached before a change that refreshed nothing. The browser's
+    // location already names the page the step lands on; React renders it later.
     const onHistoryStep = () => {
-      if (pending.traversed()) scheduler.notify();
+      if (pending.traversed(window.location.pathname)) scheduler.notify();
     };
     window.addEventListener("popstate", onHistoryStep);
 

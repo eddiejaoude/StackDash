@@ -384,6 +384,7 @@ describe("createPendingChanges", () => {
   const DASHBOARD = "/w/acme/dashboard";
   const TIMELINE = "/w/acme/timeline";
   const CONNECTIONS = "/w/acme/connections";
+  const ALERTS = "/w/acme/alerts";
 
   function change(table: LiveTable | null, changedAt = "2026-11-24T10:00:00.000000+00:00", connectionIds: string[] = []): LiveChange {
     return { changedAt, connectionIds, table };
@@ -457,10 +458,10 @@ describe("createPendingChanges", () => {
 
   it("needs nothing for a step in history when no change was skipped", () => {
     const pending = createPendingChanges();
-    expect(pending.traversed()).toBe(false);
+    expect(pending.traversed(DASHBOARD)).toBe(false);
     pending.heard(change("connections"));
     pending.take(CONNECTIONS);
-    expect(pending.traversed()).toBe(false);
+    expect(pending.traversed(DASHBOARD)).toBe(false);
   });
 
   it("refreshes a page a step in history returns to, once, when it reads a table a skipped change wrote", () => {
@@ -469,30 +470,52 @@ describe("createPendingChanges", () => {
     expect(pending.take(CONNECTIONS).refresh).toBe(false);
 
     // Back to the dashboard, which was rendered before the alert and reads it. Nothing new arrived.
-    expect(pending.traversed()).toBe(true);
+    expect(pending.traversed(DASHBOARD)).toBe(true);
     expect(pending.take(DASHBOARD)).toEqual({ arrival: null, refresh: true });
     // That refresh emptied the history cache, so the next step needs nothing.
-    expect(pending.traversed()).toBe(false);
+    expect(pending.traversed(DASHBOARD)).toBe(false);
+  });
+
+  // The batch can come due before React renders the step, and is then taken for the page the step
+  // left. The router has already moved to the page the step landed on, so that is the page a
+  // refresh reaches.
+  it("refreshes for a step to a page that reads a skipped change, even when the batch is taken for the page it left", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts"));
+    pending.take(CONNECTIONS);
+    expect(pending.traversed(DASHBOARD)).toBe(true);
+    expect(pending.take(CONNECTIONS)).toEqual({ arrival: null, refresh: true });
+    expect(pending.traversed(DASHBOARD)).toBe(false);
+  });
+
+  it("refreshes for a step to a page that reads a change still in the batch, even when the batch is taken for the page it left", () => {
+    const pending = createPendingChanges();
+    pending.heard(change("triggered_alerts", "2026-11-24T10:00:00.000000+00:00", ["c1"]));
+    expect(pending.traversed(DASHBOARD)).toBe(true);
+    expect(pending.take(CONNECTIONS)).toEqual({
+      arrival: { at: "2026-11-24T10:00:00.000000+00:00", connectionIds: new Set(["c1"]) },
+      refresh: true,
+    });
   });
 
   it("keeps a skipped table through a step to a page that does not read it, for a later step to one that does", () => {
     const pending = createPendingChanges();
     pending.heard(change("triggered_alerts"));
     pending.take(CONNECTIONS);
-    expect(pending.traversed()).toBe(true);
+    expect(pending.traversed(TIMELINE)).toBe(false);
     expect(pending.take(TIMELINE).refresh).toBe(false);
-    expect(pending.traversed()).toBe(true);
-    expect(pending.take("/w/acme/alerts").refresh).toBe(true);
+    expect(pending.traversed(ALERTS)).toBe(true);
+    expect(pending.take(ALERTS).refresh).toBe(true);
   });
 
   it("does not refresh for a skipped table without a step in history, even on a page that reads it", () => {
     const pending = createPendingChanges();
     pending.heard(change("triggered_alerts"));
     pending.take(CONNECTIONS);
-    // A link to the dashboard renders it from the server: no step back or forward, nothing to refresh.
+    // A link to the alerts page renders it from the server: no step back or forward, nothing to refresh.
     pending.heard(change("activity_events"));
-    expect(pending.take(CONNECTIONS).refresh).toBe(false);
-    expect(pending.traversed()).toBe(true);
+    expect(pending.take(ALERTS).refresh).toBe(false);
+    expect(pending.traversed(ALERTS)).toBe(true);
   });
 
   it("forgets the skipped tables once any refresh runs", () => {
@@ -501,7 +524,7 @@ describe("createPendingChanges", () => {
     pending.take(CONNECTIONS);
     pending.heard(change("connections"));
     expect(pending.take(CONNECTIONS).refresh).toBe(true);
-    expect(pending.traversed()).toBe(false);
+    expect(pending.traversed(DASHBOARD)).toBe(false);
   });
 });
 
