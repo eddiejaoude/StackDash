@@ -55,7 +55,8 @@ export function holdLiveRefresh(): () => void {
  * records every batch. Back and Forward show a page from Next.js's history cache, which a refresh
  * empties, so a page they land on refreshes once if it reads a table that a change wrote after the
  * last refresh without refreshing anything, decided on `popstate` from the page the browser's
- * location names, not from the pathname React renders later (`PendingChanges.traversed`).
+ * location names, not from the pathname React renders later, and again when this mounts, for a
+ * step into the workspace shell that mounted it (`PendingChanges.landed`).
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level, with
  * Realtime's reason when it closed the channel, and the page behaves as it did before live
@@ -121,9 +122,14 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     // Back or Forward can show a page cached before a change that refreshed nothing. The browser's
     // location already names the page the step lands on; React renders it later.
     const onHistoryStep = () => {
-      if (pending.traversed(window.location.pathname)) scheduler.notify();
+      if (pending.landed(window.location.pathname)) scheduler.notify();
     };
     window.addEventListener("popstate", onHistoryStep);
+    // The step that mounts this, into the shell from outside it or from another workspace, fired its
+    // `popstate` before the listener existed: one Back, or a jump of several entries, can land on a
+    // page cached before a change skipped here earlier, or that one Back judged stale and left before
+    // its batch was taken.
+    onHistoryStep();
 
     let channel: RealtimeChannel | undefined;
     let rejoinTimer: number | undefined;

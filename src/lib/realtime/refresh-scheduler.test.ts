@@ -417,11 +417,14 @@ describe("createRefreshScheduler with pending changes", () => {
   const TIMELINE = "/w/acme/timeline";
   const CONNECTIONS = "/w/acme/connections";
 
-  /** Pending changes and a scheduler on one page, wired the way LiveRefresh wires them. */
-  function setupPage(pathname: string) {
+  /**
+   * Pending changes and a scheduler on one page, wired the way LiveRefresh wires them when it
+   * mounts there: over `skipped`, the workspace's set it shares with earlier mounts.
+   */
+  function setupPage(pathname: string, skipped = new Set<LiveTable>()) {
     const page = { hidden: false, pathname };
     const holds = createRefreshHolds();
-    const pending = createPendingChanges();
+    const pending = createPendingChanges(skipped);
     // What LiveRefresh hands the live indicator, and its `router.refresh()` calls.
     const arrivals: NonNullable<DueChanges["arrival"]>[] = [];
     const routerRefresh = vi.fn<() => void>();
@@ -446,13 +449,15 @@ describe("createRefreshScheduler with pending changes", () => {
      * renders the step.
      */
     function popState(to: string): void {
-      if (pending.traversed(to)) scheduler.notify();
+      if (pending.landed(to)) scheduler.notify();
     }
     /** Back or Forward to `to`, rendered before the next batch is due. */
     function stepInHistory(to: string): void {
       popState(to);
       page.pathname = to;
     }
+    // The step that mounted LiveRefresh fired its `popstate` before LiveRefresh listened.
+    popState(pathname);
     return { page, holds, pending, arrivals, routerRefresh, scheduler, hear, popState, stepInHistory };
   }
 
@@ -622,5 +627,57 @@ describe("createRefreshScheduler with pending changes", () => {
     page.pathname = DASHBOARD;
     vi.runAllTimers();
     expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  // Leaving the workspace shell unmounts LiveRefresh, and the step back into it fires its
+  // `popstate` before the new mount listens; the workspace's skipped set outlives both.
+  it("refreshes the page a jump of several entries back into the shell mounts on, once, for a change skipped before leaving", () => {
+    const skipped = new Set<LiveTable>();
+    const left = setupPage(CONNECTIONS, skipped);
+    left.hear("triggered_alerts");
+    vi.runAllTimers();
+    left.scheduler.dispose();
+    expect(left.routerRefresh).not.toHaveBeenCalled();
+
+    const back = setupPage(DASHBOARD, skipped);
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    expect(back.routerRefresh).toHaveBeenCalledTimes(1);
+    expect(back.arrivals).toEqual([]);
+    back.scheduler.settled();
+    back.scheduler.dispose();
+
+    // That refresh emptied the history cache, so the next mount refreshes nothing.
+    const again = setupPage(DASHBOARD, skipped);
+    vi.runAllTimers();
+    expect(again.routerRefresh).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the page a single Back mounts on when a step judged it stale and the shell unmounted before the batch", () => {
+    const skipped = new Set<LiveTable>();
+    const left = setupPage(CONNECTIONS, skipped);
+    left.hear("triggered_alerts");
+    vi.runAllTimers();
+    left.stepInHistory(DASHBOARD);
+    // A link out of the shell before the batch comes due.
+    left.scheduler.dispose();
+    vi.runAllTimers();
+    expect(left.routerRefresh).not.toHaveBeenCalled();
+
+    // Back lands on the dashboard, still cached from before the alert.
+    const back = setupPage(DASHBOARD, skipped);
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    expect(back.routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes nothing when the shell mounts on a page that reads none of the skipped changes", () => {
+    const skipped = new Set<LiveTable>();
+    const left = setupPage(CONNECTIONS, skipped);
+    left.hear("triggered_alerts");
+    vi.runAllTimers();
+    left.scheduler.dispose();
+
+    const back = setupPage(TIMELINE, skipped);
+    vi.runAllTimers();
+    expect(back.routerRefresh).not.toHaveBeenCalled();
   });
 });

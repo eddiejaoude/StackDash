@@ -321,12 +321,13 @@ export function liveTablesRead(pathname: string): ReadonlySet<LiveTable> {
 export type DueChanges = Readonly<{
   /**
    * What the live indicator records: when the newest change was written and the connections that
-   * sent provider data. null when no change arrived, only a step back or forward in history.
+   * sent provider data. null when no change arrived, only a step back or forward in history or a
+   * mount.
    */
   arrival: Readonly<{ at: string | null; connectionIds: ReadonlySet<string> }> | null;
   /**
-   * Whether the page reads a table the changes may have written, or a step in history landed on a
-   * page that does (`PendingChanges.traversed`), so it refreshes.
+   * Whether the page reads a table the changes may have written, or a step in history or a mount
+   * landed on a page that does (`PendingChanges.landed`), so it refreshes.
    */
   refresh: boolean;
 }>;
@@ -337,17 +338,20 @@ export type PendingChanges = Readonly<{
   /** Changes may have been written to any table while the channel was down. */
   missed: () => void;
   /**
-   * The browser went back or forward to the page at `pathname` (the location on `popstate`).
-   * Next.js shows that page from its history cache, as it was last rendered, without asking the
-   * server, and a refresh is what empties that cache (`invalidateBfCache` in
-   * node_modules/next/dist/client/components/segment-cache/bfcache.js). A change that has refreshed
-   * nothing yet, skipped or still in this batch, can be missing from it, so when the page reads a
-   * table such a change wrote, the next batch refreshes, whatever page it is taken for: it can come
-   * due before React renders the step, and Next.js applies the step to its router state at once
-   * (`ACTION_RESTORE` in app-router-instance.js), so the refresh still reaches the page the step
-   * landed on. Returns whether the page needs it, so a batch is worth scheduling.
+   * The browser went back or forward to the page at `pathname` (the location on `popstate`), or
+   * LiveRefresh mounted on it, which a step into the workspace shell from outside it does without
+   * a `popstate` LiveRefresh can hear. Next.js shows a page a step lands on from its history cache,
+   * as it was last rendered, without asking the server, and a refresh is what empties that cache
+   * (`invalidateBfCache` in node_modules/next/dist/client/components/segment-cache/bfcache.js). A
+   * change that has refreshed nothing yet, skipped or still in this batch, can be missing from it,
+   * so when the page reads a table such a change wrote, the next batch refreshes, whatever page it
+   * is taken for: it can come due before React renders the step, and Next.js applies the step to
+   * its router state at once (`ACTION_RESTORE` in app-router-instance.js), so the refresh still
+   * reaches the page the step landed on. A mount by a link renders the page fresh and still counts,
+   * since the two cannot be told apart: one refresh more, once. Returns whether the page needs it,
+   * so a batch is worth scheduling.
    */
-  traversed: (pathname: string) => boolean;
+  landed: (pathname: string) => boolean;
   /** Ends the batch for the page at `pathname` and says what it asks of that page. */
   take: (pathname: string) => DueChanges;
 }>;
@@ -363,7 +367,8 @@ export type PendingChanges = Readonly<{
  *
  * The skipped tables are kept in `skipped`, which can outlive this object: LiveRefresh keeps one
  * set per workspace for the life of the document, so it still knows them once the workspace shell
- * mounts it again, as a step back into the shell from a page outside it does.
+ * mounts it again, as a step back into the shell from a page outside it does, and checks the page
+ * it mounts on (`landed`).
  */
 export function createPendingChanges(skipped = new Set<LiveTable>()): PendingChanges {
   let arrived = false;
@@ -371,7 +376,8 @@ export function createPendingChanges(skipped = new Set<LiveTable>()): PendingCha
   let connectionIds = new Set<string>();
   let tables = new Set<LiveTable>();
   let anyTable = false;
-  // A step in history landed on a page that reads a table a change wrote since the last refresh.
+  // A step in history or a mount landed on a page that reads a table a change wrote since the last
+  // refresh.
   let landedStale = false;
 
   return {
@@ -390,7 +396,7 @@ export function createPendingChanges(skipped = new Set<LiveTable>()): PendingCha
       arrived = true;
       anyTable = true;
     },
-    traversed(pathname) {
+    landed(pathname) {
       const read = liveTablesRead(pathname);
       const stale = [...skipped, ...tables].some((table) => read.has(table));
       if (stale) landedStale = true;
@@ -402,7 +408,7 @@ export function createPendingChanges(skipped = new Set<LiveTable>()): PendingCha
       const due: DueChanges = { arrival: arrived ? { at: newestAt, connectionIds } : null, refresh };
       if (refresh) {
         // A refresh clears the history cache of every page, so nothing skipped before it is stale,
-        // and neither is the page a step in history landed on.
+        // and neither is the page a step in history or a mount landed on.
         skipped.clear();
         landedStale = false;
       } else {
