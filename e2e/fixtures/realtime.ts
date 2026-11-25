@@ -132,7 +132,10 @@ export function watchLiveChannel(page: Page, workspaceId: string): LiveChannel {
 
   page.on("websocket", (socket) => {
     if (!socket.url().includes("/realtime/v1/websocket")) return;
+    // A reconnect can open the new socket before the old one's close is reported; the old
+    // channel's ready state must not carry over until the new socket joins.
     current = socket;
+    subscribed = false;
     socket.on("framereceived", ({ payload }) => {
       if (typeof payload !== "string") {
         const broadcast = broadcastFrame(payload);
