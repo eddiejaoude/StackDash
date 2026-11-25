@@ -57,7 +57,7 @@ describe("createArrivalStore", () => {
     expect(listener).toHaveBeenCalledTimes(5);
   });
 
-  it("records which components were in view when a batch arrived, and drops one that hides before its refresh", () => {
+  it("records which components were in view when a batch arrived, and drops one that hides after it", () => {
     const { store, listener } = setup();
     const unwatchCard = store.watch("card");
     const unwatchList = store.watch("list");

@@ -51,8 +51,10 @@ export type ArrivalStore = Readonly<{
   batch: () => ArrivalBatch;
   setStatus: (status: LiveStatus) => void;
   /**
-   * A batch of changes arrived and the page is refreshing; `at` is when its newest change was
-   * written and `connectionIds` the connections that sent provider data in it (see `LiveChange`).
+   * A batch of changes arrived: `at` is when its newest change was written and `connectionIds` the
+   * connections that sent provider data in it (see `LiveChange`). The page refreshes for it only
+   * when it reads a table the batch wrote (`PendingChanges.take` in ./arrivals.ts), so a batch can
+   * come with no refresh: like a refresh that brings identical data, it then marks nothing.
    */
   arrived: (at: string | null, connectionIds: ReadonlySet<string>) => void;
   /** A component that marks data is in view until the returned function runs. */
@@ -98,7 +100,8 @@ export function createArrivalStore(): ArrivalStore {
       inView.add(id);
       return () => {
         inView.delete(id);
-        // Hidden before the batch's refresh reached it: that refresh is not an arrival for it.
+        // Hidden before a refresh for the batch reached it, or with none to come: whatever it renders
+        // once it shows again is not an arrival for it.
         if (!batch.inView.has(id)) return;
         const seen = new Set(batch.inView);
         seen.delete(id);

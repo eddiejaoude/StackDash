@@ -33,6 +33,7 @@ import {
   LiveMessageSchema,
   StreamReadySchema,
   watchLiveChannel,
+  type LiveChannel,
   type LiveMessage,
 } from "./fixtures/realtime";
 
@@ -147,6 +148,38 @@ async function updateMoneySnapshot(snapshotId: string, amountMinor: number): Pro
     .update({ amount_minor: amountMinor, retrieved_at: new Date().toISOString() })
     .eq("id", snapshotId);
   if (error) throw new Error(`Updating a live snapshot failed (code ${error.code}).`);
+}
+
+/** An allowance alert rule; alert rules are not a live table, so this seed sends nothing. Returns its id. */
+async function seedAlertRule(workspace: TestWorkspace): Promise<string> {
+  const { data, error } = await adminClient()
+    .from("alert_rules")
+    .insert({ workspace_id: workspace.id, kind: "allowance_percent", scope: "workspace", threshold_percent: 100 })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Seeding a rule failed (code ${error.code}).`);
+  return data.id;
+}
+
+/** An alert the rule triggered, the way an evaluation writes it; resolves with its delivered change. */
+async function insertTriggeredAlert(workspace: TestWorkspace, ruleId: string, live: LiveChannel): Promise<LiveMessage> {
+  const { error } = await adminClient().from("triggered_alerts").insert({
+    workspace_id: workspace.id,
+    rule_id: ruleId,
+    cycle_key: "2026-11-01",
+    observed_value: 104,
+    provider: "fake",
+    threshold_label: "100 percent",
+    is_estimated: false,
+    message: "Example provider build minutes is at 104 percent of the allowance.",
+  });
+  if (error) throw new Error(`Inserting a triggered alert failed (code ${error.code}).`);
+  await expect
+    .poll(() => live.changes().some((change) => change.table === "triggered_alerts"), { timeout: LIVE_TIMEOUT_MS })
+    .toBe(true);
+  const change = live.changes().find((delivered) => delivered.table === "triggered_alerts");
+  if (change === undefined) throw new Error("The triggered alert's change was not delivered.");
+  return change;
 }
 
 type OutsideChannel = Readonly<{
@@ -375,6 +408,121 @@ ownerTest.describe("live updates", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  // Route-aware refresh (#650): a change refreshes only the pages that read its table. The
+  // connections page reads no triggered alerts, so an alert does not render it again, and the live
+  // indicator still says when the alert arrived. The dashboard reads them: Back shows it from
+  // Next.js's history cache as rendered before the alert, so it refreshes once.
+  ownerTest("records a change the page does not read without refreshing it, and refreshes the page Back returns to", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Live route aware");
+    try {
+      const ruleId = await seedAlertRule(workspace);
+      const dashboardPath = `/w/${workspace.slug}/dashboard`;
+      const connectionsPath = `/w/${workspace.slug}/connections`;
+      const renders: string[] = [];
+      page.on("request", (request) => {
+        for (const path of [dashboardPath, connectionsPath]) if (isRenderRequest(request, path)) renders.push(path);
+      });
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(dashboardPath);
+      const alerts = page.getByRole("region", { name: "Alerts", exact: true });
+      await expect(alerts).toContainText("No unacknowledged alerts");
+      await expectSubscribed(live);
+
+      await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Connections" }).click();
+      await expect(page).toHaveURL(connectionsPath);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connections");
+      const navigated = renders.filter((path) => path === connectionsPath).length;
+
+      const alertChange = await insertTriggeredAlert(workspace, ruleId, live);
+      // The indicator records the batch, which is when its refresh would start: the tooltip says
+      // when the alert was written.
+      await page.getByRole("button", { name: /^Live updates/ }).focus();
+      await expect(page.getByRole("tooltip").locator("time")).toHaveAttribute("datetime", alertChange.changed_at, {
+        timeout: LIVE_TIMEOUT_MS,
+      });
+
+      await page.goBack();
+      await expect(page).toHaveURL(dashboardPath);
+      await expect(alerts).toContainText("1 unacknowledged alert", { timeout: LIVE_TIMEOUT_MS });
+      // One render: the refresh for the alert. Back itself asked the server for nothing.
+      expect(renders.filter((path) => path === dashboardPath)).toHaveLength(1);
+      // Refreshes start in order, so one of the connections page for the alert would have gone
+      // out before the dashboard's.
+      expect(renders.filter((path) => path === connectionsPath)).toHaveLength(navigated);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // The tables a page skipped are kept per workspace, not in the live channel's effect, which
+  // cleans up when the page leaves the workspace shell (#650): Back into the shell, then Back again
+  // within it, or a jump of two entries straight back into it, can land on a page Next.js cached
+  // before the skipped change. The jump's `popstate` fires before the shell mounts LiveRefresh,
+  // which checks the page it mounts on.
+  for (const { title, back } of [
+    {
+      title: "refreshes the page a second Back returns to after the Account page, for a change skipped before leaving",
+      back: async (page: Page, connectionsPath: string) => {
+        await page.goBack();
+        await expect(page).toHaveURL(connectionsPath);
+        // Live again, so the shell has mounted LiveRefresh anew and it hears the next step.
+        await expect(page.getByRole("button", { name: /^Live updates/ })).toHaveAccessibleName(
+          /^Live updates(, \d+ connected)?$/,
+          { timeout: LIVE_TIMEOUT_MS },
+        );
+        await page.goBack();
+      },
+    },
+    {
+      title: "refreshes the page a jump of two entries back from the Account page lands on, for a change skipped before leaving",
+      back: async (page: Page) => {
+        await page.evaluate(() => history.go(-2));
+      },
+    },
+  ]) {
+    ownerTest(title, async ({ page }) => {
+      const workspace = await createTestWorkspace("Live route aware away");
+      try {
+        const ruleId = await seedAlertRule(workspace);
+        const dashboardPath = `/w/${workspace.slug}/dashboard`;
+        const connectionsPath = `/w/${workspace.slug}/connections`;
+        let dashboardRenders = 0;
+        page.on("request", (request) => {
+          if (isRenderRequest(request, dashboardPath)) dashboardRenders += 1;
+        });
+        const live = watchLiveChannel(page, workspace.id);
+        await page.goto(dashboardPath);
+        const alerts = page.getByRole("region", { name: "Alerts", exact: true });
+        await expect(alerts).toContainText("No unacknowledged alerts");
+        await expectSubscribed(live);
+
+        const heading = page.getByRole("heading", { level: 1 });
+        await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Connections" }).click();
+        await expect(page).toHaveURL(connectionsPath);
+        await expect(heading).toHaveText("Connections");
+        const alertChange = await insertTriggeredAlert(workspace, ruleId, live);
+        // The batch was taken and refreshed nothing, so its table is skipped.
+        await page.getByRole("button", { name: /^Live updates/ }).focus();
+        await expect(page.getByRole("tooltip").locator("time")).toHaveAttribute("datetime", alertChange.changed_at, {
+          timeout: LIVE_TIMEOUT_MS,
+        });
+
+        await page.getByRole("banner").getByRole("link", { name: /^Account/ }).click();
+        await expect(page).toHaveURL(/\/account$/);
+        await expect(heading).toHaveText("Account");
+        await back(page, connectionsPath);
+        await expect(page).toHaveURL(dashboardPath);
+        await expect(alerts).toContainText("1 unacknowledged alert", { timeout: LIVE_TIMEOUT_MS });
+        // One render: the refresh for the alert. No step back asked the server for the dashboard.
+        expect(dashboardRenders).toBe(1);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   // Each workspace's changes go to a private topic of its own (#628). Realtime admits a channel to
   // it only for a member of the workspace, and lets no client send on it, so neither a tab of

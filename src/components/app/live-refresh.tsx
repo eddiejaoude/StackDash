@@ -1,12 +1,12 @@
 "use client";
 
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from "@supabase/supabase-js";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useTransition } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useEffectEvent, useRef, useTransition } from "react";
 
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
-import { LIVE_CHANGE_EVENT, liveChange, liveSystemMessage, liveTopic } from "@/lib/realtime/arrivals";
+import { createPendingChanges, LIVE_CHANGE_EVENT, liveChange, liveSystemMessage, type LiveTable, liveTopic } from "@/lib/realtime/arrivals";
 import { createRefreshHolds, createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 
@@ -19,6 +19,11 @@ const REJOIN_AFTER_CLOSE_MS = 10_000;
 // One LiveRefresh runs per page, so the page's holds live beside it.
 const holds = createRefreshHolds();
 
+// The tables each workspace's skipped batches wrote since its last refresh (#650), kept beside the
+// holds rather than in the channel's effect, which cleans up whenever the page leaves the workspace
+// shell: a step back into the shell, then another within it, can land on a page cached before them.
+const skippedTables = new Map<string, Set<LiveTable>>();
+
 /**
  * Makes live refreshes wait until the returned function runs; the changes that arrive meanwhile
  * refresh once then. For a page whose URL says something the router has not rendered: a refresh
@@ -30,10 +35,10 @@ export function holdLiveRefresh(): () => void {
 }
 
 /**
- * Refreshes the current workspace page when a sync writes rows for this workspace (#129), so the
- * Server Components read again and no row data is copied into client state. The one exception is
- * an id: the connection each change brought provider data from, which the store keeps with the last
- * batch that brought it so the indicator can say which connection is receiving (#392).
+ * Refreshes the current workspace page when a write it reads lands for this workspace (#129), so
+ * the Server Components read again and no row data is copied into client state. The one exception
+ * is an id: the connection each change brought provider data from, which the store keeps with the
+ * last batch that brought it so the indicator can say which connection is receiving (#392).
  *
  * It listens to the workspace's private Broadcast topic (`liveTopic`), where the database sends one
  * message for each statement that inserts or updates the workspace's activity events, usage
@@ -43,6 +48,15 @@ export function holdLiveRefresh(): () => void {
  * policy), checks again whenever the client sends a new access token, and lets no client send on
  * it. One channel per workspace, removed when the workspace layout unmounts or the workspace
  * changes.
+ *
+ * A batch of changes refreshes the page only when one of them wrote a table the page reads, its
+ * layout's connections included (`liveTablesRead` in src/lib/realtime/arrivals.ts, #650): an alert
+ * acknowledged while the connections page shows re-renders nothing there. The live indicator still
+ * records every batch. Back and Forward show a page from Next.js's history cache, which a refresh
+ * empties, so a page they land on refreshes once if it reads a table that a change wrote after the
+ * last refresh without refreshing anything, decided on `popstate` from the page the browser's
+ * location names, not from the pathname React renders later, and again when this mounts, for a
+ * step into the workspace shell that mounted it (`PendingChanges.landed`).
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level, with
  * Realtime's reason when it closed the channel, and the page behaves as it did before live
@@ -64,6 +78,10 @@ export function holdLiveRefresh(): () => void {
 export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   // `refresh` is the app router's own method, stable across renders, unlike the object around it.
   const { refresh } = useRouter();
+  const pathname = usePathname();
+  // Read when changes are due rather than made a dependency of the channel's effect, so moving to
+  // another page of the workspace never joins the channel again.
+  const currentPathname = useEffectEvent(() => pathname);
   const arrivals = useArrivalControls();
   const [refreshing, startRefresh] = useTransition();
   const schedulerRef = useRef<RefreshScheduler | null>(null);
@@ -75,16 +93,19 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   useEffect(() => {
     // The browser client is a singleton, so this channel shares the one socket of the page.
     const supabase = createClient();
-    // When the newest change delivered so far was written: the database's clock, not the browser's.
-    let lastChangeAt: string | null = null;
-    // The connections that sent provider data since the last refresh (LiveChange), for the
-    // indicator's list (#392).
-    let changedConnections = new Set<string>();
+    // What the changes delivered since the last batch wrote, when, and from which connections, on
+    // the database's clock, and the tables of the batches that refreshed nothing (#650).
+    const skipped = skippedTables.get(workspaceId) ?? new Set<LiveTable>();
+    skippedTables.set(workspaceId, skipped);
+    const pending = createPendingChanges(skipped);
     const scheduler = createRefreshScheduler({
       refresh: () => {
-        arrivals?.arrived(lastChangeAt, changedConnections);
-        changedConnections = new Set();
+        const due = pending.take(currentPathname());
+        // The indicator records every batch, whether or not the page reads what it wrote.
+        if (due.arrival !== null) arrivals?.arrived(due.arrival.at, due.arrival.connectionIds);
+        if (!due.refresh) return false;
         startRefresh(() => refresh());
+        return true;
       },
       isPaused: () => document.visibilityState === "hidden" || holds.held(),
     });
@@ -92,15 +113,23 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const onPauseChange = () => scheduler.pauseChanged();
     document.addEventListener("visibilitychange", onPauseChange);
     const stopHearingReleases = holds.onReleased(onPauseChange);
-    // Every message is a write to refresh for; one of another shape adds nothing to the indicator.
+    // Every message joins a batch; one of another shape adds nothing to the indicator, and every
+    // page refreshes for it.
     const onChange = ({ payload }: { payload: unknown }) => {
-      const change = liveChange(payload);
-      if (change !== null) {
-        if (lastChangeAt === null || Date.parse(change.changedAt) > Date.parse(lastChangeAt)) lastChangeAt = change.changedAt;
-        for (const connectionId of change.connectionIds) changedConnections.add(connectionId);
-      }
+      pending.heard(liveChange(payload));
       scheduler.notify();
     };
+    // Back or Forward can show a page cached before a change that refreshed nothing. The browser's
+    // location already names the page the step lands on; React renders it later.
+    const onHistoryStep = () => {
+      if (pending.landed(window.location.pathname)) scheduler.notify();
+    };
+    window.addEventListener("popstate", onHistoryStep);
+    // The step that mounts this, into the shell from outside it or from another workspace, fired its
+    // `popstate` before the listener existed: one Back, or a jump of several entries, can land on a
+    // page cached before a change skipped here earlier, or that one Back judged stale and left before
+    // its batch was taken.
+    onHistoryStep();
 
     let channel: RealtimeChannel | undefined;
     let rejoinTimer: number | undefined;
@@ -118,7 +147,10 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
         return;
       }
       // Every change committed from here on reaches the channel; one refresh shows those before.
-      if (missed) scheduler.notify();
+      if (missed) {
+        pending.missed();
+        scheduler.notify();
+      }
       missed = false;
     };
     function subscribe(): void {
@@ -171,6 +203,7 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
       window.clearTimeout(rejoinTimer);
       scheduler.dispose();
       document.removeEventListener("visibilitychange", onPauseChange);
+      window.removeEventListener("popstate", onHistoryStep);
       stopHearingReleases();
       // removeChannel takes the channel out of the client's list before it returns, so a mount that
       // follows straight after, which joins the same topic, gets a new channel rather than this one.
