@@ -173,6 +173,7 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
           is_estimated: trigger.isEstimated,
           message: trigger.message,
           title: trigger.title,
+          subject: trigger.subject,
           provider: trigger.provider,
           project_id: trigger.projectId,
           resets_at: trigger.resetsAt,
