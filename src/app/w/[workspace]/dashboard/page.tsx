@@ -65,7 +65,7 @@ import {
   type TrendGranularity,
 } from "@/lib/dashboard/trends";
 import { recentAnomalies, whatChanged } from "@/lib/dashboard/what-changed";
-import { getAnomalyControls, getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
+import { getAnomalyControls, getRecentAnomalies, RECENT_ANOMALY_DAYS, recentAnomaliesFrom } from "@/lib/data/anomalies";
 import { type DashboardData, getDashboardData, getWorkspaceScope } from "@/lib/data/dashboard";
 import { getActivityHeatmap } from "@/lib/data/heatmap";
 import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
@@ -198,7 +198,8 @@ async function DashboardContent({
   const windows = headlineWindows(view.window, now);
   const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
-  const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
+  // The count carries its first day back, so the summary's timeline link covers the same days (#664).
+  const anomaliesFrom = recentAnomaliesFrom(now);
   // The trend rows, the markers' counts, and the heatmap's counts are not awaited here: Trends and
   // the heatmap await them behind their own Suspense boundaries (#263, #414). They start now, with
   // the rest, so nothing waits on another read. The empty state below never awaits them, and a
@@ -230,7 +231,7 @@ async function DashboardContent({
     getUnacknowledgedSummary(workspace.id),
     getHeadlineSnapshots(workspace.id, scope, windows, eventTypes),
     getHeadlineEvents(workspace.id, scope, windows, eventTypes),
-    getRecentAnomalies(workspace.id, anomaliesSince),
+    getRecentAnomalies(workspace.id, anomaliesFrom),
     getAnomalyControls(workspace.id),
     dayCounts,
   ]);
