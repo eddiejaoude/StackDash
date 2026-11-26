@@ -209,7 +209,8 @@ describe("allowance_percent thresholds", () => {
     ]);
   });
 
-  it("falls back to the provider id in the subject when the provider has no display name", () => {
+  it("uses the shared display name, never the provider id, when the adapter map lacks the provider", () => {
+    // run.ts builds `names.providers` from enabled adapters only; a disabled provider's rows still evaluate.
     const unnamed: AlertNames = { ...NAMES, providers: new Map() };
     const [trigger] = evaluateAlerts({
       rules: [rule()],
@@ -219,7 +220,9 @@ describe("allowance_percent thresholds", () => {
       projectedSpend: declaredProjectedSpend,
       now: NOW,
     });
-    expect(trigger?.subject).toBe("resend monthly email quota");
+    expect(trigger?.subject).toBe("Resend monthly email quota");
+    expect(trigger?.title).toBe("Resend monthly email quota passed 90 percent of the allowance");
+    expect(trigger?.message).toMatch(/^Resend monthly email quota is at 92 percent/);
   });
 
   it("uses the current value: the latest snapshot per metric wins", () => {

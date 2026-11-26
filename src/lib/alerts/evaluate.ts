@@ -42,6 +42,7 @@ import {
   type SnapshotInput,
 } from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
@@ -232,8 +233,13 @@ export function severityFor(thresholdPercent: number | null): AlertSeverity {
   return thresholdPercent !== null && thresholdPercent >= 100 ? "critical" : "warning";
 }
 
+/**
+ * The adapter's display name, else the shared one. `names.providers` comes from the enabled
+ * adapters, so a provider whose flag is off (the fake one) is missing from it while its stored
+ * rows still evaluate; `PROVIDER_NAMES` is total, so an id never reaches a stored subject.
+ */
 function providerName(names: AlertNames, provider: ProviderId): string {
-  return names.providers.get(provider) ?? provider;
+  return names.providers.get(provider) ?? PROVIDER_NAMES[provider];
 }
 
 /** What a scope covers, in words: "Workspace", "Vercel", "Project Acme", "Connection Acme Stripe". */
