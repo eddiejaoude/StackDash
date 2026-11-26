@@ -1,3 +1,4 @@
+import { unstable_doesMiddlewareMatch, unstable_getResponseFromNextConfig } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,13 +7,15 @@ import type * as LoggerModule from "@/lib/log/logger";
 import type * as RequestsModule from "@/lib/public-metrics/requests";
 import type { RateLimitDecision } from "@/lib/public-metrics/requests";
 
-import { proxy } from "./proxy";
+import nextConfig from "../next.config";
+import { config, proxy } from "./proxy";
 
 // Public project page addresses (#150) through the proxy: the rate limit the badges and cards
 // share (#321), then the lookup that decides between the page, a redirect, and the 404. Then the
 // super admin page (#374): only a verified super admin's /app/admin is sent to the page's route,
-// and that route's own path is answered as not found. Last, the one directive of the nonce policy
-// that depends on the request (#597).
+// and that route's own path is answered as not found. Then which of the two policies a path gets,
+// in any case (#376): the static one from next.config.ts or the proxy's nonce one, never both and
+// never neither. Last, the one directive of the nonce policy that depends on the request (#597).
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
 const { checkPublicRateLimit, findPublicProjectPage, getClaims, warn } = vi.hoisted(() => ({
@@ -213,6 +216,91 @@ describe("proxy for the super admin page", () => {
       expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
     }
     expect(getClaims).not.toHaveBeenCalled();
+  });
+});
+
+// next.config.ts sends its static policy on every path except the proxied ones (outsideProxy), and
+// the proxy sends the nonce policy on those, so the two lists live in two files. Next matches the
+// headers in next.config.ts without regard to case and a proxy matcher case-sensitively, so a path
+// such as /App fell between them and got no policy at all (#376).
+describe("which policy a path gets: next.config.ts's static one or the proxy's (#376)", () => {
+  /**
+   * Whether next.config.ts sends a Content-Security-Policy on `path`. A server matches those headers
+   * without regard to case while experimental.caseSensitiveRoutes is unset (buildCustomRoute in
+   * next/dist/server/lib/router-utils/filesystem.js), but unstable_getResponseFromNextConfig matches
+   * them case-sensitively, so the server's answer is the helper's answer for the path in lower case.
+   */
+  async function configSendsPolicy(path: string): Promise<boolean> {
+    const response = await unstable_getResponseFromNextConfig({ url: `http://localhost${path.toLowerCase()}`, nextConfig });
+    return response.headers.has("Content-Security-Policy");
+  }
+
+  function proxyRuns(path: string): boolean {
+    return unstable_doesMiddlewareMatch({ config, nextConfig, url: `http://localhost${path}` });
+  }
+
+  it.each([
+    ["/app", ["/app", "/App", "/APP/no-such-page"]],
+    ["/w, bare too (boundary: no slash after the prefix)", ["/w", "/W", "/w/x", "/W/x"]],
+    ["/account", ["/account", "/Account"]],
+    ["/sign-in", ["/sign-in", "/Sign-In", "/SIGN-IN"]],
+    ["/auth, bare too (boundary: no slash after the prefix)", ["/auth", "/AUTH", "/auth/x", "/Auth/x"]],
+    ["/unsubscribe", ["/unsubscribe", "/Unsubscribe"]],
+    ["the public project pages", ["/@x", "/p", "/P", "/p/x", "/P/x"]],
+    ["the super admin route", ["/super-admin", "/Super-Admin", "/super-admin/x", "/SUPER-ADMIN/x"]],
+  ])("%s, in any case, gets the proxy's policy and no static policy", async (_title, paths) => {
+    for (const path of paths) {
+      expect(proxyRuns(path), path).toBe(true);
+      expect(await configSendsPolicy(path), path).toBe(false);
+    }
+  });
+
+  it.each([
+    ["the landing page and a missing page", ["/", "/no-such-page", "/No-Such-Page"]],
+    ["a first segment a prefix only starts (boundary: the whole segment counts)", ["/Apple", "/applications", "/Wiki", "/Pricing", "/Authors"]],
+    ["a path under a prefix that is proxied only as itself (boundary)", ["/account/deleted", "/Account/deleted", "/Sign-In/x", "/Unsubscribe/x"]],
+    ["the docs, the badges, and the API", ["/docs", "/Docs", "/docs/getting-started", "/badge/x", "/Badge/x", "/api/v1/projects"]],
+  ])("%s get next.config.ts's policy and the proxy does not run", async (_title, paths) => {
+    for (const path of paths) {
+      expect(proxyRuns(path), path).toBe(false);
+      expect(await configSendsPolicy(path), path).toBe(true);
+    }
+  });
+
+  it("gives a mis-cased docs path the static policy alone: the proxy runs there and sets none", async () => {
+    const path = "/docs/Providers/Vercel";
+
+    const response = await proxy(request(path));
+
+    expect(proxyRuns(path)).toBe(true);
+    expect(rewrittenTo(response)).toBe("/docs/_");
+    expect(response.headers.get("Content-Security-Policy")).toBeNull();
+    expect(await configSendsPolicy(path)).toBe(true);
+  });
+});
+
+describe("proxy for a proxied prefix in another case (#376)", () => {
+  it.each(["/App", "/APP/no-such-page", "/W/x", "/Account", "/Sign-In", "/Auth/x", "/Unsubscribe", "/P/x", "/Super-Admin", "/Super-Admin/x"])(
+    "leaves %s to the global 404 under the nonce policy, reading no session and no page",
+    async (path) => {
+      const response = await proxy(request(path));
+
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(rewrittenTo(response)).toBeNull();
+      expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+      expect(getClaims).not.toHaveBeenCalled();
+      expect(checkPublicRateLimit).not.toHaveBeenCalled();
+      expect(findPublicProjectPage).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still sends a signed-out visitor to sign in from an app path with capitals after the prefix (boundary: only the prefix's case counts)", async () => {
+    getClaims.mockResolvedValue({ data: null });
+
+    const response = await proxy(request("/app/No-Such-Page"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("Location")).toBe("http://localhost/sign-in?next=%2Fapp%2FNo-Such-Page");
   });
 });
 

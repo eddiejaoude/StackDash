@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { test, type Page, type Response } from "@playwright/test";
 
 import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { BASELINE_CSP } from "./fixtures/csp";
@@ -10,9 +10,9 @@ import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from ".
 // render their HTML per request so Next.js can stamp the nonce on every script. So do the signed-out
 // unsubscribe page that alert emails link to (#152), public project pages (#150), and the global
 // not-found page that answers paths matching no route, which includes paths under the proxied
-// prefixes (#197). The rest of the site keeps a static policy (next.config.ts). CI runs these
-// against the production build, where a prerendered page under the nonce policy would carry
-// unnonced inline scripts and never hydrate.
+// prefixes (#197), in any case of the prefix (#376). The rest of the site keeps a static policy
+// (next.config.ts). CI runs these against the production build, where a prerendered page under the
+// nonce policy would carry unnonced inline scripts and never hydrate.
 
 const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/=]+'$/;
 
@@ -68,6 +68,27 @@ async function expectAppPolicy(page: Page, policy: string | undefined): Promise<
 }
 
 /**
+ * The policies a response enforces: a browser enforces each Content-Security-Policy header it gets,
+ * and each policy in a comma-separated list within one, which is how some network stacks report a
+ * repeated header (response.headersArray). A page gets exactly one (#376).
+ *
+ * This counts what reaches the browser, not where it came from. Under `next start` and `next dev`
+ * a `next.config.ts` header and a proxy header of the same name share one map and the proxy value
+ * overwrites the other (`resHeaders[key] = value`,
+ * node_modules/next/dist/server/lib/router-utils/resolve-routes.js:464). So the count catches a
+ * missing policy and a header the server really sends twice, but not both sources claiming one
+ * path; src/proxy.test.ts checks that `outsideProxy` and the matcher agree.
+ */
+async function enforcedPolicies(response: Response | null): Promise<string[]> {
+  const headers = (await response?.headersArray()) ?? [];
+  return headers
+    .filter(({ name }) => name.toLowerCase() === "content-security-policy")
+    .flatMap(({ value }) => value.split(/[,\n]/))
+    .map((policy) => policy.trim())
+    .filter((policy) => policy !== "");
+}
+
+/**
  * Collects every CSP violation the page reports, from the DOM event (enforced and report-only
  * alike) and from the browser console, across navigations. Call before the first `goto`.
  */
@@ -98,6 +119,7 @@ async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   const response = await page.goto(path);
   expect(response?.status()).toBe(404);
   const headers = response?.headers() ?? {};
+  expect(await enforcedPolicies(response)).toHaveLength(1);
   await expectAppPolicy(page, headers["content-security-policy"]);
   expect(headers["content-security-policy-report-only"]).toBeUndefined();
   expect(headers["cache-control"]).toContain("no-store");
@@ -231,6 +253,17 @@ test.describe("signed out", () => {
   test("the super admin route's own paths answer 404 with a not-found page that hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
     for (const path of ["/super-admin", "/super-admin/no-such-page"]) {
+      await test.step(path, () => expectNotFoundPage(page, path));
+    }
+    expect(violations).toEqual([]);
+  });
+
+  // Next matches the headers in next.config.ts without regard to case, so the static policy is kept
+  // off a proxied prefix in any case, and the proxy runs for every case of it to give the not-found
+  // page the nonce policy (#376).
+  test("a proxied prefix in another case answers 404 under the nonce policy alone, with a not-found page that hydrates", async ({ page }) => {
+    const violations = await watchViolations(page);
+    for (const path of ["/App", "/App/no-such-page", "/W/no-such-page", "/Sign-In", "/Super-Admin/no-such-page"]) {
       await test.step(path, () => expectNotFoundPage(page, path));
     }
     expect(violations).toEqual([]);
