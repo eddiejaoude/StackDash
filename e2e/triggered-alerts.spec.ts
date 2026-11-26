@@ -191,6 +191,62 @@ ownerTest.describe("triggered alerts as the owner", () => {
     }
   });
 
+  ownerTest("pages the alert history and back, keeping acknowledged alerts shown (#316)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alert history pages");
+    try {
+      const admin = adminClient();
+      const { data: rule, error: ruleError } = await admin
+        .from("alert_rules")
+        .insert({ workspace_id: workspace.id, kind: "allowance_percent", scope: "workspace", threshold_percent: 100 })
+        .select("id")
+        .single();
+      if (ruleError) throw new Error(`Seeding a rule failed (code ${ruleError.code}).`);
+      // One more than a page (TRIGGERED_ALERTS_PAGE_SIZE is 50), an hour apart. Only the oldest is
+      // acknowledged, so the history has a second page only while acknowledged alerts are shown.
+      const { error: alertsError } = await admin.from("triggered_alerts").insert(
+        Array.from({ length: 51 }, (_, index) => ({
+          workspace_id: workspace.id,
+          rule_id: rule.id,
+          cycle_key: `cycle-${index}`,
+          triggered_at: new Date(Date.UTC(2026, 9, 1, index)).toISOString(),
+          observed_value: 104,
+          provider: "fake" as const,
+          threshold_label: "100 percent",
+          is_estimated: true,
+          message: ALERT_MESSAGE,
+          ...(index === 0 ? { acknowledged_at: "2026-10-03T09:30:00Z", acknowledged_by: workspace.ownerId } : {}),
+        })),
+      );
+      if (alertsError) throw new Error(`Seeding triggered alerts failed (code ${alertsError.code}).`);
+      const alertsPath = `/w/${workspace.slug}/alerts`;
+      const alertPages = page.getByRole("navigation", { name: "Triggered alert pages" });
+
+      await page.goto(`${alertsPath}?acknowledged=show`);
+      await expectHydrated(page);
+      await expect(triggeredList(page).getByRole("listitem")).toHaveCount(50);
+      await expect(alertPages.getByRole("link", { name: "Show the newest alerts" })).toHaveCount(0);
+
+      // Keyboard only: the older page keeps acknowledged alerts shown, so it holds the acknowledged one.
+      await alertPages.getByRole("link", { name: "Show older alerts" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`${alertsPath}\\?acknowledged=show&alertsAfter=[^&#]+#triggered-alerts-title$`));
+      await expect(triggeredList(page).getByRole("listitem")).toHaveCount(1);
+      await expect(triggeredList(page).getByRole("listitem")).toContainText("Acknowledged by you");
+      await expect(alertPages.getByRole("link", { name: "Show older alerts" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Hide acknowledged alerts" })).toBeVisible();
+      await expectNoAxeViolations(page);
+
+      // Back to the newest keeps acknowledged alerts shown and drops only the cursor.
+      await alertPages.getByRole("link", { name: "Show the newest alerts" }).click();
+      await expect(page).toHaveURL(`${alertsPath}?acknowledged=show#triggered-alerts-title`);
+      await expect(triggeredList(page).getByRole("listitem")).toHaveCount(50);
+      await expect(alertPages.getByRole("link", { name: "Show older alerts" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Hide acknowledged alerts" })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("shows an empty state that links to adding an alert rule, which opens ready to fill in", async ({ page }) => {
     const workspace = await createTestWorkspace("No triggered alerts");
     try {
