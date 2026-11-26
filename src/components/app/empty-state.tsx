@@ -31,8 +31,9 @@ export function EmptyState({
   deniedReason?: string | undefined;
   /**
    * A second control beside `action`, such as a form; hidden with it when `deniedReason` is set.
-   * It joins the row of actions, which wraps: a control that shows a message under itself should
-   * give that message a whole line (`basis-full`) so the message never widens the row (#666).
+   * It joins the row of actions, which wraps. A control that shows a message under itself should
+   * draw no box of its own (`contents`) and give the message a whole line (`basis-full`), so the
+   * control and the message are separate items of the row and the message never widens it (#666).
    */
   secondaryAction?: ReactNode;
   /** Extra controls, such as a list of choices, shown below the description. */
