@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getRecentAnomalies, RECENT_ANOMALY_DAYS, recentAnomaliesFrom } from "./anomalies";
+import { getRecentAnomalies, recentAnomaliesFrom } from "./anomalies";
 
 /*
  * The dashboard's count of recorded unusual days (#291) against an in-memory `activity_events`
@@ -74,7 +74,6 @@ beforeEach(() => {
 
 describe("recentAnomaliesFrom", () => {
   it("starts the window 6 London days before today, so it holds 7 days with today", () => {
-    expect(RECENT_ANOMALY_DAYS).toBe(7);
     expect(recentAnomaliesFrom(new Date("2026-11-26T12:00:00.000Z"))).toBe("2026-11-20");
   });
 
