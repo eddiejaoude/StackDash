@@ -9,7 +9,8 @@ import { adminClient, notDueForAMonth, type TestWorkspace } from "./db";
  * a real (not simulated) GitHub, Vercel, Supabase, Resend, and Stripe connection, 36 days of
  * history, and a fresh sync, so every metric in the public metric engine has a value. Seeds only
  * inside the given workspace, which deleting the workspace removes. Also the helpers those specs
- * share for reading the images.
+ * share for reading the images, and the London calendar days that the year in review seeds by and
+ * the dashboard and anomaly specs assert against, so every spec computes a London day one way.
  */
 
 /** A context with no session, as a README, a social network, or a stranger reads the routes. */
@@ -65,6 +66,21 @@ function londonClock(instant: number): Readonly<{ year: number; month: number; d
 }
 
 /**
+ * The Europe/London calendar date `daysAgo` London days before the one `now` falls on, as
+ * `YYYY-MM-DD`: the days the timeline's date filter and the dashboard's day labels read.
+ */
+export function londonDate(now: number, daysAgo: number): string {
+  const today = londonClock(now);
+  return new Date(Date.UTC(today.year, today.month - 1, today.day - daysAgo)).toISOString().slice(0, 10);
+}
+
+/** "Sunday, 2026-11-08": a London date with its weekday, as the dashboard and the timeline write it. */
+export function dayLabel(date: string): string {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/London", weekday: "long" }).format(new Date(`${date}T00:00:00Z`));
+  return `${weekday}, ${date}`;
+}
+
+/**
  * The start of the Europe/London day `daysAgo` London days before the one `now` falls on. The year
  * in review counts events per London day (`year_review_event_counts`), so each seeded day has to be
  * exactly one London day whatever the time of day the run starts: a fixed UTC offset from `now`
@@ -72,9 +88,8 @@ function londonClock(instant: number): Readonly<{ year: number; month: number; d
  * because the clocks change at 01:00 UTC, and today's is never after `now`, so the newest seeded
  * day is always today: on 1 January it is 00:00 UTC, inside the new year's window from the start.
  */
-function londonDayStart(now: number, daysAgo: number): Date {
-  const today = londonClock(now);
-  const utcMidnight = Date.UTC(today.year, today.month - 1, today.day - daysAgo);
+export function londonDayStart(now: number, daysAgo: number): Date {
+  const utcMidnight = Date.parse(`${londonDate(now, daysAgo)}T00:00:00Z`);
   // 00:00 UTC reads 01:00 in London under British Summer Time, so step back the difference.
   return new Date(utcMidnight - londonClock(utcMidnight).hour * HOUR_MS);
 }

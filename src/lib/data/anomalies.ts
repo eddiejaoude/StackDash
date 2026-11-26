@@ -3,10 +3,12 @@ import "server-only";
 import { cache } from "react";
 
 import { declaredDailyTotals, declaredProjectedSpend } from "@/lib/adapters/registry";
-import { ANOMALY_KINDS, ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
+import { addUtcDays, ANOMALY_KINDS, ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
 import type { ProviderId, SnapshotInput } from "@/lib/dashboard/aggregate";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
+import { londonDate } from "@/lib/timeline/days";
+import { londonDayStart } from "@/lib/timeline/query";
 
 /**
  * Anomaly detection settings and results (#169), read and written as the signed-in user, so row
@@ -24,11 +26,25 @@ export type AnomalyControls = { enabled: boolean; mutes: AnomalyMuteItem[] };
 /** A spend or usage metric this workspace reports, which a person can mute. */
 export type AnomalyMetric = { provider: ProviderId; metricKey: string; label: string };
 
-/** How many anomaly events the workspace recorded in the window; the dashboard lists the days elsewhere (#291). */
-export type RecentAnomalies = { count: number };
+/**
+ * How many anomaly events the workspace recorded in the window, and the window's first London
+ * calendar day (`YYYY-MM-DD`), which the timeline link takes as its `from` date so it lists exactly
+ * the events counted (#664). The dashboard lists the days elsewhere (#291).
+ */
+export type RecentAnomalies = { count: number; from: string };
 
-/** The dashboard's alerts summary counts anomalies from this many days back. */
+/**
+ * The dashboard's alerts summary counts the anomalies of this many London calendar days, today
+ * included: whole days, as the timeline's date filter reads them, so its link can list them.
+ * "What changed" checks this many UTC days before today.
+ */
 export const RECENT_ANOMALY_DAYS = 7;
+
+/** The first London calendar day of the alerts summary's window at `now`: today and the 6 days before. */
+export function recentAnomaliesFrom(now: Date): string {
+  // Calendar arithmetic on the date itself, so a 23 or 25 hour clock-change day moves nothing.
+  return addUtcDays(londonDate(now), 1 - RECENT_ANOMALY_DAYS);
+}
 
 // Mutes per workspace: one per metric a person chose to silence, a handful in practice.
 const MUTE_LIMIT = 200;
@@ -95,21 +111,24 @@ export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<Ano
 });
 
 /**
- * How many anomaly events the workspace recorded since `since`, for the dashboard's alerts summary.
- * A count only, so no event row leaves the database. Reads through
- * `activity_events_workspace_timeline_idx` (workspace_id, occurred_at desc, id desc). A read that
- * succeeds with no count reads as 0, as `countUnacknowledgedAlerts` does; a failed read throws.
+ * How many anomaly events the workspace recorded from the start of the London calendar day `from`
+ * (`YYYY-MM-DD`), for the dashboard's alerts summary. The bound is the instant the timeline's
+ * `from` filter starts at (`londonDayStart`), with no end, as that filter has none, so the summary's
+ * link lists the events counted here. A count only, so no event row leaves the database. Reads
+ * through `activity_events_workspace_timeline_idx` (workspace_id, occurred_at desc, id desc). A
+ * read that succeeds with no count reads as 0, as `countUnacknowledgedAlerts` does; a failed read
+ * throws.
  */
-export const getRecentAnomalies = cache(async (workspaceId: string, since: string): Promise<RecentAnomalies> => {
+export const getRecentAnomalies = cache(async (workspaceId: string, from: string): Promise<RecentAnomalies> => {
   const supabase = await createClient();
   const { count, error } = await supabase
     .from("activity_events")
     .select("id", { count: "exact", head: true })
     .eq("workspace_id", workspaceId)
     .eq("type_id", ANOMALY_TYPE_ID)
-    .gte("occurred_at", since);
+    .gte("occurred_at", londonDayStart(from).toISOString());
   if (error) throw new Error("Failed to count recent anomalies", { cause: error });
-  return { count: count ?? 0 };
+  return { count: count ?? 0, from };
 });
 
 // ── Writes ──────────────────────────────────────────────────────────────────────────────────────
