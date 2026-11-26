@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { openCreateForm } from "./fixtures/alerts";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
@@ -200,10 +200,17 @@ ownerTest.describe("alert rules as the owner", () => {
   });
 
   ownerTest.describe("a delete whose dialog was dismissed while it ran (#369)", () => {
+    // dismissed: Escape while "Deleting". reopened: then open the dialog again before the failure
+    // arrives. retried: then confirm again in the reopened dialog, and that attempt fails too.
+    const FLOWS = ["dismissed", "reopened", "retried"] as const;
+    const FLOW_TITLES: Record<(typeof FLOWS)[number], string> = {
+      dismissed: "beside its button when the dialog was dismissed",
+      reopened: "beside its button when the dialog was dismissed and reopened",
+      retried: "only in the dialog once a retry in the reopened dialog fails",
+    };
     for (const target of DELETE_TARGETS) {
-      for (const reopened of [false, true]) {
-        const when = reopened ? "dismissed and reopened" : "dismissed";
-        dismissedDeleteTest(`shows a failed ${target.kind} delete beside its button when the dialog was ${when}`, async ({ page }) => {
+      for (const flow of FLOWS) {
+        dismissedDeleteTest(`shows a failed ${target.kind} delete ${FLOW_TITLES[flow]}`, async ({ page }) => {
           const workspace = await createTestWorkspace(`Dismissed ${target.kind} delete`);
           try {
             await target.seed(workspace);
@@ -223,7 +230,28 @@ ownerTest.describe("alert rules as the owner", () => {
             const opener = item.getByRole("button", { name: target.opener });
             const dialog = page.getByRole("dialog", { name: target.dialog });
             const confirm = dialog.getByRole("button", { name: target.confirm, exact: true });
+            // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
+            const besideOpener = item.getByRole("alert").filter({ hasText: target.message });
+            // A named step screenshot for the pull request, at a point the test already waits on.
+            const capture = async (step: string, of: Locator): Promise<void> => {
+              if (!EVIDENCE) return;
+              await of.screenshot({
+                path: `pr-evidence/after/${target.kind}-${flow}-${step}.png`,
+                animations: "disabled",
+                style: HIDE_DEV_INDICATOR,
+              });
+            };
+            // The region beside the opener stays mounted so a failure is announced, but while it is
+            // empty it stays out of the row's wrapping flex layout, so it adds no row gap there.
+            const expectRegionAtRest = async (): Promise<void> => {
+              const region = opener.locator("xpath=following-sibling::*[1]");
+              await expect(region).toHaveAttribute("role", "alert");
+              await expect(region).toBeEmpty();
+              await expect(region).toHaveCSS("position", "absolute");
+            };
 
+            await capture("0-at-rest", item);
+            await expectRegionAtRest();
             // Keyboard only: Enter opens the dialog on Cancel, Shift+Tab reaches the confirm button.
             await opener.focus();
             await page.keyboard.press("Enter");
@@ -233,10 +261,17 @@ ownerTest.describe("alert rules as the owner", () => {
             await expect(confirm).toBeFocused();
             await page.keyboard.press("Enter");
             await expect(dialog.getByRole("button", { name: "Deleting" })).toBeVisible();
+            await capture("1-deleting", dialog);
             await page.keyboard.press("Escape");
             await expect(dialog).toBeHidden();
             await expect(opener).toBeFocused();
-            if (reopened) {
+            await capture("2-dismissed-while-deleting", item);
+            if (flow === "dismissed") {
+              held.resolve();
+              // Once the result has rendered somewhere, shown or not, the row is what the user sees.
+              await expect(page.getByText(target.message).first()).toBeAttached();
+              await capture("3-failure-beside-button", item);
+            } else {
               // The confirmation that ran the action is gone, and the page behind the open dialog
               // is inert, so the new confirmation reports the failure, focused and announced.
               await page.keyboard.press("Enter");
@@ -245,26 +280,29 @@ ownerTest.describe("alert rules as the owner", () => {
               await expect(dialog.getByRole("alert")).toHaveText(target.message);
               await expect(dialog.getByText(target.message)).toBeFocused();
               await expectNoAxeViolations(page);
+              await capture("3-failure-in-reopened-dialog", dialog);
+              if (flow === "retried") {
+                // The retry fails in the open dialog, which shows it, so the replaced attempt's
+                // failure is dropped rather than shown beside the button after Escape.
+                await confirm.focus();
+                await page.keyboard.press("Enter");
+                await expect(dialog.getByText(target.message)).toBeFocused();
+                await expect(dialog.getByRole("alert")).toHaveText(target.message);
+                await capture("4-retry-failure-in-dialog", dialog);
+              }
               await page.keyboard.press("Escape");
               await expect(dialog).toBeHidden();
               await expect(opener).toBeFocused();
-            } else {
-              held.resolve();
-              if (EVIDENCE) {
-                // Once the result has rendered somewhere, shown or not, the row is what the user sees.
-                await expect(page.getByText(target.message).first()).toBeAttached();
-                await item.screenshot({
-                  path: `pr-evidence/after/${target.kind}-dismissed-delete.png`,
-                  animations: "disabled",
-                  style: HIDE_DEV_INDICATOR,
-                });
-              }
+              await capture(flow === "retried" ? "5-nothing-beside-button" : "4-failure-beside-button", item);
             }
 
-            // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
-            const besideOpener = item.getByRole("alert").filter({ hasText: target.message });
-            await expect(besideOpener).toBeVisible();
-            await expect(besideOpener).toHaveAttribute("aria-live", "assertive");
+            if (flow === "retried") {
+              await expect(besideOpener).toHaveCount(0);
+              await expectRegionAtRest();
+            } else {
+              await expect(besideOpener).toBeVisible();
+              await expect(besideOpener).toHaveAttribute("aria-live", "assertive");
+            }
             // The failure does not take focus from the button the user is on.
             await expect(opener).toBeFocused();
             await expectNoAxeViolations(page);
