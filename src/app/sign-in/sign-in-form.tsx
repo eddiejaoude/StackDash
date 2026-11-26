@@ -10,7 +10,9 @@ import { LiveRegion } from "@/components/ui/live-region";
 import { SIGN_IN_FRAGMENT_FIELD } from "@/lib/auth/redirect";
 
 // The page's fragment, as an external store. The server has none, so the first render (and
-// hydration) matches it, and the browser's value follows straight after.
+// hydration) matches it, and the browser's value follows straight after. A submit before hydration,
+// or with JavaScript off, sends no fragment and signs in to the top of the page; that is accepted
+// because nothing can read the hash before JavaScript runs.
 function subscribeToHash(onChange: () => void) {
   window.addEventListener("hashchange", onChange);
   return () => window.removeEventListener("hashchange", onChange);
