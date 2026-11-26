@@ -203,6 +203,13 @@ ownerTest.describe("dashboard snapshot read cap", () => {
       const monthly = trends.getByRole("link", { name: "Monthly, last 13 months" });
       await expect(monthly).toBeFocused();
       await page.keyboard.press("Enter");
+      // The client navigation commits, URL included, only once the server has rendered the monthly
+      // view, which waits on the 13 month read this test fills to its cap: seconds on a loaded
+      // runner (#667). Until then the daily view's own monthly link is still on the page, so wait
+      // for the destination URL before asserting on the new view, as the Next.js instant navigation
+      // guide says to. `waitForURL`, not `toHaveURL`: the test's timeout bounds a navigation wait,
+      // where an assertion gives up after 5 seconds.
+      await page.waitForURL(/[?&]trend=monthly(&|$)/);
       await expect(monthly).toHaveAttribute("aria-current", "page");
 
       const notice = page.getByRole("region", { name: NOTICE });
