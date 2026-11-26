@@ -62,20 +62,24 @@ export function safeNextPath(input: unknown): string {
 /** The sign-in form's field carrying the fragment the browser kept on `/sign-in` (#358). */
 export const SIGN_IN_FRAGMENT_FIELD = "fragment";
 
+// A fragment that names a section: every heading id the app links to has this shape. Anything else
+// on `/sign-in`, such as the `#error=...` Supabase Auth leaves after a failed provider sign-in, is
+// not from the link the reader opened.
+const SECTION_FRAGMENT = /^#[A-Za-z][A-Za-z0-9_-]*$/;
+
 /**
  * `next` with `fragment`, the fragment the browser kept on `/sign-in`, as `safeNextPath` returns it.
  *
  * A fragment never reaches the server, so the proxy builds `next` without the one on the link the
  * reader opened; the browser carries it onto `/sign-in` and the sign-in form sends it back (#358).
  * It never widens what `next` may target: the path and fragment pass `safeNextPath` together, and
- * when they fail it (an unsafe character, or over the length limit) the fragment is dropped and the
- * path is checked alone. A `next` outside the app still gives `/app`, and a `next` that already has
- * a fragment keeps its own. Anything but a string starting with `#` and naming something is no
- * fragment.
+ * when they fail it (over the length limit) the fragment is dropped and the path is checked alone.
+ * A `next` outside the app still gives `/app`, and a `next` that already has a fragment keeps its
+ * own. Only a fragment that names a section counts; any other value gives the path alone.
  */
 export function nextPathWithFragment(next: unknown, fragment: unknown): string {
   const path = safeNextPath(next);
-  if (typeof next !== "string" || next.includes("#") || typeof fragment !== "string" || !fragment.startsWith("#") || fragment.length === 1) {
+  if (typeof next !== "string" || next.includes("#") || typeof fragment !== "string" || !SECTION_FRAGMENT.test(fragment)) {
     return path;
   }
   const combined = safeNextPath(`${next}${fragment}`);

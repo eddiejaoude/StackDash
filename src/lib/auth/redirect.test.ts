@@ -93,6 +93,17 @@ describe("nextPathWithFragment", () => {
   });
 
   it.each([
+    ["one letter", "#a"],
+    ["digits, underscores and hyphens after the first letter", "#Alert_emails-2"],
+  ])("keeps a section fragment of %s", (_label, fragment) => {
+    expect(nextPathWithFragment("/w/k3j9x2m4pq/alerts/settings", fragment)).toBe(`/w/k3j9x2m4pq/alerts/settings${fragment}`);
+  });
+
+  it.each([
+    ["the error Supabase Auth leaves after a failed sign-in", "#error=access_denied&error_code=provider_denied&error_description=The+user+denied&sb="],
+    ["a leading digit", "#1-alert-emails"],
+    ["a space", "#alert emails"],
+    ["a slash", "#//evil.example"],
     ["an encoded backslash", "#%5Cevil.example"],
     ["a tab", "#\tevil"],
     ["a malformed escape", "#%E0%A4%A"],
