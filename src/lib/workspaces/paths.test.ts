@@ -41,9 +41,8 @@ describe("alertSettingsPath", () => {
 });
 
 describe("pathWithQuery", () => {
-  it("keeps every other list's place when one pager changes its own cursor (#316)", () => {
-    const query = { rulesAfter: "r1", budgetsAfter: "b1" };
-    expect(pathWithQuery("/w/abc123/alerts/settings", { ...query, budgetsAfter: "b2" }, "budgets-title")).toBe(
+  it("writes every value in the query's key order, then the fragment", () => {
+    expect(pathWithQuery("/w/abc123/alerts/settings", { rulesAfter: "r1", budgetsAfter: "b2" }, "budgets-title")).toBe(
       "/w/abc123/alerts/settings?rulesAfter=r1&budgetsAfter=b2#budgets-title",
     );
     expect(pathWithQuery("/w/abc123/alerts", { acknowledged: "show", alertsAfter: "a2" })).toBe(
