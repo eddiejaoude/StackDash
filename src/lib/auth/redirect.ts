@@ -62,10 +62,11 @@ export function safeNextPath(input: unknown): string {
 /** The sign-in form's field carrying the fragment the browser kept on `/sign-in` (#358). */
 export const SIGN_IN_FRAGMENT_FIELD = "fragment";
 
-// A fragment that names a section: every heading id the app links to has this shape. Anything else
+// A fragment that names an element: every element id the app links to has this shape, the
+// headings and the achievement items, whose ids have dots (`vercel.deployments.10`). Anything else
 // on `/sign-in`, such as the `#error=...` Supabase Auth leaves after a failed provider sign-in, is
 // not from the link the reader opened.
-const SECTION_FRAGMENT = /^#[A-Za-z][A-Za-z0-9_-]*$/;
+const SECTION_FRAGMENT = /^#[A-Za-z][A-Za-z0-9._-]*$/;
 
 /**
  * `next` with `fragment`, the fragment the browser kept on `/sign-in`, as `safeNextPath` returns it.

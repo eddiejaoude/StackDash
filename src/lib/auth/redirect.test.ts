@@ -95,6 +95,7 @@ describe("nextPathWithFragment", () => {
   it.each([
     ["one letter", "#a"],
     ["digits, underscores and hyphens after the first letter", "#Alert_emails-2"],
+    ["dots, as an achievement id has", "#vercel.deployments.10"],
   ])("keeps a section fragment of %s", (_label, fragment) => {
     expect(nextPathWithFragment("/w/k3j9x2m4pq/alerts/settings", fragment)).toBe(`/w/k3j9x2m4pq/alerts/settings${fragment}`);
   });
