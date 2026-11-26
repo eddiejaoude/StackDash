@@ -70,8 +70,27 @@ export type AlertSettingsId = (typeof ALERT_SETTINGS_IDS)[keyof typeof ALERT_SET
 
 const ALERT_SETTINGS_ID_SET: ReadonlySet<string> = new Set(Object.values(ALERT_SETTINGS_IDS));
 
-// The settings lists' pager cursors; the inbox's own query (acknowledged, alertsAfter) stays there.
-const ALERT_SETTINGS_QUERY = ["rulesAfter", "budgetsAfter"] as const;
+/** The alerts inbox's query: `acknowledged=show` includes acknowledged alerts, and the list's pager cursor. */
+export type AlertsInboxQuery = { acknowledged: "show" | null; alertsAfter: string | null };
+
+/** Alert settings' query: the rules and budgets pagers' cursors. The inbox's own query stays there. */
+export type AlertSettingsQuery = { rulesAfter: string | null; budgetsAfter: string | null };
+
+/**
+ * A link from a page's whole query and an optional fragment. Every pager and filter link on the
+ * alerts pages passes its page's query with only its own part changed, so paging one list keeps
+ * every other list's place (#316). Callers check that literal with `satisfies AlertsInboxQuery` or
+ * `satisfies AlertSettingsQuery`, so a misspelled key fails to compile instead of adding a stray
+ * parameter. Null and empty values are left out, so a first page adds no cursor to the link.
+ */
+export function pathWithQuery(path: string, query: Readonly<Record<string, string | null>>, fragment?: string): string {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries(query)) {
+    if (value !== null && value !== "") params.set(name, value);
+  }
+  const text = params.toString();
+  return `${path}${text === "" ? "" : `?${text}`}${fragment === undefined ? "" : `#${fragment}`}`;
+}
 
 /** Alert settings: rules, budgets, unusual spend and usage, alert emails, and channels (#343). */
 export function alertSettingsPath(slug: string, id?: AlertSettingsId): string {
@@ -89,11 +108,6 @@ export function movedAlertSettingsHref(slug: string, search: string, hash: strin
   const id = hash.startsWith("#") ? hash.slice(1) : "";
   if (!ALERT_SETTINGS_ID_SET.has(id)) return null;
   const from = new URLSearchParams(search);
-  const query = new URLSearchParams();
-  for (const name of ALERT_SETTINGS_QUERY) {
-    const value = from.get(name);
-    if (value !== null && value !== "") query.set(name, value);
-  }
-  const text = query.toString();
-  return `${alertSettingsPath(slug)}${text === "" ? "" : `?${text}`}#${id}`;
+  const query: AlertSettingsQuery = { rulesAfter: from.get("rulesAfter"), budgetsAfter: from.get("budgetsAfter") };
+  return pathWithQuery(alertSettingsPath(slug), query, id);
 }
