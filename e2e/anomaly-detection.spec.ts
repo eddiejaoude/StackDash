@@ -85,13 +85,22 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const summary = page.getByRole("region", { name: "Alerts", exact: true });
       await expect(summary).toContainText("No unacknowledged alerts");
-      await expect(summary).toContainText("1 unusual spend or usage event in the last 7 days");
-      await expect(summary).toContainText(ANOMALY_TITLE);
-      await expect(summary).toContainText(ANOMALY_BODY);
+      // The alerts summary counts the recorded event and lists nothing (#291): one event and one
+      // day of rows, too little history for "What changed" to find it again, so the count says
+      // whose events it counts rather than leaving a reader to wonder why the top is empty.
+      await expect(summary).toContainText("1 unusual spend or usage event recorded for the whole workspace in the last 7 days");
+      await expect(summary).not.toContainText(ANOMALY_TITLE);
+      await expect(summary).not.toContainText(ANOMALY_BODY);
+      await expect(summary.getByRole("list")).toHaveCount(0);
+      await expect(page.getByRole("region", { name: "What changed" })).toHaveCount(0);
       await waitForTrends(page);
       await expectNoAxeViolations(page);
 
-      await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();
+      // Keyboard only: from the alerts link to the timeline link, then Enter.
+      await summary.getByRole("link", { name: "View all alerts" }).focus();
+      await page.keyboard.press("Tab");
+      await expect(summary.getByRole("link", { name: "Show unusual days on the timeline" })).toBeFocused();
+      await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/\/timeline\?type=stackdash\.anomaly_detected$/);
       await expect(page.getByRole("heading", { name: ANOMALY_TITLE })).toBeVisible();
       // The page the link lands on names the type the way alert settings names the feature (#345).

@@ -24,13 +24,11 @@ export type AnomalyControls = { enabled: boolean; mutes: AnomalyMuteItem[] };
 /** A spend or usage metric this workspace reports, which a person can mute. */
 export type AnomalyMetric = { provider: ProviderId; metricKey: string; label: string };
 
-export type RecentAnomaly = Pick<Tables["activity_events"]["Row"], "id" | "title" | "body">;
+/** How many anomaly events the workspace recorded in the window; the dashboard lists the days elsewhere (#291). */
+export type RecentAnomalies = { count: number };
 
-export type RecentAnomalies = { count: number; newest: RecentAnomaly[] };
-
-/** The dashboard's alerts summary shows anomalies from this many days back. */
+/** The dashboard's alerts summary counts anomalies from this many days back. */
 export const RECENT_ANOMALY_DAYS = 7;
-export const RECENT_ANOMALY_COUNT = 3;
 
 // Mutes per workspace: one per metric a person chose to silence, a handful in practice.
 const MUTE_LIMIT = 200;
@@ -97,31 +95,20 @@ export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<Ano
 });
 
 /**
- * How many anomaly events the workspace had since `since`, and the newest few, for the dashboard.
- * Reads through `activity_events_workspace_timeline_idx` (workspace_id, occurred_at desc, id desc).
+ * How many anomaly events the workspace recorded since `since`, for the dashboard's alerts summary.
+ * A count only, so no event row leaves the database. Reads through
+ * `activity_events_workspace_timeline_idx` (workspace_id, occurred_at desc, id desc).
  */
 export const getRecentAnomalies = cache(async (workspaceId: string, since: string): Promise<RecentAnomalies> => {
   const supabase = await createClient();
-  const [counted, newest] = await Promise.all([
-    supabase
-      .from("activity_events")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", workspaceId)
-      .eq("type_id", ANOMALY_TYPE_ID)
-      .gte("occurred_at", since),
-    supabase
-      .from("activity_events")
-      .select("id, title, body")
-      .eq("workspace_id", workspaceId)
-      .eq("type_id", ANOMALY_TYPE_ID)
-      .gte("occurred_at", since)
-      .order("occurred_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(RECENT_ANOMALY_COUNT),
-  ]);
-  if (counted.error) throw new Error("Failed to count recent anomalies", { cause: counted.error });
-  if (newest.error) throw new Error("Failed to list recent anomalies", { cause: newest.error });
-  return { count: counted.count ?? newest.data.length, newest: newest.data };
+  const { count, error } = await supabase
+    .from("activity_events")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .eq("type_id", ANOMALY_TYPE_ID)
+    .gte("occurred_at", since);
+  if (error) throw new Error("Failed to count recent anomalies", { cause: error });
+  return { count: count ?? 0 };
 });
 
 // ── Writes ──────────────────────────────────────────────────────────────────────────────────────
