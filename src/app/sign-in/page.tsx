@@ -9,7 +9,7 @@ import { z } from "zod";
 import { LegalConsent } from "@/components/legal/legal-consent";
 import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
-import { safeNextPath, SIGN_IN_ERROR_CODES, type SignInErrorCode } from "@/lib/auth/redirect";
+import { nextPathWithFragment, safeNextPath, SIGN_IN_ERROR_CODES, SIGN_IN_FRAGMENT_FIELD, type SignInErrorCode } from "@/lib/auth/redirect";
 import { getCurrentUser } from "@/lib/auth/session";
 import { logError } from "@/lib/log/logger";
 import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
@@ -55,11 +55,14 @@ const searchParamsSchema = z.object({
 /**
  * Starts the GitHub OAuth flow (PKCE: the verifier lands in a cookie) and sends the browser to
  * Supabase Auth. Invite gating happens in the database hook when the user is first created.
+ *
+ * `nextInput` is the page's `?next=` as it arrived, and the form sends the fragment the browser
+ * kept on `/sign-in` (#358). Both come from the browser, so `nextPathWithFragment` checks them here.
  */
-async function signInWithGitHub(nextInput: string): Promise<void> {
+async function signInWithGitHub(nextInput: string | undefined, formData: FormData): Promise<void> {
   "use server";
 
-  const next = safeNextPath(nextInput);
+  const next = nextPathWithFragment(nextInput, formData.get(SIGN_IN_FRAGMENT_FIELD));
   // Next.js has already checked that a Server Function's Origin header matches the host, so it is
   // this deployment's public origin. Supabase Auth also refuses redirect URLs outside its allow list.
   const origin = (await headers()).get("origin");
@@ -106,7 +109,8 @@ async function SignInPanel({ searchParams }: { searchParams: PageProps<"/sign-in
           )}
         </LiveRegion>
       )}
-      <SignInForm action={signInWithGitHub.bind(null, next)} />
+      {/* The query's `next` as it arrived, not `next`: a fragment joins a path only when that path is in the app. */}
+      <SignInForm action={signInWithGitHub.bind(null, nextInput)} />
     </>
   );
 }

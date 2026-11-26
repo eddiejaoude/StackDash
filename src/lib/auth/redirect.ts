@@ -59,6 +59,30 @@ export function safeNextPath(input: unknown): string {
   return path.length > MAX_NEXT_PATH_LENGTH ? DEFAULT_NEXT_PATH : path;
 }
 
+/** The sign-in form's field carrying the fragment the browser kept on `/sign-in` (#358). */
+export const SIGN_IN_FRAGMENT_FIELD = "fragment";
+
+/**
+ * `next` with `fragment`, the fragment the browser kept on `/sign-in`, as `safeNextPath` returns it.
+ *
+ * A fragment never reaches the server, so the proxy builds `next` without the one on the link the
+ * reader opened; the browser carries it onto `/sign-in` and the sign-in form sends it back (#358).
+ * It never widens what `next` may target: the path and fragment pass `safeNextPath` together, and
+ * when they fail it (an unsafe character, or over the length limit) the fragment is dropped and the
+ * path is checked alone. A `next` outside the app still gives `/app`, and a `next` that already has
+ * a fragment keeps its own. Anything but a string starting with `#` and naming something is no
+ * fragment.
+ */
+export function nextPathWithFragment(next: unknown, fragment: unknown): string {
+  const path = safeNextPath(next);
+  if (typeof next !== "string" || next.includes("#") || typeof fragment !== "string" || !fragment.startsWith("#") || fragment.length === 1) {
+    return path;
+  }
+  const combined = safeNextPath(`${next}${fragment}`);
+  // The combined input always has a fragment, so DEFAULT_NEXT_PATH means safeNextPath refused it.
+  return combined === DEFAULT_NEXT_PATH ? path : combined;
+}
+
 /** Codes the auth routes put in `/sign-in?error=`. The sign-in page has a message for each. */
 export const SIGN_IN_ERROR_CODES = ["not_invited", "cancelled", "start_failed", "callback_failed", "link_invalid", "link_failed"] as const;
 
