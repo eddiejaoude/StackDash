@@ -736,10 +736,10 @@ ownerTest.describe("dashboard what changed", () => {
       }
 
       // "What changed" is the one list of the days. The alerts summary keeps the count of what
-      // was recorded, says it covers the whole workspace from which day, and leads to those events
+      // was recorded, says it covers the whole workspace since which day, and leads to those events
       // from that same day (#664).
       const from = londonDate(Date.now(), 6);
-      await expect(alerts).toContainText(`2 unusual spend or usage events recorded for the whole workspace from ${dayLabel(from)} through today`);
+      await expect(alerts).toContainText(`2 unusual spend or usage events recorded for the whole workspace since ${dayLabel(from)}`);
       for (const title of titles) await expect(alerts).not.toContainText(title);
       await expect(alerts.getByRole("list")).toHaveCount(0);
       await expect(alerts.getByRole("link", { name: "Show unusual days on the timeline" })).toHaveAttribute(

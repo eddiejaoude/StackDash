@@ -100,7 +100,7 @@ ownerTest.describe("anomaly detection as the owner", () => {
       // day of rows, too little history for "What changed" to find it again, so the count says
       // whose events it counts rather than leaving a reader to wonder why the top is empty.
       const from = londonDate(Date.now(), 6);
-      await expect(summary).toContainText(`1 unusual spend or usage event recorded for the whole workspace from ${dayLabel(from)} through today`);
+      await expect(summary).toContainText(`1 unusual spend or usage event recorded for the whole workspace since ${dayLabel(from)}`);
       await expect(summary).not.toContainText(ANOMALY_TITLE);
       await expect(summary).not.toContainText(ANOMALY_BODY);
       await expect(summary.getByRole("list")).toHaveCount(0);
@@ -194,7 +194,7 @@ ownerTest.describe("anomaly detection as the owner", () => {
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const summary = page.getByRole("region", { name: "Alerts", exact: true });
-      await expect(summary).toContainText(`2 unusual spend or usage events recorded for the whole workspace from ${dayLabel(from)} through today`);
+      await expect(summary).toContainText(`2 unusual spend or usage events recorded for the whole workspace since ${dayLabel(from)}`);
       const link = summary.getByRole("link", { name: "Show unusual days on the timeline" });
       await expect(link).toHaveAttribute("href", `/w/${workspace.slug}/timeline?type=stackdash.anomaly_detected&from=${from}`);
       await waitForTrends(page);

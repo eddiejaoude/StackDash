@@ -98,7 +98,11 @@ function UnusualDays({ workspace, anomalies }: { workspace: WorkspaceRef; anomal
   // is of the events as recorded on the day for the whole workspace, so it ignores the dashboard's
   // filters and later mutes, which "What changed" follows (#291); the words say so. The sentence
   // names the first day counted and the link filters from that day, the bound the count used, so
-  // the timeline lists the events counted and no older ones (#664).
+  // the timeline lists the events counted and no older ones (#664). That day is the day an event
+  // was recorded, not the day it is about: an anomaly event is recorded at the end of the UTC day
+  // it checked (`anomalyEvent` in src/lib/alerts/anomaly.ts), so the oldest one counted can be
+  // about the day before the one named here, and "What changed" names that earlier day. "recorded"
+  // is what keeps the sentence true beside it, and matches the timeline's day headings: keep it.
   const events = anomalies.count === 1 ? "1 unusual spend or usage event" : `${anomalies.count} unusual spend or usage events`;
   const href = timelineHref(
     workspacePath(workspace.slug, "timeline"),
@@ -109,7 +113,7 @@ function UnusualDays({ workspace, anomalies }: { workspace: WorkspaceRef; anomal
     <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-sm">
       <h3 className="font-semibold">Unusual spend and usage</h3>
       <p className="font-medium">
-        {`${events} recorded for the whole workspace from ${londonDayLabel(londonDayStart(anomalies.from))} through today`}
+        {`${events} recorded for the whole workspace since ${londonDayLabel(londonDayStart(anomalies.from))}`}
       </p>
       <Link href={href} className="ml-auto inline-flex min-h-6 items-center text-accent underline underline-offset-2">
         Show unusual days on the timeline
