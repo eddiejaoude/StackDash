@@ -69,8 +69,12 @@ export function useAnnouncedAction(
   }, null);
 }
 
+function failureOf(state: PublicMetricActionResult | null) {
+  return state !== null && !state.ok ? state : null;
+}
+
 export function Failure({ state }: { state: PublicMetricActionResult | null }) {
-  return <FailureAnnouncement failure={state !== null && !state.ok ? state : null} className="text-sm" messageClassName="mt-2" />;
+  return <FailureAnnouncement failure={failureOf(state)} className="text-sm" messageClassName="mt-2" />;
 }
 
 export type Choice = Readonly<{ value: string; label: string }>;
@@ -230,7 +234,7 @@ function UnpublishEverythingConfirmation({
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <DialogError failure={state !== null && !state.ok ? state : null} />
+      <DialogError failure={failureOf(state)} />
       <DialogActions>
         <DialogCloseButton unavailable={pending} />
         <GuardedButton type="submit" unavailable={pending} className={buttonClass("danger")}>
