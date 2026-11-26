@@ -10,7 +10,14 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
+import {
+  adminClient,
+  createTestWorkspace,
+  deleteTestWorkspace,
+  hideSetupChecklist,
+  notDueForAMonth,
+  type TestWorkspace,
+} from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
@@ -90,9 +97,13 @@ async function seedAccount(
   return { connectionId: connection.id, accountId: account.id };
 }
 
-/** A fresh workspace holding 60 synthetic Vercel events, plus one repeat of event 5's key. */
+/**
+ * A fresh workspace holding 60 synthetic Vercel events, plus one repeat of event 5's key, whose
+ * members have hidden the setup checklist.
+ */
 async function seedTimeline(label: string): Promise<TestWorkspace> {
   const workspace = await createTestWorkspace(label);
+  await hideSetupChecklist(workspace);
   const admin = adminClient();
   const { connectionId, accountId } = await seedAccount(workspace, {
     provider: "vercel",
