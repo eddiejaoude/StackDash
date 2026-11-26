@@ -4,6 +4,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectFailureInDialog } from "./fixtures/dialogs";
 import {
   activeApiKeyCount,
   adminClient,
@@ -318,6 +319,30 @@ ownerTest.describe("API keys as the owner", () => {
       await expect(section.getByRole("checkbox", { name: /usage:read/ })).toBeChecked();
       await expect(section.getByRole("listitem").filter({ hasText: "One too many" })).toHaveCount(0);
       expect(await activeApiKeyCount(workspace)).toBe(20);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps a failed revoke inside the open dialog and focuses the error (#325)", async ({ page }) => {
+    const workspace = await createTestWorkspace("API key revoke failure");
+    try {
+      await seedApiKeys(workspace, 1);
+      await page.goto(`/w/${workspace.slug}/settings`);
+      await expectFailureInDialog(page, {
+        trigger: keysSection(page).getByRole("button", { name: "Revoke Seeded key 1" }),
+        dialog: page.getByRole("dialog", { name: "Revoke Seeded key 1?" }),
+        confirmName: "Revoke key",
+        // Revoked behind the open dialog, so the action finds nothing left to revoke.
+        breakIt: async () => {
+          const { error } = await adminClient()
+            .from("api_keys")
+            .update({ revoked_at: new Date().toISOString() })
+            .eq("workspace_id", workspace.id);
+          if (error) throw new Error(`Revoking the key failed (code ${error.code}).`);
+        },
+        message: "This key is already revoked or no longer exists. Reload the page to see the current list.",
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }

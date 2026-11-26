@@ -3,6 +3,7 @@
 import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
 import { OutcomeAnnouncement, ReferenceNote, type Outcome } from "@/components/ui/live-region";
 import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
@@ -440,7 +441,7 @@ function RevokeConfirmation({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="keyId" value={apiKey.id} />
-      <ErrorSummary failure={failureOf(state)} />
+      <DialogError failure={failureOf(state)} />
       <DialogActions>
         <DialogCloseButton unavailable={pending} />
         <button type="submit" disabled={pending} className={buttonClass("danger")}>

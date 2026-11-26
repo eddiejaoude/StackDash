@@ -4,6 +4,7 @@ import { request as playwrightRequest, type Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
 import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Each test creates its own workspace and seeds only inside it, so tests run in any order.
@@ -292,6 +293,48 @@ ownerTest.describe("public metrics as the owner", () => {
         "The value was not published. This project already publishes 100 self-reported values. Unpublish one you no longer need, then publish this one.",
       );
       await expect(form.getByRole("listitem")).toHaveCount(100);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps a failed unpublish everything inside the open dialog and focuses the error (#325)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Public metrics unpublish failure");
+    const admin = adminClient();
+    try {
+      const projectId = await seedStarredProject(workspace);
+      const { error } = await admin.from("published_metrics").insert({
+        workspace_id: workspace.id,
+        project_id: projectId,
+        self_reported_label: "Downloads this month",
+        self_reported_value: 4200,
+        self_reported_unit: "downloads",
+        published_by: workspace.ownerId,
+      });
+      if (error) throw new Error(`Seeding a self-reported value failed (code ${error.code}).`);
+      await page.goto(publicMetricsPath(workspace, projectId));
+      await expectFailureInDialog(page, {
+        trigger: page.getByRole("button", { name: "Unpublish everything" }),
+        dialog: page.getByRole("dialog", { name: "Unpublish everything in this workspace?" }),
+        confirmName: "Unpublish everything",
+        // Demoted to viewer behind the open dialog (the viewer becomes owner first, so the
+        // workspace keeps one), so the action refuses.
+        breakIt: async () => {
+          const { error: promoteError } = await admin
+            .from("workspace_members")
+            .update({ role: "owner" })
+            .eq("workspace_id", workspace.id)
+            .eq("user_id", workspace.viewerId);
+          if (promoteError) throw new Error(`Promoting the viewer failed (code ${promoteError.code}).`);
+          const { error: demoteError } = await admin
+            .from("workspace_members")
+            .update({ role: "viewer" })
+            .eq("workspace_id", workspace.id)
+            .eq("user_id", workspace.ownerId);
+          if (demoteError) throw new Error(`Demoting the owner failed (code ${demoteError.code}).`);
+        },
+        message: "Only owners and admins can publish or unpublish metrics.",
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }

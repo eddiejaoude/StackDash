@@ -14,6 +14,7 @@ import {
 import { inputClass } from "@/components/alerts/form-controls";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
 import { FailureAnnouncement, LiveRegion } from "@/components/ui/live-region";
 import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 import { livePublicationsText, type LivePublicationCounts } from "@/lib/public-metrics/display";
@@ -229,7 +230,7 @@ function UnpublishEverythingConfirmation({
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <Failure state={state} />
+      <DialogError failure={state !== null && !state.ok ? state : null} />
       <DialogActions>
         <DialogCloseButton unavailable={pending} />
         <GuardedButton type="submit" unavailable={pending} className={buttonClass("danger")}>
