@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Page, Route } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
@@ -14,12 +14,65 @@ import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
  * `chromium` project. The action leaves them due, so the spec makes them not due once they are
  * added (#621). With simulation off the control is absent; the server always simulates in
  * end-to-end runs, so `sampleDataRefusal`'s unit tests cover that case. Two tabs that submit at
- * once connect one set between them, and the other tab says why it added nothing (#287).
+ * once connect one set between them, and the other tab says why it added nothing (#287). The
+ * refusal sits on its own line under the row of actions, so it never pushes them apart (#666).
  */
 
 const SAMPLE_BUTTON = "Explore with sample data";
 const ALREADY_CONNECTED =
   "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
+
+/** A connection whose first sync has not finished, so the workspace's timeline is still empty. */
+async function seedPendingConnection(workspaceId: string): Promise<void> {
+  const { error } = await adminClient().from("connections").insert({
+    workspace_id: workspaceId,
+    provider: "vercel",
+    status: "active",
+    granted_at: new Date().toISOString(),
+    display_name: "Vercel e2e connection",
+    poll_interval_seconds: 3600,
+    next_sync_at: notDueForAMonth(),
+  });
+  if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+}
+
+async function boxOf(locator: Locator) {
+  const box = await locator.boundingBox();
+  if (box === null) throw new Error("Expected a visible element to measure.");
+  return { left: box.x, right: box.x + box.width, top: box.y, bottom: box.y + box.height };
+}
+
+/**
+ * The empty state's two actions centered in the card, side by side when `layout` is "row" and one
+ * above the other when "stacked", with the refusal on its own line under both, and nothing on the
+ * page scrolling sideways (#666).
+ */
+async function expectActionsAboveRefusal(page: Page, layout: "row" | "stacked"): Promise<void> {
+  const empty = page.getByRole("region", { name: "No activity yet" });
+  const [card, connect, sample, refusal] = await Promise.all([
+    boxOf(empty),
+    boxOf(empty.getByRole("link", { name: "Connect a provider" })),
+    boxOf(empty.getByRole("button", { name: SAMPLE_BUTTON })),
+    boxOf(empty.getByRole("alert").getByText(ALREADY_CONNECTED)),
+  ]);
+  const centerOf = (box: { left: number; right: number }) => (box.left + box.right) / 2;
+  const cardCenter = centerOf(card);
+  if (layout === "row") {
+    expect(Math.abs(connect.top - sample.top)).toBeLessThan(1);
+    // The row's 12px gap (`gap-3`) between them, and the pair centered as one.
+    expect(Math.abs(sample.left - connect.right - 12)).toBeLessThan(1);
+    expect(Math.abs(centerOf({ left: connect.left, right: sample.right }) - cardCenter)).toBeLessThan(2);
+  } else {
+    expect(sample.top).toBeGreaterThanOrEqual(connect.bottom);
+    expect(Math.abs(centerOf(connect) - cardCenter)).toBeLessThan(2);
+    expect(Math.abs(centerOf(sample) - cardCenter)).toBeLessThan(2);
+  }
+  expect(refusal.top).toBeGreaterThanOrEqual(Math.max(connect.bottom, sample.bottom));
+  expect(refusal.left).toBeGreaterThanOrEqual(card.left);
+  expect(refusal.right).toBeLessThanOrEqual(card.right);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBe(0);
+}
 
 /**
  * Opens the empty timeline in `tab`, presses the sample data button from the keyboard, and holds
@@ -125,17 +178,7 @@ ownerTest.describe("sample data as the owner", () => {
   ownerTest("is not offered once anything is connected", async ({ page }) => {
     const workspace = await createTestWorkspace("Sample data connected");
     try {
-      // A connection whose first sync has not finished: the timeline is still empty.
-      const { error } = await adminClient().from("connections").insert({
-        workspace_id: workspace.id,
-        provider: "vercel",
-        status: "active",
-        granted_at: new Date().toISOString(),
-        display_name: "Vercel e2e connection",
-        poll_interval_seconds: 3600,
-        next_sync_at: notDueForAMonth(),
-      });
-      if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+      await seedPendingConnection(workspace.id);
 
       await page.goto(`/w/${workspace.slug}/timeline`);
       // The first sync is on its way (#322), so the empty state no longer asks for a provider.
@@ -145,6 +188,43 @@ ownerTest.describe("sample data as the owner", () => {
       await expect(empty.getByRole("button", { name: SAMPLE_BUTTON })).toHaveCount(0);
       await expect(empty.getByText(/sample data/)).toHaveCount(0);
     } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps both actions in a centered row when refused, with the reason under them (#666)", async ({ page }) => {
+    ownerTest.slow();
+    const workspace = await createTestWorkspace("Sample data refused");
+    try {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      // Nobody answers the Realtime socket, so the page keeps its empty state when the workspace
+      // gains a connection below, as a second tab or teammate would leave it.
+      await page.routeWebSocket(/\/realtime\/v1\/websocket/, () => {});
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const empty = page.getByRole("region", { name: "No activity yet" });
+      const sample = empty.getByRole("button", { name: SAMPLE_BUTTON });
+      await expect(sample).toBeVisible();
+      await seedPendingConnection(workspace.id);
+
+      // Keyboard only: Enter presses the button, and focus stays on it while the refusal is read out.
+      await sample.focus();
+      await page.keyboard.press("Enter");
+      await expect(empty.getByRole("alert")).toHaveText(ALREADY_CONNECTED, { timeout: 60_000 });
+      await expect(sample).toBeFocused();
+
+      if (EVIDENCE) await page.screenshot({ path: "pr-evidence/after/sample-data-refused-1280.png", animations: "disabled", style: HIDE_DEV_INDICATOR });
+      await expectActionsAboveRefusal(page, "row");
+      await expectNoAxeViolations(page);
+
+      // Too narrow for both: they stack, and the refusal still fits the card.
+      await page.setViewportSize({ width: 390, height: 844 });
+      await empty.scrollIntoViewIfNeeded();
+      if (EVIDENCE) await page.screenshot({ path: "pr-evidence/after/sample-data-refused-390.png", animations: "disabled", style: HIDE_DEV_INDICATOR });
+      await expectActionsAboveRefusal(page, "stacked");
+      await expect(sample).toBeFocused();
+      await expectNoAxeViolations(page);
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
       await deleteTestWorkspace(workspace);
     }
   });
@@ -186,6 +266,7 @@ ownerTest.describe("sample data from two tabs at once (#287)", () => {
       expect(outcomes.toSorted()).toEqual([ALREADY_CONNECTED, "added"]);
       const [added, refused] = outcomes[0] === "added" ? tabs : [tabs[1], tabs[0]];
       await makeConnectionsNotDue(added, workspace.id);
+      await expectActionsAboveRefusal(refused, "row");
       await expectNoAxeViolations(refused);
 
       // Every simulated provider once: one set between the two submits.

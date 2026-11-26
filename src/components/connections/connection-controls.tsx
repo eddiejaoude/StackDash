@@ -171,16 +171,25 @@ export function SyncNowForm({
   );
 }
 
-/** "Explore with sample data" in an empty workspace's timeline (#257); success opens the timeline. */
+/**
+ * "Explore with sample data" in an empty workspace's timeline (#257); success opens the timeline.
+ * It is the `secondaryAction` of an `EmptyState`. The form draws no box of its own, so its button
+ * sits in the row beside "Connect a provider" and its message takes a line of its own under the
+ * whole row, where a long refusal wraps instead of pushing the buttons apart (#666).
+ */
 export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
   const [state, formAction, pending] = useConnectionAction(exploreWithSampleData);
   return (
-    <form action={formAction} className="flex flex-col items-center gap-2">
+    <form action={formAction} className="contents">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("outline")}`}>
         {pending ? "Adding sample data" : "Explore with sample data"}
       </GuardedButton>
-      <ActionStatus state={state} pending={pending} />
+      <div className="basis-full">
+        <div className="mx-auto max-w-md">
+          <ActionStatus state={state} pending={pending} />
+        </div>
+      </div>
     </form>
   );
 }

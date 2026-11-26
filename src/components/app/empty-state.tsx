@@ -29,7 +29,11 @@ export function EmptyState({
   action?: EmptyStateAction | undefined;
   /** Set when the current role cannot take `action`; shown in its place. */
   deniedReason?: string | undefined;
-  /** A second control beside `action`, such as a form; hidden with it when `deniedReason` is set. */
+  /**
+   * A second control beside `action`, such as a form; hidden with it when `deniedReason` is set.
+   * It joins the row of actions, which wraps: a control that shows a message under itself should
+   * give that message a whole line (`basis-full`) so the message never widens the row (#666).
+   */
   secondaryAction?: ReactNode;
   /** Extra controls, such as a list of choices, shown below the description. */
   children?: ReactNode;
