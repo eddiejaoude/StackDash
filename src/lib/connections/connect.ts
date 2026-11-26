@@ -23,7 +23,8 @@ import { reconnectMismatch, type ReconnectMismatchCode } from "./oauth-state";
  *
  * A new grant always makes a new connection, so two accounts of the same provider never share a
  * row. Reconnect replaces the credential on the existing connection, keeping its id, its accounts'
- * project assignments, and its history.
+ * project assignments, and its history. A connection asked to be the workspace's first (sample
+ * data, #287) is made only while the workspace has none, checked in the insert's own transaction.
  */
 
 type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
@@ -45,15 +46,30 @@ export class ReconnectMismatchError extends Error {
   }
 }
 
+/** The workspace already had a connection, so the one asked to be its first was not made (#287); nothing was changed. */
+export class WorkspaceNotEmptyError extends Error {
+  override readonly name = "WorkspaceNotEmptyError";
+}
+
 export type CompleteConnectionInput = Readonly<{
   adapter: ProviderAdapter;
   ctx: OAuthContext;
   workspaceId: string;
   userId: string;
   credential: OAuthCredential;
-  // Connection to replace, already parsed from the consumed state.
-  reconnectId?: string;
-}>;
+}> &
+  (
+    | Readonly<{
+        // Connection to replace, already parsed from the consumed state.
+        reconnectId?: string;
+        onlyIntoEmptyWorkspace?: never;
+      }>
+    | Readonly<{
+        reconnectId?: never;
+        // A new connection made only while the workspace has none, or WorkspaceNotEmptyError.
+        onlyIntoEmptyWorkspace: true;
+      }>
+  );
 
 export type CompleteConnectionResult = Readonly<{
   connectionId: string;
@@ -75,7 +91,7 @@ export function connectionDisplayName(adapter: ProviderAdapter, label: string | 
 }
 
 export async function completeConnection(input: CompleteConnectionInput): Promise<CompleteConnectionResult> {
-  const { adapter, ctx, workspaceId, userId, credential, reconnectId } = input;
+  const { adapter, ctx, workspaceId, userId, credential, reconnectId, onlyIntoEmptyWorkspace } = input;
   const admin = createAdminClient();
 
   const missingScopes = adapter.detectMissingPermissions({ scopes: credential.scopes });
@@ -124,6 +140,22 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
     const mismatch = reconnectMismatch(data, isSimulatedCredential(credential));
     if (mismatch !== null) throw new ReconnectMismatchError(mismatch);
     connectionId = data.id;
+  } else if (onlyIntoEmptyWorkspace === true) {
+    // Pending, as below, and only while the workspace has no connection: checked and inserted in
+    // one transaction, so of two sets started together only one gets in (#287).
+    const { data, error } = await admin.rpc("insert_first_connection", {
+      p_workspace_id: workspaceId,
+      p_provider: adapter.id,
+      p_display_name: finalColumns.display_name,
+      p_poll_interval_seconds: adapter.pollIntervalSeconds,
+      p_user_id: userId,
+    });
+    if (error) throw new Error(`Connection insert failed (code ${error.code}).`);
+    // The function returns null when the workspace has a connection, which the generated `string` does not say.
+    const firstId: unknown = data;
+    if (typeof firstId !== "string") throw new WorkspaceNotEmptyError("The workspace already has a connection.");
+    connectionId = firstId;
+    created = true;
   } else {
     // Pending until the credential and accounts are stored, so the scheduler never picks up a
     // connection it cannot sync.

@@ -1,9 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { Page, Route } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { makeConnectionsNotDue } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth } from "./fixtures/db";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 /*
  * "Explore with sample data" (#257): the web server simulates providers (playwright.config.ts), so
@@ -11,10 +13,44 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth 
  * this workspace's connections itself, never the instance-wide tick, so this spec stays in the
  * `chromium` project. The action leaves them due, so the spec makes them not due once they are
  * added (#621). With simulation off the control is absent; the server always simulates in
- * end-to-end runs, so `sampleDataRefusal`'s unit tests cover that case.
+ * end-to-end runs, so `sampleDataRefusal`'s unit tests cover that case. Two tabs that submit at
+ * once connect one set between them, and the other tab says why it added nothing (#287).
  */
 
 const SAMPLE_BUTTON = "Explore with sample data";
+const ALREADY_CONNECTED =
+  "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
+
+/**
+ * Opens the empty timeline in `tab`, presses the sample data button from the keyboard, and holds
+ * the submit (a POST with a Next-Action header) before it leaves, for the caller to release. The
+ * tab's Realtime socket is answered by nobody, so live updates stay off and the tab keeps showing
+ * its own submit's outcome, rather than re-rendering with the other tab's connections.
+ */
+async function holdSampleDataSubmit(tab: Page, timelinePath: string): Promise<Route> {
+  const held = Promise.withResolvers<Route>();
+  await tab.routeWebSocket(/\/realtime\/v1\/websocket/, () => {});
+  await tab.route(
+    (url) => url.pathname === timelinePath,
+    async (route) => {
+      const request = route.request();
+      if (request.method() === "POST" && request.headers()["next-action"] !== undefined) held.resolve(route);
+      else await route.continue();
+    },
+  );
+  await tab.goto(timelinePath);
+  await tab.getByRole("region", { name: "No activity yet" }).getByRole("button", { name: SAMPLE_BUTTON }).focus();
+  await tab.keyboard.press("Enter");
+  return held.promise;
+}
+
+/** "added" once the tab shows the timeline with sample data, the message its submit answered with, or null while it runs. */
+async function sampleDataOutcome(tab: Page): Promise<string | null> {
+  if (new URL(tab.url()).searchParams.get("sample") === "added") return "added";
+  const alerts = await tab.getByRole("region", { name: "No activity yet" }).getByRole("alert").allTextContents();
+  const message = alerts.join("").trim();
+  return message === "" ? null : message;
+}
 
 ownerTest.describe("sample data as the owner", () => {
   ownerTest("fills an empty workspace's timeline and dashboard from the keyboard, labeled simulated", async ({ page }) => {
@@ -109,6 +145,59 @@ ownerTest.describe("sample data as the owner", () => {
       await expect(empty.getByRole("button", { name: SAMPLE_BUTTON })).toHaveCount(0);
       await expect(empty.getByText(/sample data/)).toHaveCount(0);
     } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+ownerTest.describe("sample data from two tabs at once (#287)", () => {
+  // Evidence (PW_PR_EVIDENCE=1) is captured at one viewport, in London time, as the app prints times.
+  ownerTest.use(EVIDENCE ? { timezoneId: "Europe/London", viewport: { width: 1280, height: 900 } } : {});
+
+  ownerTest("connects one set of providers, and the other tab says why it added nothing", async ({ page }) => {
+    ownerTest.slow();
+    const workspace = await createTestWorkspace("Sample data twice");
+    const timelinePath = `/w/${workspace.slug}/timeline`;
+    const tabs = [page, await page.context().newPage()] as const;
+    try {
+      const submits = await Promise.all(tabs.map((tab) => holdSampleDataSubmit(tab, timelinePath)));
+      // Released together, so each submit finds the workspace empty before the other connects anything.
+      await Promise.all(submits.map((submit) => submit.continue()));
+      for (const tab of tabs) await expect.poll(() => sampleDataOutcome(tab), { timeout: 60_000 }).not.toBeNull();
+
+      if (EVIDENCE) {
+        for (const [index, tab] of tabs.entries()) {
+          await tab.screenshot({ path: `pr-evidence/after/sample-data-tab-${index + 1}.png`, animations: "disabled", style: HIDE_DEV_INDICATOR });
+        }
+        const list = await page.context().newPage();
+        await list.goto(`/w/${workspace.slug}/connections`);
+        // The sticky app header would cover the top of a list taller than the viewport.
+        await list.getByRole("region", { name: "Connected providers" }).screenshot({
+          path: "pr-evidence/after/sample-data-connections.png",
+          animations: "disabled",
+          style: `header.sticky { visibility: hidden !important; } ${HIDE_DEV_INDICATOR}`,
+        });
+        await list.close();
+      }
+
+      const outcomes = await Promise.all(tabs.map(sampleDataOutcome));
+      expect(outcomes.toSorted()).toEqual([ALREADY_CONNECTED, "added"]);
+      const [added, refused] = outcomes[0] === "added" ? tabs : [tabs[1], tabs[0]];
+      await makeConnectionsNotDue(added, workspace.id);
+      await expectNoAxeViolations(refused);
+
+      // Every simulated provider once: one set between the two submits.
+      const { data: connections, error } = await adminClient()
+        .from("connections")
+        .select("provider")
+        .eq("workspace_id", workspace.id)
+        .limit(50);
+      if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
+      const providers = connections.map((connection) => connection.provider);
+      expect(providers.length).toBeGreaterThan(1);
+      expect(new Set(providers).size).toBe(providers.length);
+    } finally {
+      for (const tab of tabs) await tab.unrouteAll({ behavior: "ignoreErrors" });
       await deleteTestWorkspace(workspace);
     }
   });

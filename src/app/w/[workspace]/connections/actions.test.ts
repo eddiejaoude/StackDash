@@ -1,8 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { randomBytes, randomUUID } from "node:crypto";
 
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
+import { simulatedAdapters } from "@/lib/adapters/simulated";
 import type { ProviderId } from "@/lib/adapters/types";
 import type { SessionUser } from "@/lib/auth/session";
 import type { WorkspaceMembership } from "@/lib/data/workspaces";
+import type * as HistoryModule from "@/lib/demo/history";
+import type { Database } from "@/lib/supabase/database.types";
 import type { WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import {
@@ -27,6 +34,10 @@ import {
  * the registry while STACKDASH_ENABLE_FAKE_PROVIDER is not "1", so its sync could only fail. The
  * action refuses it with the reason the connection page shows, and queues nothing. The registry is
  * the real one, switched by the flag.
+ *
+ * Sample data under overlapping submits (#287): the simulated providers, `completeConnection`, and
+ * the credential save are the real ones, against an in-memory connections table; the history
+ * replay is stubbed, since it runs every sync job.
  */
 
 type Row = Readonly<{ id: string; provider: ProviderId; status: "active" | "revoked"; last_sync_requested_at: null }>;
@@ -38,6 +49,7 @@ const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
   createAdminClient: vi.fn(),
   refresh: vi.fn(),
+  replayHistory: vi.fn(async () => {}),
 }));
 
 vi.mock("next/cache", () => ({ refresh: mocks.refresh }));
@@ -47,7 +59,8 @@ vi.mock("@/lib/auth/session", () => ({ requireUser: mocks.requireUser, getCurren
 vi.mock("@/lib/data/workspaces", () => ({ getWorkspaceMembership: mocks.getWorkspaceMembership }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
-vi.mock("@/lib/jobs/queue", () => ({ enqueueSync: mocks.enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS: 300 }));
+vi.mock("@/lib/jobs/queue", () => ({ enqueueSync: mocks.enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS: 300, createJobDeps: () => ({}) }));
+vi.mock("@/lib/demo/history", async (importOriginal) => ({ ...(await importOriginal<typeof HistoryModule>()), replayHistory: mocks.replayHistory }));
 vi.mock("@/lib/log/logger", () => ({ logError: () => "ref-570", log: { info: () => {}, warn: () => {}, error: () => {} } }));
 
 const USER: SessionUser = { id: "57000000-0000-4000-8000-0000000000aa", email: "e2e-owner@example.com", profile: { name: null, avatarUrl: null } };
@@ -209,5 +222,116 @@ describe("syncNow and the provider registry", () => {
       message: "This connection is disconnected. Reconnect it before syncing.",
     });
     expect(mocks.enqueueSync).not.toHaveBeenCalled();
+  });
+});
+
+type ConnectionRow = Readonly<{ id: string; workspace_id: string; provider: string }>;
+
+const FirstConnectionArgsSchema = z.object({ p_workspace_id: z.string(), p_provider: z.string() });
+const ConnectionInsertSchema = z.object({ workspace_id: z.string(), provider: z.string() });
+
+/**
+ * The admin client over an in-memory connections table: the inserts and reads `completeConnection`
+ * and `saveCredential` make, and `insert_first_connection`, which checks and inserts in one step, as
+ * the database function does in one transaction under the workspace row's lock. Every other write
+ * is accepted and dropped.
+ */
+function sampleDataDatabase(seeded: readonly ConnectionRow[] = []): ConnectionRow[] {
+  const connections = [...seeded];
+  const insert = (workspaceId: string, provider: string): string => {
+    const id = randomUUID();
+    connections.push({ id, workspace_id: workspaceId, provider });
+    return id;
+  };
+  const admin = createSupabaseClient<Database>("http://postgrest.test", "test-key", {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: {
+      fetch: async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        const method = init?.method ?? "GET";
+        const body: unknown = init?.body === undefined ? null : JSON.parse(String(init.body));
+        if (url.pathname.endsWith("/rpc/insert_first_connection")) {
+          const args = FirstConnectionArgsSchema.parse(body);
+          if (connections.some((row) => row.workspace_id === args.p_workspace_id)) return Response.json(null);
+          return Response.json(insert(args.p_workspace_id, args.p_provider));
+        }
+        if (url.pathname.endsWith("/connections") && method === "POST") {
+          const row = ConnectionInsertSchema.parse(body);
+          return Response.json({ id: insert(row.workspace_id, row.provider) });
+        }
+        if (url.pathname.endsWith("/connections") && method === "GET") {
+          const id = url.searchParams.get("id")?.replace(/^eq\./, "");
+          return Response.json(connections.filter((row) => row.id === id).map((row) => ({ id: row.id })));
+        }
+        return new Response(null, { status: 204 });
+      },
+    },
+  });
+  mocks.createAdminClient.mockReturnValue(admin);
+  return connections;
+}
+
+/**
+ * The count the action reads with the user's client before adding sample data. Each read answers
+ * once `submits` reads have arrived, so that many submits all count before any of them connects
+ * anything: the overlap of #287.
+ */
+function stubConnectionCount(submits: number, count: () => number): void {
+  let arrived = 0;
+  const together = Promise.withResolvers<void>();
+  mocks.createClient.mockResolvedValue({
+    from: () => ({
+      select: () => ({
+        eq: async () => {
+          arrived += 1;
+          if (arrived === submits) together.resolve();
+          await together.promise;
+          return { count: count(), error: null };
+        },
+      }),
+    }),
+  });
+}
+
+describe("exploreWithSampleData and a workspace that gains a connection meanwhile (#287)", () => {
+  const ALREADY_CONNECTED =
+    "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
+  const ADDED = { digest: expect.stringContaining(";/w/acme/timeline?sample=added;") };
+  const ONE_SET = Object.keys(simulatedAdapters).toSorted();
+
+  beforeEach(() => {
+    vi.stubEnv("STACKDASH_SIMULATE_PROVIDERS", "1");
+    vi.stubEnv("STACKDASH_ENCRYPTION_KEY", randomBytes(32).toString("base64"));
+    vi.stubEnv("STACKDASH_ENCRYPTION_KEYS_PREVIOUS", "");
+  });
+
+  it("connects every simulated provider once into an empty workspace and opens the timeline", async () => {
+    const connections = sampleDataDatabase();
+    stubConnectionCount(1, () => connections.length);
+    await expect(exploreWithSampleData(null, guardedForm({}))).rejects.toMatchObject(ADDED);
+    expect(connections.map((row) => row.provider).toSorted()).toEqual(ONE_SET);
+    expect(mocks.enqueueSync).toHaveBeenCalledTimes(ONE_SET.length);
+    expect(mocks.replayHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("connects one set between two submits that both found the workspace empty, and gives the other the reason (boundary: concurrent submits)", async () => {
+    const connections = sampleDataDatabase();
+    stubConnectionCount(2, () => connections.length);
+    const results = await Promise.allSettled([exploreWithSampleData(null, guardedForm({})), exploreWithSampleData(null, guardedForm({}))]);
+    expect(connections.map((row) => row.provider).toSorted()).toEqual(ONE_SET);
+    expect(results).toContainEqual({ status: "rejected", reason: expect.objectContaining(ADDED) });
+    expect(results).toContainEqual({ status: "fulfilled", value: { ok: false, message: ALREADY_CONNECTED } });
+    // The refused submit queued no sync and replayed nothing.
+    expect(mocks.enqueueSync).toHaveBeenCalledTimes(ONE_SET.length);
+    expect(mocks.replayHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses with the reason and writes nothing when a connection landed after the count (boundary: one connection)", async () => {
+    const connections = sampleDataDatabase([{ id: GITHUB.id, workspace_id: WORKSPACE.id, provider: GITHUB.provider }]);
+    stubConnectionCount(1, () => 0);
+    expect(await exploreWithSampleData(null, guardedForm({}))).toEqual({ ok: false, message: ALREADY_CONNECTED });
+    expect(connections).toHaveLength(1);
+    expect(mocks.enqueueSync).not.toHaveBeenCalled();
+    expect(mocks.replayHistory).not.toHaveBeenCalled();
   });
 });

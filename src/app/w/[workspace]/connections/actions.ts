@@ -383,6 +383,8 @@ export async function deleteConnection(
  * "Explore with sample data" (#257): connects every simulated provider to an empty workspace and
  * runs their first sync, then opens the timeline with the result. Owners and admins only, checked
  * against the verified user, and refused when simulation is off or anything is already connected.
+ * The count below refuses a workspace that already has connections without writing anything; the
+ * database decides between submits that overlap (#287), so only one of them connects a set.
  */
 export async function exploreWithSampleData(
   _previous: ConnectionActionResult | null,
@@ -403,8 +405,9 @@ export async function exploreWithSampleData(
     const refusal = sampleDataRefusal({ simulationEnabled: isProviderSimulationEnabled(), connectionCount: count ?? 0 });
     if (refusal !== null) return { ok: false, message: refusal };
 
-    const connections = await addSampleData({ workspaceId: access.workspace.id, userId: access.user.id, now: new Date() });
-    log.info("connections.sample_data_added", { workspaceId: access.workspace.id, connections: connections.length });
+    const sampleData = await addSampleData({ workspaceId: access.workspace.id, userId: access.user.id, now: new Date() });
+    if (sampleData.kind === "refused") return { ok: false, message: sampleData.refusal };
+    log.info("connections.sample_data_added", { workspaceId: access.workspace.id, connections: sampleData.connections.length });
     timelinePath = workspacePath(access.workspace.slug, "timeline");
   } catch (error) {
     return failure(
