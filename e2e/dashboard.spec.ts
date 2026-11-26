@@ -6,6 +6,7 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
+import { dayLabel, londonDate } from "./fixtures/share";
 import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 // Every test seeds its own workspace with synthetic data: from the fake provider by default, and
@@ -558,18 +559,6 @@ function utcDay(offset: number): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + offset * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** The London date `offset` days from today, `YYYY-MM-DD`: the days the timeline's date filter reads. */
-function londonDay(offset: number): string {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  return new Date(Date.parse(`${today}T00:00:00Z`) + offset * DAY_MS).toISOString().slice(0, 10);
-}
-
-/** "Sunday, 2026-11-08": a date with its weekday, as the summary and the timeline write it. */
-function dayLabel(date: string): string {
-  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/London", weekday: "long" }).format(new Date(`${date}T00:00:00Z`));
-  return `${weekday}, ${date}`;
-}
-
 /**
  * One fake account reporting a day's spend and a day's requests for each of the 20 days before
  * today, each stored the day after its own day: USD 10.00 and 200 requests a day, except USD
@@ -749,7 +738,7 @@ ownerTest.describe("dashboard what changed", () => {
       // "What changed" is the one list of the days. The alerts summary keeps the count of what
       // was recorded, says it covers the whole workspace from which day, and leads to those events
       // from that same day (#664).
-      const from = londonDay(-6);
+      const from = londonDate(Date.now(), 6);
       await expect(alerts).toContainText(`2 unusual spend or usage events recorded for the whole workspace from ${dayLabel(from)} through today`);
       for (const title of titles) await expect(alerts).not.toContainText(title);
       await expect(alerts.getByRole("list")).toHaveCount(0);

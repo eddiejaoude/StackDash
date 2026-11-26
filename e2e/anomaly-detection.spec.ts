@@ -4,6 +4,7 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { openFilters } from "./fixtures/filters";
+import { dayLabel, londonDate, londonDayStart } from "./fixtures/share";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The
 // detection itself is unit tested (src/lib/alerts/anomaly.test.ts, src/lib/jobs/daily-summary.test.ts);
@@ -15,23 +16,6 @@ const ANOMALY_BODY =
 const METRIC_NAME = "Example provider: Spend this month";
 const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
-
-// en-CA writes a date as YYYY-MM-DD.
-const LONDON_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" });
-const LONDON_WEEKDAY = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/London", weekday: "long" });
-
-/** The London calendar date `offset` days from today, `YYYY-MM-DD`. */
-function londonDay(offset: number): string {
-  const today = LONDON_DATE.format(new Date());
-  return new Date(Date.parse(`${today}T00:00:00Z`) + offset * DAY_MS).toISOString().slice(0, 10);
-}
-
-/** The instant London's calendar day `date` begins: midnight GMT, or 23:00 UTC the day before in summer time. */
-function londonMidnight(date: string): Date {
-  const utcMidnight = Date.parse(`${date}T00:00:00Z`);
-  const summerMidnight = utcMidnight - HOUR_MS;
-  return new Date(LONDON_DATE.format(new Date(summerMidnight)) === date ? summerMidnight : utcMidnight);
-}
 
 /** One fake billing connection with one account, reporting nothing yet. */
 async function seedConnection(workspace: TestWorkspace): Promise<{ connectionId: string; accountId: string }> {
@@ -115,10 +99,8 @@ ownerTest.describe("anomaly detection as the owner", () => {
       // The alerts summary counts the recorded event and lists nothing (#291): one event and one
       // day of rows, too little history for "What changed" to find it again, so the count says
       // whose events it counts rather than leaving a reader to wonder why the top is empty.
-      const from = londonDay(-6);
-      await expect(summary).toContainText(
-        `1 unusual spend or usage event recorded for the whole workspace from ${LONDON_WEEKDAY.format(londonMidnight(from))}, ${from} through today`,
-      );
+      const from = londonDate(Date.now(), 6);
+      await expect(summary).toContainText(`1 unusual spend or usage event recorded for the whole workspace from ${dayLabel(from)} through today`);
       await expect(summary).not.toContainText(ANOMALY_TITLE);
       await expect(summary).not.toContainText(ANOMALY_BODY);
       await expect(summary.getByRole("list")).toHaveCount(0);
@@ -182,8 +164,9 @@ ownerTest.describe("anomaly detection as the owner", () => {
     const workspace = await createTestWorkspace("Anomaly window");
     try {
       const { connectionId, accountId } = await seedConnection(workspace);
-      const from = londonDay(-6);
-      const start = londonMidnight(from).getTime();
+      const now = Date.now();
+      const from = londonDate(now, 6);
+      const start = londonDayStart(now, 6).getTime();
       // Two inside the window (one exactly at its start, one an hour ago) and two outside it (a
       // millisecond before its start, and a month ago).
       const recorded = [
@@ -211,9 +194,7 @@ ownerTest.describe("anomaly detection as the owner", () => {
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const summary = page.getByRole("region", { name: "Alerts", exact: true });
-      await expect(summary).toContainText(
-        `2 unusual spend or usage events recorded for the whole workspace from ${LONDON_WEEKDAY.format(new Date(start))}, ${from} through today`,
-      );
+      await expect(summary).toContainText(`2 unusual spend or usage events recorded for the whole workspace from ${dayLabel(from)} through today`);
       const link = summary.getByRole("link", { name: "Show unusual days on the timeline" });
       await expect(link).toHaveAttribute("href", `/w/${workspace.slug}/timeline?type=stackdash.anomaly_detected&from=${from}`);
       await waitForTrends(page);
