@@ -161,7 +161,9 @@ ownerTest.describe("sample data from two tabs at once (#287)", () => {
     const tabs = [page, await page.context().newPage()] as const;
     try {
       const submits = await Promise.all(tabs.map((tab) => holdSampleDataSubmit(tab, timelinePath)));
-      // Released together, so each submit finds the workspace empty before the other connects anything.
+      // Released together, so the two submits usually both count zero and the database decides between
+      // them; when one gets ahead, the other is refused by its count. Either way one set is connected
+      // and the other tab is refused, so this tests the outcome; actions.test.ts holds the overlap itself.
       await Promise.all(submits.map((submit) => submit.continue()));
       for (const tab of tabs) await expect.poll(() => sampleDataOutcome(tab), { timeout: 60_000 }).not.toBeNull();
 
