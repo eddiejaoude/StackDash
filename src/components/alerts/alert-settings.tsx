@@ -27,7 +27,7 @@ import {
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants } from "@/lib/supabase/database.types";
-import { ALERT_SETTINGS_IDS, alertSettingsPath } from "@/lib/workspaces/paths";
+import { ALERT_SETTINGS_IDS, type AlertSettingsQuery, alertSettingsPath, pathWithQuery } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AddSuggestedAlerts } from "./add-suggested-alerts";
@@ -212,16 +212,8 @@ export async function AlertSettings({
 
   const settingsPath = alertSettingsPath(workspace.slug);
   // A pager replaces its list, so it lands on that list's heading rather than the top of the page.
-  const pageHref = (
-    cursors: { rulesAfter: string | null; budgetsAfter: string | null },
-    headingId: typeof RULES_HEADING_ID | typeof BUDGETS_HEADING_ID,
-  ) => {
-    const query = new URLSearchParams();
-    if (cursors.rulesAfter !== null) query.set("rulesAfter", cursors.rulesAfter);
-    if (cursors.budgetsAfter !== null) query.set("budgetsAfter", cursors.budgetsAfter);
-    const text = query.toString();
-    return `${text === "" ? settingsPath : `${settingsPath}?${text}`}#${headingId}`;
-  };
+  // Each pager changes only its own cursor and keeps the other list's place (#316).
+  const query: AlertSettingsQuery = { rulesAfter, budgetsAfter };
   const deniedReason = actionDeniedReason("manage_budgets");
 
   return (
@@ -284,13 +276,16 @@ export async function AlertSettings({
         {rules.nextCursor === null && rulesAfter === null ? null : (
           <nav aria-label="Alert rule pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {rulesAfter === null ? null : (
-              <Link href={pageHref({ rulesAfter: null, budgetsAfter }, RULES_HEADING_ID)} className="text-accent underline underline-offset-2">
+              <Link
+                href={pathWithQuery(settingsPath, { ...query, rulesAfter: null }, RULES_HEADING_ID)}
+                className="text-accent underline underline-offset-2"
+              >
                 Show the first rules
               </Link>
             )}
             {rules.nextCursor === null ? null : (
               <Link
-                href={pageHref({ rulesAfter: rules.nextCursor, budgetsAfter }, RULES_HEADING_ID)}
+                href={pathWithQuery(settingsPath, { ...query, rulesAfter: rules.nextCursor }, RULES_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show more rules
@@ -370,13 +365,16 @@ export async function AlertSettings({
         {budgets.nextCursor === null && budgetsAfter === null ? null : (
           <nav aria-label="Budget pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {budgetsAfter === null ? null : (
-              <Link href={pageHref({ rulesAfter, budgetsAfter: null }, BUDGETS_HEADING_ID)} className="text-accent underline underline-offset-2">
+              <Link
+                href={pathWithQuery(settingsPath, { ...query, budgetsAfter: null }, BUDGETS_HEADING_ID)}
+                className="text-accent underline underline-offset-2"
+              >
                 Show the first budgets
               </Link>
             )}
             {budgets.nextCursor === null ? null : (
               <Link
-                href={pageHref({ rulesAfter, budgetsAfter: budgets.nextCursor }, BUDGETS_HEADING_ID)}
+                href={pathWithQuery(settingsPath, { ...query, budgetsAfter: budgets.nextCursor }, BUDGETS_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show more budgets

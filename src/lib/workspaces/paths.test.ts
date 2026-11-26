@@ -7,6 +7,7 @@ import {
   alertSettingsPath,
   isWorkspaceSlug,
   movedAlertSettingsHref,
+  pathWithQuery,
   WORKSPACE_SECTIONS,
   workspaceHome,
   workspacePath,
@@ -36,6 +37,36 @@ describe("alertSettingsPath", () => {
 
   it("lands on a section by its fragment", () => {
     expect(alertSettingsPath("abc123", ALERT_SETTINGS_IDS.emails)).toBe("/w/abc123/alerts/settings#alert-emails");
+  });
+});
+
+describe("pathWithQuery", () => {
+  it("keeps every other list's place when one pager changes its own cursor (#316)", () => {
+    const query = { rulesAfter: "r1", budgetsAfter: "b1" };
+    expect(pathWithQuery("/w/abc123/alerts/settings", { ...query, budgetsAfter: "b2" }, "budgets-title")).toBe(
+      "/w/abc123/alerts/settings?rulesAfter=r1&budgetsAfter=b2#budgets-title",
+    );
+    expect(pathWithQuery("/w/abc123/alerts", { acknowledged: "show", alertsAfter: "a2" })).toBe(
+      "/w/abc123/alerts?acknowledged=show&alertsAfter=a2",
+    );
+  });
+
+  it.each([
+    ["every value null", { rulesAfter: null, budgetsAfter: null }, "/w/abc123/alerts/settings#budgets-title"],
+    ["an empty value", { rulesAfter: "", budgetsAfter: "b1" }, "/w/abc123/alerts/settings?budgetsAfter=b1#budgets-title"],
+    ["no query at all", {}, "/w/abc123/alerts/settings#budgets-title"],
+  ])("leaves out %s", (_title, query, href) => {
+    expect(pathWithQuery("/w/abc123/alerts/settings", query, "budgets-title")).toBe(href);
+  });
+
+  it("encodes cursor characters that would end the value, the query, or the path", () => {
+    expect(pathWithQuery("/w/abc123/alerts", { alertsAfter: "a+b&c=d#e/f é" })).toBe(
+      "/w/abc123/alerts?alertsAfter=a%2Bb%26c%3Dd%23e%2Ff+%C3%A9",
+    );
+  });
+
+  it("adds no fragment without one", () => {
+    expect(pathWithQuery("/w/abc123/alerts", { acknowledged: null, alertsAfter: null })).toBe("/w/abc123/alerts");
   });
 });
 

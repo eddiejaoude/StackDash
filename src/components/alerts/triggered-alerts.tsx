@@ -13,7 +13,7 @@ import {
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { formatDateTime } from "@/lib/format";
 import { barPercent, usageBarClass } from "@/lib/realtime/arrivals";
-import { ALERT_SETTINGS_IDS, alertSettingsPath, workspacePath } from "@/lib/workspaces/paths";
+import { ALERT_SETTINGS_IDS, alertSettingsPath, type AlertsInboxQuery, pathWithQuery, workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AcknowledgeAllButton, AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";
@@ -137,13 +137,10 @@ export async function TriggeredAlerts({
   ]);
 
   const alertsPath = workspacePath(workspace.slug, "alerts");
-  const hrefFor = (show: boolean, cursor: string | null) => {
-    const query = new URLSearchParams();
-    if (show) query.set("acknowledged", "show");
-    if (cursor !== null) query.set("alertsAfter", cursor);
-    const text = query.toString();
-    return text === "" ? alertsPath : `${alertsPath}?${text}`;
-  };
+  // Each link changes only its own part of the inbox's query (#316).
+  const query: AlertsInboxQuery = { acknowledged: showAcknowledged ? "show" : null, alertsAfter: after };
+  // Showing or hiding acknowledged alerts is a different list, so it starts from the newest.
+  const toggleHref = pathWithQuery(alertsPath, { ...query, acknowledged: showAcknowledged ? null : "show", alertsAfter: null });
   const successMessage = showAcknowledged
     ? "Alert acknowledged. It stays in the alert history."
     : "Alert acknowledged. It stays in the alert history. Choose Show acknowledged alerts to see it.";
@@ -164,7 +161,7 @@ export async function TriggeredAlerts({
           {canAcknowledge ? null : <DeniedReason>{actionDeniedReason("acknowledge_alert")}</DeniedReason>}
         </div>
         <Link
-          href={hrefFor(!showAcknowledged, null)}
+          href={toggleHref}
           scroll={false}
           className={`inline-flex min-h-6 shrink-0 items-center text-sm ${linkClass}`}
         >
@@ -234,12 +231,12 @@ export async function TriggeredAlerts({
       {page.nextCursor === null && after === null ? null : (
         <nav aria-label="Triggered alert pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
           {after === null ? null : (
-            <Link href={`${hrefFor(showAcknowledged, null)}#${HEADING_ID}`} className={linkClass}>
+            <Link href={pathWithQuery(alertsPath, { ...query, alertsAfter: null }, HEADING_ID)} className={linkClass}>
               Show the newest alerts
             </Link>
           )}
           {page.nextCursor === null ? null : (
-            <Link href={`${hrefFor(showAcknowledged, page.nextCursor)}#${HEADING_ID}`} className={linkClass}>
+            <Link href={pathWithQuery(alertsPath, { ...query, alertsAfter: page.nextCursor }, HEADING_ID)} className={linkClass}>
               Show older alerts
             </Link>
           )}
