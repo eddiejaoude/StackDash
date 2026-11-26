@@ -23,6 +23,12 @@
 /** The MCP endpoint's path on every StackDash instance. */
 export const MCP_ENDPOINT_PATH = "/api/mcp";
 
+/**
+ * The name of every key the AI assistants section creates (#254), so the API keys list says what
+ * each one is for, and the Timeline's setup checklist can tell an assistant is connected (#674).
+ */
+export const ASSISTANT_KEY_NAME = "AI assistant";
+
 export type McpClientSetup = Readonly<{
   id: "claude-code" | "claude-desktop" | "cursor" | "other";
   name: string;
