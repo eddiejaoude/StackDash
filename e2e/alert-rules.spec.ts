@@ -284,6 +284,59 @@ ownerTest.describe("alert rules as the owner", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  ownerTest("pages rules and budgets apart, each pager keeping the other list's page (#316)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alert pagers");
+    try {
+      const admin = adminClient();
+      // One more than a page of each (RULES_PAGE_SIZE and BUDGETS_PAGE_SIZE are 50), so both pagers appear.
+      const { error: rulesError } = await admin.from("alert_rules").insert(
+        Array.from({ length: 51 }, (_, index) => ({
+          workspace_id: workspace.id,
+          kind: "allowance_percent" as const,
+          scope: "workspace" as const,
+          threshold_percent: index + 1,
+        })),
+      );
+      if (rulesError) throw new Error(`Seeding rules failed (code ${rulesError.code}).`);
+      const { error: budgetsError } = await admin.from("budgets").insert(
+        Array.from({ length: 51 }, (_, index) => ({
+          workspace_id: workspace.id,
+          name: `Budget ${String(index + 1).padStart(2, "0")}`,
+          scope: "workspace" as const,
+          amount_minor: 10_000,
+          currency: "USD",
+        })),
+      );
+      if (budgetsError) throw new Error(`Seeding budgets failed (code ${budgetsError.code}).`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      await expectHydrated(page);
+      const rulePages = page.getByRole("navigation", { name: "Alert rule pages" });
+      const budgetPages = page.getByRole("navigation", { name: "Budget pages" });
+
+      await rulePages.getByRole("link", { name: "Show more rules" }).click();
+      await expect(page).toHaveURL(/\?rulesAfter=[^&#]+#alert-rules-title$/);
+      await expect(rulePages.getByRole("link", { name: "Show the first rules" })).toBeVisible();
+
+      // Keyboard only: paging the budgets keeps the rules on their second (last) page.
+      await budgetPages.getByRole("link", { name: "Show more budgets" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\?rulesAfter=[^&#]+&budgetsAfter=[^&#]+#budgets-title$/);
+      await expect(budgetPages.getByRole("link", { name: "Show the first budgets" })).toBeVisible();
+      await expect(rulePages.getByRole("link", { name: "Show the first rules" })).toBeVisible();
+      await expect(rulePages.getByRole("link", { name: "Show more rules" })).toHaveCount(0);
+      await expectNoAxeViolations(page);
+
+      // Back to the first rules keeps the budgets on their second (last) page.
+      await rulePages.getByRole("link", { name: "Show the first rules" }).click();
+      await expect(page).toHaveURL(/\?budgetsAfter=[^&#]+#alert-rules-title$/);
+      await expect(rulePages.getByRole("link", { name: "Show more rules" })).toBeVisible();
+      await expect(budgetPages.getByRole("link", { name: "Show the first budgets" })).toBeVisible();
+      await expect(budgetPages.getByRole("link", { name: "Show more budgets" })).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
 });
 
 viewerTest.describe("alert rules as a viewer", () => {
