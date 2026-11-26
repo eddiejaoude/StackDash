@@ -5,11 +5,13 @@ import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 // Each test creates its own workspace and seeds only inside it.
 
 const EVENT_TITLE = "Example provider build minutes passed 100 percent of the allowance";
 // The short title the alerts page and dashboard lead with (#268), built from the stored columns.
+// The seed has no subject, as an alert recorded before #297, so it keeps the provider and kind.
 const ALERT_TITLE = "Example provider allowance at 104 percent";
 const ALERT_VALUE = "104 percent of the allowance";
 const ALERT_MESSAGE =
@@ -293,6 +295,95 @@ ownerTest.describe("triggered alerts as the owner", () => {
       await expectHydrated(page);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alerts");
       await expect(page).toHaveURL(`/w/${workspace.slug}/alerts#triggered-alerts-title`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+// Two allowance alerts on one provider, as the evaluator records them since #297: each with the
+// subject it names, so the inbox tells them apart without opening the sentence.
+const METRIC_ALERTS = [
+  {
+    subject: "Example provider bandwidth",
+    observed: 82.5,
+    triggeredAt: "2026-11-20T09:00:00Z",
+    printedAt: "2026-11-20 09:00 GMT",
+    title: "Example provider bandwidth at 82.5 percent",
+    message:
+      "Example provider bandwidth is at 82.5 percent of the allowance (825 GB of 1,000 GB) for the billing period starting 2026-11-01. The alert threshold is 80 percent.",
+  },
+  {
+    subject: "Example provider build minutes",
+    observed: 91.2,
+    triggeredAt: "2026-11-20T10:00:00Z",
+    printedAt: "2026-11-20 10:00 GMT",
+    title: "Example provider build minutes at 91.2 percent",
+    message:
+      "Example provider build minutes is at 91.2 percent of the allowance (5,472 minutes of 6,000 minutes) for the billing period starting 2026-11-01. The alert threshold is 80 percent.",
+  },
+] as const;
+
+async function seedMetricAlerts(workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  for (const alert of METRIC_ALERTS) {
+    const { data: rule, error: ruleError } = await admin
+      .from("alert_rules")
+      .insert({ workspace_id: workspace.id, kind: "allowance_percent", scope: "workspace", threshold_percent: 80 })
+      .select("id")
+      .single();
+    if (ruleError) throw new Error(`Seeding a rule failed (code ${ruleError.code}).`);
+    const { error } = await admin.from("triggered_alerts").insert({
+      workspace_id: workspace.id,
+      rule_id: rule.id,
+      cycle_key: "2026-11-01",
+      triggered_at: alert.triggeredAt,
+      observed_value: alert.observed,
+      provider: "fake",
+      subject: alert.subject,
+      threshold_label: "80 percent",
+      is_estimated: false,
+      message: alert.message,
+    });
+    if (error) throw new Error(`Seeding a triggered alert failed (code ${error.code}).`);
+  }
+}
+
+ownerTest.describe("allowance alert titles (#297)", () => {
+  // Evidence (PW_PR_EVIDENCE=1) is captured in London time, as the app prints times.
+  ownerTest.use(EVIDENCE ? { timezoneId: "Europe/London", viewport: { width: 1280, height: 900 } } : {});
+
+  ownerTest("names the metric, so two allowance alerts on one provider read differently", async ({ page }) => {
+    const workspace = await createTestWorkspace("Allowance alert titles");
+    try {
+      await seedMetricAlerts(workspace);
+
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const summary = page.getByRole("region", { name: "Alerts", exact: true });
+      for (const alert of METRIC_ALERTS) await expect(summary.getByText(alert.title, { exact: true })).toBeVisible();
+
+      if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      await expectHydrated(page);
+      const triggered = page.getByRole("region", { name: "Triggered alerts" });
+      // Newest first.
+      await expect(triggeredList(page).getByRole("heading", { level: 3 })).toHaveText([METRIC_ALERTS[1].title, METRIC_ALERTS[0].title]);
+      await expectNoAxeViolations(page);
+      if (EVIDENCE) {
+        await triggered.screenshot({
+          path: "pr-evidence/after/two-allowance-alerts.png",
+          animations: "disabled",
+          style: `header.sticky { visibility: hidden !important; } ${HIDE_DEV_INDICATOR}`,
+        });
+      }
+
+      // Keyboard only: each Acknowledge button is reached by Tab and named after its own alert.
+      for (const alert of [METRIC_ALERTS[1], METRIC_ALERTS[0]]) {
+        const item = triggeredList(page).getByRole("listitem").filter({ hasText: alert.title });
+        const button = item.getByRole("button", { name: /^Acknowledge/ });
+        await tabTo(page, button, MAX_TAB_PRESSES);
+        await expect(button).toHaveAccessibleName(`Acknowledge : ${alert.title}, triggered ${alert.printedAt}`);
+      }
     } finally {
       await deleteTestWorkspace(workspace);
     }

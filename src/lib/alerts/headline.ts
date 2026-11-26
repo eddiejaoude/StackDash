@@ -1,17 +1,17 @@
 /**
  * The short form of a triggered alert (#268): a title that says what fired and how far it got
- * ("Vercel budget at 94.3 percent"), the percent for a bar, and the value in words beside the bar.
- * Built from the stored columns the evaluator writes (src/lib/alerts/evaluate.ts), never parsed out
- * of the sentence, so the alerts page and the dashboard read every alert the same way. The full
+ * ("Vercel bandwidth at 82.5 percent"), the percent for a bar, and the value in words beside the
+ * bar. Built from the stored columns the evaluator writes (src/lib/alerts/evaluate.ts), never parsed
+ * out of the sentence, so the alerts page and the dashboard read every alert the same way. The full
  * sentence stays in `message`.
  *
  * Percentages use the evaluator's one decimal place, so the title never disagrees with the
  * sentence it summarizes.
  *
- * Limit: titles name the provider and the rule's kind, not the metric or budget. "Vercel bandwidth"
- * and "Vercel build minutes" both read "Vercel allowance", because the evaluator's subject (the
- * metric label, the scope, or the budget name) is not stored on `triggered_alerts`. Persisting it
- * is #297.
+ * The title leads with the evaluator's `subject` (the provider and metric, the spend scope, or the
+ * budget; #297). Alerts recorded before that column existed have a null subject and keep the
+ * provider and kind ("Vercel allowance"): their only record of the metric is the sentence, which
+ * is never parsed.
  */
 import { formatPercentNumber } from "@/lib/alerts/evaluate";
 import type { AlertRuleKind } from "@/lib/alerts/rule-schema";
@@ -21,7 +21,7 @@ import type { Database } from "@/lib/supabase/database.types";
 
 type Row = Database["public"]["Tables"]["triggered_alerts"]["Row"];
 
-export type AlertHeadlineInput = Pick<Row, "provider" | "observed_value" | "observed_amount_minor" | "currency"> & {
+export type AlertHeadlineInput = Pick<Row, "provider" | "subject" | "observed_value" | "observed_amount_minor" | "currency"> & {
   /** The rule's kind, or null when the rule could not be read. */
   kind: AlertRuleKind | null;
 };
@@ -40,11 +40,17 @@ const KIND_NOUNS: Record<AlertRuleKind, string> = {
   spend_amount: "spend",
 };
 
-export function alertHeadline(alert: AlertHeadlineInput): AlertHeadline {
+/** What the title leads with: the stored subject, else the provider and the rule's kind. */
+function titleSubject(alert: AlertHeadlineInput): string {
+  const stored = alert.subject?.trim() ?? "";
+  if (stored !== "") return stored;
   const noun = alert.kind === null ? "alert" : KIND_NOUNS[alert.kind];
   // Without a provider (a budget or spend rule across several), the noun leads on its own.
-  const subject =
-    alert.provider === null ? noun.charAt(0).toUpperCase() + noun.slice(1) : `${PROVIDER_NAMES[alert.provider]} ${noun}`;
+  return alert.provider === null ? noun.charAt(0).toUpperCase() + noun.slice(1) : `${PROVIDER_NAMES[alert.provider]} ${noun}`;
+}
+
+export function alertHeadline(alert: AlertHeadlineInput): AlertHeadline {
+  const subject = titleSubject(alert);
   const percent = alert.observed_value !== null && Number.isFinite(alert.observed_value) ? alert.observed_value : null;
   const amount =
     alert.observed_amount_minor === null || alert.currency === null
