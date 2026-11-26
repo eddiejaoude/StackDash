@@ -1,4 +1,4 @@
-import { test, type APIResponse, type Page } from "@playwright/test";
+import { test, type APIResponse, type Locator, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
@@ -14,6 +14,7 @@ import {
 import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
 import { insertUnheard } from "./fixtures/realtime";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
@@ -74,6 +75,35 @@ async function deleteConnectionRow(id: string): Promise<void> {
 }
 
 const GONE_MESSAGE = "That item no longer exists in this workspace. Reload the page to see what is current.";
+
+// Records video of the #665 retried cases under PW_PR_EVIDENCE=1 only, at the viewport's size.
+const retriedFailureTest = ownerTest.extend({
+  video: { mode: EVIDENCE ? "on" : "off", size: { width: 1280, height: 720 } },
+});
+
+/** A named element screenshot for the pull request (PW_PR_EVIDENCE=1). */
+async function capture(of: Locator, name: string): Promise<void> {
+  if (!EVIDENCE) return;
+  await of.screenshot({ path: `pr-evidence/after/${name}.png`, animations: "disabled", style: HIDE_DEV_INDICATOR });
+}
+
+/**
+ * A named screenshot for the pull request (PW_PR_EVIDENCE=1) of `opener` and the space under it,
+ * where a failure beside the opener shows: the same 537 by 68 area as the #665 before capture.
+ */
+async function captureBeside(opener: Locator, name: string): Promise<void> {
+  if (!EVIDENCE) return;
+  // Centered, so the area under the opener is inside the viewport and the clip is not cut short.
+  await opener.evaluate((element) => element.scrollIntoView({ block: "center" }));
+  const box = await opener.boundingBox();
+  if (box === null) throw new Error("The opener is not on screen.");
+  await opener.page().screenshot({
+    path: `pr-evidence/after/${name}.png`,
+    animations: "disabled",
+    style: HIDE_DEV_INDICATOR,
+    clip: { x: box.x - 4, y: box.y - 4, width: 537, height: 68 },
+  });
+}
 
 /**
  * Reads the authorize URL from the start route's handoff page: the target of its "Continue to"
@@ -561,6 +591,89 @@ ownerTest.describe("connecting a provider as the owner", () => {
         await opener.click();
         await expect(dialog).toBeVisible();
         await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  for (const { openLabel, title, evidenceName } of [
+    { openLabel: "Disconnect", title: `Disconnect ${PROVIDER_NAME}?`, evidenceName: "disconnect" },
+    {
+      openLabel: "Delete connection and history",
+      title: "Delete this connection and its history?",
+      evidenceName: "delete-connection",
+    },
+  ]) {
+    retriedFailureTest(`shows a retried ${openLabel} failure only inside the reopened dialog (#665)`, async ({ page }) => {
+      const workspace = await createTestWorkspace("Retried failure");
+      try {
+        const connectionId = await seedConnection(workspace.id);
+        const connectionPath = `/w/${workspace.slug}/connections/${connectionId}`;
+        // Holds only the first server action, so "Working" stays on screen until the dialog is
+        // dismissed and reopened; the retry runs straight through.
+        const held = Promise.withResolvers<void>();
+        let first = true;
+        await page.route(`**${connectionPath}`, async (route) => {
+          if (route.request().method() !== "POST") return route.fallback();
+          if (first) {
+            first = false;
+            await held.promise;
+          }
+          return route.continue();
+        });
+        if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(connectionPath);
+        await expectHydrated(page);
+        const main = page.getByRole("main");
+        const opener = main.getByRole("button", { name: openLabel, exact: true });
+        const dialog = page.getByRole("dialog", { name: title });
+        const cancel = dialog.getByRole("button", { name: "Cancel" });
+        const confirm = dialog.getByRole("button", { name: openLabel, exact: true });
+        const message = dialog.getByText(GONE_MESSAGE);
+
+        // Keyboard only: Enter opens the dialog on Cancel, and Shift+Tab reaches the confirm button.
+        await opener.focus();
+        await page.keyboard.press("Enter");
+        await expect(cancel).toBeFocused();
+        await deleteConnectionRow(connectionId);
+        await page.keyboard.press("Shift+Tab");
+        await expect(confirm).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(dialog.getByRole("button", { name: "Working" })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await expect(opener).toBeFocused();
+        await page.keyboard.press("Enter");
+        await expect(cancel).toBeFocused();
+        held.resolve();
+        await expect(dialog.getByRole("alert")).toHaveText(GONE_MESSAGE);
+        await expect(message).toBeFocused();
+
+        // The retry fails too. Focus leaves the message for the confirm button, and the dialog
+        // moves it back only for a new failure, so a focused message is the retry's own result.
+        const retried = page.waitForResponse(
+          (response) => response.request().method() === "POST" && response.url().endsWith(connectionPath),
+        );
+        await page.keyboard.press("Tab");
+        await expect(cancel).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(confirm).toBeFocused();
+        await page.keyboard.press("Enter");
+        await retried;
+        await expect(confirm).toBeEnabled();
+        await expect(dialog.getByRole("alert")).toHaveText(GONE_MESSAGE);
+        await expect(message).toBeFocused();
+        await expectNoAxeViolations(page);
+        await capture(dialog, `${evidenceName}-retry-dialog`);
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await expect(opener).toBeFocused();
+
+        // The open dialog already showed the failure, so no alert carries it beside the opener.
+        // Empty alert regions stay mounted for every control, so match the message itself.
+        await expect(main.getByRole("alert").filter({ hasText: GONE_MESSAGE })).toHaveCount(0);
+        await captureBeside(opener, `${evidenceName}-opener-after-escape`);
       } finally {
         await deleteTestWorkspace(workspace);
       }
