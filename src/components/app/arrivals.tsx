@@ -242,8 +242,10 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
  * or focus leaves, and a press keeps it open for touch screens.
  *
  * Below `md` the tooltip is placed against the header's top row (positioned in the workspace
- * layout) rather than the button, so its width never runs off the left edge: on a phone, and up
- * to `md`, where a long account name can leave the button within 288px of the edge.
+ * layout) rather than the button, so its width never runs off the left edge on a phone. From `sm`
+ * to `md` the account name is hidden (#366) and the button's right edge sits about 400px from the
+ * left edge at 640px, clear of the 288px tooltip, so the row placement is kept there only so one
+ * breakpoint covers it.
  */
 export function LiveIndicator({ connections }: { connections: LiveConnectionsRead }) {
   const store = useContext(ArrivalStoreContext);
