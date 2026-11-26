@@ -191,8 +191,9 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
  * opener. A failure that arrives after Cancel or Escape closed the dialog mid-action, or after a
  * reopen replaced the confirmation that ran it, shows beside the opener too (#367), since that
  * confirmation can no longer report it. When the dialog is open again, the page behind it is
- * inert, so the new confirmation shows that failure as well. The confirmation remounts on every
- * open, so it starts without a previous attempt's error.
+ * inert, so the new confirmation shows that failure as well. A failure the open dialog shows
+ * replaces that earlier one, so it does not land beside the opener once the dialog closes (#665).
+ * The confirmation remounts on every open, so it starts without a previous attempt's error.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -245,8 +246,8 @@ function ConfirmDialog({
             if (result.ok) {
               setSettled(result);
               dialog.close("completed");
-            } else if (!shownInDialog) {
-              setSettled(result);
+            } else {
+              setSettled(shownInDialog ? null : result);
             }
           }}
         />

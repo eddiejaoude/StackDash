@@ -566,6 +566,67 @@ ownerTest.describe("connecting a provider as the owner", () => {
       }
     });
   }
+
+  for (const { openLabel, title } of [
+    { openLabel: "Disconnect", title: `Disconnect ${PROVIDER_NAME}?` },
+    { openLabel: "Delete connection and history", title: "Delete this connection and its history?" },
+  ]) {
+    ownerTest(`shows a retried ${openLabel} failure only inside the reopened dialog (#665)`, async ({ page }) => {
+      const workspace = await createTestWorkspace("Retried failure");
+      try {
+        const connectionId = await seedConnection(workspace.id);
+        const connectionPath = `/w/${workspace.slug}/connections/${connectionId}`;
+        // Holds only the first server action, so "Working" stays on screen until the dialog is
+        // dismissed and reopened; the retry runs straight through.
+        const held = Promise.withResolvers<void>();
+        let first = true;
+        await page.route(`**${connectionPath}`, async (route) => {
+          if (route.request().method() !== "POST") return route.fallback();
+          if (first) {
+            first = false;
+            await held.promise;
+          }
+          return route.continue();
+        });
+        await page.goto(connectionPath);
+        await expectHydrated(page);
+        const main = page.getByRole("main");
+        const opener = main.getByRole("button", { name: openLabel, exact: true });
+        const dialog = page.getByRole("dialog", { name: title });
+        const confirm = dialog.getByRole("button", { name: openLabel, exact: true });
+
+        await opener.click();
+        await deleteConnectionRow(connectionId);
+        await confirm.click();
+        await expect(dialog.getByRole("button", { name: "Working" })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await opener.click();
+        await expect(confirm).toBeVisible();
+        held.resolve();
+        await expect(dialog.getByRole("alert")).toHaveText(GONE_MESSAGE);
+
+        // The retry fails too, and the open dialog shows it.
+        const retried = page.waitForResponse(
+          (response) => response.request().method() === "POST" && response.url().endsWith(connectionPath),
+        );
+        await confirm.click();
+        await retried;
+        await expect(confirm).toBeEnabled();
+        await expect(dialog.getByRole("alert")).toHaveText(GONE_MESSAGE);
+        await expectNoAxeViolations(page);
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await expect(opener).toBeFocused();
+
+        // The open dialog already showed the failure, so no alert carries it beside the opener.
+        // Empty alert regions stay mounted for every control, so match the message itself.
+        await expect(main.getByRole("alert").filter({ hasText: GONE_MESSAGE })).toHaveCount(0);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 });
 
 viewerTest.describe("connections as a viewer", () => {
