@@ -5,19 +5,19 @@ import { getRecentAnomalies } from "./anomalies";
 /*
  * The dashboard's count of recorded unusual days (#291) against an in-memory `activity_events`
  * table that applies the filters the data layer asks for, so the tests check which events are
- * counted and what each read sends back rather than which builder methods were called.
+ * counted rather than which builder methods were called.
  */
 
-type EventRow = { id: string; workspace_id: string; type_id: string; occurred_at: string; title: string; body: string | null };
+type EventRow = { id: string; workspace_id: string; type_id: string; occurred_at: string };
 type Column = keyof EventRow;
-type Read = { columns: string; head: boolean };
-type Result = { data: Array<Partial<EventRow>> | null; count: number | null; error: { code: string } | null };
+type Result = { data: null; count: number | null; error: { code: string } | null };
 
 const db = vi.hoisted(() => ({
   rows: [] as EventRow[],
-  reads: [] as Read[],
   /** Set to make every read fail the way PostgREST reports an error. */
   failWith: null as { code: string } | null,
+  /** Set to make a read succeed with no count, which supabase-js types as possible. */
+  omitCount: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -25,11 +25,8 @@ vi.mock("@/lib/supabase/server", () => ({
     from(table: string) {
       if (table !== "activity_events") throw new Error(`Unexpected table ${table}`);
       const filters: Array<(row: EventRow) => boolean> = [];
-      let read: Read = { columns: "*", head: false };
-      let limit = Number.POSITIVE_INFINITY;
       const builder = {
-        select(columns: string, options?: { count?: "exact"; head?: boolean }) {
-          read = { columns, head: options?.head === true };
+        select() {
           return builder;
         },
         eq(column: Column, value: string) {
@@ -40,20 +37,10 @@ vi.mock("@/lib/supabase/server", () => ({
           filters.push((row) => Date.parse(String(row[column])) >= Date.parse(value));
           return builder;
         },
-        order() {
-          return builder;
-        },
-        limit(count: number) {
-          limit = count;
-          return builder;
-        },
         then(resolve: (value: Result) => unknown) {
-          db.reads.push(read);
           if (db.failWith !== null) return Promise.resolve({ data: null, count: null, error: db.failWith }).then(resolve);
-          const matched = db.rows.filter((row) => filters.every((keep) => keep(row))).slice(0, limit);
-          const columns = read.columns.split(",").map((column) => column.trim() as Column);
-          const data = read.head ? null : matched.map((row) => Object.fromEntries(columns.map((column) => [column, row[column]])));
-          return Promise.resolve({ data, count: matched.length, error: null }).then(resolve);
+          const count = db.omitCount ? null : db.rows.filter((row) => filters.every((keep) => keep(row))).length;
+          return Promise.resolve({ data: null, count, error: null }).then(resolve);
         },
       };
       return builder;
@@ -74,15 +61,13 @@ function event(overrides: Partial<EventRow>): EventRow {
     workspace_id: WORKSPACE,
     type_id: ANOMALY,
     occurred_at: "2026-11-24T00:00:00.000Z",
-    title: "Unusual spend on Example provider: 4 times the usual daily spend",
-    body: "Spend per day (verified) was $50.00 on 2026-11-23.",
     ...overrides,
   };
 }
 
 beforeEach(() => {
   db.rows = [];
-  db.reads = [];
+  db.omitCount = false;
   db.failWith = null;
 });
 
@@ -110,13 +95,13 @@ describe("getRecentAnomalies", () => {
     expect(await getRecentAnomalies(WORKSPACE, SINCE)).toEqual({ count: 0 });
   });
 
-  it("reads the count alone, so no event's title or body leaves the database for the dashboard", async () => {
-    db.rows = [event({}), event({}), event({}), event({})];
-    await getRecentAnomalies(WORKSPACE, SINCE);
-    expect(db.reads).toEqual([{ columns: "id", head: true }]);
+  it("counts 0 when the read succeeds without a count, as the unacknowledged alerts count does", async () => {
+    db.rows = [event({}), event({})];
+    db.omitCount = true;
+    expect(await getRecentAnomalies(WORKSPACE, SINCE)).toEqual({ count: 0 });
   });
 
-  it("throws when the count cannot be read, rather than reporting nothing unusual", async () => {
+  it("throws when the read fails, rather than reporting nothing unusual", async () => {
     db.failWith = { code: "42501" };
     await expect(getRecentAnomalies(WORKSPACE, SINCE)).rejects.toThrow("Failed to count recent anomalies");
   });

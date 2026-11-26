@@ -97,7 +97,8 @@ export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<Ano
 /**
  * How many anomaly events the workspace recorded since `since`, for the dashboard's alerts summary.
  * A count only, so no event row leaves the database. Reads through
- * `activity_events_workspace_timeline_idx` (workspace_id, occurred_at desc, id desc).
+ * `activity_events_workspace_timeline_idx` (workspace_id, occurred_at desc, id desc). A read that
+ * succeeds with no count reads as 0, as `countUnacknowledgedAlerts` does; a failed read throws.
  */
 export const getRecentAnomalies = cache(async (workspaceId: string, since: string): Promise<RecentAnomalies> => {
   const supabase = await createClient();
