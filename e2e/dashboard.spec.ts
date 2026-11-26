@@ -6,6 +6,7 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 // Every test seeds its own workspace with synthetic data: from the fake provider by default, and
 // GitHub rows where a GitHub shape is the subject.
@@ -568,7 +569,7 @@ function dayLabel(date: string): string {
  * today, each stored the day after its own day: USD 10.00 and 200 requests a day, except USD
  * 50.00 two days ago and 900 requests three days ago. Three deployments two days ago.
  */
-async function seedUnusualDays(workspace: TestWorkspace): Promise<void> {
+async function seedUnusualDays(workspace: TestWorkspace): Promise<{ connectionId: string; accountId: string }> {
   const admin = adminClient();
   const fresh = new Date(Date.now() - HOUR_MS / 6).toISOString();
   const { data: connection, error: connectionError } = await admin
@@ -632,6 +633,35 @@ async function seedUnusualDays(workspace: TestWorkspace): Promise<void> {
     })),
   );
   if (eventError) throw new Error(`Seeding deployments failed (code ${eventError.code}).`);
+  return { connectionId: connection.id, accountId: account.id };
+}
+
+/**
+ * The two `stackdash.anomaly_detected` events the daily summary job records for the days
+ * `seedUnusualDays` makes unusual, each at the end of its day, as `anomalyEvent` writes them.
+ */
+async function seedRecordedUnusualDays(workspace: TestWorkspace, { connectionId, accountId }: { connectionId: string; accountId: string }) {
+  const recorded = [
+    { day: utcDay(-2), metric: "fake.spend.daily", title: "Unusual spend on Example provider: 5 times the usual daily spend" },
+    { day: utcDay(-3), metric: "fake.requests.daily", title: "Unusual usage on Example provider: 4.5 times the usual daily usage" },
+  ];
+  const { error } = await adminClient()
+    .from("activity_events")
+    .insert(
+      recorded.map(({ day, metric, title }) => ({
+        workspace_id: workspace.id,
+        connection_id: connectionId,
+        external_account_id: accountId,
+        provider: "fake" as const,
+        type_id: "stackdash.anomaly_detected",
+        severity: "warning" as const,
+        title,
+        occurred_at: new Date(Date.parse(`${day}T00:00:00.000Z`) + DAY_MS).toISOString(),
+        dedupe_key: `anomaly:${day}:fake:${metric}:verified`,
+      })),
+    );
+  if (error) throw new Error(`Seeding recorded unusual days failed (code ${error.code}).`);
+  return recorded.map(({ title }) => title);
 }
 
 ownerTest.describe("dashboard what changed", () => {
@@ -675,6 +705,51 @@ ownerTest.describe("dashboard what changed", () => {
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline\\?from=${utcDay(-2)}&to=${utcDay(-2)}&provider=fake$`));
       await expect(page.getByText("Deployment at 10:00 succeeded")).toBeVisible();
       await expect(page.getByText("Deployment at 12:00 succeeded")).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("lists the unusual days once, and the alerts summary counts the workspace's recorded events instead", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard unusual days once");
+    try {
+      const titles = await seedRecordedUnusualDays(workspace, await seedUnusualDays(workspace));
+      if (EVIDENCE) {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+      }
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const changed = page.getByRole("region", { name: "What changed" });
+      const alerts = page.getByRole("region", { name: "Alerts", exact: true });
+      await expect(changed.getByRole("listitem")).toHaveCount(2);
+      await expect(alerts.getByRole("heading", { name: "Unusual spend and usage" })).toBeVisible();
+      await waitForTrends(page);
+      if (EVIDENCE) {
+        // From the top of "What changed" to the bottom of the alerts summary: both places that
+        // speak about the unusual days, in one picture.
+        const top = await changed.boundingBox();
+        const bottom = await alerts.boundingBox();
+        if (top === null || bottom === null) throw new Error("The evidence regions are not on the page.");
+        const scrolled = await page.evaluate(() => window.scrollY);
+        await page.screenshot({
+          path: "pr-evidence/after/dashboard-unusual-days.png",
+          fullPage: true,
+          clip: { x: 0, y: scrolled + top.y - 16, width: 1280, height: bottom.y + bottom.height - top.y + 32 },
+          animations: "disabled",
+          style: `header.sticky { visibility: hidden !important; } ${HIDE_DEV_INDICATOR}`,
+        });
+      }
+
+      // "What changed" is the one list of the days. The alerts summary keeps the count of what
+      // was recorded, says it covers the whole workspace, and leads to those events.
+      await expect(alerts).toContainText("2 unusual spend or usage events recorded for the whole workspace in the last 7 days");
+      for (const title of titles) await expect(alerts).not.toContainText(title);
+      await expect(alerts.getByRole("list")).toHaveCount(0);
+      await expect(alerts.getByRole("link", { name: "Show unusual days on the timeline" })).toHaveAttribute(
+        "href",
+        `/w/${workspace.slug}/timeline?type=stackdash.anomaly_detected`,
+      );
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

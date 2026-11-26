@@ -17,9 +17,11 @@ const TITLE_ID = "alerts-summary-title";
 
 /**
  * Unacknowledged alerts on the dashboard: how many, the newest three by their short titles (#268),
- * and the way to the full list, followed by the unusual spend and usage events anomaly detection
- * wrote in the last week (#169). One plain line with no panel when there is nothing to act on, so it
- * never pushes the numbers down. Zero is said in words, so "no alerts" never looks like "not loaded".
+ * and the way to the full list, followed by how many unusual spend and usage events anomaly
+ * detection recorded in the last week (#169) and the way to them on the timeline. The days
+ * themselves are listed once, by "What changed" at the top (#291). One plain line with no panel
+ * when there is nothing to act on, so it never pushes the numbers down. Zero is said in words, so
+ * "no alerts" never looks like "not loaded".
  */
 export function AlertsSummary({
   workspace,
@@ -89,37 +91,20 @@ export function AlertsSummary({
 }
 
 function UnusualDays({ workspace, anomalies }: { workspace: WorkspaceRef; anomalies: RecentAnomalies }) {
-  const headingId = `${TITLE_ID}-unusual`;
-  // One event per metric per day, so two metrics on one day are two events, not two days.
-  const countText =
-    anomalies.count === 1
-      ? `1 unusual spend or usage event in the last ${RECENT_ANOMALY_DAYS} days`
-      : `${anomalies.count} unusual spend or usage events in the last ${RECENT_ANOMALY_DAYS} days`;
+  // One event per metric per day, so two metrics on one day are two events, not two days. The count
+  // is of the events as recorded on the day for the whole workspace, so it ignores the dashboard's
+  // filters and later mutes, which "What changed" follows (#291); the words say so.
+  const events = anomalies.count === 1 ? "1 unusual spend or usage event" : `${anomalies.count} unusual spend or usage events`;
   return (
-    <div className="border-t border-line">
-      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
-        <h3 id={headingId} className="font-semibold">
-          Unusual spend and usage
-        </h3>
-        <p className="font-medium">{countText}</p>
-        <Link
-          href={`${workspacePath(workspace.slug, "timeline")}?type=${ANOMALY_TYPE_ID}`}
-          className="ml-auto inline-flex min-h-6 items-center text-accent underline underline-offset-2"
-        >
-          Show unusual days on the timeline
-        </Link>
-      </div>
-      <ul aria-labelledby={headingId} className="divide-y divide-line border-t border-line">
-        {anomalies.newest.map((anomaly) => (
-          <li key={anomaly.id} className="px-4 py-3">
-            <AlertSeverityLabel severity="warning" />
-            <p className="mt-1 break-words text-sm font-medium leading-6">{anomaly.title}</p>
-            {anomaly.body === null ? null : (
-              <p className="whitespace-pre-line break-words text-sm leading-6 text-muted">{anomaly.body}</p>
-            )}
-          </li>
-        ))}
-      </ul>
+    <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-4 py-2 text-sm">
+      <h3 className="font-semibold">Unusual spend and usage</h3>
+      <p className="font-medium">{`${events} recorded for the whole workspace in the last ${RECENT_ANOMALY_DAYS} days`}</p>
+      <Link
+        href={`${workspacePath(workspace.slug, "timeline")}?type=${ANOMALY_TYPE_ID}`}
+        className="ml-auto inline-flex min-h-6 items-center text-accent underline underline-offset-2"
+      >
+        Show unusual days on the timeline
+      </Link>
     </div>
   );
 }

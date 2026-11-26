@@ -220,7 +220,7 @@ async function DashboardContent({
     alertsSummary,
     headlineSnapshots,
     headlineEvents,
-    recentAnomalyEvents,
+    recordedAnomalies,
     anomalyControls,
     dayEventCounts,
   ] = await Promise.all([
@@ -234,7 +234,7 @@ async function DashboardContent({
     getAnomalyControls(workspace.id),
     dayCounts,
   ]);
-  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalyEvents} />;
+  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recordedAnomalies} />;
 
   if (workspaceScope.connections.length === 0) {
     const canConnect = canPerform(role, "manage_connections");
