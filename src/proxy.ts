@@ -96,6 +96,13 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL, request: NextReq
 const MIS_CASED_DOC_PATH = /^\/docs\/.*[A-Z]/;
 const UNKNOWN_DOC_PATH = "/docs/_";
 
+// Every proxied prefix is lowercase, and no route answers a path that spells one with a capital
+// (/App, /W/x, /Sign-In), so such a path is the global 404. next.config.ts matches its headers
+// without regard to case and keeps the static policy off these paths too, so config.matcher spells
+// each prefix in every case and the nonce policy comes from here (#376). Mis-cased /docs paths and
+// public project page addresses are answered before this check.
+const MIS_CASED_PREFIX = /^\/[^/]*[A-Z]/;
+
 // Public project pages (#150) are addressed as /@<handle or workspace slug>/<page slug>. A route
 // folder that starts with @ is a parallel route slot, so the address is rewritten to the page route
 // under /p. That route is never answered under its own path: anything else under /@ or /p is
@@ -166,9 +173,10 @@ function withNoncePolicy(
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, sets the
  * CSP headers, rewrites public project page addresses, sends a super admin's ADMIN_PATH to the
- * page's route (the only way to reach it), and answers that route's own path as not found. This is
- * not authorization: every page, Server Function, and route handler still checks the user itself,
- * because a matcher can drift and silently stop covering a path.
+ * page's route (the only way to reach it), answers that route's own path as not found, and puts
+ * the nonce policy on the global 404 a mis-cased prefix gets. This is not authorization: every
+ * page, Server Function, and route handler still checks the user itself, because a matcher can
+ * drift and silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
   if (MIS_CASED_DOC_PATH.test(request.nextUrl.pathname)) {
@@ -208,6 +216,12 @@ export async function proxy(request: NextRequest) {
     return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
       NextResponse.rewrite(new URL(UNKNOWN_ADMIN_ROUTE, request.url), init),
     );
+  }
+
+  if (MIS_CASED_PREFIX.test(pathname)) {
+    // No session refresh: the global 404 shows nothing about who is signed in. The nonce policy
+    // still applies, because it renders its scripts per request.
+    return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.next(init));
   }
 
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = publicEnv();
@@ -273,24 +287,27 @@ export async function proxy(request: NextRequest) {
 // (answered as not found above, before any session or CSP work). The landing page, the docs, the
 // signed-out /account/deleted page, API routes, and static assets stay out: they need no session
 // refresh, and a nonce would force static pages to render per request. next.config.ts applies the
-// static CSP to every path except the paths listed here; keep them in sync.
+// static CSP to every path except the paths listed here; keep them in sync. src/proxy.test.ts
+// checks the two together, in any case of the path.
 //
 // Next compiles each matcher to a case-sensitive regular expression, so the docs entry matches only
 // paths that contain an uppercase letter and correctly cased docs never invoke the proxy. "/@" is
-// followed by a pattern rather than `:path*`, which repeats only after a slash.
+// followed by a pattern rather than `:path*`, which repeats only after a slash. Every other entry
+// spells its prefix with one character class per letter ([Aa][Pp][Pp] for /app), because
+// next.config.ts matches headers without regard to case: it keeps the static CSP off /App and
+// /W/x as well, so the proxy has to run there too (MIS_CASED_PREFIX, #376). A prefix followed by
+// `/:path*` matches on its own as well as with a path under it.
 export const config = {
   matcher: [
-    "/app",
-    "/app/:path*",
-    "/w/:path*",
-    "/account",
-    "/sign-in",
-    "/auth/:path*",
-    "/unsubscribe",
+    "/([Aa][Pp][Pp])/:path*",
+    "/([Ww])/:path*",
+    "/([Aa][Cc][Cc][Oo][Uu][Nn][Tt])",
+    "/([Ss][Ii][Gg][Nn]-[Ii][Nn])",
+    "/([Aa][Uu][Tt][Hh])/:path*",
+    "/([Uu][Nn][Ss][Uu][Bb][Ss][Cc][Rr][Ii][Bb][Ee])",
     "/docs/:path(.*[A-Z].*)",
     "/@:path(.*)",
-    "/p/:path*",
-    "/super-admin",
-    "/super-admin/:path*",
+    "/([Pp])/:path*",
+    "/([Ss][Uu][Pp][Ee][Rr]-[Aa][Dd][Mm][Ii][Nn])/:path*",
   ],
 };

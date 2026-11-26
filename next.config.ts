@@ -13,17 +13,21 @@ const securityHeaders = [
 // would make the static landing page dynamic. src/proxy.ts enforces a full nonce policy on app
 // routes with the same four directives, except that form-action there also allows the
 // no-JavaScript sign-in redirect chain; e2e/csp.spec.ts asserts both. This header is kept off the
-// proxied paths, because a second policy would be enforced alongside the nonce policy.
+// proxied paths rather than replaced there: a second policy would be enforced alongside the nonce
+// policy, and the Next.js docs give no order between a header set here and one the proxy sets.
 const staticCsp = {
   key: "Content-Security-Policy",
   value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
 };
 
-// Every path except the paths in the proxy matcher in src/proxy.ts (/app, /app/*, /w/*, /account,
-// /sign-in, /auth/*, /unsubscribe, the public project pages at /@* and /p/*, and the super admin
-// route at /super-admin and /super-admin/*). Keep the two lists in sync. The proxy also matches
-// mis-cased /docs paths but sets no CSP there, so they stay covered here.
-const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$|@|p$|p/|super-admin$|super-admin/).*)";
+// Every path except the paths in the proxy matcher in src/proxy.ts (/app, /app/*, /w, /w/*,
+// /account, /sign-in, /auth, /auth/*, /unsubscribe, the public project pages at /@* and /p/*, and
+// the super admin route at /super-admin and /super-admin/*). Keep the two lists in sync;
+// src/proxy.test.ts checks them together. Next matches these sources without regard to case, so
+// /App and /W/x are kept out as well, and the proxy matcher spells each prefix in every case to
+// give them the nonce policy (#376). The proxy also matches mis-cased /docs paths but sets no CSP
+// there, so they stay covered here.
+const outsideProxy = "/((?!app$|app/|w$|w/|account$|sign-in$|auth$|auth/|unsubscribe$|@|p$|p/|super-admin$|super-admin/).*)";
 
 // Badges (#149) are SVG documents another site embeds and anyone can open directly: opened as a
 // page, they may load and run nothing. Next applies these headers before a route handler runs and
