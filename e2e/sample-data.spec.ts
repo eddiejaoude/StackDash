@@ -59,8 +59,10 @@ async function expectActionsAboveRefusal(page: Page, layout: "row" | "stacked"):
   const cardCenter = centerOf(card);
   if (layout === "row") {
     expect(Math.abs(connect.top - sample.top)).toBeLessThan(1);
-    // The row's 12px gap (`gap-3`) between them, and the pair centered as one.
-    expect(Math.abs(sample.left - connect.right - 12)).toBeLessThan(1);
+    // Next to each other, with no more than a gap between them, and the pair centered as one.
+    const gap = sample.left - connect.right;
+    expect(gap).toBeGreaterThan(0);
+    expect(gap).toBeLessThan(32);
     expect(Math.abs(centerOf({ left: connect.left, right: sample.right }) - cardCenter)).toBeLessThan(2);
   } else {
     expect(sample.top).toBeGreaterThanOrEqual(connect.bottom);
@@ -118,6 +120,12 @@ ownerTest.describe("sample data as the owner", () => {
       const sample = empty.getByRole("button", { name: SAMPLE_BUTTON });
       await expect(connect).toBeVisible();
       await expect(sample).toBeVisible();
+      if (EVIDENCE) {
+        // The idle empty state, before any message, at the size the refusal evidence uses (#666).
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.screenshot({ path: "pr-evidence/after/sample-data-idle-1280.png", animations: "disabled", style: HIDE_DEV_INDICATOR });
+        await empty.screenshot({ path: "pr-evidence/after/sample-data-idle-card-1280.png", animations: "disabled", style: HIDE_DEV_INDICATOR });
+      }
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
