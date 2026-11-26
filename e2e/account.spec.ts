@@ -5,6 +5,7 @@ import { test, type Browser, type BrowserContext, type Page } from "@playwright/
 import { z } from "zod";
 
 import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, notDueForAMonth, personalWorkspace, type Admin } from "./fixtures/db";
 import { expectTopRowFits } from "./fixtures/header";
 
@@ -220,6 +221,32 @@ async function openWorkspace(context: BrowserContext): Promise<Page> {
   return page;
 }
 
+/** Long enough to fill the account name's 160 px cap (`max-w-40` in account-link.tsx), so it truncates. */
+const LONG_NAME = "Maximiliana Wolfeschlegelstein Bartholomew";
+
+/**
+ * Evidence for #366 (PW_PR_EVIDENCE=1 only): the switcher's width, how much of the workspace name
+ * it shows, and the room left before the live indicator at each width, plus the header at 640 px.
+ */
+async function recordSwitcherEvidence(page: Page): Promise<void> {
+  const header = page.getByRole("banner");
+  const switcher = header.getByRole("button", { name: /^Workspace: / });
+  const liveIndicator = header.getByRole("button").filter({ has: page.getByTestId("live-dot") });
+  await page.emulateMedia({ colorScheme: "dark" });
+  for (const width of [640, 767, 768]) {
+    await page.setViewportSize({ width, height: 700 });
+    await expect(liveIndicator).toHaveAccessibleName(/\d+ connected/);
+    const [button, live] = await Promise.all([switcher.boundingBox(), liveIndicator.boundingBox()]);
+    if (button === null || live === null) throw new Error(`The switcher or the live indicator is not rendered at ${width} px.`);
+    const name = await switcher.evaluate((element) => {
+      const text = element.querySelector(".truncate");
+      return text === null ? null : { shown: text.clientWidth, full: text.scrollWidth };
+    });
+    console.log(JSON.stringify({ width, switcher: button.width, name, spaceAfter: live.x - (button.x + button.width) }));
+    if (width === 640) await header.screenshot({ path: "pr-evidence/header-640.png" });
+  }
+}
+
 test.describe("the workspace header identity", () => {
   test("shows the GitHub display name and avatar, fits a phone, and opens the Account page by keyboard", async ({ browser }) => {
     const user = await createSyntheticUser("identity", { full_name: "Ada Example", name: "Ada Example", avatar_url: AVATAR_URL });
@@ -290,6 +317,56 @@ test.describe("the workspace header identity", () => {
       await expectTopRowFits(page, accountName);
 
       await account.click();
+      await expect(page).toHaveURL(/\/account$/);
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+
+  test("leaves the workspace switcher room for its name from sm to md when the account name fills its cap", async ({ browser }) => {
+    const user = await createSyntheticUser("identity-long", { full_name: LONG_NAME, name: LONG_NAME, avatar_url: AVATAR_URL });
+    const context = await signedInContext(browser, user);
+    await context.route("https://avatars.githubusercontent.com/**", (route) =>
+      route.fulfill({ status: 200, contentType: "image/svg+xml", body: AVATAR_SVG }),
+    );
+    try {
+      const page = await openWorkspace(context);
+      if (process.env.PW_PR_EVIDENCE === "1") await recordSwitcherEvidence(page);
+      const header = page.getByRole("banner");
+      const accountName = `Account: ${LONG_NAME}`;
+      const account = header.getByRole("link", { name: accountName, exact: true });
+      const shownName = account.getByText(LONG_NAME, { exact: true });
+      const switcher = header.getByRole("button", { name: /^Workspace: / });
+      const workspaceName = switcher.getByText((await switcher.innerText()).replace(/^Workspace: /, ""), { exact: true });
+
+      // From sm to md the switcher keeps room for a few characters of the workspace name, and the
+      // account name is visually hidden (sr-only, so 1 px) while staying in the link's accessible name.
+      for (const width of [640, 767]) {
+        await page.setViewportSize({ width, height: 700 });
+        await expectTopRowFits(page, accountName);
+        expect(await workspaceName.evaluate((element) => element.clientWidth), `workspace name shown at ${width} px`).toBeGreaterThanOrEqual(24);
+        await expect.poll(async () => (await shownName.boundingBox())?.width).toBeLessThanOrEqual(1);
+      }
+
+      await expectNoAxeViolations(page);
+      // Keyboard at 640 px: tab forward from the switcher to the account link, which shows its focus.
+      await page.setViewportSize({ width: 640, height: 700 });
+      await switcher.focus();
+      for (let presses = 0; presses < 10 && !(await account.evaluate((link) => link === document.activeElement)); presses++) {
+        await page.keyboard.press("Tab");
+      }
+      await expect(account).toBeFocused();
+      expect(await account.evaluate((link) => getComputedStyle(link).outlineStyle)).toBe("solid");
+
+      // From md the name shows, truncated at its 160 px cap, and the row still fits.
+      await page.setViewportSize({ width: 768, height: 700 });
+      await expect.poll(async () => (await shownName.boundingBox())?.width).toBe(160);
+      expect(await shownName.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+      await expectTopRowFits(page, accountName);
+      expect(await workspaceName.evaluate((element) => element.clientWidth), "workspace name shown at 768 px").toBeGreaterThanOrEqual(24);
+
+      await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/\/account$/);
     } finally {
       await context.close();
