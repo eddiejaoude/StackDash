@@ -9,7 +9,9 @@ import type { AccountProfile } from "@/lib/account/profile";
 /**
  * The signed-in user's avatar and name, linking to the Account page (#175), so someone with more
  * than one GitHub account can see which one is active. The name is the link's text and the avatar
- * is decorative. Below `sm` only the avatar shows; the name stays in the link's accessible name.
+ * is decorative. Below `md` only the avatar shows; the name stays in the link's accessible name.
+ * From `sm` the role badge and the live label already take the room, so a name at its 160 px cap
+ * would leave the workspace switcher no room for its own name (#366).
  *
  * The fallback person icon sits under the avatar, so a missing, slow, or failed avatar never shows
  * a broken image. next/image replays an error that happened before hydration to `onError`.
@@ -58,12 +60,12 @@ export function AccountLink({ profile }: { profile: AccountProfile }) {
       {profile.name !== null ? (
         <>
           <span className="sr-only">Account: </span>
-          <span className="sr-only sm:not-sr-only">
+          <span className="sr-only md:not-sr-only">
             <span className="block max-w-40 truncate">{profile.name}</span>
           </span>
         </>
       ) : (
-        <span className="sr-only sm:not-sr-only">Account</span>
+        <span className="sr-only md:not-sr-only">Account</span>
       )}
     </Link>
   );

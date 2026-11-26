@@ -109,10 +109,10 @@ export async function deleteTestWorkspace(workspace: TestWorkspace): Promise<voi
 }
 
 /** The personal workspace every user gets when their account is created. */
-export async function personalWorkspace(userId: string): Promise<Readonly<{ id: string; slug: string }>> {
+export async function personalWorkspace(userId: string): Promise<Readonly<{ id: string; slug: string; name: string }>> {
   const { data, error } = await adminClient()
     .from("workspaces")
-    .select("id, slug")
+    .select("id, slug, name")
     .eq("created_by", userId)
     .eq("is_personal", true)
     .single();
