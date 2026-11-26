@@ -60,8 +60,10 @@ export function ConfirmDelete({
         {label}
         <span className="sr-only">: {accessibleSuffix}</span>
       </button>
-      {/* Outside the dialog so a failure stays readable after it closes. */}
-      <FailureAnnouncement inline failure={unshownFailure} className="basis-full text-sm" />
+      {/* Outside the dialog so a failure stays readable after it closes. Mounted while empty, so a
+          failure is announced, but kept out of the row's wrapping flex layout until then, so it
+          adds no gap there. */}
+      <FailureAnnouncement inline failure={unshownFailure} className={unshownFailure === null ? "sr-only" : "basis-full text-sm"} />
       <ModalDialog dialog={dialog} title={title} description={description} size="sm">
         <ConfirmDeleteForm
           confirmLabel={confirmLabel}
