@@ -7,7 +7,7 @@ import { SIMULATED_CODE_PREFIX, simulatedAdapters } from "@/lib/adapters/simulat
 import { simulatedCredentialMetadata } from "@/lib/adapters/simulated/marker";
 import type { ProviderId } from "@/lib/adapters/types";
 import { alertRuleInputSchema, budgetInputSchema } from "@/lib/alerts/rule-schema";
-import { completeConnection } from "@/lib/connections/connect";
+import { completeConnection, WorkspaceNotEmptyError } from "@/lib/connections/connect";
 import { createJobDeps } from "@/lib/jobs/queue";
 import { countsProvider, PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
@@ -165,7 +165,9 @@ export type DemoConnection = Readonly<{ id: string; provider: ProviderId }>;
 
 /**
  * Connects every simulated provider in the registry, as the OAuth callback would, with the
- * credential's account seed fixed by `seed`. Nothing syncs yet: the history replay does that.
+ * credential's account seed fixed by `seed`. Nothing syncs yet: the history replay does that. The
+ * first connection goes in only while the workspace has none (#287), so of two sets started
+ * together only one lands: the other throws WorkspaceNotEmptyError before writing anything.
  */
 export async function connectSimulatedProviders(input: Readonly<{
   workspaceId: string;
@@ -189,6 +191,8 @@ export async function connectSimulatedProviders(input: Readonly<{
       workspaceId: input.workspaceId,
       userId: input.userId,
       credential,
+      // Once the first is in, the workspace has a connection, so the rest of the set follows it.
+      ...(connections.length === 0 ? { onlyIntoEmptyWorkspace: true as const } : {}),
     });
     connections.push({ id: connectionId, provider: adapter.id });
   }
@@ -198,6 +202,11 @@ export async function connectSimulatedProviders(input: Readonly<{
 /** The timeline's search param, set to "added" right after sample data was added. */
 export const SAMPLE_DATA_ADDED_PARAM = "sample";
 
+// sampleDataRefusal's answer for a workspace with connections, and addSampleData's for one that
+// gained a connection after that check, such as another submit's (#287).
+const NOT_EMPTY_REFUSAL =
+  "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
+
 /**
  * Why sample data (#257) cannot be added to a workspace, or null when it can. Only with provider
  * simulation on, the same switch that offers simulated providers in the catalog, and only to a
@@ -205,11 +214,14 @@ export const SAMPLE_DATA_ADDED_PARAM = "sample";
  */
 export function sampleDataRefusal(input: Readonly<{ simulationEnabled: boolean; connectionCount: number }>): string | null {
   if (!input.simulationEnabled) return "Sample data is only available while provider simulation is on.";
-  if (input.connectionCount > 0) {
-    return "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
-  }
+  if (input.connectionCount > 0) return NOT_EMPTY_REFUSAL;
   return null;
 }
+
+/** What adding sample data did: connected the simulated providers, or nothing, and why not. */
+export type SampleDataOutcome =
+  | Readonly<{ kind: "added"; connections: DemoConnection[] }>
+  | Readonly<{ kind: "refused"; refusal: string }>;
 
 /**
  * Sample data for an empty workspace (#257): every simulated provider connected as the demo seed
@@ -218,18 +230,26 @@ export function sampleDataRefusal(input: Readonly<{ simulationEnabled: boolean; 
  * and the dashboard headline's week to date all have figures in one action. At most nine steps (a
  * summer Sunday night, already Monday in London), against the seed's 90 days, so it fits in a
  * request. Replayed alerts count as already sent, as the seed's do. The caller authorizes the user
- * as an owner or admin of the workspace and checks `sampleDataRefusal` first.
+ * as an owner or admin of the workspace and checks `sampleDataRefusal` first. A workspace that
+ * gained a connection since, such as from another submit that got there first (#287), is refused
+ * the same way, with nothing written.
  */
-export async function addSampleData(input: Readonly<{ workspaceId: string; userId: string; now: Date }>): Promise<DemoConnection[]> {
+export async function addSampleData(input: Readonly<{ workspaceId: string; userId: string; now: Date }>): Promise<SampleDataOutcome> {
   const steps = historySteps(input.now, headlineWeekDays(input.now));
   const [first] = steps;
   if (first === undefined) throw new Error("The sample data history has no steps.");
-  const connections = await connectSimulatedProviders({
-    workspaceId: input.workspaceId,
-    userId: input.userId,
-    seed: input.workspaceId,
-    now: first.at,
-  });
+  let connections: DemoConnection[];
+  try {
+    connections = await connectSimulatedProviders({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      seed: input.workspaceId,
+      now: first.at,
+    });
+  } catch (error) {
+    if (error instanceof WorkspaceNotEmptyError) return { kind: "refused", refusal: NOT_EMPTY_REFUSAL };
+    throw error;
+  }
   await replayHistory({
     ...replayClock(createJobDeps(), first.at),
     workspaceId: input.workspaceId,
@@ -237,7 +257,7 @@ export async function addSampleData(input: Readonly<{ workspaceId: string; userI
     steps,
   });
   await markDemoAlertsSent(createAdminClient(), { workspaceId: input.workspaceId, at: input.now });
-  return connections;
+  return { kind: "added", connections };
 }
 
 /**

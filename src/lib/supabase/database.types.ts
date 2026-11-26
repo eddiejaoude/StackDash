@@ -1040,6 +1040,9 @@ isOneToOne: false
 "insert_activity_events":
 { Args: { "p_rows": Json }; Returns: number
                            },
+"insert_first_connection":
+{ Args: { "p_display_name": string,"p_poll_interval_seconds": number,"p_provider": Database["public"]['Enums']["provider_id"],"p_user_id": string,"p_workspace_id": string }; Returns: string
+                           },
 "latest_usage_resets":
 { Args: { "p_external_account_id": string,"p_workspace_id": string }; Returns: {
               "metric_key": string,"resets_at": string

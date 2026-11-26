@@ -5,16 +5,19 @@ import { z } from "zod";
 import { fakeAdapter, fakeScopes } from "@/lib/adapters/fake";
 import { Secret, type OAuthContext, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import { saveCredential } from "@/lib/data/credentials";
+import { enqueueSync } from "@/lib/jobs/queue";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
-import { completeConnection } from "./connect";
+import { completeConnection, WorkspaceNotEmptyError } from "./connect";
 
 /*
  * What completeConnection writes to the connection row when a grant completes: the grant time
  * (#476) and the installation the credential belongs to (#480), on connect and on reconnect, and
- * nothing when the grant fails part way. The database calls go through a client that answers the
- * reconnect lookup and the insert and records every write.
+ * nothing when the grant fails part way. A connection asked to be the workspace's first (#287) goes
+ * in through insert_first_connection, and nothing is written when the workspace already has one.
+ * The database calls go through a client that answers the reconnect lookup, the insert, and
+ * insert_first_connection, and records every write.
  */
 
 vi.mock("@/lib/supabase/admin");
@@ -46,8 +49,12 @@ const ctx: OAuthContext = {
 const WriteSchema = z.record(z.string(), z.unknown());
 type Write = Readonly<{ method: string; table: string; body: unknown }>;
 
-/** A client whose reconnect lookup finds the existing connection, and that records every write. */
-function recordingClient() {
+/**
+ * A client whose reconnect lookup finds the existing connection, whose insert_first_connection
+ * answers `firstConnection` (null when the workspace already has a connection), and that records
+ * every write.
+ */
+function recordingClient(firstConnection: string | null = NEW_CONNECTION_ID) {
   const writes: Write[] = [];
   const db = createClient<Database>("http://postgrest.test", "test-key", {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -60,6 +67,7 @@ function recordingClient() {
         const body: unknown = init?.body === undefined ? null : JSON.parse(String(init.body));
         writes.push({ method, table, body });
         if (method === "POST" && table === "connections") return Response.json({ id: NEW_CONNECTION_ID });
+        if (method === "POST" && table === "insert_first_connection") return Response.json(firstConnection);
         return new Response(null, { status: 204 });
       },
     },
@@ -190,5 +198,39 @@ describe("completeConnection mode (#481)", () => {
     await completeConnection({ adapter, ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential });
 
     expect(finalUpdate(writes)).toMatchObject({ mode: null });
+  });
+});
+
+describe("completeConnection as the workspace's first connection (#287)", () => {
+  it("inserts it through insert_first_connection, pending as any new connection, then completes it", async () => {
+    const writes = recordingClient();
+
+    const result = await completeConnection({ adapter: fakeAdapter, ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential, onlyIntoEmptyWorkspace: true });
+
+    expect(result.connectionId).toBe(NEW_CONNECTION_ID);
+    expect(writes.some((write) => write.method === "POST" && write.table === "connections")).toBe(false);
+    const update = finalUpdate(writes);
+    expect(writes.find((write) => write.table === "insert_first_connection")?.body).toEqual({
+      p_workspace_id: WORKSPACE_ID,
+      p_provider: fakeAdapter.id,
+      p_display_name: update.display_name,
+      p_poll_interval_seconds: fakeAdapter.pollIntervalSeconds,
+      p_user_id: USER_ID,
+    });
+    expect(update).toMatchObject({ status: "active", granted_at: NOW.toISOString() });
+    expect(saveCredential).toHaveBeenCalledOnce();
+    expect(enqueueSync).toHaveBeenCalledExactlyOnceWith({ workspaceId: WORKSPACE_ID, connectionId: NEW_CONNECTION_ID, reason: "initial" });
+  });
+
+  it("makes nothing when the workspace already has a connection, and says so (boundary: one connection)", async () => {
+    const writes = recordingClient(null);
+
+    await expect(
+      completeConnection({ adapter: fakeAdapter, ctx, workspaceId: WORKSPACE_ID, userId: USER_ID, credential, onlyIntoEmptyWorkspace: true }),
+    ).rejects.toBeInstanceOf(WorkspaceNotEmptyError);
+
+    expect(writes.map((write) => write.table)).toEqual(["insert_first_connection"]);
+    expect(saveCredential).not.toHaveBeenCalled();
+    expect(enqueueSync).not.toHaveBeenCalled();
   });
 });
