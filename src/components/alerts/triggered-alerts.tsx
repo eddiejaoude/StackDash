@@ -140,7 +140,11 @@ export async function TriggeredAlerts({
   // Each link changes only its own part of the inbox's query (#316).
   const query: AlertsInboxQuery = { acknowledged: showAcknowledged ? "show" : null, alertsAfter: after };
   // Showing or hiding acknowledged alerts is a different list, so it starts from the newest.
-  const toggleHref = pathWithQuery(alertsPath, { ...query, acknowledged: showAcknowledged ? null : "show", alertsAfter: null });
+  const toggleHref = pathWithQuery(alertsPath, {
+    ...query,
+    acknowledged: showAcknowledged ? null : "show",
+    alertsAfter: null,
+  } satisfies AlertsInboxQuery);
   const successMessage = showAcknowledged
     ? "Alert acknowledged. It stays in the alert history."
     : "Alert acknowledged. It stays in the alert history. Choose Show acknowledged alerts to see it.";
@@ -231,12 +235,18 @@ export async function TriggeredAlerts({
       {page.nextCursor === null && after === null ? null : (
         <nav aria-label="Triggered alert pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
           {after === null ? null : (
-            <Link href={pathWithQuery(alertsPath, { ...query, alertsAfter: null }, HEADING_ID)} className={linkClass}>
+            <Link
+              href={pathWithQuery(alertsPath, { ...query, alertsAfter: null } satisfies AlertsInboxQuery, HEADING_ID)}
+              className={linkClass}
+            >
               Show the newest alerts
             </Link>
           )}
           {page.nextCursor === null ? null : (
-            <Link href={pathWithQuery(alertsPath, { ...query, alertsAfter: page.nextCursor }, HEADING_ID)} className={linkClass}>
+            <Link
+              href={pathWithQuery(alertsPath, { ...query, alertsAfter: page.nextCursor } satisfies AlertsInboxQuery, HEADING_ID)}
+              className={linkClass}
+            >
               Show older alerts
             </Link>
           )}

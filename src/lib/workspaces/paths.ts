@@ -79,8 +79,9 @@ export type AlertSettingsQuery = { rulesAfter: string | null; budgetsAfter: stri
 /**
  * A link from a page's whole query and an optional fragment. Every pager and filter link on the
  * alerts pages passes its page's query with only its own part changed, so paging one list keeps
- * every other list's place (#316). Null and empty values are left out, so a first page adds no
- * cursor to the link.
+ * every other list's place (#316). Callers check that literal with `satisfies AlertsInboxQuery` or
+ * `satisfies AlertSettingsQuery`, so a misspelled key fails to compile instead of adding a stray
+ * parameter. Null and empty values are left out, so a first page adds no cursor to the link.
  */
 export function pathWithQuery(path: string, query: Readonly<Record<string, string | null>>, fragment?: string): string {
   const params = new URLSearchParams();

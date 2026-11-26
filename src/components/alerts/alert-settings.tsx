@@ -277,7 +277,7 @@ export async function AlertSettings({
           <nav aria-label="Alert rule pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {rulesAfter === null ? null : (
               <Link
-                href={pathWithQuery(settingsPath, { ...query, rulesAfter: null }, RULES_HEADING_ID)}
+                href={pathWithQuery(settingsPath, { ...query, rulesAfter: null } satisfies AlertSettingsQuery, RULES_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show the first rules
@@ -285,7 +285,11 @@ export async function AlertSettings({
             )}
             {rules.nextCursor === null ? null : (
               <Link
-                href={pathWithQuery(settingsPath, { ...query, rulesAfter: rules.nextCursor }, RULES_HEADING_ID)}
+                href={pathWithQuery(
+                  settingsPath,
+                  { ...query, rulesAfter: rules.nextCursor } satisfies AlertSettingsQuery,
+                  RULES_HEADING_ID,
+                )}
                 className="text-accent underline underline-offset-2"
               >
                 Show more rules
@@ -366,7 +370,7 @@ export async function AlertSettings({
           <nav aria-label="Budget pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {budgetsAfter === null ? null : (
               <Link
-                href={pathWithQuery(settingsPath, { ...query, budgetsAfter: null }, BUDGETS_HEADING_ID)}
+                href={pathWithQuery(settingsPath, { ...query, budgetsAfter: null } satisfies AlertSettingsQuery, BUDGETS_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show the first budgets
@@ -374,7 +378,11 @@ export async function AlertSettings({
             )}
             {budgets.nextCursor === null ? null : (
               <Link
-                href={pathWithQuery(settingsPath, { ...query, budgetsAfter: budgets.nextCursor }, BUDGETS_HEADING_ID)}
+                href={pathWithQuery(
+                  settingsPath,
+                  { ...query, budgetsAfter: budgets.nextCursor } satisfies AlertSettingsQuery,
+                  BUDGETS_HEADING_ID,
+                )}
                 className="text-accent underline underline-offset-2"
               >
                 Show more budgets
