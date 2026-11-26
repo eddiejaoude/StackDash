@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { test } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
+
+import { DEMO_USER_MARKER, demoSignInLink } from "../src/lib/demo/sign-in";
 
 import {
+  authAdminClient,
+  authEnv,
   createSyntheticUser,
   editedSessionCookies,
   expect,
@@ -11,8 +15,13 @@ import {
   signOutTest,
   STORAGE_STATE,
   type StoredSession,
+  type SyntheticUser,
 } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./fixtures/db";
+import { expectHydrated } from "./fixtures/hydration";
+import { tabTo } from "./fixtures/keyboard";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
@@ -60,6 +69,131 @@ test.describe("signed out", () => {
       maxRedirects: 0,
     });
     expect(response.status()).toBe(403);
+  });
+});
+
+/*
+ * A signed-out reader who opens a link with a fragment, such as the Alert emails link in every alert
+ * email, lands on that section once signed in (#358). The fragment never reaches the server, so the
+ * proxy's `next` has none; the browser carries it onto /sign-in and the form sends it back.
+ *
+ * GitHub cannot run here: the local stack has no GitHub OAuth app, and Supabase Auth's code exchange
+ * runs on the server, out of the test's reach. So the browser is stopped at Supabase Auth's authorize
+ * request, the `next` the app put in its redirect_to is read, and GitHub and /auth/callback are stood
+ * in for by the one-time sign-in link /auth/confirm consumes (#260), which checks `next` with
+ * safeNextPath and redirects to it as /auth/callback does. That link only signs in an account with
+ * the demo marker, so each test marks a throwaway user it removes afterwards. Every other step is
+ * the app's own: the proxy redirect, the sign-in page, its form, and the landing page.
+ */
+test.describe("signing in from a link with a fragment", () => {
+  // Evidence (PW_PR_EVIDENCE=1): the page the reader lands on, at one size, in London time, and with
+  // reduced motion, so the capture shows where the page scrolled to rather than a smooth scroll.
+  test.use(EVIDENCE ? { timezoneId: "Europe/London", viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" } : {});
+
+  /** Supabase Auth's authorize requests answered for GitHub, recording the `next` of each. */
+  async function standInForGitHub(page: Page, user: SyntheticUser | null): Promise<string[]> {
+    const sent: string[] = [];
+    await page.route(
+      (url) => url.pathname === "/auth/v1/authorize",
+      async (route) => {
+        const redirectTo = new URL(new URL(route.request().url()).searchParams.get("redirect_to") ?? "");
+        const next = redirectTo.searchParams.get("next") ?? "";
+        sent.push(next);
+        if (user === null) {
+          await route.fulfill({ status: 200, contentType: "text/plain", body: "GitHub stand-in" });
+          return;
+        }
+        const location = await demoSignInLink(authAdminClient(authEnv()), { email: user.email, origin: redirectTo.origin, next });
+        await route.fulfill({ status: 303, headers: { location } });
+      },
+    );
+    return sent;
+  }
+
+  async function markAsDemoAccount(user: SyntheticUser): Promise<void> {
+    const { error } = await authAdminClient(authEnv()).auth.admin.updateUserById(user.id, { app_metadata: { [DEMO_USER_MARKER]: true } });
+    if (error) throw new Error(`Marking ${user.email} for the sign-in link failed: ${error.message}`);
+  }
+
+  const cases = [
+    {
+      title: "a link to Alert emails lands on Alert emails",
+      link: (slug: string) => `/w/${slug}/alerts/settings#alert-emails`,
+      evidence: "alert-settings-link",
+    },
+    {
+      title: "an alerts link sent before alert settings moved lands on Alert emails",
+      link: (slug: string) => `/w/${slug}/alerts#alert-emails`,
+      evidence: "old-alerts-link",
+    },
+  ];
+
+  for (const { title, link, evidence } of cases) {
+    test(title, async ({ page }) => {
+      const user = await createSyntheticUser("fragment-sign-in");
+      try {
+        await markAsDemoAccount(user);
+        const { slug } = await personalWorkspace(user.id);
+        const sent = await standInForGitHub(page, user);
+        const [path] = link(slug).split("#");
+
+        await page.goto(link(slug));
+        await expect(page).toHaveURL(`/sign-in?next=${encodeURIComponent(path ?? "")}#alert-emails`);
+        await expectHydrated(page);
+        await expectNoAxeViolations(page);
+
+        // Keyboard only: Tab to the one button and press Enter.
+        await page.locator("body").focus();
+        await tabTo(page, page.getByRole("button", { name: "Continue with GitHub" }), 10);
+        await page.keyboard.press("Enter");
+
+        await page.waitForURL(new RegExp(`/w/${slug}/alerts`));
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+        if (EVIDENCE) {
+          await page.waitForLoadState("networkidle");
+          await page.screenshot({ path: `pr-evidence/${evidence}.png`, animations: "disabled", style: HIDE_DEV_INDICATOR });
+        }
+
+        expect(sent).toEqual([link(slug)]);
+        await expect(page).toHaveURL(`/w/${slug}/alerts/settings#alert-emails`);
+        await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
+        const emails = page.getByRole("heading", { name: "Alert emails" });
+        await expect(emails).toBeInViewport();
+        await expect(emails).toBeFocused();
+      } finally {
+        await removeSyntheticUser(user);
+      }
+    });
+  }
+
+  test("a link with no fragment signs in to the same page", async ({ page }) => {
+    const user = await createSyntheticUser("no-fragment-sign-in");
+    try {
+      await markAsDemoAccount(user);
+      const { slug } = await personalWorkspace(user.id);
+      const sent = await standInForGitHub(page, user);
+
+      await page.goto(`/w/${slug}/alerts/settings`);
+      await expect(page).toHaveURL(`/sign-in?next=${encodeURIComponent(`/w/${slug}/alerts/settings`)}`);
+      await expectHydrated(page);
+      await page.getByRole("button", { name: "Continue with GitHub" }).click();
+
+      await expect(page).toHaveURL(`/w/${slug}/alerts/settings`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
+      expect(sent).toEqual([`/w/${slug}/alerts/settings`]);
+    } finally {
+      await removeSyntheticUser(user);
+    }
+  });
+
+  test("a fragment never takes sign-in outside the app", async ({ page }) => {
+    const sent = await standInForGitHub(page, null);
+
+    await page.goto(`/sign-in?next=${encodeURIComponent("/sign-in")}#alert-emails`);
+    await expectHydrated(page);
+    await page.getByRole("button", { name: "Continue with GitHub" }).click();
+
+    await expect.poll(() => sent).toEqual(["/app"]);
   });
 });
 
