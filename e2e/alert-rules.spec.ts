@@ -7,12 +7,78 @@ import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, notDueForAMonth, type TestWorkspace } from "./fixtures/db";
 import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
+import { EVIDENCE, HIDE_DEV_INDICATOR } from "./fixtures/webhook-panel";
 
 // Each test creates its own workspace and seeds only inside it.
 
 function rulesList(page: Page) {
   return page.getByRole("list", { name: "Alert rules" });
 }
+
+/** A row a dismissed delete targets (#369): how to seed and remove it, and how its row and dialog read. */
+type DeleteTarget = Readonly<{
+  kind: "rule" | "budget";
+  seed: (workspace: TestWorkspace) => Promise<void>;
+  /** Deletes the row behind the open dialog, so the action finds nothing to delete. */
+  remove: (workspace: TestWorkspace) => Promise<void>;
+  list: string;
+  row: string;
+  opener: RegExp;
+  dialog: string;
+  confirm: string;
+  message: string;
+}>;
+
+const DELETE_TARGETS: readonly DeleteTarget[] = [
+  {
+    kind: "rule",
+    seed: async (workspace) => {
+      const { error } = await adminClient().from("alert_rules").insert({
+        workspace_id: workspace.id,
+        kind: "allowance_percent",
+        scope: "workspace",
+        threshold_percent: 75,
+      });
+      if (error) throw new Error(`Seeding a rule failed (code ${error.code}).`);
+    },
+    remove: async (workspace) => {
+      const { error } = await adminClient().from("alert_rules").delete().eq("workspace_id", workspace.id);
+      if (error) throw new Error(`Deleting the rule failed (code ${error.code}).`);
+    },
+    list: "Alert rules",
+    row: "Alert at 75% of every allowance",
+    opener: /^Delete rule/,
+    dialog: "Delete this alert rule?",
+    confirm: "Delete rule",
+    message: "This alert rule no longer exists. Reload the page to see the current rules.",
+  },
+  {
+    kind: "budget",
+    seed: async (workspace) => {
+      const { error } = await adminClient().from("budgets").insert({
+        workspace_id: workspace.id,
+        name: "Production apps",
+        scope: "workspace",
+        amount_minor: 25_000,
+        currency: "USD",
+      });
+      if (error) throw new Error(`Seeding a budget failed (code ${error.code}).`);
+    },
+    remove: async (workspace) => {
+      const { error } = await adminClient().from("budgets").delete().eq("workspace_id", workspace.id);
+      if (error) throw new Error(`Deleting the budget failed (code ${error.code}).`);
+    },
+    list: "Budgets",
+    row: "Production apps",
+    opener: /^Delete budget/,
+    dialog: "Delete this budget?",
+    confirm: "Delete budget",
+    message: "This budget no longer exists. Reload the page to see the current budgets.",
+  },
+];
+
+// Records video of the #369 cases under PW_PR_EVIDENCE=1 only.
+const dismissedDeleteTest = ownerTest.extend({ video: EVIDENCE ? "on" : "off" });
 
 /** A fake provider connection that reports one included allowance, so suggestions appear. */
 async function seedAllowanceConnection(workspace: TestWorkspace): Promise<void> {
@@ -130,6 +196,88 @@ ownerTest.describe("alert rules as the owner", () => {
       });
     } finally {
       await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest.describe("a delete whose dialog was dismissed while it ran (#369)", () => {
+    for (const target of DELETE_TARGETS) {
+      for (const reopened of [false, true]) {
+        const when = reopened ? "dismissed and reopened" : "dismissed";
+        dismissedDeleteTest(`shows a failed ${target.kind} delete beside its button when the dialog was ${when}`, async ({ page }) => {
+          const workspace = await createTestWorkspace(`Dismissed ${target.kind} delete`);
+          try {
+            await target.seed(workspace);
+            const settingsPath = `/w/${workspace.slug}/alerts/settings`;
+            // Holds the server action (a POST to the page) until the dialog is dismissed, so
+            // "Deleting" stays on screen for as long as the test needs it, with no sleep.
+            const held = Promise.withResolvers<void>();
+            await page.route(`**${settingsPath}`, async (route) => {
+              if (route.request().method() !== "POST") return route.fallback();
+              await held.promise;
+              return route.continue();
+            });
+            if (EVIDENCE) await page.emulateMedia({ reducedMotion: "reduce" });
+            await page.goto(settingsPath);
+            await expectHydrated(page);
+            const item = page.getByRole("list", { name: target.list }).getByRole("listitem").filter({ hasText: target.row });
+            const opener = item.getByRole("button", { name: target.opener });
+            const dialog = page.getByRole("dialog", { name: target.dialog });
+            const confirm = dialog.getByRole("button", { name: target.confirm, exact: true });
+
+            // Keyboard only: Enter opens the dialog on Cancel, Shift+Tab reaches the confirm button.
+            await opener.focus();
+            await page.keyboard.press("Enter");
+            await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+            await target.remove(workspace);
+            await page.keyboard.press("Shift+Tab");
+            await expect(confirm).toBeFocused();
+            await page.keyboard.press("Enter");
+            await expect(dialog.getByRole("button", { name: "Deleting" })).toBeVisible();
+            await page.keyboard.press("Escape");
+            await expect(dialog).toBeHidden();
+            await expect(opener).toBeFocused();
+            if (reopened) {
+              // The confirmation that ran the action is gone, and the page behind the open dialog
+              // is inert, so the new confirmation reports the failure, focused and announced.
+              await page.keyboard.press("Enter");
+              await expect(confirm).toBeVisible();
+              held.resolve();
+              await expect(dialog.getByRole("alert")).toHaveText(target.message);
+              await expect(dialog.getByText(target.message)).toBeFocused();
+              await expectNoAxeViolations(page);
+              await page.keyboard.press("Escape");
+              await expect(dialog).toBeHidden();
+              await expect(opener).toBeFocused();
+            } else {
+              held.resolve();
+              if (EVIDENCE) {
+                // Once the result has rendered somewhere, shown or not, the row is what the user sees.
+                await expect(page.getByText(target.message).first()).toBeAttached();
+                await item.screenshot({
+                  path: `pr-evidence/after/${target.kind}-dismissed-delete.png`,
+                  animations: "disabled",
+                  style: HIDE_DEV_INDICATOR,
+                });
+              }
+            }
+
+            // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
+            const besideOpener = item.getByRole("alert").filter({ hasText: target.message });
+            await expect(besideOpener).toBeVisible();
+            await expect(besideOpener).toHaveAttribute("aria-live", "assertive");
+            // The failure does not take focus from the button the user is on.
+            await expect(opener).toBeFocused();
+            await expectNoAxeViolations(page);
+
+            // Opening the dialog again starts fresh, beside the opener too.
+            await page.keyboard.press("Enter");
+            await expect(dialog).toBeVisible();
+            await expect(page.getByText(target.message)).toHaveCount(0);
+          } finally {
+            await deleteTestWorkspace(workspace);
+          }
+        });
+      }
     }
   });
 
