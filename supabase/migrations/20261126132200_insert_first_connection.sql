@@ -4,12 +4,13 @@
 -- connected the providers one request at a time, so two submits that overlapped (two tabs, or a
 -- double submit) both found the workspace empty and connected a set each.
 --
--- The server reaches the database through PostgREST, where no lock outlives the statement that
--- takes it, so nothing can hold the workspace across the requests that connect a set. The check
--- moves into the insert instead: the first connection of a set goes in through this function, which
--- checks and inserts in one transaction, and the rest of the set follows as before
--- (completeConnection in src/lib/connections/connect.ts, `onlyIntoEmptyWorkspace`). Once the first
--- is in, the workspace has a connection, so another set's first insert finds it and adds nothing.
+-- The server reaches the database through PostgREST, which runs each request in its own
+-- transaction, so no lock outlives the request that takes it and nothing can hold the workspace
+-- across the requests that connect a set. The check moves into the insert instead: the first
+-- connection of a set goes in through this function, which checks and inserts in one transaction,
+-- and the rest of the set follows as before (completeConnection in src/lib/connections/connect.ts,
+-- `onlyIntoEmptyWorkspace`). Once the first is in, the workspace has a connection, so another set's
+-- first insert finds it and adds nothing.
 --
 -- Expand only: a new function, so code that does not know it keeps working.
 
