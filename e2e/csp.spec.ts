@@ -4,12 +4,7 @@ import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { BASELINE_CSP } from "./fixtures/csp";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 import { expectHydrated } from "./fixtures/hydration";
-import {
-  publishStars,
-  seedProjectWithHistory,
-  turnOffPage,
-  turnOnPage,
-} from "./fixtures/public-pages";
+import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from "./fixtures/public-pages";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
 // render their HTML per request so Next.js can stamp the nonce on every script. So do the signed-out
@@ -22,9 +17,7 @@ import {
 const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/=]+'$/;
 
 /** The page's view of the function `watchViolations` exposes to it. */
-type ViolationWindow = Window & {
-  reportCspViolation?: (violation: string) => Promise<void>;
-};
+type ViolationWindow = Window & { reportCspViolation?: (violation: string) => Promise<void> };
 
 function directives(policy: string): Map<string, string[]> {
   return new Map(
@@ -55,19 +48,14 @@ async function isDevServer(page: Page): Promise<boolean> {
  * form-action on every redirect after a form post. The connect form leaves by meta refresh, not a
  * redirect, so no provider origin is listed.
  */
-async function expectAppPolicy(
-  page: Page,
-  policy: string | undefined,
-): Promise<void> {
+async function expectAppPolicy(page: Page, policy: string | undefined): Promise<void> {
   const devServer = await isDevServer(page);
   const app = directives(policy ?? "");
   for (const [name, sources] of directives(BASELINE_CSP)) {
     if (name !== "form-action") expect(app.get(name), name).toEqual(sources);
   }
   const supabaseUrl = new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL);
-  expect(new Set(app.get("form-action"))).toEqual(
-    new Set(["'self'", supabaseUrl.origin, "https://github.com"]),
-  );
+  expect(new Set(app.get("form-action"))).toEqual(new Set(["'self'", supabaseUrl.origin, "https://github.com"]));
   // Scripts from this origin or carrying this response's nonce, and nothing else: no
   // 'unsafe-inline', and 'unsafe-eval' only from the dev server (src/proxy.ts).
   expect(app.get("script-src")).toEqual([
@@ -76,9 +64,7 @@ async function expectAppPolicy(
     ...(devServer ? ["'unsafe-eval'"] : []),
   ]);
   // Live updates (#129) need the Realtime socket.
-  expect(app.get("connect-src")).toContain(
-    `${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`,
-  );
+  expect(app.get("connect-src")).toContain(`${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`);
 }
 
 /**
@@ -119,8 +105,7 @@ async function watchViolations(page: Page): Promise<string[]> {
     });
   });
   page.on("console", (message) => {
-    if (message.text().includes("Content Security Policy"))
-      violations.push(message.text());
+    if (message.text().includes("Content Security Policy")) violations.push(message.text());
   });
   return violations;
 }
@@ -139,28 +124,19 @@ async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   expect(headers["content-security-policy-report-only"]).toBeUndefined();
   expect(headers["cache-control"]).toContain("no-store");
   await expect(page).toHaveTitle("Page not found · StackDash");
-  await expect(
-    page.getByRole("heading", {
-      level: 1,
-      name: "We could not find that page",
-    }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
   await expectHydrated(page);
 }
 
 test.describe("signed out", () => {
-  test("the landing page keeps its static policy without a nonce", async ({
-    page,
-  }) => {
+  test("the landing page keeps its static policy without a nonce", async ({ page }) => {
     const response = await page.goto("/");
     const headers = response?.headers() ?? {};
     expect(headers["content-security-policy"]).toBe(BASELINE_CSP);
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
   });
 
-  test("the sign-in page enforces the nonce policy, is never cached, hydrates, and reports no violations", async ({
-    page,
-  }) => {
+  test("the sign-in page enforces the nonce policy, is never cached, hydrates, and reports no violations", async ({ page }) => {
     const violations = await watchViolations(page);
     const response = await page.goto("/sign-in");
 
@@ -170,16 +146,12 @@ test.describe("signed out", () => {
     // The policy depends on request headers a client can forge (isPlainHttpToLoopback in
     // src/proxy.ts, #597), which is safe only while no cache can hand one client's response to another.
     expect(headers["cache-control"]).toContain("no-store");
-    await expect(
-      page.getByRole("button", { name: "Continue with GitHub" }),
-    ).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Continue with GitHub" })).toBeEnabled();
     await expectHydrated(page);
     expect(violations).toEqual([]);
   });
 
-  test("the unsubscribe page enforces the nonce policy, hydrates, and reports no violations", async ({
-    page,
-  }) => {
+  test("the unsubscribe page enforces the nonce policy, hydrates, and reports no violations", async ({ page }) => {
     // Alert emails link here signed out (#152). A valid link's button is covered by alert-email.spec.ts,
     // which needs a sent email; a broken link renders the same page without one.
     const violations = await watchViolations(page);
@@ -189,18 +161,8 @@ test.describe("signed out", () => {
     const headers = response?.headers() ?? {};
     await expectAppPolicy(page, headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: "Unsubscribe from alert emails",
-      }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "This unsubscribe link is incomplete or no longer valid.",
-        { exact: false },
-      ),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Unsubscribe from alert emails" })).toBeVisible();
+    await expect(page.getByText("This unsubscribe link is incomplete or no longer valid.", { exact: false })).toBeVisible();
     await expectHydrated(page);
     expect(violations).toEqual([]);
   });
@@ -209,9 +171,7 @@ test.describe("signed out", () => {
     const nonces = await Promise.all(
       [0, 1].map(async () => {
         const response = await request.get("/sign-in");
-        return directives(
-          response.headers()["content-security-policy"] ?? "",
-        ).get("script-src")?.[1];
+        return directives(response.headers()["content-security-policy"] ?? "").get("script-src")?.[1];
       }),
     );
     expect(nonces[0]).toMatch(NONCE_SOURCE);
@@ -219,9 +179,7 @@ test.describe("signed out", () => {
     expect(nonces[0]).not.toBe(nonces[1]);
   });
 
-  test("an injected inline script without the nonce is blocked", async ({
-    page,
-  }) => {
+  test("an injected inline script without the nonce is blocked", async ({ page }) => {
     const violations = await watchViolations(page);
     await page.goto("/sign-in");
     await expectHydrated(page);
@@ -235,47 +193,28 @@ test.describe("signed out", () => {
     });
 
     expect(ran).toBe(false);
-    await expect
-      .poll(() =>
-        violations.some((violation) =>
-          violation.startsWith("enforce script-src-elem"),
-        ),
-      )
-      .toBe(true);
+    await expect.poll(() => violations.some((violation) => violation.startsWith("enforce script-src-elem"))).toBe(true);
   });
 
-  test("an unmatched auth path answers 404 with a not-found page that hydrates", async ({
-    page,
-  }) => {
+  test("an unmatched auth path answers 404 with a not-found page that hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
     await expectNotFoundPage(page, "/auth/no-such-page");
     expect(violations).toEqual([]);
   });
 
-  test("an unmatched path outside the proxy answers 404 under the static policy and hydrates", async ({
-    page,
-  }) => {
+  test("an unmatched path outside the proxy answers 404 under the static policy and hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
     const response = await page.goto("/no-such-page");
     expect(response?.status()).toBe(404);
     expect(response?.headers()["content-security-policy"]).toBe(BASELINE_CSP);
     await expect(page).toHaveTitle("Page not found · StackDash");
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: "We could not find that page",
-      }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
     await expectHydrated(page);
     expect(violations).toEqual([]);
   });
 
-  test("a public project page enforces the nonce policy, hydrates, and reports no violations, on and once off", async ({
-    page,
-  }) => {
-    const workspace = await createTestWorkspace(
-      "Content security policy project page",
-    );
+  test("a public project page enforces the nonce policy, hydrates, and reports no violations, on and once off", async ({ page }) => {
+    const workspace = await createTestWorkspace("Content security policy project page");
     try {
       const projectId = await seedProjectWithHistory(workspace);
       await publishStars(workspace, projectId);
@@ -288,9 +227,7 @@ test.describe("signed out", () => {
       const headers = response?.headers() ?? {};
       await expectAppPolicy(page, headers["content-security-policy"]);
       expect(headers["content-security-policy-report-only"]).toBeUndefined();
-      await expect(
-        page.getByRole("heading", { level: 1, name: "Acme web" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Acme web" })).toBeVisible();
       await expectHydrated(page);
 
       // The same address once the page is off: a real 404 (the proxy checks before the page
@@ -303,15 +240,9 @@ test.describe("signed out", () => {
     }
   });
 
-  test("unknown project page addresses answer 404 with a not-found page that hydrates", async ({
-    page,
-  }) => {
+  test("unknown project page addresses answer 404 with a not-found page that hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
-    for (const path of [
-      "/@nosuchwork/no-such-page",
-      "/@nosuchwork",
-      "/p/nosuchwork/no-such-page",
-    ]) {
+    for (const path of ["/@nosuchwork/no-such-page", "/@nosuchwork", "/p/nosuchwork/no-such-page"]) {
       await test.step(path, () => expectNotFoundPage(page, path));
     }
     expect(violations).toEqual([]);
@@ -319,9 +250,7 @@ test.describe("signed out", () => {
 
   // The super admin page's route answers only through the proxy's rewrite of /app/admin (#374):
   // its own path and any path under it are the not-found page, under the nonce policy.
-  test("the super admin route's own paths answer 404 with a not-found page that hydrates", async ({
-    page,
-  }) => {
+  test("the super admin route's own paths answer 404 with a not-found page that hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
     for (const path of ["/super-admin", "/super-admin/no-such-page"]) {
       await test.step(path, () => expectNotFoundPage(page, path));
@@ -332,17 +261,9 @@ test.describe("signed out", () => {
   // Next matches the headers in next.config.ts without regard to case, so the static policy is kept
   // off a proxied prefix in any case, and the proxy runs for every case of it to give the not-found
   // page the nonce policy (#376).
-  test("a proxied prefix in another case answers 404 under the nonce policy alone, with a not-found page that hydrates", async ({
-    page,
-  }) => {
+  test("a proxied prefix in another case answers 404 under the nonce policy alone, with a not-found page that hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
-    for (const path of [
-      "/App",
-      "/App/no-such-page",
-      "/W/no-such-page",
-      "/Sign-In",
-      "/Super-Admin/no-such-page",
-    ]) {
+    for (const path of ["/App", "/App/no-such-page", "/W/no-such-page", "/Sign-In", "/Super-Admin/no-such-page"]) {
       await test.step(path, () => expectNotFoundPage(page, path));
     }
     expect(violations).toEqual([]);
@@ -350,83 +271,67 @@ test.describe("signed out", () => {
 });
 
 ownerTest.describe("signed in", () => {
-  ownerTest(
-    "app routes enforce the nonce policy, hydrate, and report no violations",
-    async ({ page }) => {
-      const workspace = await createTestWorkspace("Content security policy");
-      try {
-        const violations = await watchViolations(page);
-        const paths = [
-          "/account",
-          "/auth/error",
-          `/w/${workspace.slug}/timeline`,
-          `/w/${workspace.slug}/dashboard`,
-          `/w/${workspace.slug}/projects`,
-          `/w/${workspace.slug}/connections`,
-          `/w/${workspace.slug}/connections/new/fake`,
-          `/w/${workspace.slug}/alerts`,
-          `/w/${workspace.slug}/alerts/settings`,
-          `/w/${workspace.slug}/settings`,
-          // The year in review (#151, slides #262): its slides hydrate under the nonce policy, and a
-          // slide's image loads from this origin under img-src 'self' once its share dialog opens.
-          `/w/${workspace.slug}/year/${new Date().getUTCFullYear()}`,
-        ];
-
-        for (const path of paths) {
-          await ownerTest.step(path, async () => {
-            const response = await page.goto(path);
-            expect(response?.status()).toBe(200);
-            const headers = response?.headers() ?? {};
-            await expectAppPolicy(page, headers["content-security-policy"]);
-            expect(
-              headers["content-security-policy-report-only"],
-            ).toBeUndefined();
-            await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-            await expectHydrated(page);
-          });
-        }
-
-        expect(violations).toEqual([]);
-      } finally {
-        await deleteTestWorkspace(workspace);
-      }
-    },
-  );
-
-  ownerTest(
-    "the app entry redirects into a workspace that responds to input",
-    async ({ page }) => {
+  ownerTest("app routes enforce the nonce policy, hydrate, and report no violations", async ({ page }) => {
+    const workspace = await createTestWorkspace("Content security policy");
+    try {
       const violations = await watchViolations(page);
-      await page.goto("/app");
-      await expect(page).toHaveURL(/\/w\/[a-z0-9]+\/timeline$/);
-      await expectHydrated(page);
+      const paths = [
+        "/account",
+        "/auth/error",
+        `/w/${workspace.slug}/timeline`,
+        `/w/${workspace.slug}/dashboard`,
+        `/w/${workspace.slug}/projects`,
+        `/w/${workspace.slug}/connections`,
+        `/w/${workspace.slug}/connections/new/fake`,
+        `/w/${workspace.slug}/alerts`,
+        `/w/${workspace.slug}/alerts/settings`,
+        `/w/${workspace.slug}/settings`,
+        // The year in review (#151, slides #262): its slides hydrate under the nonce policy, and a
+        // slide's image loads from this origin under img-src 'self' once its share dialog opens.
+        `/w/${workspace.slug}/year/${new Date().getUTCFullYear()}`,
+      ];
 
-      // The switcher opens from a click handler, so this works only on a hydrated page.
-      const switcher = page.getByRole("button", { name: /^Workspace: / });
-      await switcher.click();
-      await expect(switcher).toHaveAttribute("aria-expanded", "true");
-      expect(violations).toEqual([]);
-    },
-  );
-
-  ownerTest(
-    "unmatched app paths answer 404 with a not-found page that hydrates",
-    async ({ page }) => {
-      const workspace = await createTestWorkspace(
-        "Content security policy not found",
-      );
-      try {
-        const violations = await watchViolations(page);
-        for (const path of [
-          `/w/${workspace.slug}/no-such-page`,
-          "/app/no-such-page",
-        ]) {
-          await ownerTest.step(path, () => expectNotFoundPage(page, path));
-        }
-        expect(violations).toEqual([]);
-      } finally {
-        await deleteTestWorkspace(workspace);
+      for (const path of paths) {
+        await ownerTest.step(path, async () => {
+          const response = await page.goto(path);
+          expect(response?.status()).toBe(200);
+          const headers = response?.headers() ?? {};
+          await expectAppPolicy(page, headers["content-security-policy"]);
+          expect(headers["content-security-policy-report-only"]).toBeUndefined();
+          await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+          await expectHydrated(page);
+        });
       }
-    },
-  );
+
+      expect(violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("the app entry redirects into a workspace that responds to input", async ({ page }) => {
+    const violations = await watchViolations(page);
+    await page.goto("/app");
+    await expect(page).toHaveURL(/\/w\/[a-z0-9]+\/timeline$/);
+    await expectHydrated(page);
+
+    // The switcher opens from a click handler, so this works only on a hydrated page.
+    const switcher = page.getByRole("button", { name: /^Workspace: / });
+    await switcher.click();
+    await expect(switcher).toHaveAttribute("aria-expanded", "true");
+    expect(violations).toEqual([]);
+  });
+
+  ownerTest("unmatched app paths answer 404 with a not-found page that hydrates", async ({ page }) => {
+    const workspace = await createTestWorkspace("Content security policy not found");
+    try {
+      const violations = await watchViolations(page);
+      for (const path of [`/w/${workspace.slug}/no-such-page`, "/app/no-such-page"]) {
+        await ownerTest.step(path, () => expectNotFoundPage(page, path));
+      }
+      expect(violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
 });
