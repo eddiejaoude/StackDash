@@ -40,18 +40,19 @@ export const SUMMARY_NEWEST_COUNT = 3;
  */
 export const ACKNOWLEDGE_ALL_LIMIT = 100;
 
-// The rule's threshold decides the severity, the same way the evaluator decides it; its kind and the
-// observed columns make the short title (src/lib/alerts/headline.ts).
+// The rule's threshold decides the severity, the same way the evaluator decides it; the stored
+// subject, the rule's kind, and the observed columns make the short title (src/lib/alerts/headline.ts).
 const COLUMNS =
-  "id, triggered_at, threshold_label, is_estimated, message, acknowledged_at, acknowledged_by, provider, observed_value, observed_amount_minor, currency, alert_rules!triggered_alerts_rule_fkey(threshold_percent, kind)" as const;
+  "id, triggered_at, threshold_label, is_estimated, message, acknowledged_at, acknowledged_by, provider, subject, observed_value, observed_amount_minor, currency, alert_rules!triggered_alerts_rule_fkey(threshold_percent, kind)" as const;
 
-type SelectedRow = Pick<Row, ListedColumns | "provider" | "observed_value" | "observed_amount_minor" | "currency"> & {
+type SelectedRow = Pick<Row, ListedColumns | "provider" | "subject" | "observed_value" | "observed_amount_minor" | "currency"> & {
   alert_rules: Pick<Database["public"]["Tables"]["alert_rules"]["Row"], "threshold_percent" | "kind"> | null;
 };
 
 function toAlert({
   alert_rules: rule,
   provider,
+  subject,
   observed_value,
   observed_amount_minor,
   currency,
@@ -60,7 +61,7 @@ function toAlert({
   return {
     ...row,
     severity: severityFor(rule?.threshold_percent ?? null),
-    headline: alertHeadline({ kind: rule?.kind ?? null, provider, observed_value, observed_amount_minor, currency }),
+    headline: alertHeadline({ kind: rule?.kind ?? null, provider, subject, observed_value, observed_amount_minor, currency }),
   };
 }
 

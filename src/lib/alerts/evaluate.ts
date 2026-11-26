@@ -42,6 +42,7 @@ import {
   type SnapshotInput,
 } from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
@@ -103,6 +104,13 @@ export type AlertTrigger = Readonly<{
   isEstimated: boolean;
   /** Short line for the timeline. */
   title: string;
+  /**
+   * What fired, in words, as the title and message name it: the provider and metric of an allowance
+   * ("Vercel bandwidth"), the scope of a spend amount rule ("Workspace spend"), or the budget
+   * ("Hosting budget"). Stored, so the short title (src/lib/alerts/headline.ts) never parses the
+   * sentence to tell two alerts of one provider apart (#297).
+   */
+  subject: string;
   /** Full sentence for the alert and the timeline body; says so when estimated values contributed. */
   message: string;
   severity: AlertSeverity;
@@ -225,8 +233,13 @@ export function severityFor(thresholdPercent: number | null): AlertSeverity {
   return thresholdPercent !== null && thresholdPercent >= 100 ? "critical" : "warning";
 }
 
+/**
+ * The adapter's display name, else the shared one. `names.providers` comes from the enabled
+ * adapters, so a provider whose flag is off (the fake one) is missing from it while its stored
+ * rows still evaluate; `PROVIDER_NAMES` is total, so an id never reaches a stored subject.
+ */
 function providerName(names: AlertNames, provider: ProviderId): string {
-  return names.providers.get(provider) ?? provider;
+  return names.providers.get(provider) ?? PROVIDER_NAMES[provider];
 }
 
 /** What a scope covers, in words: "Workspace", "Vercel", "Project Acme", "Connection Acme Stripe". */
@@ -348,6 +361,7 @@ function evaluateAllowanceRule(
       thresholdLabel,
       isEstimated: reading.isEstimated,
       title: `${subject} passed ${thresholdLabel} of the allowance`,
+      subject,
       message,
       severity: severityFor(threshold),
       provider: reading.item.provider,
@@ -440,6 +454,7 @@ function evaluateSpendRule(
       thresholdLabel,
       isEstimated: total.isEstimated,
       title: `${subject} passed ${thresholdLabel}`,
+      subject,
       message,
       severity: "warning",
       provider: total.provider,
@@ -466,8 +481,9 @@ function evaluateBudgetRule(
   if (total === null || total.amountMinor * 100 < threshold * budget.amount_minor) return [];
   const percent = (total.amountMinor * 100) / budget.amount_minor;
   const thresholdLabel = formatPercentNumber(threshold);
+  const subject = `${budget.name} budget`;
   const message =
-    `Spend against the ${budget.name} budget is ${formatMoney(total.amountMinor, budget.currency)} of ` +
+    `Spend against the ${subject} is ${formatMoney(total.amountMinor, budget.currency)} of ` +
     `${formatMoney(budget.amount_minor, budget.currency)} (${formatPercentNumber(percent)}) for the billing period ` +
     `starting ${total.cycleKey}. The alert threshold is ${thresholdLabel}. Only ${budget.currency} amounts are counted.` +
     (total.isEstimated ? ESTIMATED_SPEND_NOTE : "");
@@ -479,6 +495,7 @@ function evaluateBudgetRule(
       thresholdLabel,
       isEstimated: total.isEstimated,
       title: `Budget ${budget.name} passed ${thresholdLabel}`,
+      subject,
       message,
       severity: severityFor(threshold),
       provider: total.provider,

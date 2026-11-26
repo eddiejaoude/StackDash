@@ -189,11 +189,40 @@ describe("allowance_percent thresholds", () => {
       thresholdLabel: "90 percent",
       isEstimated: false,
       title: "Resend monthly email quota passed 90 percent of the allowance",
+      subject: "Resend monthly email quota",
       message:
         "Resend monthly email quota is at 92 percent of the allowance (9,200 emails of 10,000 emails) " +
         "for the billing period starting 2026-10-01. The alert threshold is 90 percent.",
     });
-    expect(`${trigger?.title} ${trigger?.message}`).not.toMatch(/[\u2013\u2014]/);
+    expect(`${trigger?.title} ${trigger?.subject} ${trigger?.message}`).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  it("names the metric in the subject, so two allowances of one provider are told apart (#297)", () => {
+    const daily = { metric_key: "resend.emails.daily.limit", label: "Daily email quota" };
+    const triggers = evaluate(
+      [rule({ id: "rule-monthly", metric_key: "resend.emails.monthly" }), rule({ id: "rule-daily", metric_key: "resend.emails.daily" })],
+      [limit(10_000), used(9100), limit(100, daily), used(99, { metric_key: "resend.emails.daily.used" })],
+    );
+    expect(triggers.map(({ ruleId, subject, provider }) => ({ ruleId, subject, provider }))).toEqual([
+      { ruleId: "rule-monthly", subject: "Resend monthly email quota", provider: "resend" },
+      { ruleId: "rule-daily", subject: "Resend daily email quota", provider: "resend" },
+    ]);
+  });
+
+  it("uses the shared display name, never the provider id, when the adapter map lacks the provider", () => {
+    // run.ts builds `names.providers` from enabled adapters only; a disabled provider's rows still evaluate.
+    const unnamed: AlertNames = { ...NAMES, providers: new Map() };
+    const [trigger] = evaluateAlerts({
+      rules: [rule()],
+      snapshots: [limit(10_000), used(9200)],
+      budgets: [],
+      names: unnamed,
+      projectedSpend: declaredProjectedSpend,
+      now: NOW,
+    });
+    expect(trigger?.subject).toBe("Resend monthly email quota");
+    expect(trigger?.title).toBe("Resend monthly email quota passed 90 percent of the allowance");
+    expect(trigger?.message).toMatch(/^Resend monthly email quota is at 92 percent/);
   });
 
   it("uses the current value: the latest snapshot per metric wins", () => {
@@ -236,6 +265,7 @@ describe("allowance pairing", () => {
     expect(triggers).toHaveLength(1);
     expect(triggers[0]?.observed.value).toBe(99);
     expect(triggers[0]?.title).toBe("Resend daily email quota passed 90 percent of the allowance");
+    expect(triggers[0]?.subject).toBe("Resend daily email quota");
   });
 });
 
@@ -429,6 +459,7 @@ describe("spend_amount", () => {
       observed: { amountMinor: 3000, currency: "USD" },
       thresholdLabel: "$25.00",
       title: "Workspace spend passed $25.00",
+      subject: "Workspace spend",
     });
     expect(trigger?.message).toContain("estimated by StackDash");
   });
@@ -470,6 +501,15 @@ describe("spend_amount", () => {
   it("ignores spend from a past period", () => {
     const september = { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z" };
     expect(evaluate([spendRule(1, "USD")], [spend(3000, "USD", september)])).toEqual([]);
+  });
+
+  it.each([
+    ["project", { scope: "project", project_id: "project-acme" }, "Project Acme spend"],
+    ["provider", { scope: "provider", provider: "vercel" }, "Vercel spend"],
+    ["connection", { scope: "connection", connection_id: "conn-vercel" }, "Connection Vercel team spend"],
+  ] as const)("names a spend amount rule's %s scope in the subject", (_name, scope, subject) => {
+    const [trigger] = evaluate([spendRule(2500, "USD", scope)], [spend(3000, "USD", { projectId: "project-acme" })]);
+    expect(trigger?.subject).toBe(subject);
   });
 });
 
@@ -522,6 +562,7 @@ describe("budget_percent", () => {
       thresholdLabel: "75 percent",
       severity: "warning",
       title: "Budget Hosting passed 75 percent",
+      subject: "Hosting budget",
     });
   });
 
