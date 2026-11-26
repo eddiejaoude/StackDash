@@ -449,6 +449,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"onboarding_checklist_dismissals": {
+                  Row: {
+                    "dismissed_at": string,"user_id": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "dismissed_at"?: string,"user_id": string,"workspace_id": string
+                  }
+                  Update: {
+                    "dismissed_at"?: string,"user_id"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "onboarding_checklist_dismissals_member_fkey"
+      columns: ["workspace_id","user_id"]
+isOneToOne: true
+      referencedRelation: "workspace_members"
+      referencedColumns: ["workspace_id","user_id"]
+    }
+                  ]
                 },"profiles": {
                   Row: {
                     "avatar_url": string | null,"created_at": string,"display_name": string | null,"last_workspace_id": string | null,"updated_at": string,"user_id": string
