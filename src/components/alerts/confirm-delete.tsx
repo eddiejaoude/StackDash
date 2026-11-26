@@ -20,8 +20,9 @@ type Action = (previous: AlertActionResult | null, formData: FormData) => Promis
  * after Cancel or Escape closed the dialog mid-delete, or after a reopen replaced the confirmation
  * that ran it, shows beside the button instead (#369, as #367 did for connections), since that
  * confirmation can no longer report it. When the dialog is open again, the page behind it is
- * inert, so the new confirmation shows that failure as well. The confirmation remounts on every
- * open, so it starts without a previous attempt's error.
+ * inert, so the new confirmation shows that failure as well. A later failure that the open dialog
+ * shows itself replaces it, so an older attempt's failure never reappears beside the button. The
+ * confirmation remounts on every open, so it starts without a previous attempt's error.
  */
 export function ConfirmDelete({
   label,
@@ -72,7 +73,7 @@ export function ConfirmDelete({
           replacedFailure={unshownFailure}
           onSettled={(result, shownInDialog) => {
             if (result.ok) dialog.close("completed");
-            else if (!shownInDialog) setUnshownFailure(result);
+            else setUnshownFailure(shownInDialog ? null : result);
           }}
         />
       </ModalDialog>
