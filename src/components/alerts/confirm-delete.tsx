@@ -1,11 +1,12 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState } from "react";
 
-import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import type { AlertActionFailure, AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
-import { DialogError } from "@/components/ui/dialog-error";
+import { DialogError, type DialogFailure } from "@/components/ui/dialog-error";
+import { FailureAnnouncement } from "@/components/ui/live-region";
 import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 
 import { failureOf } from "./form-controls";
@@ -15,8 +16,12 @@ type Action = (previous: AlertActionResult | null, formData: FormData) => Promis
 /**
  * A delete button that asks first, in a `ModalDialog`. Escape or Cancel returns focus to the
  * button; after a delete the row is gone, so focus moves to `afterDeleteFocusId` (the section
- * heading) instead. The confirmation remounts on every open, so it starts without a previous
- * attempt's error.
+ * heading) instead. A failure keeps the dialog open and shows inside it. A failure that arrives
+ * after Cancel or Escape closed the dialog mid-delete, or after a reopen replaced the confirmation
+ * that ran it, shows beside the button instead (#369, as #367 did for connections), since that
+ * confirmation can no longer report it. When the dialog is open again, the page behind it is
+ * inert, so the new confirmation shows that failure as well. The confirmation remounts on every
+ * open, so it starts without a previous attempt's error.
  */
 export function ConfirmDelete({
   label,
@@ -39,23 +44,34 @@ export function ConfirmDelete({
   afterDeleteFocusId: string;
 }) {
   const dialog = useModalDialog({ fallbackFocusId: afterDeleteFocusId });
+  // Held here rather than in the confirmation, so a failure outlives the dialog closing.
+  const [unshownFailure, setUnshownFailure] = useState<AlertActionFailure | null>(null);
 
   return (
     <>
       <button
         type="button"
-        onClick={(event) => dialog.open(event.currentTarget)}
+        onClick={(event) => {
+          setUnshownFailure(null);
+          dialog.open(event.currentTarget);
+        }}
         className={buttonClass("raised", "xs")}
       >
         {label}
         <span className="sr-only">: {accessibleSuffix}</span>
       </button>
+      {/* Outside the dialog so a failure stays readable after it closes. */}
+      <FailureAnnouncement inline failure={unshownFailure} className="basis-full text-sm" />
       <ModalDialog dialog={dialog} title={title} description={description} size="sm">
         <ConfirmDeleteForm
           confirmLabel={confirmLabel}
           action={action}
           fields={fields}
-          onDeleted={() => dialog.close("completed")}
+          replacedFailure={unshownFailure}
+          onSettled={(result, shownInDialog) => {
+            if (result.ok) dialog.close("completed");
+            else if (!shownInDialog) setUnshownFailure(result);
+          }}
         />
       </ModalDialog>
     </>
@@ -66,17 +82,23 @@ function ConfirmDeleteForm({
   confirmLabel,
   action,
   fields,
-  onDeleted,
+  onSettled,
+  replacedFailure,
 }: {
   confirmLabel: string;
   action: Action;
   fields: Record<string, string>;
-  onDeleted: () => void;
+  /** `shownInDialog`: this confirmation is still mounted in the open dialog, so it shows a failure itself. */
+  onSettled: (result: AlertActionResult, shownInDialog: boolean) => void;
+  /** The failure of a confirmation this one replaced, which settled after this one opened. */
+  replacedFailure: DialogFailure | null;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(
     async (previous, formData) => {
       const result = await action(previous, formData);
-      if (result.ok) onDeleted();
+      // React clears the ref once a reopen unmounts this confirmation.
+      onSettled(result, formRef.current?.closest("dialog")?.open === true);
       return result;
     },
     null,
@@ -84,8 +106,8 @@ function ConfirmDeleteForm({
 
   return (
     <>
-      <DialogError failure={failureOf(state)} />
-      <form action={formAction}>
+      <DialogError failure={failureOf(state) ?? replacedFailure} />
+      <form ref={formRef} action={formAction}>
         {Object.entries(fields).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
