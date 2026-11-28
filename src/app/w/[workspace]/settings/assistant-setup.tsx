@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 
+import { FragmentHeading } from "@/components/alerts/fragment-heading";
 import { buttonClass } from "@/components/ui/button";
 import { OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 import { API_KEY_SCOPES } from "@/lib/api/scopes";
@@ -37,9 +38,7 @@ export function AssistantSetup({
   return (
     <section aria-labelledby={ASSISTANT_SETUP_ID} className="mt-6 rounded-xl border border-line bg-panel">
       <div className="border-b border-line px-6 py-4">
-        <h2 id={ASSISTANT_SETUP_ID} className="text-sm font-semibold">
-          AI assistants
-        </h2>
+        <FragmentHeading id={ASSISTANT_SETUP_ID}>AI assistants</FragmentHeading>
         <p className="mt-1 text-sm text-muted">
           Let Claude, Cursor, or another assistant answer questions about this workspace through its MCP server. The
           server only reads, and it uses an API key, so the assistant sees only what the key may read.{" "}
