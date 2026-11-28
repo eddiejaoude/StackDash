@@ -285,13 +285,15 @@ select results_eq('select tbl, row_count from rls283.visible_counts()',
   'membership set reads: the owner of A reads every row of A and nothing of B');
 
 -- The InitPlan: membership is read once per table reference, never per row, on every table a member
--- reads by workspace (every select policy for authenticated but profiles, which is keyed by user).
+-- reads by workspace: every select policy for authenticated but those keyed by user, profiles and
+-- support chat's tables (a thread is the user's, not a workspace's; 44_support_chat.test.sql).
 select is_empty(
   $$
     select p.tablename::text
     from pg_catalog.pg_policies p
     cross join lateral (select rls283.plan_of(format('select count(*) from public.%I', p.tablename)) as plan) x
-    where p.schemaname = 'public' and p.cmd = 'SELECT' and 'authenticated' = any (p.roles) and p.tablename <> 'profiles'
+    where p.schemaname = 'public' and p.cmd = 'SELECT' and 'authenticated' = any (p.roles)
+      and p.tablename not in ('profiles', 'support_threads', 'support_messages', 'support_thread_reads', 'support_attachments')
       and not (x.plan ~ 'InitPlan' and x.plan ~ 'Output: current_user_workspace_ids\(' and x.plan !~ 'SubPlan'
                and x.plan !~ 'has_workspace_role')
   $$,

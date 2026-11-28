@@ -67,8 +67,8 @@ function searchParamsOf(href: string): Record<string, string[]> {
 describe("buildPaletteCommands", () => {
   const commands = buildPaletteCommands(SOURCES);
 
-  it("goes to every workspace section in nav order, then alert settings, the year in review, and the account", () => {
-    expect(commands.slice(0, 9).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
+  it("goes to every workspace section in nav order, then alert settings, the year in review, the account, and messages", () => {
+    expect(commands.slice(0, 10).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
       ["Timeline", "Page", `/w/${SLUG}/timeline`],
       ["Dashboard", "Page", `/w/${SLUG}/dashboard`],
       ["Connections", "Page", `/w/${SLUG}/connections`],
@@ -78,23 +78,35 @@ describe("buildPaletteCommands", () => {
       ["Alert settings", "Page", `/w/${SLUG}/alerts/settings`],
       ["Year in review", "Page", `/w/${SLUG}/year/2026`],
       ["Account", "Page", "/account"],
+      ["Messages", "Page", "/account/messages"],
     ]);
   });
 
-  it("goes to the admin page after the account for a super admin, and finds it as \"open admin\"", () => {
+  it("finds the messages page for support words", () => {
+    for (const query of ["support", "contact", "help chat"]) {
+      expect(searchCommands(commands, query).results[0]?.id, query).toBe("page:messages");
+    }
+  });
+
+  it("goes to the admin page and the support inbox after messages for a super admin, and finds the admin page as \"open admin\"", () => {
     const forAdmin = buildPaletteCommands({ ...SOURCES, superAdmin: true });
-    expect(forAdmin.slice(8, 10).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
+    expect(forAdmin.slice(8, 12).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
       ["Account", "Page", "/account"],
+      ["Messages", "Page", "/account/messages"],
       ["Admin", "Page", "/app/admin"],
+      ["Support inbox", "Page", "/app/admin/inbox"],
     ]);
     expect(searchCommands(forAdmin, "open admin").results.map((command) => command.id)).toEqual(["page:admin"]);
     expect(searchCommands(forAdmin, "instance overview").results[0]?.id).toBe("page:admin");
+    expect(searchCommands(forAdmin, "support inbox").results[0]?.id).toBe("page:support-inbox");
   });
 
-  it("leaves the admin page, and its path, out of anyone else's commands", () => {
+  it("leaves the admin page, the support inbox, and their paths out of anyone else's commands", () => {
     expect(commands.find((command) => command.id === "page:admin")).toBeUndefined();
+    expect(commands.find((command) => command.id === "page:support-inbox")).toBeUndefined();
     expect(JSON.stringify(commands)).not.toContain("/app/admin");
     expect(searchCommands(commands, "admin").total).toBe(0);
+    expect(searchCommands(commands, "inbox").results.map((command) => command.id)).not.toContain("page:support-inbox");
   });
 
   // Rules, budgets, channels, and digests moved off the alerts inbox (#343).
@@ -290,6 +302,7 @@ describe("buildPaletteCommands", () => {
       "page:alert-settings",
       "page:year",
       "page:account",
+      "page:messages",
       "action:acknowledge-all",
       "action:create-api-key",
       "connect:resend",

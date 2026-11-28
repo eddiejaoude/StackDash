@@ -22,6 +22,13 @@ export const E2E_USERS = {
   viewer: { email: "e2e-viewer@example.com", userName: "e2e-viewer" },
 } as const;
 
+/**
+ * A second super admin address, listed in STACKDASH_SUPER_ADMIN_EMAILS by playwright.config.ts and
+ * never signed in, so it is never online in the support inbox: support chat email to operators
+ * (#680) always reaches it, whatever the e2e owner's open pages say about the owner's presence.
+ */
+export const E2E_OFFLINE_SUPER_ADMIN = "e2e-offline-admin@example.com";
+
 // Absolute so the paths resolve the same from global setup, the config, and any spec.
 const AUTH_DIR = path.join(__dirname, "..", ".auth");
 

@@ -18,7 +18,10 @@ import { readBoundedChunks } from "@/lib/http/bounded-body";
  * that does not exist). A body without the required fields is 422 `missing_required_field`, and one
  * with a field of the wrong shape 400 `validation_error`. The same `Idempotency-Key` with the same
  * body answers the first id again without storing a second message, and with another body is 409
- * `invalid_idempotent_request`.
+ * `invalid_idempotent_request`. `GET /emails/<id>` answers a stored email with the `message_id`
+ * Resend would have given it (https://resend.com/docs/api-reference/emails/retrieve-email, checked
+ * 2026-11-28), `<id@fake-resend.localhost>`, or 404 `not_found`, so support chat's per-recipient
+ * email threading (#680) runs end to end locally.
  *
  * Not Resend, for tests and local use (loopback only, no key on these routes):
  * - `GET /fake/emails` lists what it accepted, oldest first, as `{ data: FakeEmail[] }`.
@@ -44,6 +47,8 @@ const sendEmailSchema = z.object({
 
 export const fakeEmailSchema = z.object({
   id: z.string(),
+  /** The Message-ID header Resend would have set, which `GET /emails/<id>` reports. */
+  messageId: z.string(),
   receivedAt: z.string(),
   from: z.string(),
   to: z.array(z.string()),
@@ -181,8 +186,10 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
     }
 
     const body = parsed.data;
+    const id = randomUUID();
     const email: FakeEmail = {
-      id: randomUUID(),
+      id,
+      messageId: `<${id}@fake-resend.localhost>`,
       receivedAt: new Date().toISOString(),
       from: body.from,
       to: typeof body.to === "string" ? [body.to] : body.to,
@@ -197,6 +204,30 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
     sendJson(response, 200, { id: email.id });
   }
 
+  function retrieveEmail(request: IncomingMessage, response: ServerResponse, id: string): void {
+    const authorization = request.headers.authorization;
+    if (authorization === undefined) return sendError(response, 401, "missing_api_key", "Missing API Key");
+    if (authorization !== `Bearer ${options.apiKey}`) return sendError(response, 401, "validation_error", "API key is invalid");
+    const email = stored.find((candidate) => candidate.id === id);
+    if (email === undefined) return sendError(response, 404, "not_found", "Email not found");
+    sendJson(response, 200, {
+      object: "email",
+      id: email.id,
+      message_id: email.messageId,
+      from: email.from,
+      to: email.to,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+      bcc: null,
+      cc: null,
+      reply_to: null,
+      created_at: email.receivedAt,
+      last_event: "delivered",
+      scheduled_at: null,
+    });
+  }
+
   async function queueFailure(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const parsed = failureSchema.safeParse(parseJson(await readBody(request)));
     if (!parsed.success) return sendError(response, 400, "validation_error", 'Send { "status": 400 to 599, "name"?: string } or { "hang": true }.');
@@ -207,6 +238,7 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const path = new URL(request.url ?? "/", "http://fake").pathname;
     if (request.method === "POST" && path === "/emails") return sendEmail(request, response);
+    if (request.method === "GET" && path.startsWith("/emails/")) return retrieveEmail(request, response, path.slice("/emails/".length));
     if (request.method === "GET" && path === "/fake/emails") return sendJson(response, 200, { data: stored });
     if (request.method === "POST" && path === "/fake/failures") return queueFailure(request, response);
     sendError(response, 404, "not_found", "The requested endpoint does not exist.");

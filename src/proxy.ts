@@ -8,6 +8,7 @@ import { isLoopbackUrl, publicEnv } from "@/lib/env";
 import { parseProjectPagePath, projectPagePath } from "@/lib/public-metrics/project-page";
 import { checkPublicRateLimit, rateLimitedHeaders, rateLimitedPageHtml, type RateLimitDecision } from "@/lib/public-metrics/requests";
 import type { Database } from "@/lib/supabase/database.types";
+import { SUPPORT_INBOX_PATH } from "@/lib/support/paths";
 
 /**
  * Where a form on an app page may lead. Browsers apply form-action to every redirect hop of a
@@ -72,8 +73,9 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL, request: NextReq
     // Style attributes cannot carry a nonce, and server-rendered usage bars set their width with
     // one. Attributes cannot run script, so allowing them does not reopen script injection.
     "style-src-attr 'unsafe-inline'",
-    // GitHub avatars appear next to the signed-in user.
-    "img-src 'self' blob: data: https://avatars.githubusercontent.com",
+    // GitHub avatars appear next to the signed-in user and in the support inbox; support chat's
+    // images are signed URLs on the Supabase origin (#680).
+    `img-src 'self' blob: data: https://avatars.githubusercontent.com ${supabaseOrigin}`,
     "font-src 'self'",
     `connect-src 'self' ${supabaseOrigin} ${supabaseSocket}`,
     "object-src 'none'",
@@ -116,12 +118,19 @@ const MIS_CASED_PREFIX = /^\/[^/]*[A-Z]/;
 // released one, and another workspace's handle with this page slug get the same 404.
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
-// The super admin page (#250) is addressed as ADMIN_PATH, which has no route of its own: only a
-// super admin's request is rewritten to ADMIN_ROUTE, where the page is. Anyone else's is left alone
-// and is the global 404, with the same status and headers as any missing /app path; a rewrite to a
-// 404 path would show in the x-middleware-rewrite response header (#374). ADMIN_ROUTE is never
-// answered under its own path: every request there is rewritten to one path no route matches, so
-// the route and any missing path under it answer alike.
+// The super admin pages (#250) are addressed under ADMIN_PATH, and no address has a route of its
+// own: only a super admin's request is rewritten to the page's route under ADMIN_ROUTE. Anyone
+// else's is left alone and is the global 404, with the same status and headers as any missing /app
+// path; a rewrite to a 404 path would show in the x-middleware-rewrite response header (#374).
+// ADMIN_ROUTE is never answered under its own path: every request there is rewritten to one path no
+// route matches, so each route and any missing path under them answer alike. Each address matches
+// exactly, in this case only: /app/Admin is any other missing path.
+const ADMIN_ROUTES: ReadonlyMap<string, string> = new Map([
+  // The instance overview.
+  [ADMIN_PATH, ADMIN_ROUTE],
+  // The support inbox (#680).
+  [SUPPORT_INBOX_PATH, `${ADMIN_ROUTE}/inbox`],
+]);
 const UNKNOWN_ADMIN_ROUTE = `${ADMIN_ROUTE}/_`;
 
 type ProjectPageRoute =
@@ -172,8 +181,8 @@ function withNoncePolicy(
 
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, sets the
- * CSP headers, rewrites public project page addresses, sends a super admin's ADMIN_PATH to the
- * page's route (the only way to reach it), answers that route's own path as not found, and puts
+ * CSP headers, rewrites public project page addresses, sends a super admin's ADMIN_ROUTES address to
+ * its page's route (the only way to reach it), answers those routes' own paths as not found, and puts
  * the nonce policy on the global 404 a mis-cased prefix gets. This is not authorization: every
  * page, Server Function, and route handler still checks the user itself, because a matcher can
  * drift and silently stop covering a path.
@@ -255,19 +264,18 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const signedIn = data !== null;
 
+  // The route a super admin's request for this address goes to, if it is a super admin address.
+  const adminRoute = ADMIN_ROUTES.get(pathname);
+
   let response: NextResponse;
   if (!signedIn && isAppPath(pathname)) {
     const signIn = new URL("/sign-in", request.url);
     signIn.searchParams.set("next", safeNextPath(`${pathname}${search}`));
     response = NextResponse.redirect(signIn);
-  } else if (
-    signedIn &&
-    pathname === ADMIN_PATH &&
-    admitsToAdminRoute({ id: data.claims.sub, email: data.claims.email ?? null })
-  ) {
-    // The page reads `after` from the query, which a rewrite to a bare path would drop.
+  } else if (data !== null && adminRoute !== undefined && admitsToAdminRoute({ id: data.claims.sub, email: data.claims.email ?? null })) {
+    // The pages read their query (`after`, `view`, `thread`), which a rewrite to a bare path would drop.
     const target = request.nextUrl.clone();
-    target.pathname = ADMIN_ROUTE;
+    target.pathname = adminRoute;
     response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.rewrite(target, init));
   } else {
     response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.next(init));
@@ -280,28 +288,30 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-// The signed-in app, the account page, the auth pages, the signed-out /unsubscribe page (it reads
-// its link per request and posts a form, so it gets the full policy), public project pages (/@
-// addresses and the /p route they are rewritten to), the super admin route (ADMIN_ROUTE, answered
-// as not found above), plus /docs paths with an uppercase letter
-// (answered as not found above, before any session or CSP work). The landing page, the docs, the
-// signed-out /account/deleted page, API routes, and static assets stay out: they need no session
-// refresh, and a nonce would force static pages to render per request. next.config.ts applies the
-// static CSP to every path except the paths listed here; keep them in sync. src/proxy.test.ts
-// checks the two together, in any case of the path.
+// The signed-in app, the account page and the support messages page under it (#680), the auth
+// pages, the signed-out /unsubscribe page (it reads its link per request and posts a form, so it
+// gets the full policy), public project pages (/@ addresses and the /p route they are rewritten
+// to), the super admin routes (under ADMIN_ROUTE, answered as not found above), plus /docs paths
+// with an uppercase letter (answered as not found above, before any session or CSP work). The
+// landing page, the docs, the signed-out /account/deleted page, API routes, and static assets stay
+// out: they need no session refresh, and a nonce would force static pages to render per request.
+// next.config.ts applies the static CSP to every path except the paths listed here; keep them in
+// sync. src/proxy.test.ts checks the two together, in any case of the path.
 //
 // Next compiles each matcher to a case-sensitive regular expression, so the docs entry matches only
 // paths that contain an uppercase letter and correctly cased docs never invoke the proxy. "/@" is
 // followed by a pattern rather than `:path*`, which repeats only after a slash. Every other entry
 // spells its prefix with one character class per letter ([Aa][Pp][Pp] for /app), because
 // next.config.ts matches headers without regard to case: it keeps the static CSP off /App and
-// /W/x as well, so the proxy has to run there too (MIS_CASED_PREFIX, #376). A prefix followed by
-// `/:path*` matches on its own as well as with a path under it.
+// /W/x as well, so the proxy has to run there too (MIS_CASED_PREFIX, #376); /account/messages
+// spells both of its segments that way, since /account/Messages loses the static policy too. A
+// prefix followed by `/:path*` matches on its own as well as with a path under it.
 export const config = {
   matcher: [
     "/([Aa][Pp][Pp])/:path*",
     "/([Ww])/:path*",
     "/([Aa][Cc][Cc][Oo][Uu][Nn][Tt])",
+    "/([Aa][Cc][Cc][Oo][Uu][Nn][Tt])/([Mm][Ee][Ss][Ss][Aa][Gg][Ee][Ss])",
     "/([Ss][Ii][Gg][Nn]-[Ii][Nn])",
     "/([Aa][Uu][Tt][Hh])/:path*",
     "/([Uu][Nn][Ss][Uu][Bb][Ss][Cc][Rr][Ii][Bb][Ee])",

@@ -4,6 +4,7 @@ import { ADMIN_PATH } from "@/lib/auth/super-admin";
 import { appendScopeParams, buildScopeOptions, EMPTY_SCOPE, type ScopeFilters, type ScopeSources } from "@/lib/filters/scope";
 import { providerName, typeOwnerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
+import { SUPPORT_INBOX_PATH, SUPPORT_MESSAGES_PATH } from "@/lib/support/paths";
 import { timelineHref } from "@/lib/timeline/query";
 import {
   alertSettingsPath,
@@ -215,6 +216,13 @@ export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] 
       keywords: "profile email sign out",
       action: { kind: "navigate", href: "/account" },
     },
+    {
+      id: "page:messages",
+      label: "Messages",
+      kind: "Page",
+      keywords: "support help contact chat conversations feedback question",
+      action: { kind: "navigate", href: SUPPORT_MESSAGES_PATH },
+    },
   );
   if (sources.superAdmin) {
     pages.push({
@@ -223,6 +231,13 @@ export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] 
       kind: "Page",
       keywords: "open instance overview super configuration operator",
       action: { kind: "navigate", href: ADMIN_PATH },
+    });
+    pages.push({
+      id: "page:support-inbox",
+      label: "Support inbox",
+      kind: "Page",
+      keywords: "messages conversations chat users replies feedback",
+      action: { kind: "navigate", href: SUPPORT_INBOX_PATH },
     });
   }
 

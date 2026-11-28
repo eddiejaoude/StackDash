@@ -11,8 +11,9 @@ import {
 import type { ProviderId } from "@/lib/adapters/types";
 import { disconnectConnection, supportsRevoke, type RevokeOutcome } from "@/lib/connections/revoke";
 import { deleteCredential } from "@/lib/data/credentials";
-import { log } from "@/lib/log/logger";
+import { log, logError } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { deleteOwnerObjects } from "@/lib/support/attachment-store";
 import type { Database } from "@/lib/supabase/database.types";
 
 /*
@@ -220,6 +221,16 @@ export async function deleteUserAccount(userId: string): Promise<AccountDeletion
     if (outcome.kind === "failed") failed.push({ provider, referenceId: outcome.referenceId });
     else if (outcome.kind === "not_configured" || !supportsRevoke(provider)) manual.add(provider);
   });
+
+  // Support chat (#680): the user's conversations, messages, and attachment rows go with the auth
+  // user (on delete cascade), but no cascade reaches Storage, so the images in their folder are
+  // deleted first. A failure does not stop the deletion: the objects are then named by no row, and
+  // the retention job deletes such objects within ATTACHMENT_SWEEP_AGE_HOURS.
+  try {
+    await deleteOwnerObjects(userId);
+  } catch (error) {
+    logError("account.support_objects_delete_failed", error);
+  }
 
   const { error } = await createAdminClient().auth.admin.deleteUser(userId);
   if (error) throw new Error(`Deleting the auth user failed (status ${error.status ?? "unknown"}).`);

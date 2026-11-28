@@ -3,13 +3,17 @@ import { unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
-import { AccountLink } from "@/components/app/account-link";
+import { AccountLink, MessagesLink } from "@/components/app/account-link";
 import { AppNav } from "@/components/app/app-nav";
 import { ArrivalProvider, LiveIndicator } from "@/components/app/arrivals";
 import { CommandPalette } from "@/components/app/command-palette";
 import { LiveRefresh } from "@/components/app/live-refresh";
 import { SignOutButton } from "@/components/app/sign-out-button";
 import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
+import { AdminLink } from "@/components/support/admin-link";
+import { loadSupportShell } from "@/components/support/load-support-shell";
+import { SupportLauncher } from "@/components/support/member/support-launcher";
+import { SupportShellProvider } from "@/components/support/support-unread";
 import { Wordmark } from "@/components/wordmark";
 import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
 import { requireUser, type SessionUser } from "@/lib/auth/session";
@@ -26,6 +30,7 @@ import { logError } from "@/lib/log/logger";
 import { buildPaletteCommands, type PaletteScope } from "@/lib/palette/commands";
 import { latestCardYear } from "@/lib/public-metrics/yearly";
 import { summarizeLiveConnections, type LiveConnectionsRead } from "@/lib/realtime/arrivals";
+import { SUPPORT_MESSAGES_PATH } from "@/lib/support/paths";
 import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 import { roleLabel } from "@/lib/workspaces/permissions";
 
@@ -46,36 +51,45 @@ export const instant = false;
  *
  * ArrivalProvider spans the header and the page, so the live indicator, the components that mark
  * arriving data, and the one announcement per refresh share what arrived (#171).
+ *
+ * SupportShellProvider spans them too (#680): the support read (the user's id and unread counts) is
+ * started here and not awaited, so it runs beside the header's reads, and the Messages and Admin
+ * badges and the launcher each unwrap it behind their own Suspense boundary. The launcher sits
+ * outside the header: the header's backdrop filter would make it the box a fixed element is placed in.
  */
 export default async function WorkspaceLayout({ children, params }: LayoutProps<"/w/[workspace]">) {
   await connection();
+  const supportShell = loadSupportShell();
   return (
-    <ArrivalProvider>
-      <div className="flex flex-1 flex-col">
-        <header className="sticky top-0 z-40 border-b border-line bg-background/90 backdrop-blur-md">
-          <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-            {/* Positioned, so the live indicator's tooltip can sit against the row below md. */}
-            <div className="relative flex h-14 items-center gap-1.5 sm:gap-3">
-              <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
-                <Wordmark />
-              </Link>
-              <span aria-hidden="true" className="hidden text-line-strong sm:inline">
-                /
-              </span>
-              <Suspense fallback={<ControlsSkeleton />}>
-                <HeaderControls params={params} />
+    <SupportShellProvider shell={supportShell}>
+      <ArrivalProvider>
+        <div className="flex flex-1 flex-col">
+          <header className="sticky top-0 z-40 border-b border-line bg-background/90 backdrop-blur-md">
+            <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+              {/* Positioned, so the live indicator's tooltip can sit against the row below md. */}
+              <div className="relative flex h-14 items-center gap-1.5 sm:gap-3">
+                <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
+                  <Wordmark />
+                </Link>
+                <span aria-hidden="true" className="hidden text-line-strong sm:inline">
+                  /
+                </span>
+                <Suspense fallback={<ControlsSkeleton />}>
+                  <HeaderControls params={params} />
+                </Suspense>
+              </div>
+              <Suspense fallback={<NavSkeleton />}>
+                <HeaderNav params={params} />
               </Suspense>
             </div>
-            <Suspense fallback={<NavSkeleton />}>
-              <HeaderNav params={params} />
-            </Suspense>
-          </div>
-        </header>
-        <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
-          {children}
-        </main>
-      </div>
-    </ArrivalProvider>
+          </header>
+          <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
+            {children}
+          </main>
+          <SupportLauncher />
+        </div>
+      </ArrivalProvider>
+    </SupportShellProvider>
   );
 }
 
@@ -121,14 +135,13 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
         ) : null}
         {/* Rendered on the server for a super admin only, so nobody else's page carries the path (#364).
             From `sm` to `lg` the role badge, the account name (from `md`), and this link leave the
-            workspace switcher too little room for its name, so it starts at `lg`; the palette offers it at every width. */}
-        {showsAdminLink(user.email) ? (
-          <Link
+            workspace switcher too little room for its name, so it starts at `lg`; the palette offers it at every width.
+            It carries the support inbox's unread count, and holds the operators' channel at every width (#680). */}
+        {showsAdminLink(user) ? (
+          <AdminLink
             href={ADMIN_PATH}
-            className="hidden min-h-9 items-center rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground lg:inline-flex"
-          >
-            Admin
-          </Link>
+            className="hidden min-h-9 items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground lg:inline-flex"
+          />
         ) : null}
         <AccountLink profile={user.profile} />
         <SignOutButton />
@@ -218,13 +231,15 @@ async function HeaderNav({ params }: { params: WorkspaceParams }) {
   // Without a membership the page shows "not found"; links into that workspace would only repeat it.
   if (!membership) return null;
   // The palette sits at the end of the nav row rather than in the crowded top row, so it fits
-  // beside the Menu button on a phone and beside the section links on a wider screen.
+  // beside the Menu button on a phone and beside the section links on a wider screen. The account's
+  // Messages entry (#680) sits beside it for the same reason: the top row has no room left (#198).
   return (
     <div className="flex items-start gap-2 border-t border-line md:border-t-0">
       <AppNav workspaceSlug={membership.workspace.slug} />
-      <div className="flex min-h-11 shrink-0 items-center">
+      <div className="flex min-h-11 shrink-0 items-center gap-1">
+        <MessagesLink href={SUPPORT_MESSAGES_PATH} compact />
         <Suspense fallback={<PaletteSkeleton />}>
-          <HeaderPalette membership={membership} superAdmin={showsAdminLink(user.email)} />
+          <HeaderPalette membership={membership} superAdmin={showsAdminLink(user)} />
         </Suspense>
       </div>
     </div>

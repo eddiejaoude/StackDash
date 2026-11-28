@@ -75,6 +75,10 @@ export class MemoryJobStore implements JobStore {
   notificationDeliveries: Array<{ id: string; triggered_alert_id: string | null; delivered_at: string }> = [];
   webhookEndpoints: MemoryWebhookEndpoint[] = [];
   webhookDeliveries: MemoryWebhookDelivery[] = [];
+  // Support chat (#680): rate limit counters, attachment rows, and the bucket's objects.
+  supportRateLimitCounters: Array<{ key: string; window_start: string; count: number }> = [];
+  supportAttachments: Array<{ id: string; object_name: string; message_id: string | null; created_at: string }> = [];
+  supportObjects: Array<{ name: string; created_at: string }> = [];
 
   constructor(private readonly now: () => Date) {}
 
@@ -705,6 +709,36 @@ export class MemoryJobStore implements JobStore {
     this.jobs = this.jobs.filter((job) => job.webhook_delivery_id === null || remaining.has(job.webhook_delivery_id));
     this.webhookDeliveries = kept;
     return deleted;
+  }
+
+  async purgeSupportRateLimitCounters(before: Date, limit: number): Promise<number> {
+    const doomed = new Set(this.supportRateLimitCounters.filter((row) => Date.parse(row.window_start) < before.getTime()).slice(0, limit));
+    this.supportRateLimitCounters = this.supportRateLimitCounters.filter((row) => !doomed.has(row));
+    return doomed.size;
+  }
+
+  // Objects first, then rows, as the Supabase store does; a sent attachment is never swept.
+  async purgeStagedSupportAttachments(before: Date, limit: number): Promise<number> {
+    const doomed = this.supportAttachments
+      .filter((row) => row.message_id === null && Date.parse(row.created_at) < before.getTime())
+      .slice(0, limit);
+    const names = new Set(doomed.map((row) => row.object_name));
+    this.supportObjects = this.supportObjects.filter((object) => !names.has(object.name));
+    const ids = new Set(doomed.map((row) => row.id));
+    this.supportAttachments = this.supportAttachments.filter((row) => !ids.has(row.id));
+    return doomed.length;
+  }
+
+  async purgeOrphanedSupportObjects(before: Date, limit: number): Promise<number> {
+    const named = new Set(this.supportAttachments.map((row) => row.object_name));
+    const doomed = new Set(
+      this.supportObjects
+        .filter((object) => !named.has(object.name) && Date.parse(object.created_at) < before.getTime())
+        .slice(0, limit)
+        .map((object) => object.name),
+    );
+    this.supportObjects = this.supportObjects.filter((object) => !doomed.has(object.name));
+    return doomed.size;
   }
 
   #toSnapshotInput(row: MemorySnapshot): SummarySnapshot {

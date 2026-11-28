@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { E2E_USERS } from "./e2e/fixtures/auth";
+import { E2E_OFFLINE_SUPER_ADMIN, E2E_USERS } from "./e2e/fixtures/auth";
 import { FAKE_RESEND } from "./e2e/fixtures/fake-resend";
 import { FAKE_WEBHOOK_E2E_SECRET } from "./e2e/fixtures/fake-webhook";
 import { E2E_OPERATOR } from "./e2e/fixtures/operator";
@@ -125,7 +125,9 @@ export default defineConfig({
       // The public origin is the server's own, whatever .env.local says, so absolute metadata URLs
       // (canonical addresses, og:url, og:image: #338) and alert links point at this server.
       // The e2e owner is the instance's super admin (#250) and the viewer is not, whatever
-      // .env.local says, so e2e/admin.spec.ts can check both sides of the gate.
+      // .env.local says, so e2e/admin.spec.ts can check both sides of the gate. A second listed
+      // address never signs in, so support chat email to operators (#680) always has an offline
+      // recipient, whichever owner pages other specs hold open (e2e/support-chat.spec.ts).
       // The fake provider's webhook secret (#28) is the synthetic one e2e/webhooks.spec.ts signs
       // with, and every simulated provider's (#479) the one the webhooks-<provider> specs sign
       // with, whatever .env.local says.
@@ -135,7 +137,7 @@ export default defineConfig({
         ...E2E_OPERATOR,
         STACKDASH_SIMULATE_PROVIDERS: "1",
         NEXT_PUBLIC_SITE_URL: baseURL,
-        STACKDASH_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
+        STACKDASH_SUPER_ADMIN_EMAILS: [E2E_USERS.owner.email, E2E_OFFLINE_SUPER_ADMIN].join(","),
         STACKDASH_FAKE_WEBHOOK_SECRET: FAKE_WEBHOOK_E2E_SECRET,
         STACKDASH_SIMULATED_WEBHOOK_SECRET: SIMULATED_WEBHOOK_E2E_SECRET,
       },

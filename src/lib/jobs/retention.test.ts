@@ -69,6 +69,9 @@ describe("retention (#37)", () => {
       metricViews: 0,
       deliveries: 0,
       webhookDeliveries: 0,
+      supportRateLimitCounters: 0,
+      supportAttachments: 0,
+      supportOrphanObjects: 0,
       complete: true,
     });
   });
@@ -171,10 +174,41 @@ describe("retention (#37)", () => {
       metricViews: 0,
       deliveries: 0,
       webhookDeliveries: 0,
+      supportRateLimitCounters: 0,
+      supportAttachments: 0,
+      supportOrphanObjects: 0,
       complete: true,
     });
   });
 
+  it("deletes unsent support attachments and unnamed objects older than 24 hours, objects with their rows, and never a sent one (#680)", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    const cutoff = retentionCutoffs(NOW).supportAttachmentsBefore.getTime();
+    const at = (ms: number) => new Date(cutoff + ms).toISOString();
+    store.supportAttachments.push(
+      { id: "staged-old", object_name: "u/staged-old.png", message_id: null, created_at: at(-1) },
+      { id: "staged-exact", object_name: "u/staged-exact.png", message_id: null, created_at: at(0) },
+      { id: "sent-old", object_name: "u/sent-old.png", message_id: "m1", created_at: at(-86_400_000) },
+    );
+    store.supportObjects.push(
+      { name: "u/staged-old.png", created_at: at(-1) },
+      { name: "u/staged-exact.png", created_at: at(0) },
+      { name: "u/sent-old.png", created_at: at(-86_400_000) },
+      { name: "u/orphan-old.png", created_at: at(-1) },
+      { name: "u/orphan-exact.png", created_at: at(0) },
+    );
+    store.supportRateLimitCounters.push(
+      { key: "a".repeat(64), window_start: new Date(retentionCutoffs(NOW).rateLimitCountersBefore.getTime() - 1).toISOString(), count: 2 },
+      { key: "b".repeat(64), window_start: retentionCutoffs(NOW).rateLimitCountersBefore.toISOString(), count: 1 },
+    );
+
+    const result = await runRetention(store, NOW, () => true);
+
+    expect(store.supportAttachments.map((row) => row.id).sort()).toEqual(["sent-old", "staged-exact"]);
+    expect(store.supportObjects.map((object) => object.name).sort()).toEqual(["u/orphan-exact.png", "u/sent-old.png", "u/staged-exact.png"]);
+    expect(store.supportRateLimitCounters.map((row) => row.key)).toEqual(["b".repeat(64)]);
+    expect(result).toMatchObject({ supportAttachments: 1, supportOrphanObjects: 1, supportRateLimitCounters: 1, complete: true });
+  });
   it("deletes rate limit counters older than a day and keeps the last day's (#149)", async () => {
     const store = new MemoryJobStore(() => NOW);
     const cutoff = retentionCutoffs(NOW).rateLimitCountersBefore.getTime();
