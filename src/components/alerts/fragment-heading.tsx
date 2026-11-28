@@ -10,10 +10,11 @@ import { useEffect, useRef, type ReactNode } from "react";
 const SCROLL_MARGIN = "scroll-mt-32";
 
 /**
- * A section heading that links land on by its fragment: the alerts pagers (#312) and the links
- * into alert settings (#343), such as the email setting every alert email links to. When the page
- * arrives on `#<id>`, the heading scrolls into view and takes focus, so a screen reader says where
- * the user is and the next Tab enters the section (#313).
+ * A section heading that links land on by its fragment: the alerts pagers (#312), the links into
+ * alert settings (#343), such as the email setting every alert email links to, and the setup
+ * checklist's link to AI assistants (#674). When the page arrives on `#<id>`, the heading scrolls
+ * into view and takes focus, so a screen reader says where the user is and the next Tab enters the
+ * section (#313).
  *
  * The scroll is done here because the section streams in behind a Suspense boundary: when the
  * router, or the browser on a document load, looks for the fragment, the heading is not there yet.

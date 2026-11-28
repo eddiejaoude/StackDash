@@ -102,6 +102,21 @@ export async function createTestWorkspace(label: string): Promise<TestWorkspace>
   return { id: workspace.id, slug: workspace.slug, name, ownerId, viewerId };
 }
 
+/**
+ * Hides the Timeline's setup checklist (#674) for both members, so a spec about the feed measures
+ * the feed: its toolbar and events sit where they do without the panel above them. Every member
+ * sees the panel until they hide it; e2e/onboarding-checklist.spec.ts covers it.
+ */
+export async function hideSetupChecklist(workspace: TestWorkspace): Promise<void> {
+  const { error } = await adminClient()
+    .from("onboarding_checklist_dismissals")
+    .insert([
+      { workspace_id: workspace.id, user_id: workspace.ownerId },
+      { workspace_id: workspace.id, user_id: workspace.viewerId },
+    ]);
+  if (error) throw new Error(`Hiding the setup checklist failed (code ${error.code}).`);
+}
+
 /** Deletes a test workspace and, by cascade, everything seeded into it. */
 export async function deleteTestWorkspace(workspace: TestWorkspace): Promise<void> {
   const { error } = await adminClient().from("workspaces").delete().eq("id", workspace.id);

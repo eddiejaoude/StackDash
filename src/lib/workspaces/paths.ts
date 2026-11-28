@@ -49,6 +49,14 @@ export function createApiKeyPath(slug: string): string {
   return `${workspacePath(slug, "settings")}#${CREATE_API_KEY_FIELD_ID}`;
 }
 
+/** The id of the settings page's AI assistants heading (#163), which the setup checklist links to (#674). */
+export const ASSISTANT_SETUP_ID = "assistants-title";
+
+/** Settings, scrolled to the AI assistants section, where owners and admins create the assistant's key. */
+export function assistantSetupPath(slug: string): string {
+  return `${workspacePath(slug, "settings")}#${ASSISTANT_SETUP_ID}`;
+}
+
 /**
  * Fragments on the alert settings page that links land on (#343): each section's heading, and the
  * "New" button of each create form, which opens its form when the page loads with that fragment.

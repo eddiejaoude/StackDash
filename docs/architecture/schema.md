@@ -71,6 +71,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261122210934_live_refresh_broadcast.sql` | Expand step of live refresh through Broadcast: `broadcast_live_change` and an after insert and an after update statement trigger on each of `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts`, which send one private Broadcast message per statement and workspace on `workspace-live:<workspace id>`; the `workspace_live_select` policy on `realtime.messages`, which lets a workspace's members receive its topic and no client send on any private topic (see [Realtime](#realtime)) |
 | `20261123085405_live_refresh_broadcast_contract.sql` | Contract step of live refresh through Broadcast, at least one release after the expand step: takes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` out of the `supabase_realtime` publication, which then publishes no table (see [Realtime](#realtime)) |
 | `20261126132200_insert_first_connection.sql` | `insert_first_connection` (service role only), how sample data connects the first simulated provider of a set: locks the workspace row `for no key update`, so two calls for one workspace take turns, then inserts a pending connection and returns its id while the workspace has no connection of any status, and otherwise returns null having written nothing; raises `no_data_found` for a workspace that does not exist |
+| `20261126213000_onboarding_checklist_dismissals.sql` | `onboarding_checklist_dismissals`, one row per member who hid the Timeline's setup checklist (`workspace_id`, `user_id`, `dismissed_at` from the database clock), keyed to `workspace_members` with `on delete cascade`; any member, viewers included, reads and inserts only their own row, and nobody updates or deletes one through the Data API |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -114,6 +115,7 @@ erDiagram
   projects ||--o| project_pages : "public page"
   connections |o--o{ sync_jobs : "syncs"
   workspace_members ||--o| notification_preferences : "email setting"
+  workspace_members ||--o| onboarding_checklist_dismissals : "hid the setup checklist"
   workspaces ||--o{ notification_destinations : "channels"
   notification_destinations ||--|| notification_destination_secrets : "sealed URL (service role only)"
   notification_destinations ||--o{ alert_rule_destinations : "receives"
@@ -191,6 +193,7 @@ Every table in `public` has RLS enabled. Policies read the caller's role from `w
 | `public_rate_limit_counters` | none | none (service role function) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
+| `onboarding_checklist_dismissals` | own row | own row, any member including viewers, insert only (`workspace_id`, `user_id`); never updated or deleted, and `dismissed_at` is set by the database |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
 | `connection_credentials`, `credential_refresh_locks`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries`, `webhook_endpoints`, `webhook_deliveries`, `webhook_sources` | none | none (service role; the auth hook reads invites) |
@@ -379,6 +382,7 @@ The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticate
 | `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
 | `webhook_deliveries` | 30 days by `received_at` (`purge_webhook_deliveries`), longer than any provider's retry window, so a late retry is still recognized; each delivery's job goes with it, and a connection's deliveries go with its endpoint | `webhook_deliveries_received_at_idx` |
 | `webhook_endpoints` | while the connection exists; deleting the connection deletes it | not applicable |
+| `onboarding_checklist_dismissals` | while the membership exists; leaving the workspace, deleting the workspace, or deleting the account removes the row by cascade | not applicable |
 
 Nothing is aggregated in the MVP.
 

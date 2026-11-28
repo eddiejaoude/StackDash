@@ -13,6 +13,7 @@ import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
 import { EventInspector, type InspectorEvent } from "@/components/timeline/event-inspector";
 import { ActivityOverview } from "@/components/timeline/activity-overview";
+import { OnboardingChecklist } from "@/components/timeline/onboarding-checklist";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { ActiveFilterChips, TimelineFilters, TimelineToolbar } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
+import { getOnboardingChecklistState } from "@/lib/data/onboarding-checklist";
 import { getTimelineEvent, listTimelineActivity, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds, type TimelineEvent } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
@@ -79,14 +81,14 @@ export default function TimelinePage(props: PageProps<"/w/[workspace]/timeline">
 
 async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspace]/timeline">) {
   const { workspace: slug } = await params;
-  const { workspace, role } = await requireWorkspace(slug, "viewer");
+  const { workspace, role, user } = await requireWorkspace(slug, "viewer");
   const rawQuery = await searchParams;
   const query = parseTimelineSearchParams(rawQuery);
   const selectedEventId = parseTimelineEventId(rawQuery.event);
   const basePath = workspacePath(workspace.slug, "timeline");
 
   const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
-  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent, activity, origin] = await Promise.all([
+  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent, activity, origin, checklistState] = await Promise.all([
     listTimelineEvents(workspace.id, filters),
     listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
@@ -95,6 +97,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     listTimelineActivity(workspace.id, filters),
     // Achievement share links use the public origin, as the project's Achievements page builds them.
     requestPublicOrigin(),
+    getOnboardingChecklistState(workspace.id, user.id, role),
   ]);
   // Whether each achievement entry's achievement is published, for all of them in one read.
   const achievementRefs = [...page.events, ...(linkedEvent === null ? [] : [linkedEvent])].flatMap((event) =>
@@ -113,6 +116,16 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     fallbackFocusId: HEADING_ID,
     achievementActions: { workspaceSlug: workspace.slug, canPublish: canPerform(role, "publish_metrics"), siteOrigin: origin },
   };
+  // The first-run setup panel (#674) sits under the heading in every state of the page, until the
+  // member hides it.
+  const checklist = checklistState.dismissed ? null : (
+    <OnboardingChecklist
+      workspaceSlug={workspace.slug}
+      role={role}
+      steps={checklistState.steps}
+      afterDismissFocusId={HEADING_ID}
+    />
+  );
 
   // The type ids come from the daily event count rollup, which its triggers keep equal to every
   // event the workspace has, so they are empty only when there are no events at all.
@@ -125,6 +138,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
       return (
         <EventInspector {...inspectorProps}>
           <PageHeader id={HEADING_ID} title="Timeline" description={DESCRIPTION} />
+          {checklist}
           {emptyKind === "first_sync" ? (
             <EmptyState
               icon={<TimelineIcon width={20} height={20} />}
@@ -154,6 +168,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     return (
       <EventInspector {...inspectorProps}>
         <PageHeader id={HEADING_ID} title="Timeline" description={DESCRIPTION} />
+        {checklist}
         <EmptyState
           icon={<TimelineIcon width={20} height={20} />}
           title="No activity yet"
@@ -214,6 +229,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           </p>
         </FeedbackBanner>
       ) : null}
+      {/* After the banner, so the result of Explore with sample data stays under the heading. */}
+      {checklist}
       <TimelineToolbar action={basePath} query={query} />
       <TimelineFilters
         action={basePath}

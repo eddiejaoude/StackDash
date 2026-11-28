@@ -145,6 +145,11 @@ insert into public.notification_preferences (workspace_id, user_id, email_freque
 select workspace_id, user_id, 'daily' from public.workspace_members
 where workspace_id in ('283000a0-0000-4000-8000-000000000000', '283000b0-0000-4000-8000-000000000000');
 
+-- Every member has hidden the setup checklist (#674); a caller reads only their own row.
+insert into public.onboarding_checklist_dismissals (workspace_id, user_id)
+select workspace_id, user_id from public.workspace_members
+where workspace_id in ('283000a0-0000-4000-8000-000000000000', '283000b0-0000-4000-8000-000000000000');
+
 -- What the caller reads of A and B, table by table, through row level security.
 create function rls283.visible_counts()
 returns table (tbl text, row_count integer)
@@ -174,6 +179,7 @@ as $$
     union all select 'project_pages', (select count(*)::integer from public.project_pages where workspace_id in (select id from ab))
     union all select 'api_keys', (select count(*)::integer from public.api_keys where workspace_id in (select id from ab))
     union all select 'notification_preferences', (select count(*)::integer from public.notification_preferences where workspace_id in (select id from ab))
+    union all select 'onboarding_checklist_dismissals', (select count(*)::integer from public.onboarding_checklist_dismissals where workspace_id in (select id from ab))
     union all select 'project_achievements', (select count(*)::integer from public.project_achievements where workspace_id in (select id from ab))
     union all select 'project_achievement_publications', (select count(*)::integer from public.project_achievement_publications where workspace_id in (select id from ab))
   ) as counts (tbl, row_count)
@@ -183,7 +189,8 @@ grant execute on function rls283.visible_counts() to authenticated;
 
 -- What has_workspace_role allowed each caller: one row per workspace they belong to at any role,
 -- one per workspace they administer for api_keys, every member row of those workspaces for
--- workspace_members, their own rows for notification_preferences, and no job without a workspace.
+-- workspace_members, their own rows for notification_preferences and
+-- onboarding_checklist_dismissals, and no job without a workspace.
 create table rls283.expected (who text, tbl text, row_count integer);
 insert into rls283.expected
 select u.who, t.tbl,
@@ -207,7 +214,7 @@ cross join unnest(array[
   'activity_events', 'activity_event_daily_counts', 'budgets', 'alert_rules', 'triggered_alerts', 'sync_jobs',
   'sync_jobs without a workspace', 'notification_destinations', 'alert_rule_destinations', 'anomaly_mutes',
   'published_metrics', 'published_metric_views', 'project_pages', 'api_keys', 'notification_preferences',
-  'project_achievements', 'project_achievement_publications'
+  'onboarding_checklist_dismissals', 'project_achievements', 'project_achievement_publications'
 ]) as t (tbl);
 grant select on rls283.expected to authenticated;
 
@@ -253,7 +260,8 @@ select results_eq(
       ('activity_event_daily_counts', 'viewer'), ('activity_events', 'viewer'), ('alert_rule_destinations', 'viewer'),
       ('alert_rules', 'viewer'), ('anomaly_mutes', 'viewer'), ('api_keys', 'admin'), ('budgets', 'viewer'),
       ('connections', 'viewer'), ('external_accounts', 'viewer'), ('notification_destinations', 'viewer'),
-      ('notification_preferences', 'viewer'), ('project_achievement_publications', 'viewer'),
+      ('notification_preferences', 'viewer'), ('onboarding_checklist_dismissals', 'viewer'),
+      ('project_achievement_publications', 'viewer'),
       ('project_achievements', 'viewer'), ('project_pages', 'viewer'), ('projects', 'viewer'),
       ('published_metric_views', 'viewer'), ('published_metrics', 'viewer'), ('sync_jobs', 'viewer'),
       ('triggered_alerts', 'viewer'), ('usage_snapshots', 'viewer'), ('workspace_members', 'viewer'),

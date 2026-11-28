@@ -8,6 +8,8 @@ Open your StackDash site and select **Sign in**, then **Continue with GitHub**, 
 
 You land on the **Timeline** of your personal workspace. The navigation along the top of every workspace page holds **Timeline**, **Dashboard**, **Connections**, **Alerts**, **Projects**, and **Settings**.
 
+Under the **Timeline** heading, **Set up this workspace** lists four steps: **Connect a provider**, **Choose where alerts go**, **Connect your assistant**, and **Share a badge**. Each step says **To do** or **Done** from what the workspace already has, and links to the page that completes it, for example **Go to Connections**. Every step needs the owner or admin role, so a viewer sees why in place of each link. A viewer also sees neither **To do** nor **Done** on **Connect your assistant**, because only owners and admins can see API keys. Select **Hide checklist** to hide it for yourself; it stays hidden after a reload, and every other member still sees it until they hide it too. Once hidden, it cannot be shown again.
+
 ## 2. Explore with sample data
 
 A new workspace has nothing to show yet, so the timeline says **No activity yet**. On a site that simulates providers (only a local install with `STACKDASH_SIMULATE_PROVIDERS=1`, never a production deployment), owners and admins of a workspace with no connections also see **Explore with sample data**. Select it to connect every simulated provider to this workspace with this week's made-up history. The timeline opens with **Sample data added**, and everything that data shows is labeled **Simulated**.
