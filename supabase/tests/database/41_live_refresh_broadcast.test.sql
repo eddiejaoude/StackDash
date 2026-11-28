@@ -62,7 +62,10 @@ select results_eq(
   $$,
   'live broadcast triggers: one after insert and one after update statement trigger on each live table, none on delete');
 
--- A permissive insert, update, or all policy would let a client send on a workspace topic.
+-- A permissive insert, update, or all policy would let a client send on a workspace topic. The two
+-- insert policies are support chat's presence tracking (20261128120100_support_chat.sql): they admit
+-- extension `presence` on the caller's own support topics only, never a broadcast, and never a
+-- workspace topic (44_support_chat.test.sql covers them).
 select results_eq(
   $$
     select p.policyname::text collate "default", p.permissive, p.cmd, p.roles::text[] collate "default"
@@ -70,8 +73,15 @@ select results_eq(
     where p.schemaname = 'realtime' and p.tablename = 'messages'
     order by 1
   $$,
-  $$ values ('workspace_live_select', 'PERMISSIVE', 'SELECT', array['authenticated']) $$,
-  'realtime.messages policies: only the select policy for authenticated, so no client may write a message');
+  $$
+    values
+      ('support_operators_topic_select', 'PERMISSIVE', 'SELECT', array['authenticated']),
+      ('support_operators_topic_track', 'PERMISSIVE', 'INSERT', array['authenticated']),
+      ('support_user_topic_select', 'PERMISSIVE', 'SELECT', array['authenticated']),
+      ('support_user_topic_track', 'PERMISSIVE', 'INSERT', array['authenticated']),
+      ('workspace_live_select', 'PERMISSIVE', 'SELECT', array['authenticated'])
+  $$,
+  'realtime.messages policies: select policies for authenticated, and insert policies only to track presence on support topics, so no client may send a broadcast');
 
 -- ---------------------------------------------------------------------------
 -- Fixtures as postgres: an admin and a viewer of workspace A, an outsider, and workspace B.

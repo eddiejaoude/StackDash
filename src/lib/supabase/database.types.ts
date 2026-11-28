@@ -653,6 +653,146 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"super_admins": {
+                  Row: {
+                    "created_at": string,"email": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"email": string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"email"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"support_attachments": {
+                  Row: {
+                    "bytes": number,"created_at": string,"filename": string,"id": string,"message_id": string | null,"mime": string,"object_name": string,"owner_id": string,"thread_id": string | null,"uploader_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "bytes": number,"created_at"?: string,"filename": string,"id": string,"message_id"?: string | null,"mime": string,"object_name": string,"owner_id": string,"thread_id"?: string | null,"uploader_id"?: string | null
+                  }
+                  Update: {
+                    "bytes"?: number,"created_at"?: string,"filename"?: string,"id"?: string,"message_id"?: string | null,"mime"?: string,"object_name"?: string,"owner_id"?: string,"thread_id"?: string | null,"uploader_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "support_attachments_message_id_fkey"
+      columns: ["message_id"]
+isOneToOne: false
+      referencedRelation: "support_messages"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "support_attachments_thread_id_fkey"
+      columns: ["thread_id"]
+isOneToOne: false
+      referencedRelation: "support_threads"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"support_message_deliveries": {
+                  Row: {
+                    "created_at": string,"email_message_id": string | null,"email_provider_id": string | null,"id": string,"message_id": string,"recipient": string,"thread_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"email_message_id"?: string | null,"email_provider_id"?: string | null,"id"?: string,"message_id": string,"recipient": string,"thread_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"email_message_id"?: string | null,"email_provider_id"?: string | null,"id"?: string,"message_id"?: string,"recipient"?: string,"thread_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "support_message_deliveries_message_id_fkey"
+      columns: ["message_id"]
+isOneToOne: false
+      referencedRelation: "support_messages"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "support_message_deliveries_thread_id_fkey"
+      columns: ["thread_id"]
+isOneToOne: false
+      referencedRelation: "support_threads"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"support_messages": {
+                  Row: {
+                    "author_id": string | null,"body": string,"created_at": string,"id": string,"sender": Database["public"]['Enums']["support_sender"],"thread_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "author_id"?: string | null,"body": string,"created_at"?: string,"id"?: string,"sender": Database["public"]['Enums']["support_sender"],"thread_id": string
+                  }
+                  Update: {
+                    "author_id"?: string | null,"body"?: string,"created_at"?: string,"id"?: string,"sender"?: Database["public"]['Enums']["support_sender"],"thread_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "support_messages_thread_id_fkey"
+      columns: ["thread_id"]
+isOneToOne: false
+      referencedRelation: "support_threads"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"support_rate_limit_counters": {
+                  Row: {
+                    "count": number,"key": string,"window_start": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "count"?: number,"key": string,"window_start": string
+                  }
+                  Update: {
+                    "count"?: number,"key"?: string,"window_start"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"support_thread_reads": {
+                  Row: {
+                    "read_at": string,"thread_id": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "read_at": string,"thread_id": string,"user_id": string
+                  }
+                  Update: {
+                    "read_at"?: string,"thread_id"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "support_thread_reads_thread_id_fkey"
+      columns: ["thread_id"]
+isOneToOne: false
+      referencedRelation: "support_threads"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"support_threads": {
+                  Row: {
+                    "created_at": string,"from_page": string | null,"id": string,"last_message_at": string,"member_role": Database["public"]['Enums']["workspace_role"] | null,"status": Database["public"]['Enums']["support_thread_status"],"subject": string,"user_id": string,"user_last_read_at": string | null,"workspace_id": string | null,"workspace_name": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"from_page"?: string | null,"id"?: string,"last_message_at"?: string,"member_role"?: Database["public"]['Enums']["workspace_role"] | null,"status"?: Database["public"]['Enums']["support_thread_status"],"subject": string,"user_id": string,"user_last_read_at"?: string | null,"workspace_id"?: string | null,"workspace_name"?: string | null
+                  }
+                  Update: {
+                    "created_at"?: string,"from_page"?: string | null,"id"?: string,"last_message_at"?: string,"member_role"?: Database["public"]['Enums']["workspace_role"] | null,"status"?: Database["public"]['Enums']["support_thread_status"],"subject"?: string,"user_id"?: string,"user_last_read_at"?: string | null,"workspace_id"?: string | null,"workspace_name"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "support_threads_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"sync_jobs": {
                   Row: {
                     "attempts": number,"connection_id": string | null,"created_at": string,"dedupe_key": string | null,"error_code": string | null,"error_reference": string | null,"finished_at": string | null,"id": string,"kind": Database["public"]['Enums']["sync_job_kind"],"locked_until": string | null,"max_attempts": number,"run_after": string,"started_at": string | null,"status": Database["public"]['Enums']["sync_job_status"],"webhook_delivery_id": string | null,"workspace_id": string | null
@@ -940,8 +1080,16 @@ isOneToOne: false
 "backfill_connection_granted_at":
 { Args: { "p_limit": number }; Returns: number
                            },
+"bind_support_attachments":
+{ Args: { "p_attachment_ids": (string)[],"p_message_id": string,"p_owner_id": string,"p_thread_id": string,"p_uploader_id": string }; Returns: number
+                           },
 "bump_public_rate_limit":
 { Args: { "p_ip_hash": string }; Returns: number
+                           },
+"bump_support_rate_limit":
+{ Args: { "p_ip_key": string,"p_user_key": string,"p_window_seconds": number }; Returns: {
+              "ip_current": number,"ip_previous": number,"user_current": number,"user_previous": number,"window_start": string
+            }[]
                            },
 "claim_sync_jobs":
 { Args: { "p_lease_seconds": number,"p_limit": number }; Returns: {
@@ -1017,11 +1165,17 @@ isOneToOne: false
 "current_user_workspace_ids":
 { Args: { "p_min_role": Database["public"]['Enums']["workspace_role"] }; Returns: string[]
                            },
+"delete_staged_support_attachments":
+{ Args: { "p_ids": (string)[] }; Returns: number
+                           },
 "delete_webhook_endpoint":
 { Args: { "p_connection_id": string,"p_workspace_id": string }; Returns: Json
                            },
 "disable_project_page":
 { Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
+                           },
+"discard_support_attachment":
+{ Args: { "p_attachment_id": string,"p_uploader_id": string }; Returns: string
                            },
 "enqueue_alert_dispatches":
 { Args: Record<PropertyKey, never>; Returns: number
@@ -1063,9 +1217,30 @@ isOneToOne: false
 "insert_first_connection":
 { Args: { "p_display_name": string,"p_poll_interval_seconds": number,"p_provider": Database["public"]['Enums']["provider_id"],"p_user_id": string,"p_workspace_id": string }; Returns: string
                            },
+"is_super_admin":
+{ Args: Record<PropertyKey, never>; Returns: boolean
+                           },
+"is_super_admin_user":
+{ Args: { "p_user_id": string }; Returns: boolean
+                           },
 "latest_usage_resets":
 { Args: { "p_external_account_id": string,"p_workspace_id": string }; Returns: {
               "metric_key": string,"resets_at": string
+            }[]
+                           },
+"list_orphaned_support_objects":
+{ Args: { "p_before": string,"p_limit": number }; Returns: {
+              "object_name": string
+            }[]
+                           },
+"list_owner_support_objects":
+{ Args: { "p_limit": number,"p_owner_id": string }; Returns: {
+              "object_name": string
+            }[]
+                           },
+"list_stale_support_attachments":
+{ Args: { "p_before": string,"p_limit": number }; Returns: {
+              "id": string,"object_name": string
             }[]
                            },
 "list_webhook_targets":
@@ -1122,6 +1297,9 @@ isOneToOne: false
 "purge_published_metric_views":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
+"purge_support_rate_limit_counters":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
 "purge_sync_jobs":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
@@ -1133,6 +1311,9 @@ isOneToOne: false
                            },
 "rebuild_activity_event_daily_counts":
 { Args: { "p_workspace_id": string }; Returns: number
+                           },
+"reconcile_super_admins":
+{ Args: { "p_listed_emails": (string)[] }; Returns: number
                            },
 "record_project_achievements":
 { Args: { "p_achievements": Json,"p_project_id": string,"p_workspace_id": string }; Returns: string[]
@@ -1184,6 +1365,75 @@ isOneToOne: false
 { Args: { "p_kinds": (Database["public"]['Enums']["metric_kind"])[],"p_workspace_id": string }; Returns: {
               "amount_minor": number,"connection_id": string,"currency": string,"external_account_id": string,"id": string,"kind": Database["public"]['Enums']["metric_kind"],"label": string,"metric_key": string,"period_end": string,"period_start": string,"point_at": string,"pricing_source": string,"provenance_source": string,"provider": Database["public"]['Enums']["provider_id"],"resets_at": string,"retrieved_at": string,"snapshot_date": string,"unit": string,"value": number
             }[]
+                           },
+"stage_support_attachment":
+{ Args: { "p_bytes": number,"p_filename": string,"p_max_staged": number,"p_mime": string,"p_thread_id"?: string,"p_uploader_id": string }; Returns: {
+              "attachment_id": string,"object_name": string,"refusal": string
+            }[]
+                           },
+"staged_support_attachments":
+{ Args: { "p_ids": (string)[],"p_thread_id"?: string,"p_uploader_id": string }; Returns: {
+              "id": string,"mime": string,"object_name": string
+            }[]
+                           },
+"support_attachment_claimed":
+{ Args: { "p_object_name": string }; Returns: boolean
+                           },
+"support_broadcast":
+{ Args: { "p_kind": string,"p_member_id": string,"p_operator_id": string,"p_thread_id": string,"p_to_member": boolean,"p_to_operators": boolean }; Returns: undefined
+                           },
+"support_mark_read_by_member":
+{ Args: { "p_seen_through": string,"p_thread_id": string,"p_user_id": string }; Returns: boolean
+                           },
+"support_mark_read_by_operator":
+{ Args: { "p_operator_id": string,"p_seen_through": string,"p_thread_id": string }; Returns: boolean
+                           },
+"support_member_threads":
+{ Args: { "p_after_id"?: string,"p_after_last_message_at"?: string,"p_after_unread"?: boolean,"p_limit": number,"p_user_id": string }; Returns: {
+              "created_at": string,"id": string,"last_message_at": string,"last_preview": string,"last_sender": Database["public"]['Enums']["support_sender"],"read_at": string,"status": Database["public"]['Enums']["support_thread_status"],"subject": string
+            }[]
+                           },
+"support_member_unread_count":
+{ Args: { "p_user_id": string }; Returns: number
+                           },
+"support_operator_reply":
+{ Args: { "p_attachment_ids": (string)[],"p_body": string,"p_operator_id": string,"p_thread_id": string }; Returns: {
+              "created_at": string,"member_id": string,"message_id": string
+            }[]
+                           },
+"support_operator_threads":
+{ Args: { "p_after_id"?: string,"p_after_last_message_at"?: string,"p_after_unread"?: boolean,"p_closed": boolean,"p_limit": number,"p_operator_id": string }; Returns: {
+              "created_at": string,"from_page": string,"id": string,"last_message_at": string,"last_preview": string,"last_sender": Database["public"]['Enums']["support_sender"],"member_avatar_url": string,"member_email": string,"member_name": string,"member_role": Database["public"]['Enums']["workspace_role"],"read_at": string,"status": Database["public"]['Enums']["support_thread_status"],"subject": string,"user_id": string,"workspace_name": string
+            }[]
+                           },
+"support_operator_unread_count":
+{ Args: { "p_operator_id": string }; Returns: number
+                           },
+"support_send_member_message":
+{ Args: { "p_attachment_ids": (string)[],"p_body": string,"p_thread_id": string,"p_user_id": string }; Returns: {
+              "created_at": string,"message_id": string
+            }[]
+                           },
+"support_set_thread_status":
+{ Args: { "p_operator_id": string,"p_seen_through": string,"p_status": Database["public"]['Enums']["support_thread_status"],"p_thread_id": string }; Returns: string
+                           },
+"support_start_thread":
+{ Args: { "p_attachment_ids"?: (string)[],"p_body": string,"p_from_page"?: string,"p_member_role"?: Database["public"]['Enums']["workspace_role"],"p_subject": string,"p_user_id": string,"p_workspace_id"?: string,"p_workspace_name"?: string }; Returns: {
+              "created_at": string,"message_id": string,"thread_id": string
+            }[]
+                           },
+"support_thread_detail":
+{ Args: { "p_reader_id"?: string,"p_thread_id": string }; Returns: {
+              "created_at": string,"from_page": string,"id": string,"last_message_at": string,"member_avatar_url": string,"member_email": string,"member_name": string,"member_role": Database["public"]['Enums']["workspace_role"],"operator_read_at": string,"status": Database["public"]['Enums']["support_thread_status"],"subject": string,"user_id": string,"user_last_read_at": string,"workspace_id": string,"workspace_name": string
+            }[]
+                           },
+"support_thread_messages":
+{ Args: { "p_before_created_at"?: string,"p_before_id"?: string,"p_limit": number,"p_thread_id": string }; Returns: {
+              "attachments": Json,"body": string,"created_at": string,"id": string,"sender": Database["public"]['Enums']["support_sender"]
+            }[]
+                           },
+"sync_super_admin":
+{ Args: { "p_listed_emails": (string)[],"p_user_id": string }; Returns: boolean
                            },
 "timeline_activity_buckets":
 { Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_title_pattern"?: string,"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
@@ -1286,7 +1536,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "achievement_date_precision": "instant"|"day","achievement_evidence": "crossed"|"at_least","alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_mode": "live"|"test","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway"|"gitlab","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest"|"webhook","sync_job_status": "queued"|"running"|"succeeded"|"failed","webhook_delivery_status": "received"|"processed","webhook_setup_mode": "manual"|"automatic","workspace_role": "owner"|"admin"|"viewer"
+            "achievement_date_precision": "instant"|"day","achievement_evidence": "crossed"|"at_least","alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_mode": "live"|"test","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway"|"gitlab","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","support_sender": "user"|"operator","support_thread_status": "open"|"replied"|"closed","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest"|"webhook","sync_job_status": "queued"|"running"|"succeeded"|"failed","webhook_delivery_status": "received"|"processed","webhook_setup_mode": "manual"|"automatic","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -1402,7 +1652,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "achievement_date_precision": ["instant", "day"],"achievement_evidence": ["crossed", "at_least"],"alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_mode": ["live", "test"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest", "webhook"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"webhook_delivery_status": ["received", "processed"],"webhook_setup_mode": ["manual", "automatic"],"workspace_role": ["owner", "admin", "viewer"]
+            "achievement_date_precision": ["instant", "day"],"achievement_evidence": ["crossed", "at_least"],"alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_mode": ["live", "test"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"support_sender": ["user", "operator"],"support_thread_status": ["open", "replied", "closed"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest", "webhook"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"webhook_delivery_status": ["received", "processed"],"webhook_setup_mode": ["manual", "automatic"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const
