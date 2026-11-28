@@ -106,6 +106,12 @@ const STATUS_BADGES: Record<Exclude<OnboardingStepStatus, "unknown">, { label: s
   todo: { label: "To do", className: "border-dashed border-line-strong text-muted" },
 };
 
+const STATUS_RINGS: Record<OnboardingStepStatus, string> = {
+  done: "border border-success/50 text-success",
+  todo: "border border-line-strong text-muted",
+  unknown: "",
+};
+
 function ChecklistStep({
   copy,
   status,
@@ -117,16 +123,15 @@ function ChecklistStep({
   workspaceSlug: string;
   role: WorkspaceRole;
 }) {
-  // A step whose state the role cannot read shows no badge: the denied reason below says why.
+  // A step whose state the role cannot read shows no badge and no ring, so it reads as neither done
+  // nor to do: the denied reason beside it says why. An empty spacer keeps the titles aligned.
   const badge = status === "unknown" ? null : STATUS_BADGES[status];
   return (
     <li className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 gap-3">
         <span
           aria-hidden="true"
-          className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border ${
-            status === "done" ? "border-success/50 text-success" : "border-line-strong text-muted"
-          }`}
+          className={`mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ${STATUS_RINGS[status]}`}
         >
           {status === "done" ? <CheckIcon width={14} height={14} /> : null}
         </span>
