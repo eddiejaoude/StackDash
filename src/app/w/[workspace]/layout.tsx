@@ -122,7 +122,7 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
         {/* Rendered on the server for a super admin only, so nobody else's page carries the path (#364).
             From `sm` to `lg` the role badge, the account name (from `md`), and this link leave the
             workspace switcher too little room for its name, so it starts at `lg`; the palette offers it at every width. */}
-        {showsAdminLink(user.email) ? (
+        {showsAdminLink(user) ? (
           <Link
             href={ADMIN_PATH}
             className="hidden min-h-9 items-center rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground lg:inline-flex"
@@ -224,7 +224,7 @@ async function HeaderNav({ params }: { params: WorkspaceParams }) {
       <AppNav workspaceSlug={membership.workspace.slug} />
       <div className="flex min-h-11 shrink-0 items-center">
         <Suspense fallback={<PaletteSkeleton />}>
-          <HeaderPalette membership={membership} superAdmin={showsAdminLink(user.email)} />
+          <HeaderPalette membership={membership} superAdmin={showsAdminLink(user)} />
         </Suspense>
       </div>
     </div>

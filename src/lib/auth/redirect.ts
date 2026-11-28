@@ -19,19 +19,14 @@ export function isAppPath(pathname: string): boolean {
 }
 
 /**
- * Returns `input` when it is a relative path inside the signed-in app, otherwise `/app`.
- *
- * `next` values arrive from query strings and form fields, so passing one straight to a redirect is
- * an open redirect. Only same-origin paths under `/app` or `/w/` survive; the result is rebuilt from
- * the parsed URL so dot segments such as `/w/../evil` are resolved before the prefix check.
+ * `input` parsed as a same-origin relative path, or null when it is anything else: not a string,
+ * empty or longer than 512 characters, absolute or protocol-relative, or carrying a backslash or a
+ * control character, encoded or not. Dot segments are resolved, so `/w/../evil` reads as `/evil`.
+ * The shared check behind `safeNextPath` and support chat's `from_page` (#680).
  */
-export function safeNextPath(input: unknown): string {
-  if (typeof input !== "string" || input.length === 0 || input.length > MAX_NEXT_PATH_LENGTH) {
-    return DEFAULT_NEXT_PATH;
-  }
-  if (!input.startsWith("/") || input.startsWith("//") || UNSAFE_CHARACTERS.test(input)) {
-    return DEFAULT_NEXT_PATH;
-  }
+export function parseRelativePath(input: unknown): URL | null {
+  if (typeof input !== "string" || input.length === 0 || input.length > MAX_NEXT_PATH_LENGTH) return null;
+  if (!input.startsWith("/") || input.startsWith("//") || UNSAFE_CHARACTERS.test(input)) return null;
 
   // Check the decoded form too: an encoded backslash, control character, or leading "//" is a sign
   // of a smuggling attempt even if this parser would keep it inert.
@@ -39,22 +34,29 @@ export function safeNextPath(input: unknown): string {
   try {
     decoded = decodeURIComponent(input);
   } catch {
-    return DEFAULT_NEXT_PATH;
+    return null;
   }
-  if (decoded.startsWith("//") || UNSAFE_CHARACTERS.test(decoded)) {
-    return DEFAULT_NEXT_PATH;
-  }
+  if (decoded.startsWith("//") || UNSAFE_CHARACTERS.test(decoded)) return null;
 
   let url: URL;
   try {
     url = new URL(input, PARSE_BASE);
   } catch {
-    return DEFAULT_NEXT_PATH;
+    return null;
   }
-  if (url.origin !== PARSE_BASE || !isAppPath(url.pathname)) {
-    return DEFAULT_NEXT_PATH;
-  }
+  return url.origin === PARSE_BASE ? url : null;
+}
 
+/**
+ * Returns `input` when it is a relative path inside the signed-in app, otherwise `/app`.
+ *
+ * `next` values arrive from query strings and form fields, so passing one straight to a redirect is
+ * an open redirect. Only same-origin paths under `/app` or `/w/` survive; the result is rebuilt from
+ * the parsed URL so dot segments such as `/w/../evil` are resolved before the prefix check.
+ */
+export function safeNextPath(input: unknown): string {
+  const url = parseRelativePath(input);
+  if (url === null || !isAppPath(url.pathname)) return DEFAULT_NEXT_PATH;
   const path = `${url.pathname}${url.search}${url.hash}`;
   return path.length > MAX_NEXT_PATH_LENGTH ? DEFAULT_NEXT_PATH : path;
 }
