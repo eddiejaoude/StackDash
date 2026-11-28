@@ -62,6 +62,18 @@ Spend, budgets, and alerts are never public. Usage metrics such as deployments o
 
 How each public number is counted is in [Public metrics](architecture/public-metrics.md).
 
+## 7. Contact support
+
+To ask a question, report a problem, or share an idea, write to the people who run your StackDash site without leaving it. Your messages go to the site's super admins: on the hosted site, the StackDash team; on a self-hosted site, whoever runs it. Only signed-in users can write.
+
+- Select **Message support** in the bottom right corner of any workspace page or the **Account** page. Write in **Message to support**, then select **Send message** or press Enter (Shift and Enter starts a new line). The first line of your first message becomes the conversation's subject. Each conversation records the page you wrote from and, inside a workspace, the workspace's name and your role there, so you do not have to explain where you were.
+- Replies appear in the conversation without a reload. While the panel is closed, **Message support** and **Messages** show how many of your conversations have unread replies. If you have no workspace, **Account**, or **Messages** page open when a reply arrives, it is also emailed to you, on a site that has email set up.
+- **Messages**, in the workspace header, on the **Account** page, and in the command palette, opens all your conversations. There you can start another with **New conversation**, read older messages with **Load older messages**, and attach images: select **Attach images**, or drop or paste images into the message box. PNG, JPEG, GIF, and WebP images up to 10 MB each are accepted, up to 5 per message. SVG images are refused because they can carry scripts.
+- If you send many messages in a short time, StackDash says when you can send again and keeps your message in the box.
+- When support closes a conversation, writing in it again opens it again.
+
+Your conversations, their messages, and their images are kept until you delete your account, which removes them. An image you attached but never sent is deleted after 24 hours.
+
 ## Next steps
 
 - Connect the rest of your stack: [Connect providers](connect-providers.md).
