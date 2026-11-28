@@ -15,6 +15,7 @@ import {
 } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { purgeOrphanedObjects, purgeStagedAttachments } from "@/lib/support/attachment-store";
 import type { Json, Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
 import { readAllPages } from "@/lib/supabase/paging";
 
@@ -282,6 +283,13 @@ export interface JobStore {
   finishWebhookDelivery(deliveryRowId: string, finishedAt: Date): Promise<void>;
   /** Deletes delivery records received before `before`: the deduplication window (#28). */
   purgeWebhookDeliveries(before: Date, limit: number): Promise<number>;
+
+  /** Deletes support chat rate limit counters whose window started before `before` (#680). */
+  purgeSupportRateLimitCounters(before: Date, limit: number): Promise<number>;
+  /** Deletes up to `limit` support attachments claimed before `before` and never sent: objects, then rows. */
+  purgeStagedSupportAttachments(before: Date, limit: number): Promise<number>;
+  /** Deletes up to `limit` support-attachments objects created before `before` that no row names. */
+  purgeOrphanedSupportObjects(before: Date, limit: number): Promise<number>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -850,5 +858,15 @@ export function createSupabaseJobStore(): JobStore {
       if (error) throw failure("purge_webhook_deliveries", error);
       return data;
     },
+
+    async purgeSupportRateLimitCounters(before, limit) {
+      const { data, error } = await db.rpc("purge_support_rate_limit_counters", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_support_rate_limit_counters", error);
+      return data;
+    },
+
+    purgeStagedSupportAttachments: purgeStagedAttachments,
+
+    purgeOrphanedSupportObjects: purgeOrphanedObjects,
   };
 }

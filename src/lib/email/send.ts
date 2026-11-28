@@ -31,10 +31,27 @@ export type EmailMessage = Readonly<{
   idempotencyKey?: string;
 }>;
 
+/** `messageId` is Resend's id for the send, not the RFC 5322 Message-ID header (see `rfcMessageId`). */
 export type SentEmail = Readonly<{ messageId: string }>;
+
+/**
+ * The RFC 5322 Message-ID Resend gave a sent email, or why there is none yet. `retryable` is true
+ * when asking again later can help: Resend's retrieve endpoint can answer 404 for a send made a
+ * moment ago (BackTalk src/lib/email/resend.ts at 274976f^1, `messageIdOfSend`).
+ */
+export type MessageIdLookup =
+  | Readonly<{ messageId: string }>
+  | Readonly<{ messageId: null; retryable: boolean; reason: string }>;
 
 export interface EmailTransport {
   send(message: EmailMessage): Promise<SentEmail>;
+  /**
+   * The Message-ID header of a sent email, by the id `send` returned. Resend sets the header itself
+   * and reports it only through its retrieve endpoint (https://resend.com/docs/api-reference/emails/retrieve-email,
+   * `message_id`, checked 2026-11-28), and support chat needs it to thread the next email to the same
+   * recipient (#680). Never throws.
+   */
+  rfcMessageId(emailId: string): Promise<MessageIdLookup>;
 }
 
 /** A send that failed. `retryable` is false when sending the same message again cannot help. */
@@ -102,6 +119,30 @@ export function resendTransport(env: EmailEnv, timeoutMs: number = EMAIL_TIMEOUT
       throw new EmailSendError(`Resend answered ${statusCode} ${name}`, {
         retryable: statusCode === 429 || statusCode >= 500 || RETRY_LATER_CONFLICTS[name] === true,
       });
+    },
+
+    /**
+     * Resend's retrieve email endpoint (https://resend.com/docs/api-reference/emails/retrieve-email,
+     * checked 2026-11-28). A 404 is retryable: the endpoint can lag the send by a moment.
+     */
+    async rfcMessageId(emailId) {
+      const signal = AbortSignal.timeout(timeoutMs);
+      const result = await client.emails.get(emailId, { signal });
+      if (result.error !== null) {
+        const { statusCode, name } = result.error;
+        if (typeof statusCode !== "number") {
+          return { messageId: null, retryable: true, reason: signal.aborted ? `timed out after ${timeoutMs} ms` : "failed without an HTTP status" };
+        }
+        return {
+          messageId: null,
+          retryable: statusCode === 404 || statusCode === 429 || statusCode >= 500,
+          reason: `Resend answered ${statusCode} ${name}`,
+        };
+      }
+      // Typed as a string, but a send still being processed is where an empty one would appear.
+      const messageId: unknown = result.data.message_id;
+      if (typeof messageId === "string" && messageId !== "") return { messageId };
+      return { messageId: null, retryable: true, reason: "the send has no Message-ID yet" };
     },
   };
 }

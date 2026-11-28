@@ -42,7 +42,7 @@ Every variable in `.env.example` is documented twice: in `.env.example` itself, 
 
 - `NEXT_PUBLIC_SITE_URL`, your public origin. Every provider callback URL starts with it, and a production build sends no alert email or channel message without it.
 - `STACKDASH_ENCRYPTION_KEY`, which encrypts every stored provider credential. Keep a copy in your password manager: losing it means every connection must reconnect. [Key rotation](deploy.md#key-rotation) changes it without downtime.
-- `STACKDASH_SUPER_ADMIN_EMAILS`, the sign-in emails that can open the instance overview at `/app/admin` ([Instance overview](deploy.md#instance-overview)).
+- `STACKDASH_SUPER_ADMIN_EMAILS`, the sign-in emails that can open the instance overview at `/app/admin` ([Instance overview](deploy.md#instance-overview)) and answer support chat. The database keeps a copy that each server start trims to this list, so removing an address and restarting revokes it ([Super admins in the database](deploy.md#super-admins-in-the-database)).
 - `STACKDASH_OPERATOR_NAME`, `STACKDASH_OPERATOR_EMAIL`, and `STACKDASH_GOVERNING_LAW`, which publish the privacy policy and terms of use with your details. Set all three or none.
 - `STACKDASH_ALLOW_PRIVATE_WEBHOOKS` lets alert webhook channels post to plain http and to private network addresses, and `STACKDASH_TRUSTED_PROXY_COUNT` tells the per IP rate limit of the public badge, card, and metrics routes how many of your own proxies sit in front of the app. Leave both unset on Vercel.
 

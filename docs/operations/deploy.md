@@ -310,3 +310,17 @@ Run every check against the production URL and write down the deployment URL you
 `/app/admin` shows a super admin how this server is configured and used: whether each variable in [Environment variables](#environment-variables) is set (never its value) and what that means, which provider OAuth apps are registered and how many workspaces use each provider, the background job queue and its failures in the last 24 hours, users, workspaces with their members and timeline events, and whether the database has this build's migrations. Super admins are the addresses in `STACKDASH_SUPER_ADMIN_EMAILS`; anyone else gets page not found.
 
 A super admin reaches it from the Admin link in the workspace header on wider screens (the `lg` breakpoint, 1024 pixels, and up), or from the Admin command in the command palette at every width, which is the way in on a phone. Neither is sent to anyone else. Each view is logged with the viewer's user id (`admin.viewed`). Locally, add your GitHub email to `STACKDASH_SUPER_ADMIN_EMAILS` in `.env.local` and restart `npm run dev`.
+
+### Super admins in the database
+
+Support chat needs the database itself to know who the super admins are: Realtime and Storage authorize through row level security, which cannot read an environment variable. So `public.super_admins` mirrors `STACKDASH_SUPER_ADMIN_EMAILS`, and the variable stays the one place to add or remove a super admin:
+
+- At every server start, each row whose account email is not in the list is deleted (`admin.mirror_reconciled` in the log says how many). An empty or invalid list empties the table. If the database cannot be reached at start, the server still starts and logs `admin.mirror_reconcile_failed`.
+- Every super admin check (the admin pages, the header's Admin link) writes the row for a listed account whose email GitHub has confirmed, and deletes the row of an account that is no longer listed.
+- A row only counts while it still matches the account's current email, so changing the email on an account ends its access at once.
+
+To remove a super admin, take the address out of `STACKDASH_SUPER_ADMIN_EMAILS` and redeploy. A Realtime channel they already joined keeps receiving hints until their access token expires, at most an hour. To check by hand, `select user_id, email from public.super_admins;` in the SQL editor lists who the database treats as one.
+
+### Support chat storage and retention
+
+Image attachments live in the private Storage bucket `support-attachments`, which the migrations create: 10 MiB a file, PNG, JPEG, GIF, and WebP only, read through 10 minute signed links. Nothing to configure. Conversations, their messages, and their images are kept until the user deletes their account; deleting it removes them, the images first. The daily retention job deletes images that were attached but never sent, and images no conversation refers to, after 24 hours. Support email uses the alert email settings (`STACKDASH_RESEND_API_KEY`); without them, conversations still work in the app and nobody is emailed. Locally, `npm run email:fake` receives the email instead of a real inbox.

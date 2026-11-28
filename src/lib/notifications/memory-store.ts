@@ -1,5 +1,5 @@
 import type { DashboardInput } from "@/lib/dashboard/aggregate";
-import type { EmailMessage, EmailTransport } from "@/lib/email/send";
+import type { EmailMessage, EmailTransport, MessageIdLookup } from "@/lib/email/send";
 import type { EventRow } from "@/lib/jobs/store";
 import type { Logger } from "@/lib/log/logger";
 
@@ -127,6 +127,10 @@ export class MemoryEmailTransport implements EmailTransport {
     if (this.fail !== null) throw this.fail;
     this.sent.push(message);
     return { messageId: `memory-${this.sent.length}` };
+  }
+
+  async rfcMessageId(emailId: string): Promise<MessageIdLookup> {
+    return { messageId: `<${emailId}@memory.test>` };
   }
 }
 
