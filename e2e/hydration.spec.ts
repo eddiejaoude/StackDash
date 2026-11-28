@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { collectHydrationErrors } from "./fixtures/hydration";
 
 /*
  * A workspace page streams in twice (#211). Every page under /w/[workspace] renders its content in
@@ -93,19 +94,6 @@ async function holdPageReveals(page: Page): Promise<void> {
       },
     });
   });
-}
-
-/** React reports a failed hydration as a recoverable error: a page error or a console error. */
-function collectHydrationErrors(page: Page): () => readonly string[] {
-  const errors: string[] = [];
-  const keep = (text: string) => {
-    if (/hydrat|Minified React error #(418|419|422|423|425)\b/i.test(text)) errors.push(text);
-  };
-  page.on("pageerror", (error) => keep(`${error.name}: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") keep(message.text());
-  });
-  return () => errors;
 }
 
 // `loading` is the page skeleton's status line, which names what is loading (#345). It shows
