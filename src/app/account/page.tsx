@@ -5,8 +5,12 @@ import { Suspense } from "react";
 
 import { DeleteAccountForm } from "@/components/account/delete-account-form";
 import { ManualRevokeList } from "@/components/account/manual-revoke-list";
+import { MessagesLink } from "@/components/app/account-link";
 import { PageHeader } from "@/components/app/page-header";
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { loadSupportShell } from "@/components/support/load-support-shell";
+import { SupportLauncher } from "@/components/support/member/support-launcher";
+import { SupportShellProvider } from "@/components/support/support-unread";
 import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import {
@@ -20,6 +24,7 @@ import { requireUser } from "@/lib/auth/session";
 import { manualRevokeStep } from "@/lib/connections/revoke";
 import { loadAccountIdentity, loadDeletionPreview, loadMembershipFacts, type WorkspaceDeletionSummary } from "@/lib/data/account";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { SUPPORT_MESSAGES_PATH } from "@/lib/support/paths";
 import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/paths";
 
 export const metadata: Metadata = { title: "Account" };
@@ -36,36 +41,42 @@ function count(value: number, one: string, many: string): string {
 
 /**
  * The signed-in account page (#42). The header renders first; everything that needs the session
- * streams in behind Suspense.
+ * streams in behind Suspense. The support read (#680) starts here without being awaited, beside the
+ * account's own reads, for the Messages link's badge and the support launcher.
  */
 export default async function AccountPage() {
   await connection();
+  const supportShell = loadSupportShell();
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b border-line">
-        <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-6">
-          <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
-            <Wordmark />
-          </Link>
-          <div className="ml-auto flex shrink-0 items-center gap-3">
-            {/* The wordmark already opens the workspace, so phones drop this duplicate to keep the row fitting. */}
-            <Link
-              href="/app"
-              className="hidden min-h-9 items-center rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground sm:inline-flex"
-            >
-              Open your workspace
+    <SupportShellProvider shell={supportShell}>
+      <div className="flex flex-1 flex-col">
+        <header className="border-b border-line">
+          <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-6">
+            <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
+              <Wordmark />
             </Link>
-            <SignOutButton />
+            <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-3">
+              <MessagesLink href={SUPPORT_MESSAGES_PATH} />
+              {/* The wordmark already opens the workspace, so phones drop this duplicate to keep the row fitting. */}
+              <Link
+                href="/app"
+                className="hidden min-h-9 items-center rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground sm:inline-flex"
+              >
+                Open your workspace
+              </Link>
+              <SignOutButton />
+            </div>
           </div>
-        </div>
-      </header>
-      <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
-        <PageHeader title="Account" description="Your sign-in details, and deleting your account." />
-        <Suspense fallback={<LoadingAccount />}>
-          <AccountContent />
-        </Suspense>
-      </main>
-    </div>
+        </header>
+        <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
+          <PageHeader title="Account" description="Your sign-in details, and deleting your account." />
+          <Suspense fallback={<LoadingAccount />}>
+            <AccountContent />
+          </Suspense>
+        </main>
+        <SupportLauncher />
+      </div>
+    </SupportShellProvider>
   );
 }
 

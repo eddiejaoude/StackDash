@@ -2,9 +2,34 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
+import { MailIcon } from "@/components/icons";
+import { ShellUnreadBadge } from "@/components/support/support-unread";
 import type { AccountProfile } from "@/lib/account/profile";
+
+/**
+ * The account's Messages entry (#680): the support conversations page, with the member's unread
+ * count from the shell's SupportShellProvider (nothing until it arrives, and nothing outside one).
+ * The page's path comes from the server (SUPPORT_MESSAGES_PATH), so this shared module carries no
+ * support paths. `compact` keeps only the icon visible below `lg`, where the workspace nav row
+ * has no room for the word; the word stays in the accessible name: "Messages", or
+ * "Messages 2 unread".
+ */
+export function MessagesLink({ href, compact = false }: { href: string; compact?: boolean }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
+    >
+      <MailIcon />
+      <span className={compact ? "sr-only lg:not-sr-only" : undefined}>Messages</span>{" "}
+      <Suspense fallback={null}>
+        <ShellUnreadBadge scope="member" />
+      </Suspense>
+    </Link>
+  );
+}
 
 /**
  * The signed-in user's avatar and name, linking to the Account page (#175), so someone with more
