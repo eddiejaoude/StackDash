@@ -1,3 +1,5 @@
+import { SUPPORT_MESSAGES_PATH } from "@/lib/support/paths";
+
 export const DEFAULT_NEXT_PATH = "/app";
 
 const MAX_NEXT_PATH_LENGTH = 512;
@@ -12,10 +14,17 @@ const UNSAFE_CHARACTERS = /[\\\u0000-\u001f\u007f]/;
 
 /**
  * Paths of the signed-in app: the proxy requires a session for these, and `next` may only target
- * them. `/account` is exact: `/account/deleted` is shown after sign-out and must stay public.
+ * them. `/account` and its support messages page (#680) are exact: `/account/deleted` is shown
+ * after sign-out and must stay public.
  */
 export function isAppPath(pathname: string): boolean {
-  return pathname === "/app" || pathname.startsWith("/app/") || pathname.startsWith("/w/") || pathname === "/account";
+  return (
+    pathname === "/app" ||
+    pathname.startsWith("/app/") ||
+    pathname.startsWith("/w/") ||
+    pathname === "/account" ||
+    pathname === SUPPORT_MESSAGES_PATH
+  );
 }
 
 /**

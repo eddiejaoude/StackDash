@@ -210,12 +210,93 @@ describe("proxy for the super admin page", () => {
   ])("answers the page route's own path, and any path under it, with one 404 route for %s", async (_title, email) => {
     signedInAs(email);
 
-    for (const path of ["/super-admin", "/super-admin?after=x", "/super-admin/anything"]) {
+    for (const path of ["/super-admin", "/super-admin?after=x", "/super-admin/anything", "/super-admin/inbox", "/super-admin/inbox?thread=x"]) {
       const response = await proxy(request(path));
       expect(rewrittenTo(response)).toBe("/super-admin/_");
       expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
     }
     expect(getClaims).not.toHaveBeenCalled();
+  });
+
+  describe("the support inbox (#680)", () => {
+    it("sends a super admin to the inbox route with the query kept", async () => {
+      signedInAs("ops@example.com");
+
+      const response = await proxy(request("/app/admin/inbox?view=closed&thread=x"));
+
+      const target = new URL(response.headers.get("x-middleware-rewrite") ?? "http://localhost/none");
+      expect(`${target.pathname}${target.search}`).toBe("/super-admin/inbox?view=closed&thread=x");
+      expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("leaves anyone else on /app/admin/inbox, which has no route, exactly as a missing app path, and logs the refusal", async () => {
+      signedInAs("someone@example.com");
+
+      const inbox = await proxy(request("/app/admin/inbox?thread=x"));
+      const missing = await proxy(request("/app/no-such-page?thread=x"));
+
+      for (const response of [inbox, missing]) {
+        expect(rewrittenTo(response)).toBeNull();
+        expect(response.headers.get("x-middleware-next")).toBe("1");
+        expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+      }
+      expect(warn).toHaveBeenCalledExactlyOnceWith("admin.access_refused", { userId: USER_ID });
+    });
+
+    it("sends a signed-out visitor to sign in and back to the conversation an email linked", async () => {
+      getClaims.mockResolvedValue({ data: null });
+
+      const response = await proxy(request("/app/admin/inbox?thread=x"));
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("Location")).toBe("http://localhost/sign-in?next=%2Fapp%2Fadmin%2Finbox%3Fthread%3Dx");
+    });
+
+    it.each(["/app/Admin/inbox", "/app/admin/Inbox", "/app/admin/inbox/x", "/app/admin/inboxes"])(
+      "leaves a super admin's %s alone, as any missing app path (boundary: the exact address only)",
+      async (path) => {
+        signedInAs("ops@example.com");
+
+        const response = await proxy(request(path));
+
+        expect(rewrittenTo(response)).toBeNull();
+        expect(response.headers.get("x-middleware-next")).toBe("1");
+        expect(warn).not.toHaveBeenCalled();
+      },
+    );
+  });
+});
+
+describe("proxy for the support messages page (#680)", () => {
+  it("sends a signed-out visitor to sign in and back to the conversation an email linked", async () => {
+    getClaims.mockResolvedValue({ data: null });
+
+    const response = await proxy(request("/account/messages?thread=x"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("Location")).toBe("http://localhost/sign-in?next=%2Faccount%2Fmessages%3Fthread%3Dx");
+  });
+
+  it("renders the page for a signed-in user under the nonce policy, with the session read", async () => {
+    getClaims.mockResolvedValue({ data: { claims: { sub: "10000000-0000-4000-8000-000000000001", email: "someone@example.com" } } });
+
+    const response = await proxy(request("/account/messages"));
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(rewrittenTo(response)).toBeNull();
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    expect(getClaims).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a signed-out visitor's /account/Messages to the global 404 rather than sign-in (boundary: only the exact path is an app page)", async () => {
+    getClaims.mockResolvedValue({ data: null });
+
+    const response = await proxy(request("/account/Messages"));
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("Location")).toBeNull();
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
   });
 });
 
@@ -243,6 +324,7 @@ describe("which policy a path gets: next.config.ts's static one or the proxy's (
     ["/app", ["/app", "/App", "/APP/no-such-page"]],
     ["/w, bare too (boundary: no slash after the prefix)", ["/w", "/W", "/w/x", "/W/x"]],
     ["/account", ["/account", "/Account"]],
+    ["/account/messages", ["/account/messages", "/Account/Messages", "/account/MESSAGES", "/ACCOUNT/messages"]],
     ["/sign-in", ["/sign-in", "/Sign-In", "/SIGN-IN"]],
     ["/auth, bare too (boundary: no slash after the prefix)", ["/auth", "/AUTH", "/auth/x", "/Auth/x"]],
     ["/unsubscribe", ["/unsubscribe", "/Unsubscribe"]],
@@ -258,7 +340,10 @@ describe("which policy a path gets: next.config.ts's static one or the proxy's (
   it.each([
     ["the landing page and a missing page", ["/", "/no-such-page", "/No-Such-Page"]],
     ["a first segment a prefix only starts (boundary: the whole segment counts)", ["/Apple", "/applications", "/Wiki", "/Pricing", "/Authors"]],
-    ["a path under a prefix that is proxied only as itself (boundary)", ["/account/deleted", "/Account/deleted", "/Sign-In/x", "/Unsubscribe/x"]],
+    [
+      "a path under a prefix that is proxied only as itself (boundary)",
+      ["/account/deleted", "/Account/deleted", "/account/messages/x", "/Account/Messages/x", "/account/messagesx", "/Sign-In/x", "/Unsubscribe/x"],
+    ],
     ["the docs, the badges, and the API", ["/docs", "/Docs", "/docs/getting-started", "/badge/x", "/Badge/x", "/api/v1/projects"]],
   ])("%s get next.config.ts's policy and the proxy does not run", async (_title, paths) => {
     for (const path of paths) {
@@ -280,7 +365,7 @@ describe("which policy a path gets: next.config.ts's static one or the proxy's (
 });
 
 describe("proxy for a proxied prefix in another case (#376)", () => {
-  it.each(["/App", "/APP/no-such-page", "/W/x", "/Account", "/Sign-In", "/Auth/x", "/Unsubscribe", "/P/x", "/Super-Admin", "/Super-Admin/x"])(
+  it.each(["/App", "/APP/no-such-page", "/W/x", "/Account", "/Account/messages", "/Sign-In", "/Auth/x", "/Unsubscribe", "/P/x", "/Super-Admin", "/Super-Admin/x"])(
     "leaves %s to the global 404 under the nonce policy, reading no session and no page",
     async (path) => {
       const response = await proxy(request(path));
@@ -312,7 +397,7 @@ describe("proxy's nonce policy and upgrade-insecure-requests", () => {
     "script-src 'self' 'nonce-N'",
     "style-src 'self' 'nonce-N'",
     "style-src-attr 'unsafe-inline'",
-    "img-src 'self' blob: data: https://avatars.githubusercontent.com",
+    "img-src 'self' blob: data: https://avatars.githubusercontent.com http://127.0.0.1:54321",
     "font-src 'self'",
     "connect-src 'self' http://127.0.0.1:54321 ws://127.0.0.1:54321",
     "object-src 'none'",
