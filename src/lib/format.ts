@@ -53,8 +53,10 @@ export function formatUtcDate(at: Instant): string {
   return UTC_DATE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
 }
 
-// en-GB names the London zone GMT or BST (en-CA says GMT+1). Its own date order is day first, so
-// the parts are assembled into the ISO order below.
+// en-GB writes the hour on a 24 hour clock. Its own date order is day first, so the parts are
+// assembled into the ISO order below. The zone is named from the offset rather than by Intl:
+// runtimes name it differently (Node says "GMT" where Chromium says "GMT+0"), and a client
+// component's server render must match the browser's (#680).
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
   timeZone: TIME_ZONE,
   year: "numeric",
@@ -63,16 +65,19 @@ const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   hourCycle: "h23",
-  timeZoneName: "short",
 });
 
-/** "2026-10-31 14:05 GMT", in Europe/London. */
+/** "2026-10-31 14:05 GMT", in Europe/London, the same on the server and in every browser. */
 export function formatDateTime(at: Instant): string {
+  const instant = typeof at === "string" ? new Date(at) : at;
   const parts: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
-  for (const part of DATE_TIME_FORMAT.formatToParts(typeof at === "string" ? new Date(at) : at)) {
+  for (const part of DATE_TIME_FORMAT.formatToParts(instant)) {
     parts[part.type] = part.value;
   }
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
+  // London's wall clock is UTC (GMT) or an hour ahead of it (BST); the minute shown says which.
+  const wallClock = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+  const zone = wallClock > Math.floor(instant.getTime() / 60_000) * 60_000 ? "BST" : "GMT";
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${zone}`;
 }
 
 const TIME_OF_DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {

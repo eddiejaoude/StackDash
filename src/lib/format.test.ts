@@ -83,6 +83,17 @@ describe("formatDateTime", () => {
   it("uses the London date when it differs from the UTC date", () => {
     expect(formatDateTime("2026-06-30T23:30:00.000Z")).toBe("2026-07-01 00:30 BST");
   });
+
+  // The zone follows the offset to the minute, seconds and milliseconds included, either side of
+  // each 2026 clock change (01:00 UTC on 29 March and 25 October).
+  it.each([
+    ["the last minute of GMT in spring", "2026-03-29T00:59:59.999Z", "2026-03-29 00:59 GMT"],
+    ["the first minute of BST in spring", "2026-03-29T01:00:00.000Z", "2026-03-29 02:00 BST"],
+    ["the last minute of BST in autumn", "2026-10-25T00:59:59.999Z", "2026-10-25 01:59 BST"],
+    ["the first minute of GMT in autumn", "2026-10-25T01:00:00.000Z", "2026-10-25 01:00 GMT"],
+  ])("names %s by its offset", (_case, at, expected) => {
+    expect(formatDateTime(at)).toBe(expected);
+  });
 });
 
 describe("formatLondonTime", () => {
