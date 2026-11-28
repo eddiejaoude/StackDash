@@ -9,8 +9,9 @@ import { canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 /*
  * The Timeline's first-run setup checklist (#674): whether each of its four steps is done, read
  * from the workspace's own state as the signed-in member, and whether that member has hidden it
- * (`onboarding_checklist_dismissals`). Every read is one indexed lookup of at most one row, and
- * they run together.
+ * (`onboarding_checklist_dismissals`). Every read is one indexed lookup of at most one row. The
+ * dismissal is read first: hidden is where every member ends up, and a hidden checklist needs no
+ * step reads on each Timeline render. The step reads then run together.
  */
 
 export const ONBOARDING_STEP_IDS = ["connect_provider", "alert_destination", "assistant", "badge"] as const;
@@ -64,13 +65,15 @@ export async function getOnboardingChecklistState(
   role: WorkspaceRole,
 ): Promise<OnboardingChecklistState> {
   const supabase = await createClient();
-  const [dismissal, scope, destination, preference, assistantKey, publishedMetric] = await Promise.all([
-    supabase
-      .from("onboarding_checklist_dismissals")
-      .select("dismissed_at")
-      .eq("workspace_id", workspaceId)
-      .eq("user_id", userId)
-      .maybeSingle(),
+  const dismissal = await supabase
+    .from("onboarding_checklist_dismissals")
+    .select("dismissed_at")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (dismissal.error) throw new Error("Failed to read the checklist dismissal", { cause: dismissal.error });
+  if (dismissal.data !== null) return { dismissed: true };
+  const [scope, destination, preference, assistantKey, publishedMetric] = await Promise.all([
     // The same request-cached read the Timeline renders from.
     getWorkspaceScope(workspaceId),
     supabase.from("notification_destinations").select("id").eq("workspace_id", workspaceId).limit(1),
@@ -100,8 +103,6 @@ export async function getOnboardingChecklistState(
       .not("metric_id", "is", null)
       .limit(1),
   ]);
-  if (dismissal.error) throw new Error("Failed to read the checklist dismissal", { cause: dismissal.error });
-  if (dismissal.data !== null) return { dismissed: true };
   if (destination.error) throw new Error("Failed to read alert channels for the checklist", { cause: destination.error });
   if (preference.error) throw new Error("Failed to read the alert email setting for the checklist", { cause: preference.error });
   if (assistantKey?.error) throw new Error("Failed to read API keys for the checklist", { cause: assistantKey.error });
