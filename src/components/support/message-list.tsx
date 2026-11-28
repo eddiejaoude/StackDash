@@ -47,7 +47,10 @@ export function MessageList({ messages, viewer, label, memberName = "The user", 
     const previous = shown.current;
     shown.current = new Set(messages.map((message) => message.id));
     if (previous === null) return;
-    const arrived = messages.filter((message) => !previous.has(message.id));
+    // Only what follows the newest message already shown arrived: an older page loaded above the
+    // list is not new, and announcing it would read out history as if it had just been written.
+    const lastShown = messages.findLastIndex((message) => previous.has(message.id));
+    const arrived = messages.slice(lastShown + 1).filter((message) => !previous.has(message.id));
     const newest = arrived.at(-1);
     if (newest === undefined) return;
     const start = [...newest.body].slice(0, ANNOUNCE_CHARS).join("");
