@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Cell, CheckRow, HeaderCell, Panel, RowHeader, ScrollTable, StatusPill } from "@/components/admin/overview";
 import { PageHeader } from "@/components/app/page-header";
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { buttonClass } from "@/components/ui/button";
 import { Wordmark } from "@/components/wordmark";
 import type { ProviderId } from "@/lib/adapters/types";
 import {
@@ -32,6 +33,7 @@ import { formatDateTime, formatList, formatRelative } from "@/lib/format";
 import { log } from "@/lib/log/logger";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
+import { SUPPORT_INBOX_PATH } from "@/lib/support/paths";
 
 // The title would name the page to anyone, so it is gated like the page: a non super admin gets
 // the not found page's metadata instead.
@@ -118,6 +120,11 @@ export default async function AdminPage({ searchParams }: PageProps<"/super-admi
         <PageHeader
           title="Instance overview"
           description="How this StackDash server is configured and how it is used. Settings show whether they are set, never their values."
+          actions={
+            <Link href={SUPPORT_INBOX_PATH} className={buttonClass("outline")}>
+              Open the support inbox
+            </Link>
+          }
         />
         <Suspense fallback={<LoadingOverview />}>
           <AdminContent userId={user.id} searchParams={searchParams} />
