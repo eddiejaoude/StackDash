@@ -214,7 +214,6 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           </ArrivalScope>
         }
       />
-      {checklist}
       {rawQuery[SAMPLE_DATA_ADDED_PARAM] === "added" ? (
         <FeedbackBanner tone="success" title="Sample data added">
           <p>
@@ -230,6 +229,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           </p>
         </FeedbackBanner>
       ) : null}
+      {/* After the banner, so the result of Explore with sample data stays under the heading. */}
+      {checklist}
       <TimelineToolbar action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
