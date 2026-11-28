@@ -143,6 +143,25 @@ async function completeEveryStep(workspace: TestWorkspace): Promise<void> {
   if (publishError) throw new Error(`Seeding a published metric failed (code ${publishError.code}).`);
 }
 
+/**
+ * With every step set up and an event in the feed, the panel sits above the populated Timeline at
+ * each width the Timeline's own specs use, and nothing scrolls sideways. A viewer's denied reasons
+ * are the longest text the panel holds. The 375px state is captured in context for the PR.
+ */
+async function expectFitsAboveTheFeed(page: Page, workspace: TestWorkspace, evidence: string): Promise<void> {
+  for (const width of [1280, 375, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/w/${workspace.slug}/timeline`);
+    await expect(checklist(page)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Checklist deploy ready", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    // The whole page, so the sticky workspace header sits at the top as it does on a phone.
+    if (width === 375 && EVIDENCE) {
+      await page.screenshot({ path: `pr-evidence/after/${evidence}.png`, fullPage: true, animations: "disabled", style: HIDE_DEV_INDICATOR });
+    }
+  }
+}
+
 ownerTest.describe("setup checklist as the owner", () => {
   ownerTest("lists four steps to do, each linking to its control, from the keyboard", async ({ page }) => {
     const workspace = await createTestWorkspace("Checklist empty");
@@ -164,6 +183,15 @@ ownerTest.describe("setup checklist as the owner", () => {
       for (const { link } of STEPS) await tabTo(page, checklist(page).getByRole("link", { name: link }), 1);
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(`/w/${workspace.slug}/projects`);
+
+      // The AI assistants section streams in behind Suspense: arriving on its link still lands on
+      // its heading, scrolled into view and focused.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await checklist(page).getByRole("link", { name: "Go to AI assistants" }).click();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/settings#assistants-title`);
+      const assistants = page.getByRole("heading", { level: 2, name: "AI assistants", exact: true });
+      await expect(assistants).toBeFocused();
+      await expect(assistants).toBeInViewport();
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -215,6 +243,17 @@ ownerTest.describe("setup checklist as the owner", () => {
       await page.reload();
       await expectStatus(page, "Connect your assistant", "To do");
       await expectStatus(page, "Connect a provider", "To do");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("fits above a populated feed at every width", async ({ page }) => {
+    const workspace = await createTestWorkspace("Checklist widths");
+    try {
+      await completeEveryStep(workspace);
+      await seedEvent(workspace);
+      await expectFitsAboveTheFeed(page, workspace, "timeline-checklist-owner-375");
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -272,6 +311,17 @@ viewerTest.describe("setup checklist as a viewer", () => {
       await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
       await expect(checklist(page)).toHaveCount(0);
       expect(await dismissalCount(workspace)).toBe(2);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  viewerTest("fits above a populated feed at every width, with the denied reasons", async ({ page }) => {
+    const workspace = await createTestWorkspace("Checklist viewer widths");
+    try {
+      await completeEveryStep(workspace);
+      await seedEvent(workspace);
+      await expectFitsAboveTheFeed(page, workspace, "timeline-checklist-viewer-375");
     } finally {
       await deleteTestWorkspace(workspace);
     }

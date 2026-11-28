@@ -103,9 +103,9 @@ export async function createTestWorkspace(label: string): Promise<TestWorkspace>
 }
 
 /**
- * Hides the Timeline's setup checklist (#674) for both members, as the members of an established
- * workspace have, so a spec about the feed finds its toolbar and events where they sit without
- * the panel above them. e2e/onboarding-checklist.spec.ts covers the panel itself.
+ * Hides the Timeline's setup checklist (#674) for both members, so a spec about the feed measures
+ * the feed: its toolbar and events sit where they do without the panel above them. Every member
+ * sees the panel until they hide it; e2e/onboarding-checklist.spec.ts covers it.
  */
 export async function hideSetupChecklist(workspace: TestWorkspace): Promise<void> {
   const { error } = await adminClient()
